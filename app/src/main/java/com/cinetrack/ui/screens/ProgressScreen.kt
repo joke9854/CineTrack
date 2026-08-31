@@ -150,11 +150,12 @@ fun ProgressScreen(
     val progressListState = rememberLazyListState()
     val calendarListState = rememberLazyListState()
     val historyListState = rememberLazyListState()
+    val statisticsListState = rememberLazyListState()
     val activeListState = when (tab) {
         ProgressTab.IN_PROGRESS -> progressListState
         ProgressTab.CALENDAR -> calendarListState
         ProgressTab.HISTORY -> historyListState
-        ProgressTab.STATISTICS -> historyListState
+        ProgressTab.STATISTICS -> statisticsListState
     }
     NavCollapseEffect(activeListState, onCompactNav)
     LaunchedEffect(tab) {
@@ -234,6 +235,7 @@ fun ProgressScreen(
                         ProgressTab.IN_PROGRESS -> progressListState
                         ProgressTab.CALENDAR -> calendarListState
                         ProgressTab.HISTORY -> historyListState
+                        ProgressTab.STATISTICS -> statisticsListState
                     },
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 116.dp),
