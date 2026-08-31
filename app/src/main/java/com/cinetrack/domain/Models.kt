@@ -29,6 +29,10 @@ data class MediaCard(
     val genres: List<String> = emptyList(),
     val providers: List<String> = emptyList(),
     val providerLogos: Map<String, String> = emptyMap(),
+    val subscriptionProviders: List<String> = emptyList(),
+    val rentProviders: List<String> = emptyList(),
+    val buyProviders: List<String> = emptyList(),
+    val providerLink: String? = null,
     val seasons: List<SeasonCard> = emptyList(),
     val collectionId: Int? = null,
     val libraryUpdatedAt: Long? = null,
@@ -70,6 +74,7 @@ data class EpisodeCard(
     val watched: Boolean = false,
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')} · E${number.toString().padStart(2, '0')}"
+    val scheduleKey: String get() = "$showId:$season:$number"
 }
 
 data class PersonCard(
@@ -121,6 +126,27 @@ data class SyncProgress(
     val stage: SyncStage = SyncStage.IDLE,
     val message: String? = null,
     val lastSuccessfulSync: Long? = null,
+    val report: SyncReport = SyncReport(),
+)
+
+data class SyncReport(
+    val downloaded: Int = 0,
+    val uploaded: Int = 0,
+    val added: Int = 0,
+    val removed: Int = 0,
+    val unchanged: Int = 0,
+    val pendingLocalChanges: Int = 0,
+    val failedOperations: Int = 0,
+    val conflicts: Int = 0,
+    val lastFullSync: Long? = null,
+    val lastIncrementalSync: Long? = null,
+    val databaseUntouched: Boolean = false,
+)
+
+data class ViewingPeopleInsights(
+    val actors: List<String> = emptyList(),
+    val directors: List<String> = emptyList(),
+    val loading: Boolean = false,
 )
 
 data class AppUiState(
@@ -146,6 +172,12 @@ data class AppUiState(
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
     val metadataTimezone: String = "system",
+    val excludeSpecials: Boolean = true,
+    val discoverFilterPreset: String = "",
+    val preferredProviders: Set<String> = emptySet(),
+    val cardDensity: String = "standard",
+    val hiddenUpcoming: Set<String> = emptySet(),
+    val hiddenDiscovery: Set<String> = emptySet(),
 ) {
     val allMedia: List<MediaCard>
         get() = (
@@ -163,10 +195,55 @@ data class AppUiState(
 data class DiscoverMovieFilters(
     val mediaType: MediaType = MediaType.MOVIE,
     val genreIds: Set<Int> = emptySet(),
+    val excludedGenreIds: Set<Int> = emptySet(),
     val releaseYear: Int? = null,
     val minimumRating: Double? = null,
     val sortBy: String = "popularity.desc",
+    val animeMode: String = "all",
+    val hideWatched: Boolean = false,
+    val hideDropped: Boolean = false,
+    val providerIds: Set<Int> = emptySet(),
+    val maximumRuntime: Int? = null,
+    val originalLanguage: String? = null,
+    val decadeStart: Int? = null,
 )
+
+fun DiscoverMovieFilters.encodePreset(): String = listOf(
+    mediaType.name,
+    genreIds.sorted().joinToString(","),
+    excludedGenreIds.sorted().joinToString(","),
+    releaseYear?.toString().orEmpty(),
+    minimumRating?.toString().orEmpty(),
+    sortBy,
+    animeMode,
+    hideWatched.toString(),
+    hideDropped.toString(),
+    providerIds.sorted().joinToString(","),
+    maximumRuntime?.toString().orEmpty(),
+    originalLanguage.orEmpty(),
+    decadeStart?.toString().orEmpty(),
+).joinToString(";")
+
+fun decodeDiscoverPreset(raw: String): DiscoverMovieFilters? = runCatching {
+    if (raw.isBlank()) return null
+    val parts = raw.split(';')
+    fun ints(index: Int) = parts.getOrNull(index).orEmpty().split(',').mapNotNull(String::toIntOrNull).toSet()
+    DiscoverMovieFilters(
+        mediaType = MediaType.valueOf(parts[0]),
+        genreIds = ints(1),
+        excludedGenreIds = ints(2),
+        releaseYear = parts.getOrNull(3)?.toIntOrNull(),
+        minimumRating = parts.getOrNull(4)?.toDoubleOrNull(),
+        sortBy = parts.getOrNull(5).orEmpty().ifBlank { "popularity.desc" },
+        animeMode = parts.getOrNull(6).orEmpty().ifBlank { "all" },
+        hideWatched = parts.getOrNull(7) == "true",
+        hideDropped = parts.getOrNull(8) == "true",
+        providerIds = ints(9),
+        maximumRuntime = parts.getOrNull(10)?.toIntOrNull(),
+        originalLanguage = parts.getOrNull(11)?.takeIf(String::isNotBlank),
+        decadeStart = parts.getOrNull(12)?.toIntOrNull(),
+    )
+}.getOrNull()
 
 object RailIds {
     const val TRENDING_TV = "trending-tv"

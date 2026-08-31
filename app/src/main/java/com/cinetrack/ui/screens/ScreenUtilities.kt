@@ -56,6 +56,15 @@ internal fun formatFullDate(raw: String?): String {
     }.getOrDefault(raw)
 }
 
+/** Formats long runtimes as hours instead of leaving values such as "97 min". */
+internal fun formatDurationMinutes(minutes: Int?): String {
+    val value = minutes?.takeIf { it > 0 } ?: return ""
+    if (value < 60) return "$value min"
+    val hours = value / 60
+    val remainder = value % 60
+    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+}
+
 @Composable
 internal fun NavCollapseEffect(listState: LazyListState, onCompact: (Boolean) -> Unit) {
     LaunchedEffect(listState) {

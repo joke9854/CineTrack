@@ -159,8 +159,14 @@ interface TmdbService {
         @Query("primary_release_date.gte") dateFrom: String? = null,
         @Query("primary_release_year") releaseYear: Int? = null,
         @Query("with_genres") genreIds: String? = null,
+        @Query("without_genres") excludedGenreIds: String? = null,
         @Query("vote_average.gte") minimumRating: Double? = null,
         @Query("vote_count.gte") minimumVotes: Int? = null,
+        @Query("with_watch_providers") providerIds: String? = null,
+        @Query("watch_region") watchRegion: String? = null,
+        @Query("with_runtime.lte") maximumRuntime: Int? = null,
+        @Query("with_original_language") originalLanguage: String? = null,
+        @Query("primary_release_date.lte") dateTo: String? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -169,8 +175,15 @@ interface TmdbService {
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("first_air_date_year") releaseYear: Int? = null,
         @Query("with_genres") genreIds: String? = null,
+        @Query("without_genres") excludedGenreIds: String? = null,
         @Query("vote_average.gte") minimumRating: Double? = null,
         @Query("vote_count.gte") minimumVotes: Int? = null,
+        @Query("with_watch_providers") providerIds: String? = null,
+        @Query("watch_region") watchRegion: String? = null,
+        @Query("with_runtime.lte") maximumRuntime: Int? = null,
+        @Query("with_original_language") originalLanguage: String? = null,
+        @Query("first_air_date.gte") dateFrom: String? = null,
+        @Query("first_air_date.lte") dateTo: String? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")

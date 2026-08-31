@@ -103,7 +103,10 @@ private fun mainPageIndex(route: String?): Int? = when (route) {
 }
 
 @Composable
-fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
+fun CineTrackApp(
+    authCallback: MutableStateFlow<SimklAuthCallback?>,
+    navigationRequest: MutableStateFlow<String?>,
+) {
     val context = LocalContext.current
     val application = context.applicationContext as CineTrackApplication
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
@@ -111,12 +114,14 @@ fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
+    val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route.orEmpty()
     var compactNav by remember { mutableStateOf(false) }
     var minimumLaunchElapsed by remember { mutableStateOf(false) }
     val callback by authCallback.collectAsStateWithLifecycle()
+    val requestedRoute by navigationRequest.collectAsStateWithLifecycle()
 
     SideEffect { applyUiAccent(state.uiAccent) }
 
@@ -132,6 +137,17 @@ fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
         callback?.let {
             viewModel.completeSimklLogin(it.code, it.state, it.error)
             authCallback.value = null
+        }
+    }
+    LaunchedEffect(requestedRoute) {
+        requestedRoute?.let { destination ->
+            if (destination == "sync") {
+                navController.navigate(Routes.Progress) { launchSingleTop = true }
+                viewModel.sync()
+            } else {
+                navController.navigate(destination) { launchSingleTop = true }
+            }
+            navigationRequest.value = null
         }
     }
     LaunchedEffect(state.error) {
@@ -209,6 +225,7 @@ fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
                     onSeeAll = { navController.navigate("discover-list/$it") },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
+                    onNotInterested = viewModel::hideDiscoveryItem,
                     onCompactNav = { compactNav = it },
                 )
             }
@@ -220,6 +237,9 @@ fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
                     onMedia = openMedia,
                     onWatched = viewModel::markPlaybackWatched,
                     onEpisode = { episode -> navController.navigate("episode/${episode.showId}/${episode.season}/${episode.number}") },
+                    onHideUpcoming = viewModel::hideUpcomingEpisode,
+                    viewingInsights = viewingInsights,
+                    onLoadViewingInsights = viewModel::loadViewingInsights,
                     onCompactNav = { compactNav = it },
                 )
             }
@@ -262,16 +282,20 @@ fun CineTrackApp(authCallback: MutableStateFlow<SimklAuthCallback?>) {
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
+                    onNotInterested = viewModel::hideDiscoveryItem,
                 )
             }
             composable(Routes.DiscoverFilters) {
                 DiscoverFiltersScreen(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
+                    savedPreset = state.discoverFilterPreset,
                     onApply = viewModel::applyDiscoverFilters,
+                    onSavePreset = viewModel::saveDiscoverFilterPreset,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
+                    onNotInterested = viewModel::hideDiscoveryItem,
                 )
             }
             composable(

@@ -17,6 +17,8 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.encodePreset
+import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -39,6 +41,8 @@ import java.time.LocalDate
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.util.zip.ZipInputStream
+import android.net.Uri
 
 class CineTrackViewModel(private val repository: CineTrackRepository) : ViewModel() {
     private val syncMutex = Mutex()
@@ -55,6 +59,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
+    private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
+    val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
@@ -171,6 +177,77 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    fun saveDiscoverFilterPreset(filters: DiscoverMovieFilters) {
+        val encoded = filters.encodePreset()
+        _state.value = _state.value.copy(discoverFilterPreset = encoded)
+        viewModelScope.launch { repository.preferences.setDiscoverFilterPreset(encoded) }
+    }
+
+    fun setPreferredProviders(values: Set<String>) {
+        _state.value = _state.value.copy(preferredProviders = values)
+        viewModelScope.launch { repository.preferences.setPreferredProviders(values) }
+    }
+
+    fun setCardDensity(value: String) {
+        _state.value = _state.value.copy(cardDensity = value)
+        viewModelScope.launch { repository.preferences.setCardDensity(value) }
+    }
+
+    fun hideUpcomingEpisode(episode: EpisodeCard) {
+        val hidden = _state.value.hiddenUpcoming + episode.scheduleKey
+        _state.value = _state.value.copy(
+            hiddenUpcoming = hidden,
+            calendar = _state.value.calendar.filterNot {
+                it.media.id == episode.showId && it.season == episode.season && it.episodeNumber == episode.number
+            },
+        )
+        viewModelScope.launch { repository.preferences.setHiddenUpcoming(hidden) }
+    }
+
+    fun hideDiscoveryItem(media: MediaCard) {
+        val hidden = _state.value.hiddenDiscovery + media.stableKey
+        _state.value = _state.value.copy(
+            hiddenDiscovery = hidden,
+            rails = _state.value.rails.mapValues { (_, items) -> items.filterNot { it.stableKey == media.stableKey } },
+        )
+        _searchResults.value = _searchResults.value.filterNot { it.stableKey == media.stableKey }
+        _discoverFilterResults.value = _discoverFilterResults.value.filterNot { it.stableKey == media.stableKey }
+        viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
+    }
+
+    fun restoreHiddenDiscovery() {
+        _state.value = _state.value.copy(hiddenDiscovery = emptySet())
+        viewModelScope.launch {
+            repository.preferences.setHiddenDiscovery(emptySet())
+            val error = withContext(Dispatchers.IO) { runCatching { repository.refreshDiscover() }.exceptionOrNull() }
+            if (error == null) {
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync)
+            } else _state.value = _state.value.copy(error = error.message)
+        }
+    }
+
+    fun loadViewingInsights() {
+        if (_viewingInsights.value.loading || _viewingInsights.value.actors.isNotEmpty() || _viewingInsights.value.directors.isNotEmpty()) return
+        viewModelScope.launch {
+            _viewingInsights.value = ViewingPeopleInsights(loading = true)
+            val result = withContext(Dispatchers.IO) { runCatching { repository.loadViewingPeople(_state.value.history) } }
+            _viewingInsights.value = result.fold(
+                onSuccess = { (actors, directors) -> ViewingPeopleInsights(actors, directors) },
+                onFailure = { ViewingPeopleInsights() },
+            )
+        }
+    }
+
+    fun restoreHiddenUpcoming() {
+        _state.value = _state.value.copy(hiddenUpcoming = emptySet())
+        viewModelScope.launch {
+            repository.preferences.setHiddenUpcoming(emptySet())
+            val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _state.value = cached.copy(sync = _state.value.sync)
+        }
+    }
+
     fun setStatus(media: MediaCard, status: LibraryStatus) {
         viewModelScope.launch {
             val syncState = _state.value.sync
@@ -279,6 +356,22 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
+        val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
+        changed.groupBy(EpisodeCard::showId).forEach { (showId, showEpisodes) ->
+            val numbers = showEpisodes.map { it.season to it.number }.toSet()
+            detailEpisodeCache[showId] = detailEpisodeCache[showId].orEmpty().map { cached ->
+                if ((cached.season to cached.number) in numbers) cached.copy(watched = watched) else cached
+            }
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                changed.forEach { repository.setEpisodeWatched(it, watched) }
+            }
+            refreshCachedState()
+        }
+    }
+
     private fun updateCachedEpisode(episode: EpisodeCard, watched: Boolean) {
         detailEpisodeCache[episode.showId] = detailEpisodeCache[episode.showId].orEmpty().map { cached ->
             if (cached.season == episode.season && cached.number == episode.number) cached.copy(watched = watched) else cached
@@ -334,6 +427,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 .copy(sync = completedSync)
             scheduleProgressCacheRefresh()
+            viewModelScope.launch(Dispatchers.IO) { repository.createAutomaticBackup() }
         } else if (outcome != null && exposeProgress) {
             // Complete the synchronization indicator without replacing any page
             // collections when Simkl reported an unchanged activity generation.
@@ -440,6 +534,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
     fun setLanguage(value: String) = viewModelScope.launch { repository.preferences.setLanguage(value) }
     fun setNotification(kind: String, enabled: Boolean) = viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+
+    fun setExcludeSpecials(enabled: Boolean) = viewModelScope.launch {
+        repository.preferences.setExcludeSpecials(enabled)
+        val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+        _state.value = cached.copy(sync = _state.value.sync)
+    }
     fun setRatingSource(source: String, enabled: Boolean) {
         val key = when (source.lowercase()) {
             "rotten tomatoes", "r.tomatoes", "tomatoes" -> "tomatoes"
@@ -553,6 +653,78 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_logs)))
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun restoreData(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val restored = withContext(Dispatchers.IO) {
+                    val entries = linkedMapOf<String, String>()
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        ZipInputStream(input).use { archive ->
+                            var entry = archive.nextEntry
+                            while (entry != null) {
+                                if (!entry.isDirectory) {
+                                    check(entry.size <= 10_000_000L || entry.size < 0L) { "Backup entry is too large" }
+                                    entries[entry.name] = archive.readBytes().decodeToString()
+                                }
+                                archive.closeEntry()
+                                entry = archive.nextEntry
+                            }
+                        }
+                    } ?: error("Could not open backup")
+                    repository.restoreBackupFiles(entries)
+                }
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync, error = null)
+                restored
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun restoreAutomaticBackup() {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) { repository.restoreAutomaticBackup() }
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync, error = null)
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun exportCalendar(context: Context) {
+        viewModelScope.launch {
+            runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+                    File(directory, "cinetrack-calendar.ics").apply {
+                        writeText(buildString {
+                            appendLine("BEGIN:VCALENDAR")
+                            appendLine("VERSION:2.0")
+                            appendLine("PRODID:-//CineTrack//Upcoming//EN")
+                            _state.value.calendar.forEach { item ->
+                                val day = item.timestamp.take(10).replace("-", "")
+                                val uid = "${item.media.stableKey}-${item.season ?: 0}-${item.episodeNumber ?: 0}-$day@cinetrack"
+                                val summary = (item.media.title + item.episodeLabel?.let { " · $it" }.orEmpty())
+                                    .replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
+                                appendLine("BEGIN:VEVENT")
+                                appendLine("UID:$uid")
+                                appendLine("DTSTART;VALUE=DATE:$day")
+                                appendLine("SUMMARY:$summary")
+                                appendLine("END:VEVENT")
+                            }
+                            appendLine("END:VCALENDAR")
+                        })
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/calendar"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, context.getString(com.cinetrack.R.string.export_calendar)))
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
     }

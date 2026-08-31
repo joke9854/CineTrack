@@ -17,6 +17,7 @@ data class SimklAuthCallback(
 
 class MainActivity : AppCompatActivity() {
     private val authCallback = MutableStateFlow<SimklAuthCallback?>(null)
+    private val navigationRequest = MutableStateFlow<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -24,7 +25,7 @@ class MainActivity : AppCompatActivity() {
         handleIntent(intent)
         setContent {
             CineTrackTheme {
-                CineTrackApp(authCallback = authCallback)
+                CineTrackApp(authCallback = authCallback, navigationRequest = navigationRequest)
             }
         }
     }
@@ -43,6 +44,20 @@ class MainActivity : AppCompatActivity() {
                 state = uri.getQueryParameter("state"),
                 error = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error"),
             )
+        } else if (uri.scheme == "cinetrack" && uri.host == "app") {
+            navigationRequest.value = when (uri.path) {
+                "/search" -> "search/discover"
+                "/up-next", "/progress" -> "progress"
+                "/sync" -> "sync"
+                "/library" -> "library"
+                else -> null
+            }
+        } else if (uri.scheme == "cinetrack" && uri.host == "episode") {
+            val parts = uri.pathSegments
+            if (parts.size >= 3) navigationRequest.value = "episode/${parts[0]}/${parts[1]}/${parts[2]}"
+        } else if (uri.scheme == "cinetrack" && uri.host == "detail") {
+            val parts = uri.pathSegments
+            if (parts.size >= 2) navigationRequest.value = "detail/${parts[0].uppercase()}/${parts[1]}"
         }
     }
 }

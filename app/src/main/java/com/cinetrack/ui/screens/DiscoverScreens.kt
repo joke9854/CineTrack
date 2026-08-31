@@ -102,6 +102,7 @@ fun DiscoverScreen(
     onSeeAll: (String) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -147,7 +148,7 @@ fun DiscoverScreen(
                         }
                     }
                 }
-                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus) }
+                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested) }
                 if (state.allMedia.isEmpty() && !state.loading) item {
                     Text(
                         state.error ?: stringResource(R.string.no_catalog_data),
@@ -156,9 +157,9 @@ fun DiscoverScreen(
                         modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(14.dp)).padding(12.dp),
                     )
                 }
-                railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus)
-                railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus)
-                railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus)
+                railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
             }
         }
     }
@@ -172,11 +173,12 @@ private fun LazyListScope.railSection(
     onSeeAll: (String) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
     item { SectionHeader(title, Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 13.dp), seeAll, { onSeeAll(railId) }) }
-    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus) }
+    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item { Spacer(Modifier.height(4.dp)) }
 }
 
@@ -187,6 +189,7 @@ private fun HeroCarousel(
     onPage: (Int) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = selectedPage, pageCount = { items.size })
     LaunchedEffect(pagerState.currentPage) { onPage(pagerState.currentPage) }
@@ -203,7 +206,7 @@ private fun HeroCarousel(
             pageSpacing = 10.dp,
             key = { items[it].stableKey },
         ) { page ->
-            HeroCard(items[page], onMedia, onStatus)
+            HeroCard(items[page], onMedia, onStatus, onNotInterested)
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), horizontalArrangement = Arrangement.Center) {
             items.indices.forEach { page ->
@@ -223,6 +226,7 @@ private fun HeroCard(
     media: MediaCard,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -293,6 +297,7 @@ private fun HeroCard(
             currentStatus = media.status,
             onDismiss = { statusPopup = false },
             onStatus = { status -> onStatus(media, status); statusPopup = false },
+            onNotInterested = { onNotInterested(media); statusPopup = false },
         )
     }
 }
@@ -304,6 +309,7 @@ fun DiscoverListScreen(
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val title = when (railId) {
         RailIds.TRENDING_TV -> stringResource(R.string.trending_tv)
@@ -325,7 +331,13 @@ fun DiscoverListScreen(
             ) {
                 items(state.rails[railId].orEmpty(), key = MediaCard::stableKey) { media ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        MediaPoster(media, width = maxWidth, onStatus = { onStatus(media, it) }, onClick = { onMedia(media) })
+                        MediaPoster(
+                            media,
+                            width = maxWidth,
+                            onStatus = { onStatus(media, it) },
+                            onNotInterested = { onNotInterested(media) },
+                            onClick = { onMedia(media) },
+                        )
                     }
                 }
             }

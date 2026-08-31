@@ -45,6 +45,14 @@ class SimklSyncWorker(
                 if (outcome.itemsChanged) {
                     runCatching { application.container.repository.refreshProgressCache() }
                 }
+                runCatching {
+                    ReleaseNotifier.notifyUpcoming(
+                        applicationContext,
+                        application.container.repository.loadCachedState(),
+                        application.container.preferences,
+                        application.container.repository,
+                    )
+                }
                 Result.success()
             },
             onFailure = { if (runAttemptCount < 3) Result.retry() else Result.failure() },

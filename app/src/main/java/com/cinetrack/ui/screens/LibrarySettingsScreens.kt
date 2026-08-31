@@ -39,6 +39,7 @@ import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
@@ -53,6 +54,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -81,6 +83,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import com.cinetrack.BuildConfig
 import com.cinetrack.R
@@ -144,6 +148,9 @@ fun LibraryScreen(
     var order by rememberSaveable { mutableStateOf(LibraryOrder.RECENTLY_ADDED) }
     var ascending by rememberSaveable { mutableStateOf(false) }
     var showOrderSheet by rememberSaveable { mutableStateOf(false) }
+    var bulkMode by rememberSaveable { mutableStateOf(false) }
+    var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
+    var showBulkSheet by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     NavCollapseGridEffect(gridState, onCompactNav)
     val typeItems = state.rails[RailIds.LIBRARY].orEmpty().filter { it.type == type }
@@ -179,6 +186,15 @@ fun LibraryScreen(
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 PageTitle(stringResource(R.string.library), Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    IconButton(
+                        onClick = rememberLightHapticAction {
+                            bulkMode = !bulkMode
+                            if (!bulkMode) selectedKeys = emptySet()
+                        },
+                        modifier = Modifier.size(40.dp).glassIcon(),
+                    ) {
+                        Icon(Icons.Filled.PlaylistAddCheck, stringResource(R.string.bulk_edit), tint = if (bulkMode) AccentLight else TextSecondary, modifier = Modifier.size(21.dp))
+                    }
                     IconButton(onClick = rememberLightHapticAction(onSearch), modifier = Modifier.size(40.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
@@ -240,6 +256,14 @@ fun LibraryScreen(
                 )
                 counts.forEachIndexed { index, count -> if (count > 0) Box(Modifier.weight(count.toFloat()).fillMaxSize().background(colors[index])) }
             }
+            if (bulkMode) {
+                PrimaryAction(
+                    stringResource(R.string.edit_selected_count, selectedKeys.size),
+                    Icons.Filled.PlaylistAddCheck,
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                    enabled = selectedKeys.isNotEmpty(),
+                ) { showBulkSheet = true }
+            }
             if (items.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -250,7 +274,7 @@ fun LibraryScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Fixed(when (state.cardDensity) { "compact" -> 4; "large" -> 2; else -> 3 }),
                     state = gridState,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -260,7 +284,18 @@ fun LibraryScreen(
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val visibleProgress = progressByKey[media.stableKey]
                                 ?: if (media.type == MediaType.TV && media.status == LibraryStatus.WATCHING) .03f else null
-                            MediaPoster(media, width = maxWidth, progress = visibleProgress, onStatus = { onStatus(media, it) }, onClick = { onMedia(media) })
+                            MediaPoster(
+                                media,
+                                width = maxWidth,
+                                progress = visibleProgress,
+                                selectedBorder = AccentLight.takeIf { media.stableKey in selectedKeys },
+                                onStatus = if (bulkMode) null else ({ selected: LibraryStatus -> onStatus(media, selected) }),
+                                onClick = {
+                                    if (bulkMode) {
+                                        selectedKeys = if (media.stableKey in selectedKeys) selectedKeys - media.stableKey else selectedKeys + media.stableKey
+                                    } else onMedia(media)
+                                },
+                            )
                         }
                     }
                 }
@@ -278,6 +313,45 @@ fun LibraryScreen(
                 showOrderSheet = false
             },
         )
+    }
+    if (showBulkSheet) {
+        BulkStatusSheet(
+            selectedCount = selectedKeys.size,
+            onDismiss = { showBulkSheet = false },
+        ) { selectedStatus ->
+            items.filter { it.stableKey in selectedKeys }.forEach { onStatus(it, selectedStatus) }
+            selectedKeys = emptySet()
+            bulkMode = false
+            showBulkSheet = false
+        }
+    }
+}
+
+@Composable
+private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: (LibraryStatus) -> Unit) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(12.dp))
+            listOf(
+                LibraryStatus.WATCHING to stringResource(R.string.in_progress),
+                LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
+                LibraryStatus.PAUSED to stringResource(R.string.paused),
+                LibraryStatus.COMPLETED to stringResource(R.string.completed),
+                LibraryStatus.DROPPED to stringResource(R.string.dropped),
+                LibraryStatus.NONE to stringResource(R.string.remove_from_library),
+            ).forEach { (status, label) ->
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(15.dp))
+                        .clickable { onApply(status) }.padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (status == LibraryStatus.NONE) TextMuted else libraryStatusColor(status)))
+                    Spacer(Modifier.width(10.dp))
+                    Text(label, color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 
@@ -451,13 +525,14 @@ fun SettingsDetailScreen(
                         ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::setTmdbApiKey)
                         MetadataSettings(state, viewModel)
                         ContentRegionSettings(state, viewModel)
+                        PreferredProviderSettings(state, viewModel)
                     }
                     SettingsPages.ServiceMdblist -> Column {
                         ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::setMdbListApiKey)
                         RatingSettings(state, viewModel)
                     }
                     SettingsPages.Appearance -> AppearanceSettings(state, viewModel)
-                    SettingsPages.Notifications -> NotificationSettings(viewModel)
+                    SettingsPages.Notifications -> NotificationSettings(state, viewModel)
                     SettingsPages.Language -> LanguageSettings(viewModel)
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
@@ -528,6 +603,27 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
         GlassDivider()
         ToggleRow(stringResource(R.string.wifi_only), wifiOnly) { wifiOnly = it; viewModel.setWifiOnly(it) }
     }
+    if (state.sync.report.lastIncrementalSync != null || state.sync.report.failedOperations > 0) {
+        val report = state.sync.report
+        SettingsSection(stringResource(R.string.sync_activity)) {
+            ValueRow(stringResource(R.string.downloaded), report.downloaded.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.uploaded), report.uploaded.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.added_removed), "${report.added} / ${report.removed}")
+            GlassDivider(); ValueRow(stringResource(R.string.unchanged), report.unchanged.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.pending_local_changes), report.pendingLocalChanges.toString(), report.pendingLocalChanges == 0)
+            GlassDivider(); ValueRow(stringResource(R.string.failed_operations), report.failedOperations.toString(), report.failedOperations == 0)
+            GlassDivider(); ValueRow(stringResource(R.string.sync_conflicts), report.conflicts.toString(), report.conflicts == 0)
+            report.lastFullSync?.let {
+                GlassDivider(); ValueRow(stringResource(R.string.last_full_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
+            }
+            report.lastIncrementalSync?.let {
+                GlassDivider(); ValueRow(stringResource(R.string.last_incremental_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
+            }
+            if (report.databaseUntouched) {
+                GlassDivider(); ValueRow(stringResource(R.string.database_status), stringResource(R.string.database_untouched), true)
+            }
+        }
+    }
     state.error?.takeIf(String::isNotBlank)?.let { error ->
         Text(
             error,
@@ -546,7 +642,11 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         PrimaryAction(
-            text = if (state.simklConnected) stringResource(R.string.sync_now) else stringResource(R.string.connect_simkl),
+            text = when {
+                !state.simklConnected -> stringResource(R.string.connect_simkl)
+                state.sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
+                else -> stringResource(R.string.sync_now)
+            },
             icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
             modifier = Modifier.weight(1f),
             onClick = if (state.simklConnected) viewModel::sync else onConnect,
@@ -579,6 +679,16 @@ private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel)
         choices.forEachIndexed { index, (key, label, color) ->
             AccentChoiceRow(label, color, state.uiAccent == key) { viewModel.setUiAccent(key) }
             if (index != choices.lastIndex) GlassDivider()
+        }
+    }
+    SettingsSection(stringResource(R.string.card_density)) {
+        listOf(
+            "compact" to stringResource(R.string.compact),
+            "standard" to stringResource(R.string.standard),
+            "large" to stringResource(R.string.large),
+        ).forEachIndexed { index, (value, label) ->
+            ChoiceRow(label, state.cardDensity == value) { viewModel.setCardDensity(value) }
+            if (index != 2) GlassDivider()
         }
     }
 }
@@ -671,7 +781,8 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun NotificationSettings(viewModel: CineTrackViewModel) {
+private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+    val context = LocalContext.current
     var episodes by rememberSaveable { mutableStateOf(true) }
     var movies by rememberSaveable { mutableStateOf(true) }
     var sync by rememberSaveable { mutableStateOf(true) }
@@ -681,6 +792,29 @@ private fun NotificationSettings(viewModel: CineTrackViewModel) {
         GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), sync) { sync = it; viewModel.setNotification("sync", it) }
         GlassDivider(); ValueRow(stringResource(R.string.quiet_hours), "23:00–08:00")
     }
+    SettingsSection(stringResource(R.string.upcoming_episodes)) {
+        ToggleRow(stringResource(R.string.exclude_specials), state.excludeSpecials, viewModel::setExcludeSpecials)
+        GlassDivider()
+        Text(
+            stringResource(R.string.upcoming_diagnostic_explanation),
+            color = TextMuted,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            modifier = Modifier.padding(14.dp),
+        )
+    }
+    if (state.hiddenUpcoming.isNotEmpty()) {
+        PrimaryAction(
+            stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size),
+            Icons.Filled.Refresh,
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        ) { viewModel.restoreHiddenUpcoming() }
+    }
+    PrimaryAction(
+        stringResource(R.string.export_calendar),
+        Icons.Filled.CalendarMonth,
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+    ) { viewModel.exportCalendar(context) }
 }
 
 @Composable
@@ -749,6 +883,28 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
         lineHeight = 15.sp,
         modifier = Modifier.padding(horizontal = 26.dp, vertical = 4.dp),
     )
+    if (state.hiddenDiscovery.isNotEmpty()) {
+        PrimaryAction(
+            stringResource(R.string.restore_hidden_recommendations, state.hiddenDiscovery.size),
+            Icons.Filled.Refresh,
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        ) { viewModel.restoreHiddenDiscovery() }
+    }
+}
+
+@Composable
+private fun PreferredProviderSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+    val providers = listOf("Netflix", "Disney+", "Prime Video", "Max", "Apple TV+")
+    var selected by remember(state.preferredProviders) { mutableStateOf(state.preferredProviders) }
+    SettingsSection(stringResource(R.string.preferred_providers)) {
+        providers.forEachIndexed { index, provider ->
+            ToggleRow(provider, provider in selected) { enabled ->
+                selected = if (enabled) selected + provider else selected - provider
+                viewModel.setPreferredProviders(selected)
+            }
+            if (index != providers.lastIndex) GlassDivider()
+        }
+    }
 }
 
 @Composable
@@ -776,6 +932,9 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
 @Composable
 private fun ExportSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.restoreData(context, it) }
+    }
     val labels = linkedMapOf(
         "library" to stringResource(R.string.library),
         "history" to stringResource(R.string.history),
@@ -794,6 +953,23 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
         icon = Icons.Filled.Download,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
     ) { viewModel.exportData(context, selected.filterValues { it }.keys) }
+    PrimaryAction(
+        text = stringResource(R.string.restore_backup),
+        icon = Icons.Filled.Refresh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+    ) { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }
+    PrimaryAction(
+        text = stringResource(R.string.restore_automatic_backup),
+        icon = Icons.Filled.Refresh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+    ) { viewModel.restoreAutomaticBackup() }
+    Text(
+        stringResource(R.string.restore_backup_explanation),
+        color = TextMuted,
+        fontSize = 10.5.sp,
+        lineHeight = 14.sp,
+        modifier = Modifier.padding(horizontal = 26.dp, vertical = 7.dp),
+    )
 }
 
 @Composable
