@@ -1,0 +1,3 @@
+-keepattributes Signature,*Annotation*
+-keep class com.cinetrack.data.remote.** { *; }
+-dontwarn org.conscrypt.**

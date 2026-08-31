@@ -1,0 +1,564 @@
+package com.cinetrack.ui
+
+import android.content.Context
+import android.content.Intent
+import androidx.core.content.FileProvider
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.SimklSyncOutcome
+import com.cinetrack.domain.AppUiState
+import com.cinetrack.domain.DiscoverMovieFilters
+import com.cinetrack.domain.EpisodeCard
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.PersonCard
+import com.cinetrack.domain.PlaybackCard
+import com.cinetrack.domain.RatingScore
+import com.cinetrack.domain.MediaType
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filterNotNull
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
+import java.io.File
+import java.io.FileOutputStream
+import java.time.LocalDate
+import java.util.concurrent.TimeUnit
+import java.util.zip.ZipEntry
+import java.util.zip.ZipOutputStream
+
+class CineTrackViewModel(private val repository: CineTrackRepository) : ViewModel() {
+    private val syncMutex = Mutex()
+    private val refreshMutex = Mutex()
+    private var progressRefreshJob: Job? = null
+    private var progressRefreshRequested = false
+    private var startupStateBuilding = true
+    private val detailMediaCache = mutableMapOf<String, MediaCard>()
+    private val detailRatingsCache = mutableMapOf<String, List<RatingScore>>()
+    private val detailEpisodeCache = mutableMapOf<Int, List<EpisodeCard>>()
+    private val _state = MutableStateFlow(
+        AppUiState(loading = true, simklConnected = repository.simklConnectedNow()),
+    )
+    val state: StateFlow<AppUiState> = _state.asStateFlow()
+    private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
+    val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
+
+    private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
+    val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
+    private val _discoverFilterResults = MutableStateFlow<List<MediaCard>>(emptyList())
+    val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
+    private val _discoverFiltersLoading = MutableStateFlow(false)
+    val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
+            state
+                .map { uiState: AppUiState -> uiState.error }
+                .filterNotNull()
+                .distinctUntilChanged()
+                .collect { message: String ->
+                    val line = "${java.time.Instant.now()}  $message"
+                    _errorLogs.value = (_errorLogs.value + line).takeLast(200)
+                    withContext(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
+                }
+        }
+        viewModelScope.launch {
+            // Room is the source of truth for imports performed by either this
+            // ViewModel or WorkManager. Refresh the active pages whenever an
+            // import transaction commits instead of waiting for process restart.
+            repository.observeLocalChanges().collectLatest {
+                // Room can emit several invalidations for one synchronization.
+                // Wait for the burst to settle and never publish a raw snapshot
+                // while the coordinated sync is still rebuilding derived rows.
+                delay(280)
+                if (syncMutex.isLocked || refreshMutex.isLocked || repository.progressCacheRefreshing || startupStateBuilding) return@collectLatest
+                val current = _state.value
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(
+                    refreshing = current.refreshing,
+                    error = current.error,
+                    people = current.people,
+                    sync = if (current.sync.running) current.sync else cached.sync,
+                )
+            }
+        }
+        viewModelScope.launch {
+            // Room and DataStore are the source of truth at launch. Publish them
+            // before any network work so process recreation never looks like a
+            // disconnected, empty account while enrichment is running.
+            val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _state.value = cached
+            val coldSync = if (cached.simklConnected) {
+                // Keep the cached UI stable while a cold-start delta check runs.
+                // Publishing its intermediate snapshots caused the visible reorder
+                // and scroll stalls captured in the supplied recording.
+                performSimklSync(force = true, publishResult = false, exposeProgress = false)
+            } else Result.success(SimklSyncOutcome(itemsChanged = false))
+            var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
+            var discoverError: Throwable? = null
+            if (databaseChanged) {
+                // The Simkl transaction is already complete. Publish it before
+                // any slower TMDB schedule/title enrichment starts.
+                _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            }
+            if (cached.rails.values.all { it.isEmpty() }) {
+                withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshDiscover() }
+                        .onSuccess { databaseChanged = true }
+                        .onFailure { discoverError = it }
+                }
+            }
+            val error = coldSync.exceptionOrNull()?.message ?: discoverError?.message
+            if (databaseChanged) {
+                _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }.copy(error = error)
+            } else if (error != null) {
+                _state.value = _state.value.copy(error = error)
+            }
+            startupStateBuilding = false
+            if (coldSync.getOrNull()?.itemsChanged == true) scheduleProgressCacheRefresh()
+        }
+        viewModelScope.launch {
+            val interval = TimeUnit.MINUTES.toMillis(510)
+            delay(interval)
+            while (isActive) {
+                performSimklSync(force = false)
+                delay(interval)
+            }
+        }
+    }
+
+    fun refresh() {
+        viewModelScope.launch {
+            refreshMutex.withLock {
+                _state.value = _state.value.copy(refreshing = true, error = null)
+                val refreshed = withContext(Dispatchers.IO) {
+                    runCatching {
+                        repository.refreshDiscover()
+                        repository.refreshProgressCache()
+                        repository.loadCachedState().copy(refreshing = false)
+                    }
+                }
+                _state.value = refreshed.getOrElse { _state.value.copy(refreshing = false, error = it.message) }
+            }
+        }
+    }
+
+    fun search(query: String) {
+        viewModelScope.launch { _searchResults.value = repository.search(query) }
+    }
+
+    fun applyDiscoverFilters(filters: DiscoverMovieFilters) {
+        viewModelScope.launch {
+            _discoverFiltersLoading.value = true
+            runCatching { withContext(Dispatchers.IO) { repository.discoverMovies(filters) } }
+                .onSuccess { _discoverFilterResults.value = it }
+                .onFailure { _state.value = _state.value.copy(error = it.message) }
+            _discoverFiltersLoading.value = false
+        }
+    }
+
+    fun setStatus(media: MediaCard, status: LibraryStatus) {
+        viewModelScope.launch {
+            val syncState = _state.value.sync
+            val refreshed = withContext(Dispatchers.IO) {
+                repository.setLibraryStatus(media, status)
+                repository.loadCachedState().copy(sync = syncState)
+            }
+            _state.value = refreshed
+            val pushError = if (repository.simklConnectedNow()) withContext(Dispatchers.IO) {
+                repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
+            } else null
+            // The Simkl request starts immediately after the local commit. TMDB
+            // metadata enrichment is independent and must never delay that push.
+            scheduleProgressCacheRefresh()
+            if (pushError != null) {
+                _state.value = _state.value.copy(error = pushError.message)
+            }
+        }
+    }
+
+    fun markWatched(media: MediaCard) {
+        viewModelScope.launch {
+            repository.markWatched(media)
+            val current = _state.value
+            fun update(item: MediaCard) = if (item.stableKey == media.stableKey) item.copy(watched = true, status = LibraryStatus.COMPLETED) else item
+            _state.value = current.copy(
+                rails = current.rails.mapValues { (_, items) -> items.map(::update) },
+                playbackTv = current.playbackTv.filterNot { it.media.stableKey == media.stableKey },
+                playbackMovies = current.playbackMovies.filterNot { it.media.stableKey == media.stableKey },
+            )
+            if (repository.simklConnectedNow()) {
+                val pushError = withContext(Dispatchers.IO) {
+                    repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
+                }
+                if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
+            }
+            scheduleProgressCacheRefresh()
+        }
+    }
+
+    fun markPlaybackWatched(playback: PlaybackCard) {
+        viewModelScope.launch {
+            val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
+                .find(playback.episodeLabel.orEmpty())
+            val season = playback.season ?: parsed?.groupValues?.getOrNull(1)?.toIntOrNull()
+            val episodeNumber = playback.episodeNumber ?: parsed?.groupValues?.getOrNull(2)?.toIntOrNull()
+            val episode = if (playback.media.type == MediaType.TV && season != null && episodeNumber != null) {
+                EpisodeCard(
+                    id = playback.episodeId ?: 0,
+                    showId = playback.media.id,
+                    season = season,
+                    number = episodeNumber,
+                    title = playback.episodeTitle.orEmpty(),
+                    overview = "",
+                    airDate = null,
+                )
+            } else null
+            if (episode != null) {
+                val syncState = _state.value.sync
+                val refreshed = withContext(Dispatchers.IO) {
+                    repository.markEpisodeWatched(episode)
+                    repository.loadCachedState().copy(sync = syncState)
+                }
+                _state.value = refreshed
+            } else if (playback.media.type == MediaType.MOVIE) {
+                repository.markWatched(playback.media)
+                _state.value = _state.value.copy(
+                    playbackMovies = _state.value.playbackMovies.filterNot { it.media.stableKey == playback.media.stableKey },
+                )
+                if (repository.simklConnectedNow()) {
+                    val pushError = withContext(Dispatchers.IO) {
+                        repository.pushLibraryChange(playback.media.type, playback.media.id).exceptionOrNull()
+                    }
+                    if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
+                }
+            }
+        }
+    }
+
+    fun markEpisodeWatched(episode: EpisodeCard) {
+        updateCachedEpisode(episode, watched = true)
+        viewModelScope.launch {
+            repository.markEpisodeWatched(episode)
+            refreshCachedState()
+        }
+    }
+
+    fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
+        updateCachedEpisode(episode, watched)
+        viewModelScope.launch {
+            repository.setEpisodeWatched(episode, watched)
+            refreshCachedState()
+        }
+    }
+
+    fun setSeasonWatched(episodes: List<EpisodeCard>, watched: Boolean) {
+        val numbers = episodes.map { it.season to it.number }.toSet()
+        episodes.firstOrNull()?.showId?.let { showId ->
+            detailEpisodeCache[showId] = detailEpisodeCache[showId].orEmpty().map { cached ->
+                if ((cached.season to cached.number) in numbers) cached.copy(watched = watched) else cached
+            }
+        }
+        viewModelScope.launch {
+            episodes.forEach { repository.setEpisodeWatched(it, watched) }
+            refreshCachedState()
+        }
+    }
+
+    private fun updateCachedEpisode(episode: EpisodeCard, watched: Boolean) {
+        detailEpisodeCache[episode.showId] = detailEpisodeCache[episode.showId].orEmpty().map { cached ->
+            if (cached.season == episode.season && cached.number == episode.number) cached.copy(watched = watched) else cached
+        }
+    }
+
+    private suspend fun refreshCachedState() {
+        val current = _state.value
+        val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+        val watchedNumbers = cached.history.mapNotNull { event ->
+            if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
+                Triple(event.media.id, event.season, event.episodeNumber)
+            } else null
+        }.toSet()
+        _state.value = cached.copy(
+            sync = current.sync,
+            people = current.people,
+            episodes = current.episodes.map { episode ->
+                episode.copy(watched = Triple(episode.showId, episode.season, episode.number) in watchedNumbers)
+            },
+        )
+    }
+
+    fun sync() {
+        if (_state.value.sync.running) return
+        viewModelScope.launch { performSimklSync(force = true) }
+    }
+
+    private suspend fun performSimklSync(
+        force: Boolean,
+        publishResult: Boolean = true,
+        exposeProgress: Boolean = true,
+    ): Result<SimklSyncOutcome> = syncMutex.withLock {
+        if (!repository.simklConnectedNow()) {
+            return@withLock Result.success(SimklSyncOutcome(itemsChanged = false))
+        }
+        if (!force && !repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) {
+            return@withLock Result.success(SimklSyncOutcome(itemsChanged = false))
+        }
+        var completedSync = _state.value.sync
+        val result = withContext(Dispatchers.IO) {
+            repository.syncSimkl { progress ->
+                completedSync = progress
+                if (exposeProgress) {
+                    _state.value = _state.value.copy(sync = progress)
+                }
+            }
+        }
+        val outcome = result.getOrNull()
+        if (outcome?.itemsChanged == true && publishResult) {
+            // Simkl membership/history/playback became durable in one Room
+            // transaction. Make it visible now; schedule enrichment separately.
+            _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                .copy(sync = completedSync)
+            scheduleProgressCacheRefresh()
+        } else if (outcome != null && exposeProgress) {
+            // Complete the synchronization indicator without replacing any page
+            // collections when Simkl reported an unchanged activity generation.
+            _state.value = _state.value.copy(sync = completedSync)
+        } else if (result.isFailure) {
+            _state.value = _state.value.copy(
+                sync = completedSync,
+                error = result.exceptionOrNull()?.message ?: completedSync.message,
+            )
+        }
+        result
+    }
+
+    /**
+     * Refreshes derived Progress metadata without extending the visible Simkl
+     * synchronization or queueing duplicate refreshes after rapid status taps.
+     */
+    private fun scheduleProgressCacheRefresh() {
+        progressRefreshRequested = true
+        if (progressRefreshJob?.isActive == true) return
+        progressRefreshJob = viewModelScope.launch {
+            do {
+                progressRefreshRequested = false
+                val refreshError = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshProgressCache() }.exceptionOrNull()
+                }
+                if (refreshError == null) {
+                    val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                    val current = _state.value
+                    _state.value = cached.copy(
+                        refreshing = current.refreshing,
+                        people = current.people,
+                        sync = current.sync,
+                        error = current.error,
+                    )
+                }
+            } while (progressRefreshRequested)
+        }
+    }
+
+    fun beginSimklLogin(context: Context) {
+        viewModelScope.launch {
+            _state.value = _state.value.copy(error = null)
+            repository.preferences.beginSimklLogin(context).onFailure {
+                _state.value = _state.value.copy(error = it.message)
+            }
+        }
+    }
+
+    fun completeSimklLogin(code: String?, state: String?, callbackError: String?) {
+        viewModelScope.launch {
+            if (!callbackError.isNullOrBlank()) {
+                _state.value = _state.value.copy(error = callbackError)
+                return@launch
+            }
+            if (code.isNullOrBlank()) {
+                _state.value = _state.value.copy(error = "Simkl did not return an authorization code. Please connect again")
+                return@launch
+            }
+            repository.completeLogin(code, state).onSuccess {
+                _state.value = _state.value.copy(simklConnected = true, error = null)
+                sync()
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun disconnectSimkl() {
+        viewModelScope.launch {
+            repository.disconnectSimkl()
+            _state.value = _state.value.copy(simklConnected = false)
+        }
+    }
+
+    fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
+    fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
+    fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
+
+    suspend fun loadDetails(media: MediaCard): MediaCard = detailMediaCache[media.stableKey]
+        ?: repository.loadDetails(media).also { detailMediaCache[media.stableKey] = it }
+    suspend fun loadMedia(type: MediaType, id: Int): MediaCard? = repository.loadMedia(type, id)
+    suspend fun loadPerson(person: PersonCard): PersonCard = repository.loadPerson(person)
+    suspend fun loadRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey]
+        ?.takeIf { it.isNotEmpty() }
+        ?: repository.loadRatings(media).also { if (it.isNotEmpty()) detailRatingsCache[media.stableKey] = it }
+    suspend fun loadCast(media: MediaCard): List<PersonCard> = repository.loadCast(media)
+    suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> = repository.loadEpisodes(show, season)
+    suspend fun loadAllEpisodes(show: MediaCard): List<EpisodeCard> = detailEpisodeCache[show.id]
+        ?.takeIf { it.isNotEmpty() }
+        ?: repository.loadAllEpisodes(show).also { if (it.isNotEmpty()) detailEpisodeCache[show.id] = it }
+    suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard? = repository.loadEpisode(show, season, number)
+    suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> = repository.loadEpisodeCast(show, season, number)
+    suspend fun loadCollection(media: MediaCard): List<MediaCard> = repository.loadCollection(media)
+    suspend fun loadRecommendations(media: MediaCard): List<MediaCard> = repository.loadRecommendations(media)
+    suspend fun loadTrailerKey(media: MediaCard): String? = repository.loadTrailerKey(media)
+
+    fun setBackgroundSync(enabled: Boolean) {
+        _state.value = _state.value.copy(backgroundSync = enabled)
+        viewModelScope.launch { repository.preferences.setBackgroundSync(enabled) }
+    }
+
+    fun setWifiOnly(enabled: Boolean) {
+        _state.value = _state.value.copy(wifiOnly = enabled)
+        viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
+    }
+    fun setLanguage(value: String) = viewModelScope.launch { repository.preferences.setLanguage(value) }
+    fun setNotification(kind: String, enabled: Boolean) = viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+    fun setRatingSource(source: String, enabled: Boolean) {
+        val key = when (source.lowercase()) {
+            "rotten tomatoes", "r.tomatoes", "tomatoes" -> "tomatoes"
+            else -> source.lowercase()
+        }
+        _state.value = _state.value.copy(
+            ratingSources = if (enabled) _state.value.ratingSources + key else _state.value.ratingSources - key,
+        )
+        detailRatingsCache.clear()
+        viewModelScope.launch { repository.preferences.setRatingSource(source, enabled) }
+    }
+
+    fun setContentRegions(regions: Set<String>) {
+        _state.value = _state.value.copy(contentRegions = regions)
+        viewModelScope.launch {
+            repository.preferences.setContentRegions(regions)
+            val refreshError = withContext(Dispatchers.IO) {
+                runCatching { repository.refreshDiscover() }.exceptionOrNull()
+            }
+            if (refreshError == null) {
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                val current = _state.value
+                _state.value = cached.copy(sync = current.sync, people = current.people, error = current.error)
+            } else {
+                _state.value = _state.value.copy(error = refreshError.message)
+            }
+        }
+    }
+
+    fun setUiAccent(value: String) {
+        _state.value = _state.value.copy(uiAccent = value)
+        viewModelScope.launch { repository.setUiAccent(value) }
+    }
+
+    fun setTmdbApiKey(value: String?) {
+        viewModelScope.launch {
+            repository.setTmdbApiKey(value)
+            _state.value = _state.value.copy(tmdbApiConfigured = repository.preferences.tmdbApiKeyNow().isNotBlank())
+        }
+    }
+
+    fun setMdbListApiKey(value: String?) {
+        viewModelScope.launch {
+            repository.setMdbListApiKey(value)
+            detailRatingsCache.clear()
+            _state.value = _state.value.copy(mdbListApiConfigured = repository.preferences.mdbListApiKeyNow().isNotBlank())
+        }
+    }
+
+    fun setMetadataLanguage(value: String) {
+        _state.value = _state.value.copy(metadataLanguage = value)
+        detailMediaCache.clear()
+        viewModelScope.launch { repository.setMetadataLanguage(value) }
+    }
+
+    fun setMetadataRegion(value: String) {
+        _state.value = _state.value.copy(metadataRegion = value)
+        detailMediaCache.clear()
+        viewModelScope.launch { repository.setMetadataRegion(value) }
+    }
+
+    fun setMetadataTimezone(value: String) {
+        _state.value = _state.value.copy(metadataTimezone = value)
+        viewModelScope.launch { repository.setMetadataTimezone(value) }
+    }
+
+    fun dismissError() {
+        _state.value = _state.value.copy(error = null)
+    }
+
+    fun exportData(context: Context, sections: Set<String> = emptySet()) {
+        viewModelScope.launch {
+            runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    val files = repository.exportBackupFiles(sections)
+                    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+                    val target = File(directory, "cinetrack-backup-${LocalDate.now()}.zip")
+                    ZipOutputStream(FileOutputStream(target)).use { archive ->
+                        files.forEach { (path, contents) ->
+                            archive.putNextEntry(ZipEntry(path))
+                            archive.write(contents.toByteArray())
+                            archive.closeEntry()
+                        }
+                    }
+                    target
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "application/zip"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_data)))
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun exportLogs(context: Context) {
+        viewModelScope.launch {
+            runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+                    File(directory, "cinetrack-logs.txt").apply {
+                        writeText(_errorLogs.value.joinToString(separator = "\n", postfix = "\n"))
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_logs)))
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    class Factory(private val repository: CineTrackRepository) : ViewModelProvider.Factory {
+        @Suppress("UNCHECKED_CAST")
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = CineTrackViewModel(repository) as T
+    }
+}
