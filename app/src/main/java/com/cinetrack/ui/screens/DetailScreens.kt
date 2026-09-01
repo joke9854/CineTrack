@@ -669,8 +669,25 @@ private fun EpisodesSection(
     onSeasonWatched: (List<EpisodeCard>, Boolean) -> Unit,
 ) {
     val grouped = episodes.groupBy(EpisodeCard::season).toSortedMap()
-    var expandedSeason by rememberSaveable(media.stableKey) {
-        mutableStateOf<Int?>(initialSeason?.takeIf { it in grouped } ?: grouped.keys.firstOrNull())
+    val watchingSeason = remember(media.status, episodes) {
+        if (media.status != LibraryStatus.WATCHING) null
+        else {
+            val ordered = episodes.filter { it.season > 0 }
+                .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+            val lastWatched = ordered.lastOrNull(EpisodeCard::watched)
+            ordered.firstOrNull { candidate ->
+                !candidate.watched && (
+                    lastWatched == null || candidate.season > lastWatched.season ||
+                        (candidate.season == lastWatched.season && candidate.number > lastWatched.number)
+                    )
+            }?.season ?: lastWatched?.season ?: ordered.firstOrNull()?.season
+        }
+    }
+    var expandedSeason by rememberSaveable(media.stableKey, media.status) {
+        mutableStateOf<Int?>(
+            initialSeason?.takeIf { it in grouped }
+                ?: watchingSeason?.takeIf { it in grouped },
+        )
     }
     var expandedInfo by remember(media.stableKey) { mutableStateOf<Pair<Int, Int>?>(null) }
     LaunchedEffect(initialSeason, grouped.keys) {
@@ -943,31 +960,57 @@ private fun UsefulInfoSection(media: MediaCard) {
         SectionHeader(stringResource(R.string.useful_information))
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
+            InfoCell(
+                if (media.type == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie,
+                stringResource(R.string.status),
+                media.tmdbStatus?.takeIf(String::isNotBlank)?.let { tmdbStatusLabel(it) }.orEmpty(),
+                Modifier.weight(1f),
+            )
             InfoCell(Icons.Filled.CalendarMonth, stringResource(R.string.release_date), formatFullDate(media.releaseDate), Modifier.weight(1f))
-            InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), formatDurationMinutes(media.runtimeMinutes), Modifier.weight(1f))
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
+            InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), formatDurationMinutes(media.runtimeMinutes), Modifier.weight(1f))
             InfoCell(Icons.Filled.Star, stringResource(R.string.rating), media.score?.let { "%.1f / 10".format(it) }.orEmpty(), Modifier.weight(1f))
-            val statusLabel = when (media.status) {
-                LibraryStatus.WATCHING -> stringResource(R.string.in_progress)
-                LibraryStatus.PLAN_TO_WATCH -> stringResource(R.string.plan_to_watch)
-                LibraryStatus.PAUSED -> stringResource(R.string.paused)
-                LibraryStatus.COMPLETED -> stringResource(R.string.completed)
-                LibraryStatus.DROPPED -> stringResource(R.string.dropped)
-                LibraryStatus.NONE -> stringResource(R.string.not_in_library)
+        }
+        if (media.type == MediaType.TV && media.seasons.isNotEmpty()) {
+            val regularSeasons = media.seasons.filter { it.number > 0 }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(Icons.Filled.Tv, stringResource(R.string.seasons), regularSeasons.size.toString(), Modifier.weight(1f))
+                InfoCell(
+                    Icons.Filled.Info,
+                    stringResource(R.string.episodes),
+                    regularSeasons.sumOf { it.episodeCount }.toString(),
+                    Modifier.weight(1f),
+                )
             }
-            InfoCell(if (media.type == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie, stringResource(R.string.status), statusLabel, Modifier.weight(1f))
+        }
+        if (media.genres.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Movie,
+                stringResource(R.string.genres),
+                media.genres.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
         }
     }
 }
 
 @Composable
-private fun InfoCell(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+private fun InfoCell(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = AccentLight, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(9.dp))
-        Column { Text(label, color = TextMuted, fontSize = 10.sp); Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+        Column { Text(label, color = TextMuted, fontSize = 10.sp); Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = maxLines, overflow = TextOverflow.Ellipsis) }
     }
 }
 

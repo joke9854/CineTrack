@@ -788,6 +788,7 @@ class CineTrackRepository(
                 watchedAt = watchedAt,
             ),
         )
+        refreshLocalUpNext(episode.showId)
         val request = SimklSyncRequest(
             shows = listOf(
                 SimklSyncItem(
@@ -819,6 +820,7 @@ class CineTrackRepository(
             return
         }
         database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, episode.showId, episode.season, episode.number)
+        refreshLocalUpNext(episode.showId)
         val request = SimklSyncRequest(
             shows = listOf(
                 SimklSyncItem(
@@ -841,6 +843,55 @@ class CineTrackRepository(
                     payload = "${episode.season}:${episode.number}",
                 ),
             )
+        }
+    }
+
+    /**
+     * Advances one show's durable next-episode row using Room only. This runs
+     * immediately after a watched-state change, so neither Compose nor the
+     * database invalidation observer has to wait for Simkl or a full cache pass.
+     */
+    private suspend fun refreshLocalUpNext(showId: Int) {
+        val today = localToday()
+        val excludeSpecials = preferences.excludeSpecials.first()
+        val watched = watchedEpisodeNumbers(showId)
+        val lastWatched = watched.asSequence()
+            .filter { it.first > 0 }
+            .maxWithOrNull(compareBy<Pair<Int, Int>>({ it.first }, { it.second }))
+        val candidates = database.mediaDao().episodesForShow(showId).asSequence()
+            .map { it.toDomain() }
+            .filter { !excludeSpecials || it.season > 0 }
+            .filter { episode ->
+                episode.airDate?.take(10)?.let { raw ->
+                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                } == true
+            }
+            .filterNot { (it.season to it.number) in watched }
+            .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+            .toList()
+        val next = lastWatched?.let { last ->
+            candidates.firstOrNull {
+                it.season > last.first || (it.season == last.first && it.number > last.second)
+            }
+        } ?: candidates.firstOrNull()
+        database.withTransaction {
+            database.upNextDao().delete(showId)
+            if (next != null) {
+                database.upNextDao().upsertAll(
+                    listOf(
+                        UpNextEntity(
+                            showId = showId,
+                            episodeId = next.id.takeIf { it > 0 },
+                            season = next.season,
+                            episodeNumber = next.number,
+                            episodeTitle = next.title,
+                            episodeAirDate = next.airDate,
+                            durationMinutes = next.runtimeMinutes,
+                            refreshedAt = System.currentTimeMillis(),
+                        ),
+                    ),
+                )
+            }
         }
     }
 
@@ -1598,25 +1649,29 @@ class CineTrackRepository(
     }
 
     /** Loads cast/crew only when the Statistics tab requests it, avoiding startup and scrolling work. */
-    suspend fun loadViewingPeople(history: List<TimelineCard>): Pair<List<String>, List<String>> = coroutineScope {
+    suspend fun loadViewingPeople(history: List<TimelineCard>): Pair<List<PersonCard>, List<PersonCard>> = coroutineScope {
         val weights = history.groupingBy { it.media.stableKey }.eachCount()
         val media = history.map(TimelineCard::media).distinctBy(MediaCard::stableKey).take(12)
         val requests = Semaphore(4)
         val credits = media.map { item -> async {
             item to requests.withPermit { loadCast(item) }
         } }.map { it.await() }
-        val actorCounts = mutableMapOf<String, Int>()
-        val directorCounts = mutableMapOf<String, Int>()
+        val actorCounts = mutableMapOf<Int, Pair<PersonCard, Int>>()
+        val directorCounts = mutableMapOf<Int, Pair<PersonCard, Int>>()
         credits.forEach { (item, people) ->
             val weight = weights[item.stableKey] ?: 1
             people.distinctBy(PersonCard::id).forEach { person ->
                 val isDirector = person.role.contains("director", true) ||
                     person.role.contains("creator", true) || person.role.contains("executive producer", true)
                 val target = if (isDirector) directorCounts else actorCounts
-                target[person.name] = target.getOrDefault(person.name, 0) + weight
+                val previous = target[person.id]
+                target[person.id] = person to ((previous?.second ?: 0) + weight)
             }
         }
-        fun Map<String, Int>.top() = entries.sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key }).take(5).map { it.key }
+        fun Map<Int, Pair<PersonCard, Int>>.top() = values
+            .sortedWith(compareByDescending<Pair<PersonCard, Int>> { it.second }.thenBy { it.first.name })
+            .take(5)
+            .map { it.first }
         actorCounts.top() to directorCounts.top()
     }
 

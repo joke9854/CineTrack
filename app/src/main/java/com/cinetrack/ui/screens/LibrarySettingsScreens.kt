@@ -2,6 +2,8 @@
 
 package com.cinetrack.ui.screens
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -43,6 +45,7 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Movie
@@ -686,11 +689,11 @@ private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel)
     }
     SettingsSection(stringResource(R.string.card_density)) {
         listOf(
-            "compact" to stringResource(R.string.compact),
-            "standard" to stringResource(R.string.standard),
-            "large" to stringResource(R.string.large),
-        ).forEachIndexed { index, (value, label) ->
-            ChoiceRow(label, state.cardDensity == value) { viewModel.setCardDensity(value) }
+            Triple("compact", stringResource(R.string.compact), stringResource(R.string.density_compact_description)),
+            Triple("standard", stringResource(R.string.standard), stringResource(R.string.density_standard_description)),
+            Triple("large", stringResource(R.string.large), stringResource(R.string.density_large_description)),
+        ).forEachIndexed { index, (value, label, description) ->
+            ChoiceRow(label, state.cardDensity == value, description) { viewModel.setCardDensity(value) }
             if (index != 2) GlassDivider()
         }
     }
@@ -1068,13 +1071,30 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
         Spacer(Modifier.height(10.dp))
         val updateAvailable = updateState is AppUpdateState.Available
         val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
-        PrimaryAction(
-            text = if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
-            icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
-            modifier = Modifier.fillMaxWidth(),
-            enabled = !busy,
-        ) {
-            if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate()
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PrimaryAction(
+                text = if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
+                icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
+                modifier = Modifier.weight(1f),
+                enabled = !busy,
+            ) {
+                if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate()
+            }
+            Spacer(Modifier.width(8.dp))
+            val changelogDescription = stringResource(R.string.changelog)
+            IconButton(
+                onClick = rememberLightHapticAction {
+                    val releaseUrl = when (val current = updateState) {
+                        is AppUpdateState.Available -> current.update.releaseUrl
+                        is AppUpdateState.Downloading -> current.update.releaseUrl
+                        else -> "https://github.com/${BuildConfig.GITHUB_UPDATE_REPO}/releases"
+                    }
+                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))) }
+                },
+                modifier = Modifier.size(54.dp).glassIcon(),
+            ) {
+                Icon(Icons.Filled.History, changelogDescription, tint = AccentLight, modifier = Modifier.size(20.dp))
+            }
         }
     }
 }
@@ -1164,10 +1184,16 @@ private fun ServiceLogo(name: String) {
 }
 
 @Composable
-private fun ChoiceRow(title: String, selected: Boolean, onClick: () -> Unit) {
+private fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            if (!description.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(description, color = TextMuted, fontSize = 10.5.sp, lineHeight = 14.sp)
+            }
+        }
         Box(Modifier.size(20.dp).clip(CircleShape).background(if (selected) Accent else Color.Transparent).then(if (!selected) Modifier.border(1.dp, TextMuted, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
             if (selected) Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
         }

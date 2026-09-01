@@ -71,24 +71,47 @@ internal fun formatDurationMinutes(minutes: Int?): String {
 internal fun formatWatchedDurationMinutes(minutes: Int?): String {
     val value = minutes?.takeIf { it > 0 } ?: return ""
     val dayMinutes = 24 * 60
-    return when {
-        value < dayMinutes -> formatDurationMinutes(value)
-        value < dayMinutes * 30 -> {
-            val days = value / dayMinutes
-            val hours = (value % dayMinutes) / 60
-            if (hours == 0) stringResource(R.string.duration_days, days)
-            else stringResource(R.string.duration_days_hours, days, hours)
+    val yearMinutes = dayMinutes * 365
+    val monthMinutes = dayMinutes * 30
+    val years = value / yearMinutes
+    var remainder = value % yearMinutes
+    val months = remainder / monthMinutes
+    remainder %= monthMinutes
+    val days = remainder / dayMinutes
+    remainder %= dayMinutes
+    val hours = remainder / 60
+    val remainingMinutes = remainder % 60
+
+    val parts = mutableListOf<String>()
+    when {
+        years > 0 -> {
+            parts += durationUnit(years, R.string.duration_year_singular, R.string.duration_year_plural)
+            if (months > 0) parts += durationUnit(months, R.string.duration_month_singular, R.string.duration_month_plural)
+            if (days > 0) parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
         }
-        value < dayMinutes * 365 -> {
-            val months = java.text.DecimalFormat("0.#").format(value.toDouble() / (dayMinutes * 30.4375))
-            stringResource(R.string.duration_months, months)
+        months > 0 -> {
+            parts += durationUnit(months, R.string.duration_month_singular, R.string.duration_month_plural)
+            if (days > 0) parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
         }
-        else -> {
-            val years = java.text.DecimalFormat("0.#").format(value.toDouble() / (dayMinutes * 365.25))
-            stringResource(R.string.duration_years, years)
+        days > 0 -> {
+            parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+            if (remainingMinutes > 0) parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
         }
+        hours > 0 -> {
+            parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+            if (remainingMinutes > 0) parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
+        }
+        else -> parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
     }
+    return parts.joinToString(" ")
 }
+
+@Composable
+private fun durationUnit(amount: Int, singularResource: Int, pluralResource: Int): String =
+    stringResource(if (amount == 1) singularResource else pluralResource, amount)
 
 @Composable
 internal fun NavCollapseEffect(listState: LazyListState, onCompact: (Boolean) -> Unit) {

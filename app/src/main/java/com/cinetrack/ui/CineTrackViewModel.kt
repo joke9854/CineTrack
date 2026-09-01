@@ -41,6 +41,7 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
@@ -320,41 +321,29 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun markPlaybackWatched(playback: PlaybackCard) {
-        if (playback.media.type == MediaType.TV) {
-            val current = _state.value
-            _state.value = current.copy(
-                playbackTv = listOf(playback) + current.playbackTv.filterNot { it.media.id == playback.media.id },
+        val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
+            .find(playback.episodeLabel.orEmpty())
+        val season = playback.season ?: parsed?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val episodeNumber = playback.episodeNumber ?: parsed?.groupValues?.getOrNull(2)?.toIntOrNull()
+        val episode = if (playback.media.type == MediaType.TV && season != null && episodeNumber != null) {
+            EpisodeCard(
+                id = playback.episodeId ?: 0,
+                showId = playback.media.id,
+                season = season,
+                number = episodeNumber,
+                title = playback.episodeTitle.orEmpty(),
+                overview = "",
+                airDate = playback.episodeAirDate,
             )
+        } else null
+        if (episode != null) {
+            advancePlaybackImmediately(playback, episode)
         }
         viewModelScope.launch {
-            val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
-                .find(playback.episodeLabel.orEmpty())
-            val season = playback.season ?: parsed?.groupValues?.getOrNull(1)?.toIntOrNull()
-            val episodeNumber = playback.episodeNumber ?: parsed?.groupValues?.getOrNull(2)?.toIntOrNull()
-            val episode = if (playback.media.type == MediaType.TV && season != null && episodeNumber != null) {
-                EpisodeCard(
-                    id = playback.episodeId ?: 0,
-                    showId = playback.media.id,
-                    season = season,
-                    number = episodeNumber,
-                    title = playback.episodeTitle.orEmpty(),
-                    overview = "",
-                    airDate = null,
-                )
-            } else null
             if (episode != null) {
-                val syncState = _state.value.sync
-                val refreshed = withContext(Dispatchers.IO) {
-                    repository.markEpisodeWatched(episode)
-                    repository.refreshProgressCache(
-                        ProgressRefreshRequest(episodeHistoryChanged = true),
-                    )
-                    repository.loadCachedState().copy(sync = syncState)
-                }
-                val promoted = refreshed.playbackTv.firstOrNull { it.media.id == playback.media.id }
-                _state.value = refreshed.copy(
-                    playbackTv = if (promoted == null) refreshed.playbackTv
-                    else listOf(promoted) + refreshed.playbackTv.filterNot { it.media.id == playback.media.id },
+                withContext(Dispatchers.IO) { repository.markEpisodeWatched(episode) }
+                scheduleProgressCacheRefresh(
+                    ProgressRefreshRequest(episodeHistoryChanged = true),
                 )
             } else if (playback.media.type == MediaType.MOVIE) {
                 repository.markWatched(playback.media)
@@ -369,6 +358,59 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 }
             }
         }
+    }
+
+    /**
+     * The next cached episode is known before the Simkl write starts. Publish it
+     * synchronously so the checked card changes in the same frame as the tap.
+     */
+    private fun advancePlaybackImmediately(playback: PlaybackCard, watchedEpisode: EpisodeCard) {
+        updateCachedEpisode(watchedEpisode, watched = true)
+        val current = _state.value
+        val zone = if (current.metadataTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(current.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
+        val today = LocalDate.now(zone)
+        val updatedEpisodes = current.episodes.map { episode ->
+            if (
+                episode.showId == watchedEpisode.showId &&
+                episode.season == watchedEpisode.season &&
+                episode.number == watchedEpisode.number
+            ) episode.copy(watched = true) else episode
+        }
+        val next = updatedEpisodes.asSequence()
+            .filter { it.showId == watchedEpisode.showId }
+            .filter { !current.excludeSpecials || it.season > 0 }
+            .filterNot(EpisodeCard::watched)
+            .filter {
+                it.season > watchedEpisode.season ||
+                    (it.season == watchedEpisode.season && it.number > watchedEpisode.number)
+            }
+            .filter { candidate ->
+                candidate.airDate?.take(10)?.let { raw ->
+                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                } == true
+            }
+            .minWithOrNull(compareBy(EpisodeCard::season, EpisodeCard::number))
+        val advancedCard = next?.let { candidate ->
+            PlaybackCard(
+                media = playback.media,
+                episodeId = candidate.id.takeIf { it > 0 },
+                episodeLabel = "S${candidate.season.toString().padStart(2, '0')} E${candidate.number.toString().padStart(2, '0')}",
+                episodeTitle = candidate.title,
+                season = candidate.season,
+                episodeNumber = candidate.number,
+                progress = 0f,
+                remainingMinutes = candidate.runtimeMinutes ?: playback.durationMinutes ?: playback.media.runtimeMinutes,
+                durationMinutes = candidate.runtimeMinutes ?: playback.durationMinutes ?: playback.media.runtimeMinutes,
+                episodeAirDate = candidate.airDate,
+            )
+        }
+        _state.value = current.copy(
+            episodes = updatedEpisodes,
+            playbackTv = listOfNotNull(advancedCard) + current.playbackTv.filterNot {
+                it.media.id == playback.media.id
+            },
+        )
     }
 
     fun markEpisodeWatched(episode: EpisodeCard) {

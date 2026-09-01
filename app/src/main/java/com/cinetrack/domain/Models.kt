@@ -152,8 +152,8 @@ data class SyncReport(
 )
 
 data class ViewingPeopleInsights(
-    val actors: List<String> = emptyList(),
-    val directors: List<String> = emptyList(),
+    val actors: List<PersonCard> = emptyList(),
+    val directors: List<PersonCard> = emptyList(),
     val loading: Boolean = false,
 )
 

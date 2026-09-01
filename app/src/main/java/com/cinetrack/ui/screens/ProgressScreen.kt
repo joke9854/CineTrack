@@ -100,6 +100,7 @@ import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncStage
@@ -902,20 +903,14 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
             Text(stringResource(R.string.most_watched_people), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(7.dp))
-            Text(
-                if (people.loading) stringResource(R.string.loading)
-                else stringResource(R.string.actors_value, people.actors.ifEmpty { listOf("—") }.joinToString(" · ")),
-                color = TextSecondary,
-                fontSize = 11.5.sp,
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                if (people.loading) ""
-                else stringResource(R.string.directors_value, people.directors.ifEmpty { listOf("—") }.joinToString(" · ")),
-                color = TextSecondary,
-                fontSize = 11.5.sp,
-            )
+            Spacer(Modifier.height(9.dp))
+            if (people.loading) {
+                Text(stringResource(R.string.loading), color = TextSecondary, fontSize = 11.5.sp)
+            } else {
+                PeopleStatisticsRow(stringResource(R.string.actors), people.actors)
+                Spacer(Modifier.height(10.dp))
+                PeopleStatisticsRow(stringResource(R.string.directors), people.directors)
+            }
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -992,8 +987,59 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
 @Composable
 private fun StatisticTile(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier.glass(RoundedCornerShape(16.dp)).padding(horizontal = 9.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        val longValue = value.length > 14
+        Text(
+            value.ifBlank { "—" },
+            color = TextPrimary,
+            fontSize = if (longValue) 11.sp else 16.sp,
+            lineHeight = if (longValue) 13.sp else 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = if (longValue) 4 else 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
         Text(label, color = TextMuted, fontSize = 9.5.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable
+private fun PeopleStatisticsRow(title: String, people: List<PersonCard>) {
+    Text(title, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(6.dp))
+    if (people.isEmpty()) {
+        Text("—", color = TextSecondary, fontSize = 11.5.sp)
+        return
+    }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(people, key = PersonCard::id) { person ->
+            Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Accent.copy(alpha = .55f), Info.copy(alpha = .45f)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!person.profileUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            person.profileUrl,
+                            person.name,
+                            Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Text(person.name.take(1).uppercase(), color = TextPrimary, fontWeight = FontWeight.Black)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    person.name,
+                    color = TextSecondary,
+                    fontSize = 9.sp,
+                    lineHeight = 10.5.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
+            }
+        }
     }
 }
 

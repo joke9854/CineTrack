@@ -391,6 +391,9 @@ interface UpNextDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<UpNextEntity>)
 
+    @Query("DELETE FROM up_next WHERE showId = :showId")
+    suspend fun delete(showId: Int)
+
     @Query("DELETE FROM up_next")
     suspend fun clear()
 
