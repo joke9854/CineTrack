@@ -74,6 +74,7 @@ import com.cinetrack.ui.screens.DiscoverListScreen
 import com.cinetrack.ui.screens.DiscoverScreen
 import com.cinetrack.ui.screens.EpisodeDetailScreen
 import com.cinetrack.ui.screens.LibraryScreen
+import com.cinetrack.ui.screens.IntroductionScreen
 import com.cinetrack.ui.screens.ProgressScreen
 import com.cinetrack.ui.screens.SearchScreen
 import com.cinetrack.ui.screens.SettingsDetailScreen
@@ -227,6 +228,7 @@ fun CineTrackApp(
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
                     onNotInterested = viewModel::hideDiscoveryItem,
+                    onOpenTmdbSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceTmdb}") },
                     onCompactNav = { compactNav = it },
                 )
             }
@@ -291,7 +293,7 @@ fun CineTrackApp(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
                     providers = streamingProviders,
-                    regionKey = "${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}",
+                    regionKey = "${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}:${state.preferredProviders.sorted().joinToString(",")}",
                     onApply = viewModel::applyDiscoverFilters,
                     onLoadProviders = viewModel::loadStreamingProviders,
                     onBack = { navController.popBackStack() },
@@ -325,7 +327,9 @@ fun CineTrackApp(
                 DetailScreen(
                     media = resolvedMedia,
                     people = state.people,
-                    episodes = state.episodes.filter { it.showId == id },
+                    // Placeholder Simkl schedule rows are useful for Progress,
+                    // but the full season catalogue shown here is TMDB-backed.
+                    episodes = state.episodes.filter { it.showId == id && it.id > 0 },
                     history = state.history.filter { it.media.type == type && it.media.id == id },
                     recommended = (
                         state.rails[com.cinetrack.domain.RailIds.RECOMMENDED].orEmpty() +
@@ -441,6 +445,18 @@ fun CineTrackApp(
                     Text(stringResource(R.string.loading_library), color = AccentLight.copy(alpha = .78f), fontSize = 12.sp)
                 }
             }
+        }
+
+        if (minimumLaunchElapsed && !state.loading && !state.introductionCompleted) {
+            IntroductionScreen(
+                onOpenSettings = {
+                    viewModel.completeIntroduction()
+                    navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.Integrations}") {
+                        launchSingleTop = true
+                    }
+                },
+                onFinish = viewModel::completeIntroduction,
+            )
         }
     }
 }

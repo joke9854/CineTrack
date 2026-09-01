@@ -77,6 +77,7 @@ class AppPreferences(private val context: Context) {
         val notifiedReleases = stringPreferencesKey("notified_releases")
         val hiddenUpcoming = stringPreferencesKey("hidden_upcoming")
         val hiddenDiscovery = stringPreferencesKey("hidden_discovery")
+        val introductionCompleted = booleanPreferencesKey("introduction_completed")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
@@ -115,6 +116,9 @@ class AppPreferences(private val context: Context) {
     }
     val hiddenDiscovery: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenDiscovery].orEmpty().split('|').filter(String::isNotBlank).toSet()
+    }
+    val introductionCompleted: Flow<Boolean> = context.cineTrackDataStore.data.map {
+        it[Keys.introductionCompleted] ?: false
     }
 
     suspend fun tokenNow(): String? = simklToken.first()
@@ -275,6 +279,10 @@ class AppPreferences(private val context: Context) {
             if (values.isEmpty()) prefs.remove(Keys.hiddenDiscovery)
             else prefs[Keys.hiddenDiscovery] = values.joinToString("|")
         }
+    }
+
+    suspend fun setIntroductionCompleted(value: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.introductionCompleted] = value }
     }
 
     fun readErrorLogs(): List<String> = runCatching {

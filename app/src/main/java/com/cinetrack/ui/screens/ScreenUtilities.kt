@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.cinetrack.R
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -63,6 +65,29 @@ internal fun formatDurationMinutes(minutes: Int?): String {
     val hours = value / 60
     val remainder = value % 60
     return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+}
+
+@Composable
+internal fun formatWatchedDurationMinutes(minutes: Int?): String {
+    val value = minutes?.takeIf { it > 0 } ?: return ""
+    val dayMinutes = 24 * 60
+    return when {
+        value < dayMinutes -> formatDurationMinutes(value)
+        value < dayMinutes * 30 -> {
+            val days = value / dayMinutes
+            val hours = (value % dayMinutes) / 60
+            if (hours == 0) stringResource(R.string.duration_days, days)
+            else stringResource(R.string.duration_days_hours, days, hours)
+        }
+        value < dayMinutes * 365 -> {
+            val months = java.text.DecimalFormat("0.#").format(value.toDouble() / (dayMinutes * 30.4375))
+            stringResource(R.string.duration_months, months)
+        }
+        else -> {
+            val years = java.text.DecimalFormat("0.#").format(value.toDouble() / (dayMinutes * 365.25))
+            stringResource(R.string.duration_years, years)
+        }
+    }
 }
 
 @Composable

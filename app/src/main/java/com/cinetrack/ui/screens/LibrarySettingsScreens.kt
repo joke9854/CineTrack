@@ -54,6 +54,8 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -80,6 +82,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -452,7 +455,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
         Text(
             label,
             color = TextMuted,
-            fontSize = 11.5.sp,
+            fontSize = 13.sp,
             letterSpacing = .45.sp,
             fontWeight = FontWeight.ExtraBold,
             style = androidx.compose.material3.MaterialTheme.typography.labelLarge.copy(
@@ -472,14 +475,14 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 @Composable
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val hapticClick = rememberLightHapticAction { onPage(item.page) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-            Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(18.dp))
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+            Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(item.subtitle, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(item.subtitle, color = TextSecondary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
@@ -524,13 +527,13 @@ fun SettingsDetailScreen(
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
                     SettingsPages.ServiceSimkl -> SyncSettings(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceTmdb -> Column {
-                        ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::setTmdbApiKey)
+                        ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
                         ContentRegionSettings(state, viewModel)
                         PreferredProviderSettings(state, viewModel)
                     }
                     SettingsPages.ServiceMdblist -> Column {
-                        ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::setMdbListApiKey)
+                        ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
                         RatingSettings(state, viewModel)
                     }
                     SettingsPages.Appearance -> AppearanceSettings(state, viewModel)
@@ -669,11 +672,11 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 @Composable
 private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     val choices = listOf(
-        Triple("watching", stringResource(R.string.watching), StatusWatching),
-        Triple("planned", stringResource(R.string.plan_to_watch), StatusPlanned),
-        Triple("paused", stringResource(R.string.paused), StatusPaused),
-        Triple("completed", stringResource(R.string.completed), Success),
-        Triple("dropped", stringResource(R.string.dropped), StatusDropped),
+        Triple("watching", stringResource(R.string.color_blue), StatusWatching),
+        Triple("planned", stringResource(R.string.color_gold), StatusPlanned),
+        Triple("paused", stringResource(R.string.color_orange), StatusPaused),
+        Triple("completed", stringResource(R.string.color_green), Success),
+        Triple("dropped", stringResource(R.string.color_red), StatusDropped),
     )
     SettingsSection(stringResource(R.string.main_ui_color)) {
         choices.forEachIndexed { index, (key, label, color) ->
@@ -706,24 +709,69 @@ private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onCl
     }
 }
 
+private const val SavedCredentialMask = "••••••••••••••••••••••••••••••••"
+
 @Composable
-private fun ApiCredentialSettings(service: String, configured: Boolean, onSave: (String?) -> Unit) {
-    var value by remember(service) { mutableStateOf("") }
+private fun ApiCredentialSettings(
+    service: String,
+    configured: Boolean,
+    onSave: (String, (Result<Unit>) -> Unit) -> Unit,
+) {
+    var value by remember(service) { mutableStateOf(if (configured) SavedCredentialMask else "") }
+    var showingSavedMask by remember(service) { mutableStateOf(configured) }
+    var revealNewValue by remember(service) { mutableStateOf(false) }
+    var validating by remember(service) { mutableStateOf(false) }
+    var validationError by remember(service) { mutableStateOf<String?>(null) }
+    LaunchedEffect(configured) {
+        if (configured && !validating) {
+            value = SavedCredentialMask
+            showingSavedMask = true
+        }
+    }
+    val changed = !showingSavedMask && value.isNotBlank()
+    val help = if (service == "TMDB") stringResource(R.string.tmdb_api_help) else stringResource(R.string.mdblist_api_help)
     SettingsSection(stringResource(R.string.api_credential)) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Text(
                 if (configured) stringResource(R.string.api_credential_configured, service) else stringResource(R.string.api_credential_missing, service),
-                color = if (configured) Success else TextMuted,
-                fontSize = 11.5.sp,
+                color = if (configured) Color.White else TextSecondary,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
             )
+            Text(
+                stringResource(R.string.api_credential_saved_securely),
+                color = TextMuted,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(help, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 9.dp))
             Spacer(Modifier.height(9.dp))
             OutlinedTextField(
                 value = value,
-                onValueChange = { value = it },
+                onValueChange = { newValue ->
+                    value = if (showingSavedMask) newValue.replace("•", "") else newValue
+                    showingSavedMask = false
+                    validationError = null
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                enabled = !validating,
+                label = { Text(stringResource(R.string.api_key_label)) },
+                visualTransformation = if (revealNewValue && !showingSavedMask) VisualTransformation.None else PasswordVisualTransformation(),
                 placeholder = { Text(stringResource(R.string.api_credential_hint, service), fontSize = 12.sp) },
+                trailingIcon = {
+                    IconButton(
+                        onClick = { if (!showingSavedMask) revealNewValue = !revealNewValue },
+                        enabled = !showingSavedMask,
+                    ) {
+                        Icon(
+                            if (revealNewValue) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = null,
+                            tint = if (showingSavedMask) TextMuted.copy(alpha = .45f) else TextSecondary,
+                        )
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Accent,
                     unfocusedBorderColor = Color.White.copy(alpha = .16f),
@@ -731,15 +779,36 @@ private fun ApiCredentialSettings(service: String, configured: Boolean, onSave: 
                     unfocusedTextColor = TextPrimary,
                 ),
             )
+            validationError?.let { message ->
+                Text(
+                    stringResource(R.string.api_credential_invalid, service, message),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Spacer(Modifier.height(9.dp))
             PrimaryAction(
-                stringResource(if (value.isBlank()) R.string.use_build_credential else R.string.save),
+                stringResource(R.string.save),
                 Icons.Filled.Save,
                 Modifier.fillMaxWidth(),
+                enabled = changed && !validating,
             ) {
-                onSave(value.takeIf(String::isNotBlank))
-                value = ""
+                validating = true
+                validationError = null
+                onSave(value) { result ->
+                    validating = false
+                    result.onSuccess {
+                        value = SavedCredentialMask
+                        showingSavedMask = true
+                        revealNewValue = false
+                    }.onFailure { error ->
+                        validationError = error.message ?: "Verification failed"
+                    }
+                }
             }
+            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, fontSize = 11.5.sp, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -1016,12 +1085,12 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Text(
             title.uppercase(),
             color = AccentLight,
-            fontSize = 10.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.ExtraBold,
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(
                 shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .78f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
             ),
-            modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
+            modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
         )
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)), content = { content() })
     }
@@ -1030,8 +1099,8 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
     val hapticToggle = rememberLightHapticAction { onChecked(!checked) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         CompactSwitch(checked) { onChecked(!checked) }
     }
 }
@@ -1056,18 +1125,18 @@ private fun CompactSwitch(checked: Boolean, onClick: () -> Unit) {
 @Composable
 private fun ValueRow(title: String, value: String, success: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(value, color = if (success) Success else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(value, color = if (success) Color.White else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = TextMuted, fontSize = 10.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         Box(Modifier.size(9.dp).clip(CircleShape).background(if (configured) Success else TextMuted))
         Spacer(Modifier.width(6.dp))
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))

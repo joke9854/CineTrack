@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -103,6 +105,7 @@ fun DiscoverScreen(
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
+    onOpenTmdbSettings: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -146,6 +149,34 @@ fun DiscoverScreen(
                         IconButton(onClick = rememberLightHapticAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
                         }
+                    }
+                }
+                if (!state.tmdbApiConfigured) item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
+                            .glass(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF8A5B00).copy(alpha = .20f), RoundedCornerShape(18.dp))
+                            .border(.8.dp, Color(0xFFFFC75D).copy(alpha = .45f), RoundedCornerShape(18.dp))
+                            .padding(15.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.WarningAmber, null, tint = Color(0xFFFFD37A), modifier = Modifier.size(23.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(stringResource(R.string.discover_tmdb_warning_title), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                        Text(
+                            stringResource(R.string.discover_tmdb_warning_message),
+                            color = TextSecondary,
+                            fontSize = 12.5.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(top = 9.dp, bottom = 12.dp),
+                        )
+                        PrimaryAction(
+                            text = stringResource(R.string.open_api_settings),
+                            icon = Icons.Filled.Settings,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onOpenTmdbSettings,
+                        )
                     }
                 }
                 if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested) }

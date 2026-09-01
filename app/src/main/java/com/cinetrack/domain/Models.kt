@@ -188,6 +188,7 @@ data class AppUiState(
     val cardDensity: String = "standard",
     val hiddenUpcoming: Set<String> = emptySet(),
     val hiddenDiscovery: Set<String> = emptySet(),
+    val introductionCompleted: Boolean = false,
 ) {
     val allMedia: List<MediaCard>
         get() = (

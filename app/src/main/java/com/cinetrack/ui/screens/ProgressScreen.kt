@@ -888,7 +888,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             StatisticTile(stringResource(R.string.this_month), monthly.toString(), Modifier.weight(1f))
             StatisticTile(stringResource(R.string.this_year), yearly.toString(), Modifier.weight(1f))
-            StatisticTile(stringResource(R.string.time_watched), formatDurationMinutes(watchedMinutes), Modifier.weight(1f))
+            StatisticTile(stringResource(R.string.time_watched), formatWatchedDurationMinutes(watchedMinutes), Modifier.weight(1f))
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             StatisticTile(stringResource(R.string.completion_rate), "$completionRate%", Modifier.weight(1f))
@@ -923,7 +923,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                 Text(stringResource(R.string.heatmap_summary, watchedDays.size, longestStreak), color = TextMuted, fontSize = 9.sp, maxLines = 1)
             }
             Spacer(Modifier.height(10.dp))
-            Row(Modifier.fillMaxWidth().padding(start = 22.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start = 26.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 heatmapWeeks.forEachIndexed { index, week ->
                     val monthChanged = index == 0 || week.first().month != heatmapWeeks[index - 1].first().month
                     Text(
@@ -937,13 +937,16 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
             }
             Spacer(Modifier.height(5.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Column(Modifier.width(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.width(22.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     heatmapWeeks.first().forEach { day ->
                         Text(
                             day.format(DateTimeFormatter.ofPattern("EEEEE", Locale.getDefault())),
                             color = TextMuted,
-                            fontSize = 8.sp,
-                            modifier = Modifier.height(13.dp),
+                            fontSize = 8.5.sp,
+                            lineHeight = 11.sp,
+                            maxLines = 1,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().height(16.dp),
                         )
                     }
                 }
@@ -953,7 +956,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                             val count = watchedDays[day] ?: 0
                             val level = if (count == 0) 0 else ((count * 4 + maxDailyActivity - 1) / maxDailyActivity).coerceIn(1, 4)
                             Box(
-                                Modifier.fillMaxWidth().height(13.dp).clip(RoundedCornerShape(3.dp))
+                                Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(3.dp))
                                     .background(
                                         Accent.copy(
                                             alpha = when {

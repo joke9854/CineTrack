@@ -125,7 +125,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else Result.success(SimklSyncOutcome(itemsChanged = false))
             var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
             var discoverError: Throwable? = null
-            if (cached.rails.values.all { it.isEmpty() }) {
+            if (cached.tmdbApiConfigured && cached.rails.values.all { it.isEmpty() }) {
                 withContext(Dispatchers.IO) {
                     runCatching { repository.refreshDiscover() }
                         .onSuccess { databaseChanged = true }
@@ -155,6 +155,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun refresh() {
+        if (!_state.value.tmdbApiConfigured) return
         viewModelScope.launch {
             refreshMutex.withLock {
                 _state.value = _state.value.copy(refreshing = true, error = null)
@@ -187,7 +188,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun loadStreamingProviders(mediaType: MediaType) {
         viewModelScope.launch {
             _streamingProviders.value = withContext(Dispatchers.IO) {
-                repository.loadStreamingProviders(mediaType)
+                repository.loadStreamingProviders(mediaType).let { providers ->
+                    val preferred = _state.value.preferredProviders
+                    if (preferred.isEmpty()) providers else providers.filter { it.name in preferred }
+                }
             }
         }
     }
@@ -316,6 +320,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun markPlaybackWatched(playback: PlaybackCard) {
+        if (playback.media.type == MediaType.TV) {
+            val current = _state.value
+            _state.value = current.copy(
+                playbackTv = listOf(playback) + current.playbackTv.filterNot { it.media.id == playback.media.id },
+            )
+        }
         viewModelScope.launch {
             val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
                 .find(playback.episodeLabel.orEmpty())
@@ -341,7 +351,11 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     )
                     repository.loadCachedState().copy(sync = syncState)
                 }
-                _state.value = refreshed
+                val promoted = refreshed.playbackTv.firstOrNull { it.media.id == playback.media.id }
+                _state.value = refreshed.copy(
+                    playbackTv = if (promoted == null) refreshed.playbackTv
+                    else listOf(promoted) + refreshed.playbackTv.filterNot { it.media.id == playback.media.id },
+                )
             } else if (playback.media.type == MediaType.MOVIE) {
                 repository.markWatched(playback.media)
                 _state.value = _state.value.copy(
@@ -361,7 +375,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         updateCachedEpisode(episode, watched = true)
         viewModelScope.launch {
             repository.markEpisodeWatched(episode)
-            refreshCachedState(refreshProgress = true)
+            refreshCachedState(refreshProgress = true, promoteShowId = episode.showId)
         }
     }
 
@@ -369,7 +383,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         updateCachedEpisode(episode, watched)
         viewModelScope.launch {
             repository.setEpisodeWatched(episode, watched)
-            refreshCachedState(refreshProgress = true)
+            refreshCachedState(refreshProgress = true, promoteShowId = episode.showId.takeIf { watched })
         }
     }
 
@@ -382,7 +396,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         viewModelScope.launch {
             episodes.forEach { repository.setEpisodeWatched(it, watched) }
-            refreshCachedState(refreshProgress = true)
+            refreshCachedState(refreshProgress = true, promoteShowId = episodes.firstOrNull()?.showId.takeIf { watched })
         }
     }
 
@@ -398,7 +412,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             withContext(Dispatchers.IO) {
                 changed.forEach { repository.setEpisodeWatched(it, watched) }
             }
-            refreshCachedState(refreshProgress = true)
+            refreshCachedState(refreshProgress = true, promoteShowId = changed.firstOrNull()?.showId.takeIf { watched })
         }
     }
 
@@ -408,7 +422,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    private suspend fun refreshCachedState(refreshProgress: Boolean = false) {
+    private suspend fun refreshCachedState(refreshProgress: Boolean = false, promoteShowId: Int? = null) {
         val current = _state.value
         val cached = withContext(Dispatchers.IO) {
             if (refreshProgress) {
@@ -426,6 +440,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         _state.value = cached.copy(
             sync = current.sync,
             people = current.people,
+            playbackTv = cached.playbackTv.let { items ->
+                val promoted = promoteShowId?.let { id -> items.firstOrNull { it.media.id == id } }
+                if (promoted == null) items else listOf(promoted) + items.filterNot { it.media.id == promoteShowId }
+            },
             episodes = current.episodes.map { episode ->
                 episode.copy(watched = Triple(episode.showId, episode.season, episode.number) in watchedNumbers)
             },
@@ -623,6 +641,44 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun setUiAccent(value: String) {
         _state.value = _state.value.copy(uiAccent = value)
         viewModelScope.launch { repository.setUiAccent(value) }
+    }
+
+    fun completeIntroduction() {
+        _state.value = _state.value.copy(introductionCompleted = true)
+        viewModelScope.launch { repository.setIntroductionCompleted(true) }
+    }
+
+    fun verifyAndSetTmdbApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTmdbApiKey(value) }
+            if (result.isSuccess) {
+                _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)
+                onResult(Result.success(Unit))
+                val refreshError = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshDiscover() }.exceptionOrNull()
+                }
+                if (refreshError == null) {
+                    val current = _state.value
+                    _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }.copy(
+                        sync = current.sync,
+                        people = current.people,
+                    )
+                } else {
+                    _state.value = _state.value.copy(error = refreshError.message)
+                }
+            } else onResult(result)
+        }
+    }
+
+    fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetMdbListApiKey(value) }
+            if (result.isSuccess) {
+                detailRatingsCache.clear()
+                _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
+            }
+            onResult(result)
+        }
     }
 
     fun setTmdbApiKey(value: String?) {
