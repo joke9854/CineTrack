@@ -7,3 +7,11 @@ app/release/
 captures/
 .externalNativeBuild/
 .cxx/
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.apk
+*.aab
+.env
+.env.*
