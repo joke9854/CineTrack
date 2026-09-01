@@ -5,6 +5,8 @@ import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.RailIds
+import com.cinetrack.data.repository.ProgressRefreshRequest
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -33,5 +35,33 @@ class DomainModelsTest {
     @Test
     fun emptyStateContainsNoMockupTitles() {
         assertTrue(AppUiState().allMedia.isEmpty())
+    }
+
+    @Test
+    fun progressRefreshSkipsUnchangedFreshCache() {
+        assertFalse(
+            ProgressRefreshRequest().requiresUpNext(
+                scheduleDue = false,
+                cacheMissing = false,
+            ),
+        )
+    }
+
+    @Test
+    fun progressRefreshTracksEveryCorrectnessDependency() {
+        assertTrue(ProgressRefreshRequest(tvLibraryChanged = true).requiresUpNext(false, false))
+        assertTrue(ProgressRefreshRequest(episodeHistoryChanged = true).requiresUpNext(false, false))
+        assertTrue(ProgressRefreshRequest(tvPlaybackChanged = true).requiresUpNext(false, false))
+        assertTrue(ProgressRefreshRequest().requiresUpNext(scheduleDue = true, cacheMissing = false))
+        assertTrue(ProgressRefreshRequest().requiresUpNext(scheduleDue = false, cacheMissing = true))
+    }
+
+    @Test
+    fun progressRefreshRequestsAreCoalescedWithoutLosingDependencies() {
+        val merged = ProgressRefreshRequest(tvLibraryChanged = true)
+            .mergedWith(ProgressRefreshRequest(episodeHistoryChanged = true, tvPlaybackChanged = true))
+        assertTrue(merged.tvLibraryChanged)
+        assertTrue(merged.episodeHistoryChanged)
+        assertTrue(merged.tvPlaybackChanged)
     }
 }

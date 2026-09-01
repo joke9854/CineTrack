@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.repository.SimklSyncOutcome
 import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.GitHubAppUpdater
@@ -51,6 +52,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     private val refreshMutex = Mutex()
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
+    private var pendingProgressRefresh = ProgressRefreshRequest()
     private var startupStateBuilding = true
     private val detailMediaCache = mutableMapOf<String, MediaCard>()
     private val detailRatingsCache = mutableMapOf<String, List<RatingScore>>()
@@ -123,11 +125,6 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else Result.success(SimklSyncOutcome(itemsChanged = false))
             var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
             var discoverError: Throwable? = null
-            if (databaseChanged) {
-                // The Simkl transaction is already complete. Publish it before
-                // any slower TMDB schedule/title enrichment starts.
-                _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
-            }
             if (cached.rails.values.all { it.isEmpty() }) {
                 withContext(Dispatchers.IO) {
                     runCatching { repository.refreshDiscover() }
@@ -142,10 +139,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 _state.value = _state.value.copy(error = error)
             }
             startupStateBuilding = false
-            // Rebuild only derived TMDB metadata after the cached UI is visible.
-            // Freshness gates avoid redundant schedule calls, while this also
-            // repairs artwork missing from older Simkl imports.
-            scheduleProgressCacheRefresh()
+            // A successful Simkl sync already rebuilt the correctness-critical
+            // Progress cache and queued cosmetic enrichment. Only disconnected or
+            // failed startup paths still need an independent cache refresh.
+            if (!cached.simklConnected || coldSync.isFailure) scheduleProgressCacheRefresh()
         }
         viewModelScope.launch {
             val interval = TimeUnit.MINUTES.toMillis(510)
@@ -287,7 +284,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else null
             // The Simkl request starts immediately after the local commit. TMDB
             // metadata enrichment is independent and must never delay that push.
-            scheduleProgressCacheRefresh()
+            scheduleProgressCacheRefresh(
+                ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
+            )
             if (pushError != null) {
                 _state.value = _state.value.copy(error = pushError.message)
             }
@@ -310,7 +309,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 }
                 if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
             }
-            scheduleProgressCacheRefresh()
+            scheduleProgressCacheRefresh(
+                ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
+            )
         }
     }
 
@@ -335,6 +336,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 val syncState = _state.value.sync
                 val refreshed = withContext(Dispatchers.IO) {
                     repository.markEpisodeWatched(episode)
+                    repository.refreshProgressCache(
+                        ProgressRefreshRequest(episodeHistoryChanged = true),
+                    )
                     repository.loadCachedState().copy(sync = syncState)
                 }
                 _state.value = refreshed
@@ -357,7 +361,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         updateCachedEpisode(episode, watched = true)
         viewModelScope.launch {
             repository.markEpisodeWatched(episode)
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true)
         }
     }
 
@@ -365,7 +369,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         updateCachedEpisode(episode, watched)
         viewModelScope.launch {
             repository.setEpisodeWatched(episode, watched)
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true)
         }
     }
 
@@ -378,7 +382,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         viewModelScope.launch {
             episodes.forEach { repository.setEpisodeWatched(it, watched) }
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true)
         }
     }
 
@@ -394,7 +398,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             withContext(Dispatchers.IO) {
                 changed.forEach { repository.setEpisodeWatched(it, watched) }
             }
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true)
         }
     }
 
@@ -404,9 +408,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    private suspend fun refreshCachedState() {
+    private suspend fun refreshCachedState(refreshProgress: Boolean = false) {
         val current = _state.value
-        val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+        val cached = withContext(Dispatchers.IO) {
+            if (refreshProgress) {
+                repository.refreshProgressCache(
+                    ProgressRefreshRequest(episodeHistoryChanged = true),
+                )
+            }
+            repository.loadCachedState()
+        }
         val watchedNumbers = cached.history.mapNotNull { event ->
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
                 Triple(event.media.id, event.season, event.episodeNumber)
@@ -449,7 +460,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
             // The repository does not finish the visible sync until both the
-            // remote transaction and all derived local processing are complete.
+            // remote transaction and correctness-critical Progress data are complete.
             _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 .copy(sync = completedSync)
             viewModelScope.launch(Dispatchers.IO) { repository.createAutomaticBackup() }
@@ -471,16 +482,21 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
      * Refreshes derived Progress metadata without extending the visible Simkl
      * synchronization or queueing duplicate refreshes after rapid status taps.
      */
-    private fun scheduleProgressCacheRefresh() {
+    private fun scheduleProgressCacheRefresh(
+        request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
+    ) {
         progressRefreshRequested = true
+        pendingProgressRefresh = pendingProgressRefresh.mergedWith(request)
         if (progressRefreshJob?.isActive == true) return
         progressRefreshJob = viewModelScope.launch {
             do {
                 progressRefreshRequested = false
-                val refreshError = withContext(Dispatchers.IO) {
-                    runCatching { repository.refreshProgressCache() }.exceptionOrNull()
+                val refreshRequest = pendingProgressRefresh
+                pendingProgressRefresh = ProgressRefreshRequest()
+                val refreshResult = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshProgressCache(refreshRequest) }
                 }
-                if (refreshError == null) {
+                if (refreshResult.getOrDefault(false)) {
                     val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
                     val current = _state.value
                     _state.value = cached.copy(
@@ -748,6 +764,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                         }
                     } ?: error("Could not open backup")
                     repository.restoreBackupFiles(entries)
+                    repository.refreshProgressCache()
                 }
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 _state.value = cached.copy(sync = _state.value.sync, error = null)
@@ -759,7 +776,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun restoreAutomaticBackup() {
         viewModelScope.launch {
             runCatching {
-                withContext(Dispatchers.IO) { repository.restoreAutomaticBackup() }
+                withContext(Dispatchers.IO) {
+                    repository.restoreAutomaticBackup()
+                    repository.refreshProgressCache()
+                }
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 _state.value = cached.copy(sync = _state.value.sync, error = null)
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
