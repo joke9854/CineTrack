@@ -84,6 +84,26 @@ class CineTrackRepository(
         return LocalDate.now(zone)
     }
 
+    /** TMDB accepts one watch region. Make Discover/provider availability follow
+     * the content-region filter, then fall back to metadata and device regions. */
+    private suspend fun effectiveProviderRegion(): String {
+        preferences.contentRegions.first().sorted().firstOrNull()?.let { return it.uppercase() }
+        preferences.metadataRegion.first().takeUnless { it == "system" || it.isBlank() }?.let { return it.uppercase() }
+        return Locale.getDefault().country.takeIf(String::isNotBlank)?.uppercase() ?: "US"
+    }
+
+    private fun scheduleTime(raw: String?): Long = raw?.takeIf(String::isNotBlank)?.let { value ->
+        runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
+            ?: runCatching {
+                LocalDate.parse(value.take(10)).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            }.getOrNull()
+    } ?: 0L
+
+    private fun playbackRecency(item: PlaybackCard): Long = maxOf(
+        item.media.libraryUpdatedAt ?: 0L,
+        scheduleTime(item.episodeAirDate),
+    )
+
     private val episodeTitleCache = mutableMapOf<String, String>()
     private val progressCacheMutex = Mutex()
     private val libraryPushMutex = Mutex()
@@ -162,8 +182,7 @@ class CineTrackRepository(
         val genreQuery = filters.genreIds.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(",")
         val excludedGenreQuery = filters.excludedGenreIds.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(",")
         val providerQuery = filters.providerIds.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("|")
-        val watchRegion = preferences.metadataRegion.first().takeUnless { it == "system" }
-            ?: java.util.Locale.getDefault().country.takeIf(String::isNotBlank)
+        val watchRegion = effectiveProviderRegion()
         val decadeFrom = filters.decadeStart?.let { "$it-01-01" }
         val decadeTo = filters.decadeStart?.let { "${it + 9}-12-31" }
         val entities = (1..3).flatMap { page ->
@@ -221,10 +240,7 @@ class CineTrackRepository(
 
     suspend fun loadStreamingProviders(mediaType: MediaType): List<StreamingProvider> {
         if (tmdbApiKey().isBlank()) return emptyList()
-        val configured = preferences.metadataRegion.first()
-        val region = configured.takeUnless { it == "system" }
-            ?: Locale.getDefault().country.takeIf(String::isNotBlank)
-            ?: "US"
+        val region = effectiveProviderRegion()
         return runCatching {
             val providers = if (mediaType == MediaType.TV) {
                 services.tmdb.tvProviders(region).results
@@ -241,6 +257,14 @@ class CineTrackRepository(
                     )
                 }
         }.getOrDefault(emptyList())
+    }
+
+    suspend fun loadSettingsStreamingProviders(): List<StreamingProvider> = coroutineScope {
+        val movies = async { loadStreamingProviders(MediaType.MOVIE) }
+        val shows = async { loadStreamingProviders(MediaType.TV) }
+        (movies.await() + shows.await())
+            .distinctBy(StreamingProvider::id)
+            .sortedBy { it.name.lowercase(Locale.getDefault()) }
     }
 
     fun simklConnectedNow(): Boolean = !currentToken().isNullOrBlank()
@@ -279,6 +303,9 @@ class CineTrackRepository(
         val syncReportDeferred = async { preferences.syncReportNow() }
         val excludeSpecialsDeferred = async { preferences.excludeSpecials.first() }
         val preferredProvidersDeferred = async { preferences.preferredProviders.first() }
+        val notificationEpisodesDeferred = async { preferences.notificationEpisodes.first() }
+        val notificationMoviesDeferred = async { preferences.notificationMovies.first() }
+        val notificationSyncDeferred = async { preferences.notificationSync.first() }
         val cardDensityDeferred = async { preferences.cardDensity.first() }
         val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
@@ -409,10 +436,6 @@ class CineTrackRepository(
                 Triple(event.media.id, event.season, event.episodeNumber)
             } else null
         }.toSet()
-        val latestWatchByShow = history.asSequence()
-            .filter { it.media.type == MediaType.TV }
-            .groupBy { it.media.stableKey }
-            .mapValues { (_, events) -> events.maxOfOrNull(TimelineCard::timestamp).orEmpty() }
         val playbackByShow = playback.filter { it.media.type == MediaType.TV }.associateBy { it.media.stableKey }
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.TV && it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED) }
@@ -449,8 +472,7 @@ class CineTrackRepository(
                 )
             }
             .sortedWith(
-                compareByDescending<PlaybackCard> { it.episodeAirDate.orEmpty() }
-                    .thenByDescending { latestWatchByShow[it.media.stableKey].orEmpty() }
+                compareByDescending<PlaybackCard>(::playbackRecency)
                     .thenBy { it.media.title.lowercase() },
             )
         val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
@@ -477,6 +499,9 @@ class CineTrackRepository(
             simklConnected = simklConnectedNow(),
             backgroundSync = backgroundSyncDeferred.await(),
             wifiOnly = wifiOnlyDeferred.await(),
+            notificationEpisodes = notificationEpisodesDeferred.await(),
+            notificationMovies = notificationMoviesDeferred.await(),
+            notificationSync = notificationSyncDeferred.await(),
             ratingSources = ratingSourcesDeferred.await(),
             contentRegions = contentRegionsDeferred.await(),
             uiAccent = uiAccentDeferred.await(),
@@ -777,20 +802,23 @@ class CineTrackRepository(
                 overview = localized.overview.ifBlank { english?.overview.orEmpty() },
                 seasons = localized.seasons.ifEmpty { english?.seasons.orEmpty() },
             )
-            val providerRegion = preferences.metadataRegion.first().takeUnless { it == "system" }
-                ?: java.util.Locale.getDefault().country.takeIf(String::isNotBlank)
-                ?: "US"
+            val providerRegion = effectiveProviderRegion()
             val providerCountry = dto.watchProviders?.results?.get(providerRegion)
             val preferredProviders = preferences.preferredProviders.first()
-            fun List<com.cinetrack.data.remote.TmdbProviderDto>.preferredFirst() =
-                distinctBy { it.id }.sortedWith(
+            fun List<com.cinetrack.data.remote.TmdbProviderDto>.visibleProviders() =
+                distinctBy { it.id }
+                    .let { providers ->
+                        if (preferredProviders.isEmpty()) providers
+                        else providers.filter { it.name in preferredProviders }
+                    }
+                    .sortedWith(
                     compareByDescending<com.cinetrack.data.remote.TmdbProviderDto> { it.name in preferredProviders }
                         .thenBy { it.name.lowercase() },
                 )
             val providers = providerCountry
                 ?.let { it.flatrate + it.rent + it.buy }
                 .orEmpty()
-                .preferredFirst()
+                .visibleProviders()
             dto.toEntity(media.type).toDomain().copy(
                 status = media.status,
                 watched = media.watched,
@@ -800,9 +828,9 @@ class CineTrackRepository(
                 providerLogos = providers.mapNotNull { provider ->
                     provider.logoPath?.let { provider.name to "https://image.tmdb.org/t/p/w92$it" }
                 }.toMap(),
-                subscriptionProviders = providerCountry?.flatrate.orEmpty().preferredFirst().map { it.name },
-                rentProviders = providerCountry?.rent.orEmpty().preferredFirst().map { it.name },
-                buyProviders = providerCountry?.buy.orEmpty().preferredFirst().map { it.name },
+                subscriptionProviders = providerCountry?.flatrate.orEmpty().visibleProviders().map { it.name },
+                rentProviders = providerCountry?.rent.orEmpty().visibleProviders().map { it.name },
+                buyProviders = providerCountry?.buy.orEmpty().visibleProviders().map { it.name },
                 providerLink = providerCountry?.link,
                 seasons = dto.seasons.filter { it.number > 0 }.map { season ->
                     SeasonCard(
@@ -853,32 +881,54 @@ class CineTrackRepository(
         watched: Set<Triple<Int, Int, Int>>,
     ): Map<String, EpisodeCard> {
         val today = localToday()
+        val excludeSpecials = preferences.excludeSpecials.first()
+        val cachedByShow = database.mediaDao().episodeSnapshot()
+            .map { it.toDomain() }
+            .groupBy(EpisodeCard::showId)
         val result = linkedMapOf<String, EpisodeCard>()
         for (batch in shows.distinctBy(MediaCard::stableKey).chunked(4)) {
             val loaded = coroutineScope {
                 batch.map { show -> async {
-                    val candidates = runCatching { loadAllEpisodes(show) }.getOrDefault(emptyList())
-                        .asSequence()
-                        .filter { it.season > 0 }
-                        .filter { episode ->
-                            episode.airDate?.take(10)?.let { raw ->
-                                runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                            } == true
-                        }
-                        .filterNot { Triple(show.id, it.season, it.number) in watched }
-                        .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
-                        .toList()
                     val lastWatched = watched.asSequence()
                         .filter { it.first == show.id && it.second > 0 }
                         .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
-                    // Match Showly's LAST_WATCHED mode: prefer the first aired,
-                    // unwatched episode after the latest watched episode. If the
-                    // history has a gap, fall back to the oldest available gap.
-                    val episode = lastWatched?.let { last ->
-                        candidates.firstOrNull {
-                            it.season > last.second || (it.season == last.second && it.number > last.third)
+
+                    fun nextFrom(source: List<EpisodeCard>): EpisodeCard? {
+                        val candidates = source.asSequence()
+                            .filter { !excludeSpecials || it.season > 0 }
+                            .filter { episode ->
+                                episode.airDate?.take(10)?.let { raw ->
+                                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                                } == true
+                            }
+                            .filterNot { Triple(show.id, it.season, it.number) in watched }
+                            .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+                            .toList()
+                        return lastWatched?.let { last ->
+                            candidates.firstOrNull {
+                                it.season > last.second || (it.season == last.second && it.number > last.third)
+                            }
+                        } ?: candidates.firstOrNull()
+                    }
+
+                    // Usually Simkl's schedule plus Room is enough. If not, only
+                    // fetch the current and following season instead of every
+                    // historical season for every show in the progress list.
+                    var candidates = cachedByShow[show.id].orEmpty()
+                    var episode = nextFrom(candidates)
+                    if (episode == null && tmdbApiKey().isNotBlank()) {
+                        val seasons = if (lastWatched != null) {
+                            listOf(lastWatched.second, lastWatched.second + 1)
+                        } else {
+                            listOf(show.seasons.firstOrNull { it.number > 0 }?.number ?: 1)
                         }
-                    } ?: candidates.firstOrNull()
+                        for (season in seasons.distinct().filter { it > 0 }) {
+                            val fetched = runCatching { loadEpisodes(show, season) }.getOrDefault(emptyList())
+                            candidates = (candidates + fetched).distinctBy { it.season to it.number }
+                            episode = nextFrom(candidates)
+                            if (episode != null) break
+                        }
+                    }
                     episode?.let { show.stableKey to it }
                 } }.mapNotNull { it.await() }
             }
@@ -1052,7 +1102,10 @@ class CineTrackRepository(
      * written to Room first; callers then publish a fresh database snapshot.
      * Nothing returned by the network is exposed directly to Compose.
      */
-    suspend fun refreshProgressCache() = progressCacheMutex.withLock {
+    suspend fun refreshProgressCache(
+        onProgress: ((Float) -> Unit)? = null,
+    ) = progressCacheMutex.withLock {
+        onProgress?.invoke(.82f)
         val state = loadCachedState()
         val activeLibrary = state.rails[RailIds.LIBRARY].orEmpty().filter {
             it.status != LibraryStatus.NONE && it.status != LibraryStatus.DROPPED
@@ -1083,17 +1136,72 @@ class CineTrackRepository(
                         state.calendar.map(TimelineCard::media) + state.history.map(TimelineCard::media),
                 )
             }
+            val historyRepair = async { enrichHistoryLabels(state.history) }
             // Upcoming metadata populates the episode cache first; up-next then
             // reuses it instead of issuing duplicate recent-season requests.
             loadUpcomingEpisodes(libraryShows)
+            onProgress?.invoke(.90f)
             loadUpNextEpisodes(progressShows, watched)
-            enrichHistoryLabels(state.history)
+            onProgress?.invoke(.96f)
+            historyRepair.await()
             artworkRepair.await()
         }
+        onProgress?.invoke(.99f)
         val refreshedAt = System.currentTimeMillis()
         database.syncDao().upsert(
             SyncStateEntity("progress_cache", Instant.ofEpochMilli(refreshedAt).toString(), refreshedAt),
         )
+    }
+
+    /**
+     * Simkl's public calendar is regenerated every few hours and is more precise
+     * for currently airing shows. It supplies the canonical date while existing
+     * TMDB rows continue to provide localized titles, stills and runtimes.
+     */
+    private suspend fun refreshSimklSchedule(shows: List<MediaCard>): Boolean {
+        val now = System.currentTimeMillis()
+        val freshness = 5L * 60L * 60L * 1_000L
+        val previous = database.syncDao().get("simkl_calendar")
+        if (previous != null && now - previous.lastSuccessfulSync < freshness) return true
+
+        val (tvResult, animeResult) = coroutineScope {
+            val tv = async { runCatching { services.simklCalendar.tv() } }
+            val anime = async { runCatching { services.simklCalendar.anime() } }
+            tv.await() to anime.await()
+        }
+        val complete = tvResult.isSuccess && animeResult.isSuccess
+        val tracked = shows.map(MediaCard::id).toSet()
+        val existing = database.mediaDao().episodeSnapshot()
+            .associateBy { Triple(it.showId, it.season, it.number) }
+        val calendarRows = (tvResult.getOrDefault(emptyList()) + animeResult.getOrDefault(emptyList()))
+            .mapNotNull { item ->
+                val showId = item.ids.tmdb?.toIntOrNull()?.takeIf(tracked::contains) ?: return@mapNotNull null
+                val season = item.episode.season
+                val number = item.episode.number
+                if (season < 0 || number <= 0) return@mapNotNull null
+                val date = item.date.takeIf { it.length >= 10 } ?: item.releaseDate.takeIf { it.length >= 10 }
+                    ?: return@mapNotNull null
+                val cached = existing[Triple(showId, season, number)]
+                EpisodeEntity(
+                    showId = showId,
+                    season = season,
+                    number = number,
+                    tmdbId = cached?.tmdbId,
+                    title = cached?.title?.takeIf(String::isNotBlank) ?: "Episode $number",
+                    overview = cached?.overview.orEmpty(),
+                    airDate = date,
+                    stillPath = cached?.stillPath,
+                    runtimeMinutes = cached?.runtimeMinutes,
+                )
+            }
+            .distinctBy { Triple(it.showId, it.season, it.number) }
+        if (calendarRows.isNotEmpty() || complete) {
+            database.withTransaction {
+                if (calendarRows.isNotEmpty()) database.mediaDao().upsertEpisodes(calendarRows)
+                if (complete) database.syncDao().upsert(SyncStateEntity("simkl_calendar", null, now))
+            }
+        }
+        return complete
     }
 
     private suspend fun refreshMissingArtwork(library: List<MediaCard>) {
@@ -1141,11 +1249,13 @@ class CineTrackRepository(
         val distinctShows = shows.distinctBy(MediaCard::stableKey)
         val trackedShowIds = distinctShows.map(MediaCard::id).toSet()
         if (trackedShowIds.isEmpty()) return emptyList()
+        val simklScheduleReady = refreshSimklSchedule(distinctShows)
         val cached = database.mediaDao().episodeSnapshot().map { it.toDomain() }.filter { episode ->
             episode.showId in trackedShowIds && (!excludeSpecials || episode.season > 0) && episode.airDate?.take(10)?.let { raw ->
                 runCatching { !LocalDate.parse(raw).isBefore(today) }.getOrDefault(false)
             } == true
         }
+        if (simklScheduleReady) return cached.sortedBy(EpisodeCard::airDate)
         if (tmdbApiKey().isBlank()) return cached.sortedBy(EpisodeCard::airDate)
         val now = System.currentTimeMillis()
         val scheduleFreshnessMillis = 8L * 60L * 60L * 1_000L
@@ -1778,8 +1888,7 @@ class CineTrackRepository(
             if (libraryChanged) rebuildLibraryRailInTransaction()
         }
         preferences.markSimklChecked(committedAt)
-        progress(true, .80f, SyncStage.CALENDAR)
-        progress(true, .94f, SyncStage.COMMIT)
+        progress(true, .78f, SyncStage.COMMIT)
         val remoteStateKeys = remoteStates.map { "${it.mediaType}:${it.mediaId}" }.toSet()
         val addedCount = remoteStates.count { state ->
             localStatesByKey["${state.mediaType}:${state.mediaId}"]?.status in setOf(null, LibraryStatus.NONE.name)
@@ -1799,13 +1908,19 @@ class CineTrackRepository(
             databaseUntouched = false,
         )
         preferences.saveSyncReport(report)
+        refreshProgressCache { value ->
+            progress(true, value, SyncStage.PROCESSING)
+        }
         onProgress(SyncProgress(false, 1f, SyncStage.COMPLETE, lastSuccessfulSync = committedAt, report = report))
-        SimklSyncOutcome(itemsChanged = remoteChanged, report = report)
+        SimklSyncOutcome(itemsChanged = remoteChanged || pendingCount > 0, report = report)
         }.onFailure {
+            val committedSync = database.syncDao().get("all")?.lastSuccessfulSync
+            val databaseWasUpdated = committedSync != null && committedSync != previousSuccessfulSync
             val report = previousReport.copy(
                 pendingLocalChanges = database.stateDao().pendingStates().size + database.syncDao().pendingWrites().size,
                 failedOperations = 1,
-                databaseUntouched = true,
+                lastIncrementalSync = committedSync ?: previousReport.lastIncrementalSync,
+                databaseUntouched = !databaseWasUpdated,
             )
             preferences.saveSyncReport(report)
             onProgress(SyncProgress(false, 0f, SyncStage.ERROR, it.message, previousSuccessfulSync, report))

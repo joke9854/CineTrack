@@ -74,6 +74,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
     private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
+    private var downloadedUpdateFile: File? = null
 
     init {
         viewModelScope.launch {
@@ -190,6 +191,20 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch {
             _streamingProviders.value = withContext(Dispatchers.IO) {
                 repository.loadStreamingProviders(mediaType)
+            }
+        }
+    }
+
+    fun loadSettingsStreamingProviders() {
+        viewModelScope.launch {
+            val providers = withContext(Dispatchers.IO) {
+                repository.loadSettingsStreamingProviders()
+            }
+            _streamingProviders.value = providers
+            if (providers.isNotEmpty()) {
+                val availableNames = providers.map(StreamingProvider::name).toSet()
+                val retained = _state.value.preferredProviders.intersect(availableNames)
+                if (retained != _state.value.preferredProviders) setPreferredProviders(retained)
             }
         }
     }
@@ -433,18 +448,18 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
-            // Simkl membership/history/playback became durable in one Room
-            // transaction. Make it visible now; schedule enrichment separately.
+            // The repository does not finish the visible sync until both the
+            // remote transaction and all derived local processing are complete.
             _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 .copy(sync = completedSync)
-            scheduleProgressCacheRefresh()
             viewModelScope.launch(Dispatchers.IO) { repository.createAutomaticBackup() }
         } else if (outcome != null && exposeProgress) {
             // Complete the synchronization indicator without replacing any page
             // collections when Simkl reported an unchanged activity generation.
             _state.value = _state.value.copy(sync = completedSync)
         } else if (result.isFailure) {
-            _state.value = _state.value.copy(
+            val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _state.value = cached.copy(
                 sync = completedSync,
                 error = result.exceptionOrNull()?.message ?: completedSync.message,
             )
@@ -544,12 +559,21 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
     }
     fun setLanguage(value: String) = viewModelScope.launch { repository.preferences.setLanguage(value) }
-    fun setNotification(kind: String, enabled: Boolean) = viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+    fun setNotification(kind: String, enabled: Boolean) {
+        _state.value = when (kind) {
+            "episodes" -> _state.value.copy(notificationEpisodes = enabled)
+            "movies" -> _state.value.copy(notificationMovies = enabled)
+            else -> _state.value.copy(notificationSync = enabled)
+        }
+        viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+    }
 
-    fun setExcludeSpecials(enabled: Boolean) = viewModelScope.launch {
-        repository.preferences.setExcludeSpecials(enabled)
-        val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
-        _state.value = cached.copy(sync = _state.value.sync)
+    fun setExcludeSpecials(enabled: Boolean) {
+        _state.value = _state.value.copy(excludeSpecials = enabled)
+        viewModelScope.launch {
+            repository.preferences.setExcludeSpecials(enabled)
+            scheduleProgressCacheRefresh()
+        }
     }
     fun setRatingSource(source: String, enabled: Boolean) {
         val key = when (source.lowercase()) {
@@ -669,7 +693,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun checkForAppUpdate() {
-        if (_appUpdateState.value is AppUpdateState.Checking) return
+        if (_appUpdateState.value is AppUpdateState.Checking || _appUpdateState.value is AppUpdateState.Downloading) return
         viewModelScope.launch {
             _appUpdateState.value = AppUpdateState.Checking
             GitHubAppUpdater.check()
@@ -684,9 +708,25 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     fun openAppUpdate(context: Context) {
         val update = (_appUpdateState.value as? AppUpdateState.Available)?.update ?: return
-        runCatching {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)))
-        }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        viewModelScope.launch {
+            val cached = downloadedUpdateFile?.takeIf(File::exists)
+            if (cached != null) {
+                runCatching { GitHubAppUpdater.launchInstaller(context, cached) }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+                return@launch
+            }
+            _appUpdateState.value = AppUpdateState.Downloading(update, 0f)
+            GitHubAppUpdater.download(context, update) { progress ->
+                _appUpdateState.value = AppUpdateState.Downloading(update, progress)
+            }.onSuccess { apk ->
+                downloadedUpdateFile = apk
+                _appUpdateState.value = AppUpdateState.Available(update)
+                runCatching { GitHubAppUpdater.launchInstaller(context, apk) }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+            }.onFailure { failure ->
+                _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update download failed")
+            }
+        }
     }
 
     fun restoreData(context: Context, uri: Uri) {

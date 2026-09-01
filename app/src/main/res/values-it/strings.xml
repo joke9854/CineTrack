@@ -30,6 +30,7 @@
     <string name="sync_stage_history">Aggiornamento cronologia e liste</string>
     <string name="sync_stage_calendar">Aggiornamento calendario</string>
     <string name="sync_stage_commit">Salvataggio locale</string>
+    <string name="sync_stage_processing">Elaborazione dati locali</string>
     <string name="continue_watching">Continua a guardare</string>
     <string name="tv_shows">Serie TV</string>
     <string name="movies">Film</string>
@@ -88,11 +89,11 @@
     <string name="database_untouched">Nessuna modifica remota rilevata—database invariato.</string>
     <string name="sync_summary">Scaricati %1$d · Caricati %2$d · Aggiunti %3$d · Rimossi %4$d</string>
     <string name="exclude_specials">Escludi gli speciali</string>
-    <string name="upcoming_diagnostic_explanation">Gli elementi futuri vengono mostrati solo per i titoli seguiti con una data valida nel fuso orario dei metadati. I risultati in cache restano visibili se TMDB non è disponibile.</string>
+    <string name="upcoming_diagnostic_explanation">Gli elementi futuri vengono mostrati solo per i titoli seguiti con una data valida nel fuso orario dei metadati. Vengono preferite le date Simkl e la cache resta visibile offline.</string>
     <string name="coming_soon">In arrivo</string>
     <string name="why_not_shown">Perché non viene mostrato?</string>
     <string name="no_tracked_shows_for_upcoming">Aggiungi una serie TV alla raccolta per seguirne gli episodi annunciati.</string>
-    <string name="no_announced_episodes">TMDB non ha ancora episodi futuri con data per le tue %1$d serie seguite. L’ultima programmazione valida in cache viene conservata.</string>
+    <string name="no_announced_episodes">Simkl non ha ancora episodi futuri con data per le tue %1$d serie seguite. L’ultima programmazione valida in cache viene conservata.</string>
     <string name="statistics">Statistiche</string>
     <string name="this_month">Questo mese</string>
     <string name="this_year">Quest’anno</string>
@@ -100,6 +101,9 @@
     <string name="completion_rate">Tasso di completamento</string>
     <string name="most_watched_genres">Generi più guardati</string>
     <string name="activity_heatmap">Attività di visione</string>
+    <string name="heatmap_summary">%1$d giorni attivi · serie di %2$d</string>
+    <string name="less_activity">Meno</string>
+    <string name="more_activity">Più</string>
     <string name="exclude_genres">Escludi generi</string>
     <string name="anime_filter">Anime</string>
     <string name="anime_only">Solo anime</string>
@@ -265,6 +269,8 @@
     <string name="checking_for_updates">Ricerca aggiornamenti su GitHub…</string>
     <string name="app_is_up_to_date">CineTrack è aggiornato</string>
     <string name="update_available">È disponibile la versione %1$s</string>
+    <string name="downloading_update">Download aggiornamento… %1$d%%</string>
+    <string name="download_and_install">Scarica e installa</string>
     <string name="open_github_release">Apri la release GitHub</string>
     <string name="check_for_updates">Controlla aggiornamenti</string>
     <string name="restore_hidden_recommendations">Ripristina %1$d consigli nascosti</string>

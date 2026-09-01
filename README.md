@@ -1,6 +1,6 @@
-# CineTrack 0.63
+# CineTrack 0.64
 
-CineTrack 0.63 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
+CineTrack 0.64 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
 
 ## Open in Android Studio
 
@@ -21,12 +21,12 @@ CineTrack 0.63 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It co
 
 The app never inserts mockup/demo titles. Without a TMDB token, discovery stays empty and reports the missing configuration; Simkl and Room continue to show only real account and locally saved data.
 
-## Included 0.63 behavior
+## Included 0.64 behavior
 
 - Detailed synchronization activity with downloaded/uploaded/add/remove/unchanged counts, pending writes, failures, conflicts and full/incremental timestamps. Unchanged activity exits before Room item writes.
 - Previous-episode watched prompt, white detail status text, hour-based duration formatting and a complete scrollable cast sheet.
 - Statistics (including on-demand actor/director insights), saved discovery presets, include/exclude genres, anime/provider/runtime/language/decade controls, persisted “show less like this,” recommendation explanations, and bulk library status editing.
-- Tracked-only upcoming diagnostics, specials filtering, hide/restore upcoming entries, and separate available/coming-soon rows while preserving the last valid schedule.
+- Tracked-only upcoming diagnostics, specials filtering, hide/restore upcoming entries, and one coming-soon row based primarily on Simkl air dates while preserving the last valid schedule.
 - Region-aware subscription/rent/buy provider groups, preferred-provider availability notifications, release notifications, calendar export, deep links, shortcuts and an Up Next widget.
 - Encrypted Simkl/API overrides, automatic logical backups, one-tap recovery and checksum-validated restore before any database transaction.
 
@@ -43,8 +43,8 @@ The app never inserts mockup/demo titles. Without a TMDB token, discovery stays 
 - Detail actions follow live library state, TMDB release status appears beside the library status, and collection titles are chronologically indexed.
 
 - TV/movie status changes are pushed to Simkl immediately; failed requests remain dirty and retry safely during the next synchronization.
-- Simkl imports become visible as soon as their atomic Room commit completes. Calendar, up-next and title enrichment continue in the background without holding the UI on local save.
-- Watched-history imports use batched Room inserts, while tracked-show schedule checks are reused for eight hours to avoid repeated TMDB work.
+- The determinate Simkl progress bar includes Room-derived schedule, up-next, label and artwork processing and finishes only after that local phase completes.
+- Watched-history imports use batched Room inserts; the public Simkl TV/anime calendar is cached for five hours and TMDB is retained as a schedule fallback.
 
 - Library additions, removals and status moves are pushed to Simkl immediately; failed requests remain dirty for automatic retry.
 - Simkl `removed_from_list` activity is tracked separately and triggers a complete membership reconciliation, following the official synchronization guidance.
@@ -78,7 +78,7 @@ The app never inserts mockup/demo titles. Without a TMDB token, discovery stays 
 - A single shared liquid-glass selection pill that travels between bottom-navigation tabs and adapts to the compact scroll state.
 - Separate trending TV, trending movie and upcoming rails; watched/library poster badges; three-column See All pages.
 - Cached Room/DataStore state is published before network refresh, and active pages observe Room invalidations so a completed Simkl import is applied immediately without restarting the app.
-- Real Simkl TV/movie playback groups, Showly-style last-watched up-next selection, episode-level watched repair (including anime), mixed history and calendar timelines, and a staged determinate sync bar. No mockup entries are seeded into Room.
+- Real Simkl TV/movie playback groups, Simkl-style latest-unwatched ordering that promotes newly aired episodes for caught-up shows, episode-level watched repair (including anime), mixed history and calendar timelines, and a staged determinate sync bar. No mockup entries are seeded into Room.
 - Movie, TV and episode detail designs with one continuous artwork tint behind one translucent rounded sheet, unified exterior-depth back controls, shared primary actions, providers, ratings, two-column information, episodes, cast, collection titles and a dedicated More like this recommendation rail.
 - Fully expanded shared Material 3 sheets for Add to Library, sorting and actor details. Actor details remain bounded and scrollable; movie credits show their covers and are sorted newest-first when loaded from TMDB.
 - Episode swipe navigation with previous/next fallbacks; the nested cast rail consumes its own horizontal gesture.
@@ -90,7 +90,7 @@ The app never inserts mockup/demo titles. Without a TMDB token, discovery stays 
 
 - TMDB: discovery, search, metadata, images, providers, episodes and people.
 - MDBList: normalized rating sources.
-- Simkl: OAuth/PKCE connection, list state, watched history, playback progress and synchronization activity.
+- Simkl: OAuth/PKCE connection, list state, watched history, playback progress, airing dates and synchronization activity.
 - Room: merged offline state and pending writes.
 
 The project uses Android Gradle Plugin 8.13.2/JDK 17, Compose BOM 2025.08.00 (Compose 1.9, compatible with compileSdk 36), Room 2.8.4 and Navigation 2.9.8. See the official [Compose BOM](https://developer.android.com/develop/ui/compose/bom), [Room release notes](https://developer.android.com/jetpack/androidx/releases/room) and [Navigation release notes](https://developer.android.com/jetpack/androidx/releases/navigation).
@@ -100,6 +100,18 @@ The project uses Android Gradle Plugin 8.13.2/JDK 17, Compose BOM 2025.08.00 (Co
 After accepting the Simkl authorization, Android should return directly to CineTrack and the Synchronization page should change to Connected before the first sync starts. CineTrack exchanges the authorization code with Simkl's public-client PKCE flow using form-encoded `code`, `client_id`, `code_verifier`, `redirect_uri`, and `grant_type=authorization_code` fields; no client secret is stored in the APK. If authorization or an API request fails, the Synchronization page shows the provider/HTTP error instead of silently remaining disconnected. Check the redirect URI first: `cinetrack://simkl` and `cinetrack://simkl/` are different values.
 
 This revision increments the Room schema and intentionally drops the earlier development database once so any previously seeded mockup rows are removed. Real TMDB and Simkl content is then repopulated normally.
+
+## Publishing testing updates
+
+Configure these GitHub Actions repository secrets with the same permanent keystore used to sign the APK already installed on the device:
+
+- `ANDROID_KEYSTORE_BASE64`
+- `ANDROID_KEY_ALIAS`
+- `ANDROID_KEYSTORE_PASSWORD`
+- `ANDROID_KEY_PASSWORD`
+- `SIMKL_CLIENT_ID`
+
+Pushing a version-bumped commit to `testing/**` runs the signed release workflow. It publishes a testing prerelease containing the universal APK and its SHA-256 file. CineTrack checks that channel, downloads and verifies the APK, then opens Android's installer. `local.properties`, keystores, APKs and environment files are ignored by Git and must never be committed.
 
 ## Attribution and license
 

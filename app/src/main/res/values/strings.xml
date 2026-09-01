@@ -30,6 +30,7 @@
     <string name="sync_stage_history">Updating history and lists</string>
     <string name="sync_stage_calendar">Updating calendar</string>
     <string name="sync_stage_commit">Saving locally</string>
+    <string name="sync_stage_processing">Processing local data</string>
     <string name="continue_watching">Continue watching</string>
     <string name="tv_shows">TV shows</string>
     <string name="movies">Movies</string>
@@ -88,11 +89,11 @@
     <string name="database_untouched">No remote changes detected—database untouched.</string>
     <string name="sync_summary">Downloaded %1$d · Uploaded %2$d · Added %3$d · Removed %4$d</string>
     <string name="exclude_specials">Exclude specials</string>
-    <string name="upcoming_diagnostic_explanation">Upcoming items are shown only for tracked titles with a valid release date in the selected metadata timezone. Cached results stay visible if TMDB is unavailable.</string>
+    <string name="upcoming_diagnostic_explanation">Upcoming items are shown only for tracked titles with a valid release date in the selected metadata timezone. Simkl dates are preferred and cached results remain visible offline.</string>
     <string name="coming_soon">Coming soon</string>
     <string name="why_not_shown">Why isn’t this shown?</string>
     <string name="no_tracked_shows_for_upcoming">Add a TV show to your library to track announced episodes.</string>
-    <string name="no_announced_episodes">TMDB has no dated future episodes for your %1$d tracked shows yet. The last valid cached schedule is preserved.</string>
+    <string name="no_announced_episodes">Simkl has no dated future episodes for your %1$d tracked shows yet. The last valid cached schedule is preserved.</string>
     <string name="statistics">Statistics</string>
     <string name="this_month">This month</string>
     <string name="this_year">This year</string>
@@ -100,6 +101,9 @@
     <string name="completion_rate">Completion rate</string>
     <string name="most_watched_genres">Most-watched genres</string>
     <string name="activity_heatmap">Viewing activity</string>
+    <string name="heatmap_summary">%1$d active days · %2$d-day streak</string>
+    <string name="less_activity">Less</string>
+    <string name="more_activity">More</string>
     <string name="exclude_genres">Exclude genres</string>
     <string name="anime_filter">Anime</string>
     <string name="anime_only">Anime only</string>
@@ -265,6 +269,8 @@
     <string name="checking_for_updates">Checking GitHub for updates…</string>
     <string name="app_is_up_to_date">CineTrack is up to date</string>
     <string name="update_available">Version %1$s is available</string>
+    <string name="downloading_update">Downloading update… %1$d%%</string>
+    <string name="download_and_install">Download &amp; install</string>
     <string name="open_github_release">Open GitHub release</string>
     <string name="check_for_updates">Check for updates</string>
     <string name="restore_hidden_recommendations">Restore %1$d hidden recommendations</string>

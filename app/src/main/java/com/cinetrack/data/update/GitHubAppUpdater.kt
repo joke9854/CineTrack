@@ -1,8 +1,17 @@
 package com.cinetrack.data.update
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.os.Build
+import android.provider.Settings
+import androidx.core.content.FileProvider
 import com.cinetrack.BuildConfig
+import java.io.File
+import java.io.FileOutputStream
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.MessageDigest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
@@ -14,6 +23,9 @@ data class AppUpdateInfo(
     val title: String,
     val notes: String,
     val releaseUrl: String,
+    val apkUrl: String,
+    val checksumUrl: String?,
+    val apkSize: Long,
 )
 
 sealed interface AppUpdateState {
@@ -21,6 +33,7 @@ sealed interface AppUpdateState {
     data object Checking : AppUpdateState
     data object UpToDate : AppUpdateState
     data class Available(val update: AppUpdateInfo) : AppUpdateState
+    data class Downloading(val update: AppUpdateInfo, val progress: Float) : AppUpdateState
     data class Error(val message: String) : AppUpdateState
 }
 
@@ -39,6 +52,8 @@ private data class GitHubRelease(
 @Serializable
 private data class GitHubAsset(
     val name: String,
+    @SerialName("browser_download_url") val downloadUrl: String,
+    val size: Long = 0L,
 )
 
 object GitHubAppUpdater {
@@ -63,7 +78,12 @@ object GitHubAppUpdater {
                     channel.isBlank() || release.targetCommitish.startsWith(channel) || release.tagName.contains(channel, ignoreCase = true)
                 }
                 .mapNotNull { release ->
-                    if (release.assets.none { it.name.endsWith(".apk", ignoreCase = true) }) return@mapNotNull null
+                    val apk = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+                        ?: return@mapNotNull null
+                    val checksum = release.assets.firstOrNull {
+                        it.name.equals("${apk.name}.sha256", ignoreCase = true) ||
+                            it.name.endsWith(".apk.sha256", ignoreCase = true)
+                    }
                     val version = release.tagName.removePrefix("v")
                     if (compareVersions(versionParts(version), current) <= 0) return@mapNotNull null
                     AppUpdateInfo(
@@ -71,10 +91,86 @@ object GitHubAppUpdater {
                         title = release.name?.takeIf(String::isNotBlank) ?: "CineTrack $version",
                         notes = release.body.orEmpty(),
                         releaseUrl = release.htmlUrl,
+                        apkUrl = apk.downloadUrl,
+                        checksumUrl = checksum?.downloadUrl,
+                        apkSize = apk.size,
                     )
                 }
                 .firstOrNull()
         }
+    }
+
+    suspend fun download(
+        context: Context,
+        update: AppUpdateInfo,
+        onProgress: (Float) -> Unit,
+    ): Result<File> = withContext(Dispatchers.IO) {
+        runCatching {
+            val directory = File(context.cacheDir, "updates").apply { mkdirs() }
+            val target = File(directory, "CineTrack-${update.version}.apk")
+            val temporary = File(directory, "${target.name}.part")
+            val connection = open(update.apkUrl)
+            check(connection.responseCode in 200..299) { "APK download returned HTTP ${connection.responseCode}" }
+            val expectedSize = connection.contentLength.toLong().takeIf { it > 0L } ?: update.apkSize.takeIf { it > 0L }
+            connection.inputStream.use { input ->
+                FileOutputStream(temporary).use { output ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    var downloaded = 0L
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        output.write(buffer, 0, count)
+                        downloaded += count
+                        if (expectedSize != null) onProgress((downloaded.toFloat() / expectedSize).coerceIn(0f, 1f))
+                    }
+                }
+            }
+            connection.disconnect()
+            if (expectedSize != null) check(temporary.length() == expectedSize) { "The downloaded APK is incomplete" }
+            update.checksumUrl?.let { checksumUrl ->
+                val checksumConnection = open(checksumUrl)
+                check(checksumConnection.responseCode in 200..299) { "Checksum download returned HTTP ${checksumConnection.responseCode}" }
+                val expected = checksumConnection.inputStream.bufferedReader().use { it.readText() }
+                    .trim().substringBefore(' ').lowercase()
+                checksumConnection.disconnect()
+                check(expected.matches(Regex("[a-f0-9]{64}"))) { "The release checksum is invalid" }
+                val digest = MessageDigest.getInstance("SHA-256")
+                temporary.inputStream().use { input ->
+                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        digest.update(buffer, 0, count)
+                    }
+                }
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                check(actual == expected) { "The APK checksum does not match" }
+            }
+            if (target.exists()) target.delete()
+            check(temporary.renameTo(target)) { "Could not prepare the downloaded APK" }
+            onProgress(1f)
+            target
+        }
+    }
+
+    /** Returns false after opening Android's permission screen; the user can tap
+     * Download & install again after allowing this app as an install source. */
+    fun launchInstaller(context: Context, apk: File): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
+            context.startActivity(
+                Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}"))
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+            return false
+        }
+        val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", apk)
+        context.startActivity(
+            Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/vnd.android.package-archive")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_ACTIVITY_NEW_TASK)
+            },
+        )
+        return true
     }
 
     private fun open(url: String): HttpURLConnection = (URL(url).openConnection() as HttpURLConnection).apply {

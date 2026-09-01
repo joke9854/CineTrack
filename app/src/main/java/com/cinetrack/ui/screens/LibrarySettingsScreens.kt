@@ -595,15 +595,13 @@ private fun SettingsDetailHero(page: String, title: String) {
 
 @Composable
 private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
-    var background by rememberSaveable(state.backgroundSync) { mutableStateOf(state.backgroundSync) }
-    var wifiOnly by rememberSaveable(state.wifiOnly) { mutableStateOf(state.wifiOnly) }
     SettingsSection(stringResource(R.string.status)) {
         ValueRow(stringResource(R.string.synchronization), if (state.simklConnected) stringResource(R.string.connected) else stringResource(R.string.not_connected), state.simklConnected)
     }
     SettingsSection(stringResource(R.string.synchronization)) {
-        ToggleRow(stringResource(R.string.background_sync), background) { background = it; viewModel.setBackgroundSync(it) }
+        ToggleRow(stringResource(R.string.background_sync), state.backgroundSync, viewModel::setBackgroundSync)
         GlassDivider()
-        ToggleRow(stringResource(R.string.wifi_only), wifiOnly) { wifiOnly = it; viewModel.setWifiOnly(it) }
+        ToggleRow(stringResource(R.string.wifi_only), state.wifiOnly, viewModel::setWifiOnly)
     }
     if (state.sync.report.lastIncrementalSync != null || state.sync.report.failedOperations > 0) {
         val report = state.sync.report
@@ -785,13 +783,10 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 @Composable
 private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     val context = LocalContext.current
-    var episodes by rememberSaveable { mutableStateOf(true) }
-    var movies by rememberSaveable { mutableStateOf(true) }
-    var sync by rememberSaveable { mutableStateOf(true) }
     SettingsSection(stringResource(R.string.notifications)) {
-        ToggleRow(stringResource(R.string.new_episodes), episodes) { episodes = it; viewModel.setNotification("episodes", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), movies) { movies = it; viewModel.setNotification("movies", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), sync) { sync = it; viewModel.setNotification("sync", it) }
+        ToggleRow(stringResource(R.string.new_episodes), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
+        GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), state.notificationMovies) { viewModel.setNotification("movies", it) }
+        GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), state.notificationSync) { viewModel.setNotification("sync", it) }
         GlassDivider(); ValueRow(stringResource(R.string.quiet_hours), "23:00–08:00")
     }
     SettingsSection(stringResource(R.string.upcoming_episodes)) {
@@ -848,10 +843,9 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         "Rotten Tomatoes" -> "tomatoes"
         else -> label.lowercase()
     }
-    var enabled by remember(state.ratingSources) { mutableStateOf(labels.associateWith { sourceKey(it) in state.ratingSources }) }
     SettingsSection(stringResource(R.string.rating_sources)) {
         labels.forEachIndexed { index, label ->
-            ToggleRow(label, enabled[label] == true) { value -> enabled = enabled + (label to value); viewModel.setRatingSource(label, value) }
+            ToggleRow(label, sourceKey(label) in state.ratingSources) { value -> viewModel.setRatingSource(label, value) }
             if (index != labels.lastIndex) GlassDivider()
         }
     }
@@ -864,17 +858,14 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
         "CA" to "Canada", "AU" to "Australia", "FR" to "France",
         "DE" to "Deutschland", "ES" to "España", "JP" to "Japan", "KR" to "South Korea",
     )
-    var selected by remember(state.contentRegions) { mutableStateOf(state.contentRegions) }
     SettingsSection(stringResource(R.string.content_regions)) {
-        ChoiceRow(stringResource(R.string.all_regions), selected.isEmpty()) {
-            selected = emptySet()
-            viewModel.setContentRegions(selected)
+        ChoiceRow(stringResource(R.string.all_regions), state.contentRegions.isEmpty()) {
+            viewModel.setContentRegions(emptySet())
         }
         choices.forEach { (code, label) ->
             GlassDivider()
-            ToggleRow("$label · $code", code in selected) { checked ->
-                selected = if (checked) selected + code else selected - code
-                viewModel.setContentRegions(selected)
+            ToggleRow("$label · $code", code in state.contentRegions) { checked ->
+                viewModel.setContentRegions(if (checked) state.contentRegions + code else state.contentRegions - code)
             }
         }
     }
@@ -896,13 +887,14 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
 
 @Composable
 private fun PreferredProviderSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val providers = listOf("Netflix", "Disney+", "Prime Video", "Max", "Apple TV+")
-    var selected by remember(state.preferredProviders) { mutableStateOf(state.preferredProviders) }
+    val providers by viewModel.streamingProviders.collectAsStateWithLifecycle()
+    LaunchedEffect(state.metadataRegion, state.contentRegions) { viewModel.loadSettingsStreamingProviders() }
     SettingsSection(stringResource(R.string.preferred_providers)) {
         providers.forEachIndexed { index, provider ->
-            ToggleRow(provider, provider in selected) { enabled ->
-                selected = if (enabled) selected + provider else selected - provider
-                viewModel.setPreferredProviders(selected)
+            ToggleRow(provider.name, provider.name in state.preferredProviders) { enabled ->
+                viewModel.setPreferredProviders(
+                    if (enabled) state.preferredProviders + provider.name else state.preferredProviders - provider.name,
+                )
             }
             if (index != providers.lastIndex) GlassDivider()
         }
@@ -1000,14 +992,15 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             AppUpdateState.Checking -> stringResource(R.string.checking_for_updates)
             AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
             is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
+            is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
             is AppUpdateState.Error -> current.message
         }
         Text(statusText, color = TextMuted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(10.dp))
         val updateAvailable = updateState is AppUpdateState.Available
-        val busy = updateState is AppUpdateState.Checking
+        val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
         PrimaryAction(
-            text = if (updateAvailable) stringResource(R.string.open_github_release) else stringResource(R.string.check_for_updates),
+            text = if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
             icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
             modifier = Modifier.fillMaxWidth(),
             enabled = !busy,

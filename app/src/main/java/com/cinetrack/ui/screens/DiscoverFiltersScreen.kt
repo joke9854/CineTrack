@@ -66,6 +66,7 @@ fun DiscoverFiltersScreen(
     results: List<MediaCard>,
     loading: Boolean,
     providers: List<StreamingProvider>,
+    regionKey: String,
     onApply: (DiscoverMovieFilters) -> Unit,
     onLoadProviders: (MediaType) -> Unit,
     onBack: () -> Unit,
@@ -138,7 +139,7 @@ fun DiscoverFiltersScreen(
     )
 
     LaunchedEffect(Unit) { onApply(filters()) }
-    LaunchedEffect(mediaType) {
+    LaunchedEffect(mediaType, regionKey) {
         providerIds = emptySet()
         onLoadProviders(mediaType)
     }

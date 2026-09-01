@@ -291,6 +291,7 @@ fun CineTrackApp(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
                     providers = streamingProviders,
+                    regionKey = "${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}",
                     onApply = viewModel::applyDiscoverFilters,
                     onLoadProviders = viewModel::loadStreamingProviders,
                     onBack = { navController.popBackStack() },

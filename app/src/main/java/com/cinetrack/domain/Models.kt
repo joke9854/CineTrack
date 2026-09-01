@@ -123,6 +123,7 @@ enum class SyncStage {
     HISTORY,
     CALENDAR,
     COMMIT,
+    PROCESSING,
     COMPLETE,
     ERROR,
 }
@@ -171,6 +172,9 @@ data class AppUiState(
     val simklConnected: Boolean = false,
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
+    val notificationEpisodes: Boolean = true,
+    val notificationMovies: Boolean = true,
+    val notificationSync: Boolean = true,
     val ratingSources: Set<String> = setOf("imdb", "tmdb", "metacritic", "tomatoes"),
     val contentRegions: Set<String> = emptySet(),
     val uiAccent: String = "watching",

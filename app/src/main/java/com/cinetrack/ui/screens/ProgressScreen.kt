@@ -371,6 +371,7 @@ private fun syncStageLabel(stage: SyncStage): String = when (stage) {
     SyncStage.HISTORY -> stringResource(R.string.sync_stage_history)
     SyncStage.CALENDAR -> stringResource(R.string.sync_stage_calendar)
     SyncStage.COMMIT -> stringResource(R.string.sync_stage_commit)
+    SyncStage.PROCESSING -> stringResource(R.string.sync_stage_processing)
     else -> stringResource(R.string.syncing)
 }
 
@@ -543,12 +544,10 @@ private fun ExpandablePlaybackSection(
                 }
             }
         }
-        if (items.size > 3 || (showEpisodeControl && items.isNotEmpty())) {
+        if (orderedItems.size > 3) {
             Row(
                 Modifier.padding(start = 20.dp, end = 20.dp, bottom = 22.dp).offset(y = buttonOffset).fillMaxWidth().height(40.dp)
-                    .glass(RoundedCornerShape(999.dp)).clickable {
-                        if (orderedItems.size > 3) expanded = !expanded else orderedItems.firstOrNull()?.media?.let(onMedia)
-                    },
+                    .glass(RoundedCornerShape(999.dp)).clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -867,10 +866,22 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
     }
     val watchedDays = historyDates.groupingBy { it }.eachCount()
     val heatmapWeeks = remember(now, watchedDays) {
-        val firstMonday = now.minusWeeks(11).with(DayOfWeek.MONDAY)
-        (0L until 12L).map { week ->
+        val firstMonday = now.minusWeeks(15).with(DayOfWeek.MONDAY)
+        (0L until 16L).map { week ->
             (0L until 7L).map { day -> firstMonday.plusWeeks(week).plusDays(day) }
         }
+    }
+    val maxDailyActivity = watchedDays.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val longestStreak = remember(watchedDays) {
+        var longest = 0
+        var current = 0
+        var previous: LocalDate? = null
+        watchedDays.keys.sorted().forEach { day ->
+            current = if (previous?.plusDays(1) == day) current + 1 else 1
+            longest = maxOf(longest, current)
+            previous = day
+        }
+        longest
     }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(stringResource(R.string.statistics))
@@ -907,7 +918,10 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
             )
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
-            Text(stringResource(R.string.activity_heatmap), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.activity_heatmap), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.heatmap_summary, watchedDays.size, longestStreak), color = TextMuted, fontSize = 9.sp, maxLines = 1)
+            }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().padding(start = 22.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 heatmapWeeks.forEachIndexed { index, week ->
@@ -937,23 +951,36 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         week.forEach { day ->
                             val count = watchedDays[day] ?: 0
+                            val level = if (count == 0) 0 else ((count * 4 + maxDailyActivity - 1) / maxDailyActivity).coerceIn(1, 4)
                             Box(
                                 Modifier.fillMaxWidth().height(13.dp).clip(RoundedCornerShape(3.dp))
                                     .background(
                                         Accent.copy(
                                             alpha = when {
                                                 day.isAfter(now) -> .035f
-                                                count == 0 -> .09f
-                                                count == 1 -> .32f
-                                                count <= 3 -> .60f
-                                                else -> .94f
+                                                level == 0 -> .09f
+                                                level == 1 -> .28f
+                                                level == 2 -> .48f
+                                                level == 3 -> .70f
+                                                else -> .96f
                                             },
                                         ),
-                                    ),
+                                    )
+                                    .then(if (day == now) Modifier.border(1.dp, AccentLight, RoundedCornerShape(3.dp)) else Modifier),
                             )
                         }
                     }
                 }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.less_activity), color = TextMuted, fontSize = 8.sp)
+                Spacer(Modifier.width(5.dp))
+                listOf(.09f, .28f, .48f, .70f, .96f).forEach { alpha ->
+                    Box(Modifier.padding(horizontal = 1.5.dp).size(9.dp).clip(RoundedCornerShape(2.dp)).background(Accent.copy(alpha = alpha)))
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(stringResource(R.string.more_activity), color = TextMuted, fontSize = 8.sp)
             }
         }
     }

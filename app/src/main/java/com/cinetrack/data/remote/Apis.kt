@@ -270,6 +270,21 @@ data class SimklOAuthResponse(
     val show: SimklMedia? = null,
     val movie: SimklMedia? = null,
 )
+@Serializable data class SimklCalendarItem(
+    val title: String = "",
+    val date: String = "",
+    @SerialName("release_date") val releaseDate: String = "",
+    val ids: SimklCalendarIds = SimklCalendarIds(),
+    val episode: SimklCalendarEpisode = SimklCalendarEpisode(),
+)
+@Serializable data class SimklCalendarIds(
+    @SerialName("simkl_id") val simklId: Long? = null,
+    val tmdb: String? = null,
+)
+@Serializable data class SimklCalendarEpisode(
+    val season: Int = 0,
+    @SerialName("episode") val number: Int = 0,
+)
 @Serializable data class SimklSyncRequest(val movies: List<SimklSyncItem> = emptyList(), val shows: List<SimklSyncItem> = emptyList())
 @Serializable data class SimklSyncItem(
     val ids: SimklIds,
@@ -314,11 +329,17 @@ interface SimklSyncService {
     @POST("sync/add-to-list") suspend fun addToList(@Body request: SimklSyncRequest)
 }
 
+interface SimklCalendarService {
+    @GET("calendar/tv.json") suspend fun tv(): List<SimklCalendarItem>
+    @GET("calendar/anime.json") suspend fun anime(): List<SimklCalendarItem>
+}
+
 data class ApiServices(
     val tmdb: TmdbService,
     val mdbList: MdbListService,
     val simklAuth: SimklAuthService,
     val simklSync: SimklSyncService,
+    val simklCalendar: SimklCalendarService,
 )
 
 object NetworkFactory {
@@ -397,6 +418,7 @@ object NetworkFactory {
             mdbList = retrofit("https://api.mdblist.com/", common.build()).create(MdbListService::class.java),
             simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
             simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
+            simklCalendar = retrofit("https://data.simkl.in/", common.build()).create(SimklCalendarService::class.java),
         )
     }
 }

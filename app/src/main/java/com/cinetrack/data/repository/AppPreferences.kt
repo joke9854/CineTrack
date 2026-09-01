@@ -109,6 +109,7 @@ class AppPreferences(private val context: Context) {
     val cardDensity: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.cardDensity] ?: "standard" }
     val notificationEpisodes: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyEpisodes] ?: true }
     val notificationMovies: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyMovies] ?: true }
+    val notificationSync: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifySync] ?: true }
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenUpcoming].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
