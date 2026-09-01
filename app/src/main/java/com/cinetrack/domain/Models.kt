@@ -59,6 +59,13 @@ data class PlaybackCard(
     val progress: Float,
     val remainingMinutes: Int? = null,
     val durationMinutes: Int? = null,
+    val episodeAirDate: String? = null,
+)
+
+data class StreamingProvider(
+    val id: Int,
+    val name: String,
+    val logoUrl: String? = null,
 )
 
 data class EpisodeCard(
@@ -173,7 +180,6 @@ data class AppUiState(
     val metadataRegion: String = "system",
     val metadataTimezone: String = "system",
     val excludeSpecials: Boolean = true,
-    val discoverFilterPreset: String = "",
     val preferredProviders: Set<String> = emptySet(),
     val cardDensity: String = "standard",
     val hiddenUpcoming: Set<String> = emptySet(),
@@ -207,43 +213,6 @@ data class DiscoverMovieFilters(
     val originalLanguage: String? = null,
     val decadeStart: Int? = null,
 )
-
-fun DiscoverMovieFilters.encodePreset(): String = listOf(
-    mediaType.name,
-    genreIds.sorted().joinToString(","),
-    excludedGenreIds.sorted().joinToString(","),
-    releaseYear?.toString().orEmpty(),
-    minimumRating?.toString().orEmpty(),
-    sortBy,
-    animeMode,
-    hideWatched.toString(),
-    hideDropped.toString(),
-    providerIds.sorted().joinToString(","),
-    maximumRuntime?.toString().orEmpty(),
-    originalLanguage.orEmpty(),
-    decadeStart?.toString().orEmpty(),
-).joinToString(";")
-
-fun decodeDiscoverPreset(raw: String): DiscoverMovieFilters? = runCatching {
-    if (raw.isBlank()) return null
-    val parts = raw.split(';')
-    fun ints(index: Int) = parts.getOrNull(index).orEmpty().split(',').mapNotNull(String::toIntOrNull).toSet()
-    DiscoverMovieFilters(
-        mediaType = MediaType.valueOf(parts[0]),
-        genreIds = ints(1),
-        excludedGenreIds = ints(2),
-        releaseYear = parts.getOrNull(3)?.toIntOrNull(),
-        minimumRating = parts.getOrNull(4)?.toDoubleOrNull(),
-        sortBy = parts.getOrNull(5).orEmpty().ifBlank { "popularity.desc" },
-        animeMode = parts.getOrNull(6).orEmpty().ifBlank { "all" },
-        hideWatched = parts.getOrNull(7) == "true",
-        hideDropped = parts.getOrNull(8) == "true",
-        providerIds = ints(9),
-        maximumRuntime = parts.getOrNull(10)?.toIntOrNull(),
-        originalLanguage = parts.getOrNull(11)?.takeIf(String::isNotBlank),
-        decadeStart = parts.getOrNull(12)?.toIntOrNull(),
-    )
-}.getOrNull()
 
 object RailIds {
     const val TRENDING_TV = "trending-tv"

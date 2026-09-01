@@ -63,6 +63,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -88,6 +89,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import com.cinetrack.BuildConfig
 import com.cinetrack.R
+import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -537,7 +539,7 @@ fun SettingsDetailScreen(
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
                     SettingsPages.Logs -> LogsSettings(viewModel)
-                    else -> AboutSettings()
+                    else -> AboutSettings(viewModel)
                 }
             }
         }
@@ -973,7 +975,12 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun AboutSettings() {
+private fun AboutSettings(viewModel: CineTrackViewModel) {
+    val context = LocalContext.current
+    val updateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) {
+        if (updateState is AppUpdateState.Idle) viewModel.checkForAppUpdate()
+    }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth().glass().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         BrandMark(76.dp)
         Spacer(Modifier.height(10.dp))
@@ -987,6 +994,26 @@ private fun AboutSettings() {
         }
         Spacer(Modifier.height(9.dp))
         Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, fontSize = 12.sp)
+        Spacer(Modifier.height(18.dp))
+        val statusText = when (val current = updateState) {
+            AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
+            AppUpdateState.Checking -> stringResource(R.string.checking_for_updates)
+            AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
+            is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
+            is AppUpdateState.Error -> current.message
+        }
+        Text(statusText, color = TextMuted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(10.dp))
+        val updateAvailable = updateState is AppUpdateState.Available
+        val busy = updateState is AppUpdateState.Checking
+        PrimaryAction(
+            text = if (updateAvailable) stringResource(R.string.open_github_release) else stringResource(R.string.check_for_updates),
+            icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
+            modifier = Modifier.fillMaxWidth(),
+            enabled = !busy,
+        ) {
+            if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate()
+        }
     }
 }
 

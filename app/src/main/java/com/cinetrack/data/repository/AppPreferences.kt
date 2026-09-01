@@ -72,7 +72,6 @@ class AppPreferences(private val context: Context) {
         val metadataTimezone = stringPreferencesKey("metadata_timezone")
         val syncReport = stringPreferencesKey("sync_report")
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
-        val discoverFilterPreset = stringPreferencesKey("discover_filter_preset")
         val preferredProviders = stringPreferencesKey("preferred_providers")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
@@ -104,7 +103,6 @@ class AppPreferences(private val context: Context) {
     val metadataRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataRegion] ?: "system" }
     val metadataTimezone: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataTimezone] ?: "system" }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
-    val discoverFilterPreset: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.discoverFilterPreset].orEmpty() }
     val preferredProviders: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.preferredProviders].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
@@ -244,10 +242,6 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setExcludeSpecials(value: Boolean) {
         context.cineTrackDataStore.edit { it[Keys.excludeSpecials] = value }
-    }
-
-    suspend fun setDiscoverFilterPreset(value: String) {
-        context.cineTrackDataStore.edit { it[Keys.discoverFilterPreset] = value }
     }
 
     suspend fun setPreferredProviders(values: Set<String>) {

@@ -114,6 +114,7 @@ fun CineTrackApp(
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
+    val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
     val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
@@ -289,9 +290,9 @@ fun CineTrackApp(
                 DiscoverFiltersScreen(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
-                    savedPreset = state.discoverFilterPreset,
+                    providers = streamingProviders,
                     onApply = viewModel::applyDiscoverFilters,
-                    onSavePreset = viewModel::saveDiscoverFilterPreset,
+                    onLoadProviders = viewModel::loadStreamingProviders,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,

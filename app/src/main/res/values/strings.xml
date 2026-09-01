@@ -89,7 +89,6 @@
     <string name="sync_summary">Downloaded %1$d · Uploaded %2$d · Added %3$d · Removed %4$d</string>
     <string name="exclude_specials">Exclude specials</string>
     <string name="upcoming_diagnostic_explanation">Upcoming items are shown only for tracked titles with a valid release date in the selected metadata timezone. Cached results stay visible if TMDB is unavailable.</string>
-    <string name="already_available">Already available</string>
     <string name="coming_soon">Coming soon</string>
     <string name="why_not_shown">Why isn’t this shown?</string>
     <string name="no_tracked_shows_for_upcoming">Add a TV show to your library to track announced episodes.</string>
@@ -262,7 +261,12 @@
     <string name="genre_science_fiction">Science fiction</string>
     <string name="genre_thriller">Thriller</string>
     <string name="show_less_like_this">Not interested · Show me less like this</string>
-    <string name="recommended_because">Recommended because it is similar to %1$s</string>
+    <string name="updates_from_github">Testing updates are delivered through GitHub Releases</string>
+    <string name="checking_for_updates">Checking GitHub for updates…</string>
+    <string name="app_is_up_to_date">CineTrack is up to date</string>
+    <string name="update_available">Version %1$s is available</string>
+    <string name="open_github_release">Open GitHub release</string>
+    <string name="check_for_updates">Check for updates</string>
     <string name="restore_hidden_recommendations">Restore %1$d hidden recommendations</string>
     <string name="now_available_on">Now available with a subscription on %1$s</string>
     <string name="most_watched_people">Most-watched actors and directors</string>

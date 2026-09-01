@@ -125,6 +125,7 @@ import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -265,10 +266,10 @@ fun ProgressScreen(
                             onWatched = onWatched,
                             )
                         }
-                    val availableToday = upcomingEpisodes.filter { it.airDate?.take(10) == today.toString() }
-                    val comingSoon = upcomingEpisodes.filterNot { it.airDate?.take(10) == today.toString() }
-                    if (availableToday.isNotEmpty()) {
-                        item { UpcomingEpisodesRail(stringResource(R.string.already_available), availableToday, state.allMedia, onEpisode, onHideUpcoming) }
+                    val comingSoon = upcomingEpisodes.filter { episode ->
+                        episode.airDate?.take(10)?.let { raw ->
+                            runCatching { LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                        } == true
                     }
                     if (comingSoon.isNotEmpty()) {
                         item { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, state.allMedia, onEpisode, onHideUpcoming) }
@@ -346,16 +347,6 @@ private fun SyncCard(sync: SyncProgress, connected: Boolean, onSync: () -> Unit)
                 Spacer(Modifier.height(7.dp))
                 Text(sync.message ?: syncStageLabel(sync.stage), color = TextSecondary, fontSize = 11.sp)
             }
-        }
-        AnimatedVisibility(!sync.running && sync.report.lastIncrementalSync != null) {
-            val report = sync.report
-            Text(
-                if (report.databaseUntouched) stringResource(R.string.database_untouched)
-                else stringResource(R.string.sync_summary, report.downloaded, report.uploaded, report.added, report.removed),
-                color = if (report.failedOperations > 0) MaterialTheme.colorScheme.error else TextMuted,
-                fontSize = 10.5.sp,
-                modifier = Modifier.padding(top = 8.dp),
-            )
         }
     }
 }
@@ -684,6 +675,9 @@ private fun PlaybackRow(
             (1f - item.remainingMinutes.toFloat() / item.durationMinutes.toFloat()).coerceIn(0f, 1f)
         else -> 0f
     }
+    val remainingMinutes = item.remainingMinutes ?: item.durationMinutes
+        ?.takeIf { it > 0 && item.progress > 0f }
+        ?.let { duration -> (duration * (1f - item.progress.coerceIn(0f, 1f))).toInt().coerceAtLeast(0) }
     val openItem = {
         val season = item.season
         val number = item.episodeNumber
@@ -727,7 +721,9 @@ private fun PlaybackRow(
                 } else stringResource(R.string.movies)
                 Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    item.remainingMinutes?.let { "${formatDurationMinutes(it)} ${stringResource(R.string.remaining).lowercase()}" } ?: if (item.progress > 0f) "${(item.progress * 100).toInt()}%" else if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next) else stringResource(R.string.in_progress),
+                    remainingMinutes?.let { "${formatDurationMinutes(it)} ${stringResource(R.string.remaining).lowercase()}" }
+                        ?: if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next)
+                        else stringResource(R.string.in_progress),
                     color = AccentLight,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -870,7 +866,12 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
             .sortedByDescending { it.value }.take(4).map { it.key.replaceFirstChar { char -> char.uppercase() } }
     }
     val watchedDays = historyDates.groupingBy { it }.eachCount()
-    val heatmapStart = now.minusDays(55)
+    val heatmapWeeks = remember(now, watchedDays) {
+        val firstMonday = now.minusWeeks(11).with(DayOfWeek.MONDAY)
+        (0L until 12L).map { week ->
+            (0L until 7L).map { day -> firstMonday.plusWeeks(week).plusDays(day) }
+        }
+    }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         SectionHeader(stringResource(R.string.statistics))
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -908,17 +909,51 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
             Text(stringResource(R.string.activity_heatmap), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(10.dp))
-            (0L..55L).map { heatmapStart.plusDays(it) }.chunked(7).forEach { week ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    week.forEach { day ->
-                        val count = watchedDays[day] ?: 0
-                        Box(
-                            Modifier.weight(1f).height(17.dp).clip(RoundedCornerShape(5.dp))
-                                .background(Accent.copy(alpha = when { count == 0 -> .08f; count == 1 -> .30f; count <= 3 -> .58f; else -> .90f })),
+            Row(Modifier.fillMaxWidth().padding(start = 22.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                heatmapWeeks.forEachIndexed { index, week ->
+                    val monthChanged = index == 0 || week.first().month != heatmapWeeks[index - 1].first().month
+                    Text(
+                        if (monthChanged) week.first().format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())) else "",
+                        color = TextMuted,
+                        fontSize = 8.sp,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.width(18.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    heatmapWeeks.first().forEach { day ->
+                        Text(
+                            day.format(DateTimeFormatter.ofPattern("EEEEE", Locale.getDefault())),
+                            color = TextMuted,
+                            fontSize = 8.sp,
+                            modifier = Modifier.height(13.dp),
                         )
                     }
                 }
-                Spacer(Modifier.height(5.dp))
+                heatmapWeeks.forEach { week ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        week.forEach { day ->
+                            val count = watchedDays[day] ?: 0
+                            Box(
+                                Modifier.fillMaxWidth().height(13.dp).clip(RoundedCornerShape(3.dp))
+                                    .background(
+                                        Accent.copy(
+                                            alpha = when {
+                                                day.isAfter(now) -> .035f
+                                                count == 0 -> .09f
+                                                count == 1 -> .32f
+                                                count <= 3 -> .60f
+                                                else -> .94f
+                                            },
+                                        ),
+                                    ),
+                            )
+                        }
+                    }
+                }
             }
         }
     }

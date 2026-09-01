@@ -304,12 +304,6 @@ fun DetailScreen(
                     UsefulInfoSection(detail)
                     if (moreLikeThis.isNotEmpty()) {
                         SectionHeader(stringResource(R.string.more_like_this), Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp))
-                        Text(
-                            stringResource(R.string.recommended_because, detail.title),
-                            color = TextMuted,
-                            fontSize = 10.5.sp,
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 6.dp),
-                        )
                         MediaRail(moreLikeThis.filterNot { it.stableKey == detail.stableKey }, onMedia)
                     }
                 }
@@ -1064,6 +1058,15 @@ fun EpisodeDetailScreen(
     var loadedEpisode by remember(show?.id) { mutableStateOf(episode) }
     var loadedEpisodes by remember(show?.id) { mutableStateOf(allEpisodes) }
     var loadedPeople by remember(show?.id) { mutableStateOf(people) }
+    LaunchedEffect(episode?.season, episode?.number, episode?.watched) {
+        val latest = episode ?: return@LaunchedEffect
+        if (loadedEpisode?.season == latest.season && loadedEpisode?.number == latest.number) {
+            loadedEpisode = loadedEpisode?.copy(watched = latest.watched) ?: latest
+        }
+        loadedEpisodes = loadedEpisodes.map { cached ->
+            if (cached.season == latest.season && cached.number == latest.number) latest else cached
+        }
+    }
     LaunchedEffect(show?.stableKey, requestedSeason, requestedNumber) {
         show?.let {
             loadedEpisode = viewModel.loadEpisode(it, requestedSeason, requestedNumber)

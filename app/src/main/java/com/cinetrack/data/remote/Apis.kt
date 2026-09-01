@@ -81,6 +81,7 @@ data class TmdbMediaDto(
     @SerialName("profile_path") val profilePath: String? = null,
 )
 @Serializable data class TmdbProviderResultDto(val results: Map<String, TmdbProviderCountryDto> = emptyMap())
+@Serializable data class TmdbProviderListDto(val results: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderDto(@SerialName("provider_id") val id: Int, @SerialName("provider_name") val name: String, @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbSeasonSummaryDto(
@@ -152,6 +153,10 @@ interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
     @GET("3/movie/upcoming") suspend fun upcomingMovies(@Query("page") page: Int = 1): TmdbPage
+    @GET("3/watch/providers/movie")
+    suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
+    @GET("3/watch/providers/tv")
+    suspend fun tvProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/discover/movie")
     suspend fun discoverMovies(
         @Query("with_origin_country") originCountries: String? = null,

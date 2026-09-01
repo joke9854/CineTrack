@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.SimklSyncOutcome
+import com.cinetrack.data.update.AppUpdateState
+import com.cinetrack.data.update.GitHubAppUpdater
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
@@ -17,7 +19,7 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
-import com.cinetrack.domain.encodePreset
+import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +70,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
     private val _discoverFiltersLoading = MutableStateFlow(false)
     val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
+    private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
+    val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
+    private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
+    val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
 
     init {
         viewModelScope.launch {
@@ -135,7 +141,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 _state.value = _state.value.copy(error = error)
             }
             startupStateBuilding = false
-            if (coldSync.getOrNull()?.itemsChanged == true) scheduleProgressCacheRefresh()
+            // Rebuild only derived TMDB metadata after the cached UI is visible.
+            // Freshness gates avoid redundant schedule calls, while this also
+            // repairs artwork missing from older Simkl imports.
+            scheduleProgressCacheRefresh()
         }
         viewModelScope.launch {
             val interval = TimeUnit.MINUTES.toMillis(510)
@@ -177,10 +186,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    fun saveDiscoverFilterPreset(filters: DiscoverMovieFilters) {
-        val encoded = filters.encodePreset()
-        _state.value = _state.value.copy(discoverFilterPreset = encoded)
-        viewModelScope.launch { repository.preferences.setDiscoverFilterPreset(encoded) }
+    fun loadStreamingProviders(mediaType: MediaType) {
+        viewModelScope.launch {
+            _streamingProviders.value = withContext(Dispatchers.IO) {
+                repository.loadStreamingProviders(mediaType)
+            }
+        }
     }
 
     fun setPreferredProviders(values: Set<String>) {
@@ -655,6 +666,27 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_logs)))
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
+    }
+
+    fun checkForAppUpdate() {
+        if (_appUpdateState.value is AppUpdateState.Checking) return
+        viewModelScope.launch {
+            _appUpdateState.value = AppUpdateState.Checking
+            GitHubAppUpdater.check()
+                .onSuccess { update ->
+                    _appUpdateState.value = update?.let(AppUpdateState::Available) ?: AppUpdateState.UpToDate
+                }
+                .onFailure { failure ->
+                    _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update check failed")
+                }
+        }
+    }
+
+    fun openAppUpdate(context: Context) {
+        val update = (_appUpdateState.value as? AppUpdateState.Available)?.update ?: return
+        runCatching {
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(update.releaseUrl)))
+        }.onFailure { _state.value = _state.value.copy(error = it.message) }
     }
 
     fun restoreData(context: Context, uri: Uri) {

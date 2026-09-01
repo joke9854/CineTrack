@@ -23,10 +23,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,7 +47,7 @@ import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
-import com.cinetrack.domain.decodeDiscoverPreset
+import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.MediaPoster
@@ -65,16 +65,15 @@ import java.time.Year
 fun DiscoverFiltersScreen(
     results: List<MediaCard>,
     loading: Boolean,
-    savedPreset: String,
+    providers: List<StreamingProvider>,
     onApply: (DiscoverMovieFilters) -> Unit,
-    onSavePreset: (DiscoverMovieFilters) -> Unit,
+    onLoadProviders: (MediaType) -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
 ) {
-    val saved = remember(savedPreset) { decodeDiscoverPreset(savedPreset) }
-    var mediaType by remember(savedPreset) { mutableStateOf(saved?.mediaType ?: MediaType.MOVIE) }
+    var mediaType by remember { mutableStateOf(MediaType.MOVIE) }
     val genres = if (mediaType == MediaType.TV) {
         listOf(
             10759 to stringResource(R.string.genre_action),
@@ -110,18 +109,18 @@ fun DiscoverFiltersScreen(
         "primary_release_date.desc" to stringResource(R.string.sort_release_date),
         "vote_average.desc" to stringResource(R.string.sort_rating),
     )
-    var selectedGenres by remember(savedPreset) { mutableStateOf(saved?.genreIds.orEmpty()) }
-    var excludedGenres by remember(savedPreset) { mutableStateOf(saved?.excludedGenreIds.orEmpty()) }
-    var year by remember(savedPreset) { mutableStateOf(saved?.releaseYear) }
-    var rating by remember(savedPreset) { mutableStateOf(saved?.minimumRating) }
-    var sortBy by remember(savedPreset) { mutableStateOf(saved?.sortBy ?: "popularity.desc") }
-    var animeMode by remember(savedPreset) { mutableStateOf(saved?.animeMode ?: "all") }
-    var hideWatched by remember(savedPreset) { mutableStateOf(saved?.hideWatched ?: false) }
-    var hideDropped by remember(savedPreset) { mutableStateOf(saved?.hideDropped ?: false) }
-    var providerIds by remember(savedPreset) { mutableStateOf(saved?.providerIds.orEmpty()) }
-    var maximumRuntime by remember(savedPreset) { mutableStateOf(saved?.maximumRuntime) }
-    var originalLanguage by remember(savedPreset) { mutableStateOf(saved?.originalLanguage) }
-    var decadeStart by remember(savedPreset) { mutableStateOf(saved?.decadeStart) }
+    var selectedGenres by remember { mutableStateOf(emptySet<Int>()) }
+    var excludedGenres by remember { mutableStateOf(emptySet<Int>()) }
+    var year by remember { mutableStateOf<Int?>(null) }
+    var rating by remember { mutableStateOf<Double?>(null) }
+    var sortBy by remember { mutableStateOf("popularity.desc") }
+    var animeMode by remember { mutableStateOf("all") }
+    var hideWatched by remember { mutableStateOf(false) }
+    var hideDropped by remember { mutableStateOf(false) }
+    var providerIds by remember { mutableStateOf(emptySet<Int>()) }
+    var maximumRuntime by remember { mutableStateOf<Int?>(null) }
+    var originalLanguage by remember { mutableStateOf<String?>(null) }
+    var decadeStart by remember { mutableStateOf<Int?>(null) }
     fun filters() = DiscoverMovieFilters(
         mediaType = mediaType,
         genreIds = selectedGenres,
@@ -139,6 +138,10 @@ fun DiscoverFiltersScreen(
     )
 
     LaunchedEffect(Unit) { onApply(filters()) }
+    LaunchedEffect(mediaType) {
+        providerIds = emptySet()
+        onLoadProviders(mediaType)
+    }
     AdaptiveBackground(artworkUrl = results.firstOrNull()?.backdropUrl ?: results.firstOrNull()?.posterUrl) {
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding(),
@@ -166,17 +169,17 @@ fun DiscoverFiltersScreen(
             } }
             item { FilterSection(stringResource(R.string.genres)) {
                 genres.forEach { (id, label) ->
-                    FilterPill(label, id in selectedGenres) {
-                        selectedGenres = if (id in selectedGenres) selectedGenres - id else selectedGenres + id
-                        if (id in selectedGenres) excludedGenres = excludedGenres - id
+                    val mode = when {
+                        id in selectedGenres -> 1
+                        id in excludedGenres -> -1
+                        else -> 0
                     }
-                }
-            } }
-            item { FilterSection(stringResource(R.string.exclude_genres)) {
-                genres.forEach { (id, label) ->
-                    FilterPill(label, id in excludedGenres) {
-                        excludedGenres = if (id in excludedGenres) excludedGenres - id else excludedGenres + id
-                        if (id in excludedGenres) selectedGenres = selectedGenres - id
+                    GenreFilterPill(label, mode) {
+                        when (mode) {
+                            0 -> { selectedGenres = selectedGenres + id; excludedGenres = excludedGenres - id }
+                            1 -> { selectedGenres = selectedGenres - id; excludedGenres = excludedGenres + id }
+                            else -> excludedGenres = excludedGenres - id
+                        }
                     }
                 }
             } }
@@ -195,8 +198,10 @@ fun DiscoverFiltersScreen(
                 sorts.forEach { (value, label) -> FilterPill(label, sortBy == value) { sortBy = value } }
             } }
             item { FilterSection(stringResource(R.string.streaming_provider)) {
-                listOf(8 to "Netflix", 337 to "Disney+", 119 to "Prime Video", 1899 to "Max", 350 to "Apple TV+").forEach { (id, label) ->
-                    FilterPill(label, id in providerIds) { providerIds = if (id in providerIds) providerIds - id else providerIds + id }
+                providers.forEach { provider ->
+                    FilterPill(provider.name, provider.id in providerIds) {
+                        providerIds = if (provider.id in providerIds) providerIds - provider.id else providerIds + provider.id
+                    }
                 }
             } }
             item { FilterSection(stringResource(R.string.maximum_runtime)) {
@@ -218,27 +223,6 @@ fun DiscoverFiltersScreen(
                 FilterPill(stringResource(R.string.hide_watched), hideWatched) { hideWatched = !hideWatched }
                 FilterPill(stringResource(R.string.hide_abandoned), hideDropped) { hideDropped = !hideDropped }
             } }
-            item {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    OutlinedButton(onClick = { onSavePreset(filters()) }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(999.dp)) {
-                        Text(stringResource(R.string.save_preset), color = TextPrimary)
-                    }
-                    OutlinedButton(
-                        onClick = {
-                            saved?.let {
-                                mediaType = it.mediaType; selectedGenres = it.genreIds; excludedGenres = it.excludedGenreIds
-                                year = it.releaseYear; rating = it.minimumRating; sortBy = it.sortBy; animeMode = it.animeMode
-                                hideWatched = it.hideWatched; hideDropped = it.hideDropped; providerIds = it.providerIds
-                                maximumRuntime = it.maximumRuntime; originalLanguage = it.originalLanguage; decadeStart = it.decadeStart
-                                onApply(it)
-                            }
-                        },
-                        enabled = saved != null,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(999.dp),
-                    ) { Text(stringResource(R.string.load_preset), color = TextPrimary) }
-                }
-            }
             item {
                 PrimaryAction(
                     stringResource(R.string.apply_filters),
@@ -300,5 +284,33 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
             Spacer(Modifier.width(5.dp))
         }
         Text(label, color = if (selected) TextPrimary else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
+    val hapticClick = rememberLightHapticAction(onClick)
+    val activeColor = if (mode < 0) Color(0xFFFF5C5C) else AccentLight
+    Row(
+        Modifier.clip(RoundedCornerShape(999.dp)).glass(RoundedCornerShape(999.dp))
+            .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
+            .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (mode != 0) {
+            Icon(
+                if (mode > 0) Icons.Filled.Check else Icons.Filled.Close,
+                null,
+                tint = activeColor,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+        }
+        Text(
+            label,
+            color = if (mode == 0) TextMuted else TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }

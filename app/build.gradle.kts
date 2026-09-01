@@ -20,6 +20,8 @@ fun secret(name: String): String =
 
 fun escaped(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+
 android {
     namespace = "com.cinetrack"
     compileSdk = 36
@@ -28,8 +30,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 23
         targetSdk = 36
-        versionCode = 62
-        versionName = "0.62"
+        versionCode = 63
+        versionName = "0.63"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -38,6 +40,19 @@ android {
         buildConfigField("String", "MDBLIST_API_KEY", "\"${escaped(secret("MDBLIST_API_KEY"))}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${escaped(secret("SIMKL_CLIENT_ID"))}\"")
         buildConfigField("String", "SIMKL_REDIRECT_URI", "\"cinetrack://simkl\"")
+        buildConfigField("String", "GITHUB_UPDATE_REPO", "\"joke9854/CineTrack\"")
+        buildConfigField("String", "GITHUB_UPDATE_CHANNEL", "\"testing\"")
+    }
+
+    signingConfigs {
+        if (!releaseKeystorePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+            }
+        }
     }
 
     buildTypes {
@@ -47,6 +62,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            if (!releaseKeystorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
