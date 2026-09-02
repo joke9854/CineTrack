@@ -37,6 +37,12 @@ data class MediaCard(
     val collectionId: Int? = null,
     val libraryUpdatedAt: Long? = null,
     val tmdbStatus: String? = null,
+    val networks: List<String> = emptyList(),
+    val budget: Long? = null,
+    val boxOffice: Long? = null,
+    val productionCompanies: List<String> = emptyList(),
+    val productionCountries: List<String> = emptyList(),
+    val originalLanguage: String? = null,
 ) {
     val stableKey: String get() = "${type.name}:$id"
     val year: String get() = releaseDate?.take(4).orEmpty()

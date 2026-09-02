@@ -37,6 +37,14 @@ sealed interface AppUpdateState {
     data class Error(val message: String) : AppUpdateState
 }
 
+sealed interface AppChangelogState {
+    data object Idle : AppChangelogState
+    data object Loading : AppChangelogState
+    data class Available(val update: AppUpdateInfo) : AppChangelogState
+    data object Empty : AppChangelogState
+    data class Error(val message: String) : AppChangelogState
+}
+
 @Serializable
 private data class GitHubRelease(
     @SerialName("tag_name") val tagName: String,
@@ -61,43 +69,53 @@ object GitHubAppUpdater {
 
     suspend fun check(): Result<AppUpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {
-            val connection = open("https://api.github.com/repos/${BuildConfig.GITHUB_UPDATE_REPO}/releases?per_page=20")
-            val responseCode = connection.responseCode
-            if (responseCode !in 200..299) {
-                connection.disconnect()
-                error("GitHub returned HTTP $responseCode")
-            }
-            val payload = connection.inputStream.bufferedReader().use { it.readText() }
-            connection.disconnect()
-            val releases = json.decodeFromString<List<GitHubRelease>>(payload)
             val current = versionParts(BuildConfig.VERSION_NAME)
-            releases.asSequence()
-                .filterNot { it.draft }
-                .filter { release ->
-                    val channel = BuildConfig.GITHUB_UPDATE_CHANNEL
-                    channel.isBlank() || release.targetCommitish.startsWith(channel) || release.tagName.contains(channel, ignoreCase = true)
-                }
-                .mapNotNull { release ->
-                    val apk = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
-                        ?: return@mapNotNull null
-                    val checksum = release.assets.firstOrNull {
-                        it.name.equals("${apk.name}.sha256", ignoreCase = true) ||
-                            it.name.endsWith(".apk.sha256", ignoreCase = true)
-                    }
-                    val version = release.tagName.removePrefix("v")
-                    if (compareVersions(versionParts(version), current) <= 0) return@mapNotNull null
-                    AppUpdateInfo(
-                        version = version,
-                        title = release.name?.takeIf(String::isNotBlank) ?: "CineTrack $version",
-                        notes = release.body.orEmpty(),
-                        releaseUrl = release.htmlUrl,
-                        apkUrl = apk.downloadUrl,
-                        checksumUrl = checksum?.downloadUrl,
-                        apkSize = apk.size,
-                    )
-                }
-                .firstOrNull()
+            fetchLatestRelease()?.takeIf { compareVersions(versionParts(it.version), current) > 0 }
         }
+    }
+
+    /** Returns the newest release in this build's channel, including the
+     * currently installed version, so About can display its notes in-app. */
+    suspend fun latestRelease(): Result<AppUpdateInfo?> = withContext(Dispatchers.IO) {
+        runCatching { fetchLatestRelease() }
+    }
+
+    private fun fetchLatestRelease(): AppUpdateInfo? {
+        val connection = open("https://api.github.com/repos/${BuildConfig.GITHUB_UPDATE_REPO}/releases?per_page=20")
+        val responseCode = connection.responseCode
+        if (responseCode !in 200..299) {
+            connection.disconnect()
+            error("GitHub returned HTTP $responseCode")
+        }
+        val payload = connection.inputStream.bufferedReader().use { it.readText() }
+        connection.disconnect()
+        val releases = json.decodeFromString<List<GitHubRelease>>(payload)
+        return releases.asSequence()
+            .filterNot { it.draft }
+            .filter { release ->
+                val channel = BuildConfig.GITHUB_UPDATE_CHANNEL
+                channel.isBlank() || release.targetCommitish.startsWith(channel) ||
+                    release.tagName.contains(channel, ignoreCase = true)
+            }
+            .mapNotNull { release ->
+                val apk = release.assets.firstOrNull { it.name.endsWith(".apk", ignoreCase = true) }
+                    ?: return@mapNotNull null
+                val checksum = release.assets.firstOrNull {
+                    it.name.equals("${apk.name}.sha256", ignoreCase = true) ||
+                        it.name.endsWith(".apk.sha256", ignoreCase = true)
+                }
+                val version = release.tagName.removePrefix("v")
+                AppUpdateInfo(
+                    version = version,
+                    title = release.name?.takeIf(String::isNotBlank) ?: "CineTrack $version",
+                    notes = release.body.orEmpty(),
+                    releaseUrl = release.htmlUrl,
+                    apkUrl = apk.downloadUrl,
+                    checksumUrl = checksum?.downloadUrl,
+                    apkSize = apk.size,
+                )
+            }
+            .firstOrNull()
     }
 
     suspend fun download(

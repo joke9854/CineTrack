@@ -777,17 +777,23 @@ class CineTrackRepository(
 
     suspend fun markEpisodeWatched(episode: EpisodeCard) {
         val watchedAt = Instant.now().toString()
-        database.timelineDao().insertHistory(
-            WatchHistoryEntity(
-                mediaType = MediaType.TV.name,
-                mediaId = episode.showId,
-                episodeId = episode.id,
-                season = episode.season,
-                episodeNumber = episode.number,
-                episodeTitle = episode.title,
-                watchedAt = watchedAt,
-            ),
-        )
+        database.withTransaction {
+            database.timelineDao().insertHistory(
+                WatchHistoryEntity(
+                    mediaType = MediaType.TV.name,
+                    mediaId = episode.showId,
+                    episodeId = episode.id,
+                    season = episode.season,
+                    episodeNumber = episode.number,
+                    episodeTitle = episode.title,
+                    watchedAt = watchedAt,
+                ),
+            )
+            // Persist the user's explicit action as the primary Progress recency
+            // signal. A newly aired episode may lead the list until another show
+            // is watched, but it must not reclaim the top after this transaction.
+            database.stateDao().touch(MediaType.TV.name, episode.showId, System.currentTimeMillis())
+        }
         refreshLocalUpNext(episode.showId)
         val request = SimklSyncRequest(
             shows = listOf(
@@ -933,6 +939,12 @@ class CineTrackRepository(
                 watched = media.watched,
                 libraryUpdatedAt = media.libraryUpdatedAt,
                 tmdbStatus = dto.status,
+                networks = dto.networks.map { it.name }.filter(String::isNotBlank),
+                budget = dto.budget?.takeIf { it > 0L },
+                boxOffice = dto.revenue?.takeIf { it > 0L },
+                productionCompanies = dto.productionCompanies.map { it.name }.filter(String::isNotBlank),
+                productionCountries = dto.productionCountries.map { country -> country.name.ifBlank { country.code } },
+                originalLanguage = dto.originalLanguage?.takeIf(String::isNotBlank)?.uppercase(),
                 providers = providers.map { it.name },
                 providerLogos = providers.mapNotNull { provider ->
                     provider.logoPath?.let { provider.name to "https://image.tmdb.org/t/p/w92$it" }

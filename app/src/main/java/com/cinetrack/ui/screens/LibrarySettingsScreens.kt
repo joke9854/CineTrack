@@ -2,13 +2,13 @@
 
 package com.cinetrack.ui.screens
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -40,6 +41,7 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.BugReport
@@ -62,6 +64,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -89,6 +92,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -96,6 +100,7 @@ import androidx.core.os.LocaleListCompat
 import com.cinetrack.BuildConfig
 import com.cinetrack.R
 import com.cinetrack.data.update.AppUpdateState
+import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -1042,6 +1047,8 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
 private fun AboutSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
     val updateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
+    val changelogState by viewModel.appChangelogState.collectAsStateWithLifecycle()
+    var showChangelog by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (updateState is AppUpdateState.Idle) viewModel.checkForAppUpdate()
     }
@@ -1084,17 +1091,85 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             val changelogDescription = stringResource(R.string.changelog)
             IconButton(
                 onClick = rememberLightHapticAction {
-                    val releaseUrl = when (val current = updateState) {
-                        is AppUpdateState.Available -> current.update.releaseUrl
-                        is AppUpdateState.Downloading -> current.update.releaseUrl
-                        else -> "https://github.com/${BuildConfig.GITHUB_UPDATE_REPO}/releases"
-                    }
-                    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(releaseUrl))) }
+                    showChangelog = true
+                    viewModel.loadAppChangelog()
                 },
                 modifier = Modifier.size(54.dp).glassIcon(),
             ) {
                 Icon(Icons.Filled.History, changelogDescription, tint = AccentLight, modifier = Modifier.size(20.dp))
             }
+        }
+    }
+    if (showChangelog) {
+        ChangelogDialog(changelogState) { showChangelog = false }
+    }
+}
+
+@Composable
+private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                .glass(RoundedCornerShape(24.dp)).padding(18.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.History, null, tint = AccentLight, modifier = Modifier.size(23.dp))
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    stringResource(R.string.changelog),
+                    color = TextPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(38.dp)) {
+                    Icon(Icons.Filled.Close, stringResource(R.string.close), tint = TextSecondary)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            when (state) {
+                AppChangelogState.Idle, AppChangelogState.Loading -> Box(
+                    Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = AccentLight, modifier = Modifier.size(34.dp))
+                }
+                AppChangelogState.Empty -> Text(
+                    stringResource(R.string.changelog_empty),
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                )
+                is AppChangelogState.Error -> Text(
+                    state.message,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                )
+                is AppChangelogState.Available -> Column(
+                    Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                ) {
+                    Text(state.update.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.changelog_version, state.update.version),
+                        color = AccentLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        state.update.notes.ifBlank { stringResource(R.string.changelog_empty) },
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            PrimaryAction(
+                text = stringResource(R.string.close),
+                icon = Icons.Filled.Close,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDismiss,
+            )
         }
     }
 }

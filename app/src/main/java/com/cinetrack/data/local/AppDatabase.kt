@@ -331,6 +331,9 @@ interface StateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<UserMediaStateEntity>)
 
+    @Query("UPDATE user_media_state SET updatedAt = :updatedAt WHERE mediaType = :type AND mediaId = :id")
+    suspend fun touch(type: String, id: Int, updatedAt: Long)
+
     @Query("SELECT * FROM user_media_state WHERE dirty = 1 ORDER BY updatedAt")
     suspend fun pendingStates(): List<UserMediaStateEntity>
 

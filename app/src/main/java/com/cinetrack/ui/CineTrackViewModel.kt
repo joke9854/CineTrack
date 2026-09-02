@@ -10,6 +10,7 @@ import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.repository.SimklSyncOutcome
 import com.cinetrack.data.update.AppUpdateState
+import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.data.update.GitHubAppUpdater
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
@@ -77,6 +78,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
     private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
+    private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
+    val appChangelogState: StateFlow<AppChangelogState> = _appChangelogState.asStateFlow()
     private var downloadedUpdateFile: File? = null
 
     init {
@@ -816,6 +819,23 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 }
                 .onFailure { failure ->
                     _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update check failed")
+                }
+        }
+    }
+
+    fun loadAppChangelog() {
+        if (_appChangelogState.value is AppChangelogState.Loading) return
+        viewModelScope.launch {
+            _appChangelogState.value = AppChangelogState.Loading
+            GitHubAppUpdater.latestRelease()
+                .onSuccess { release ->
+                    _appChangelogState.value = release?.let(AppChangelogState::Available)
+                        ?: AppChangelogState.Empty
+                }
+                .onFailure { failure ->
+                    _appChangelogState.value = AppChangelogState.Error(
+                        failure.message ?: "Could not load the changelog",
+                    )
                 }
         }
     }

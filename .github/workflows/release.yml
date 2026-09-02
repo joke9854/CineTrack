@@ -60,5 +60,5 @@ jobs:
           gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
             --target "$GITHUB_SHA" \
             --title "CineTrack $VERSION testing" \
-            --notes "Testing build from $GITHUB_REF_NAME ($GITHUB_SHA)." \
+            --notes-file CHANGELOG.md \
             --prerelease

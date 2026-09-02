@@ -48,6 +48,10 @@ data class TmdbMediaDto(
     @SerialName("media_type") val mediaType: String? = null,
     val runtime: Int? = null,
     val status: String? = null,
+    val budget: Long? = null,
+    val revenue: Long? = null,
+    val networks: List<TmdbCompanyDto> = emptyList(),
+    @SerialName("production_companies") val productionCompanies: List<TmdbCompanyDto> = emptyList(),
     @SerialName("production_countries") val productionCountries: List<TmdbCountryDto> = emptyList(),
     @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val genres: List<TmdbGenreDto> = emptyList(),
@@ -70,6 +74,7 @@ data class TmdbMediaDto(
 )
 
 @Serializable data class TmdbGenreDto(val id: Int, val name: String)
+@Serializable data class TmdbCompanyDto(val id: Int = 0, val name: String = "", @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbCountryDto(@SerialName("iso_3166_1") val code: String, val name: String = "")
 @Serializable data class TmdbCollectionRefDto(val id: Int, val name: String, @SerialName("poster_path") val posterPath: String? = null)
 @Serializable data class TmdbCreditsDto(val cast: List<TmdbPersonCreditDto> = emptyList(), val crew: List<TmdbPersonCreditDto> = emptyList())

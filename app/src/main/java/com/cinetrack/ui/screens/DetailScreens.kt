@@ -40,15 +40,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
@@ -986,6 +990,51 @@ private fun UsefulInfoSection(media: MediaCard) {
                 )
             }
         }
+        if (media.networks.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Tv,
+                stringResource(R.string.networks),
+                media.networks.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
+        }
+        if (media.type == MediaType.MOVIE && (media.budget != null || media.boxOffice != null)) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(Icons.Filled.AttachMoney, stringResource(R.string.budget), formatUsd(media.budget), Modifier.weight(1f))
+                InfoCell(Icons.Filled.AttachMoney, stringResource(R.string.box_office), formatUsd(media.boxOffice), Modifier.weight(1f))
+            }
+        }
+        if (media.productionCountries.isNotEmpty() || !media.originalLanguage.isNullOrBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(
+                    Icons.Filled.Public,
+                    stringResource(R.string.production_countries),
+                    media.productionCountries.joinToString(" · "),
+                    Modifier.weight(1f),
+                    maxLines = 2,
+                )
+                InfoCell(
+                    Icons.Filled.Language,
+                    stringResource(R.string.original_language),
+                    media.originalLanguage.orEmpty(),
+                    Modifier.weight(1f),
+                )
+            }
+        }
+        if (media.productionCompanies.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Business,
+                stringResource(R.string.production_companies),
+                media.productionCompanies.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
+        }
         if (media.genres.isNotEmpty()) {
             Spacer(Modifier.height(12.dp))
             InfoCell(
@@ -996,6 +1045,21 @@ private fun UsefulInfoSection(media: MediaCard) {
                 maxLines = 2,
             )
         }
+    }
+}
+
+private fun formatUsd(amount: Long?): String {
+    val value = amount?.takeIf { it > 0L } ?: return ""
+    fun compact(divisor: Double, suffix: String): String {
+        val number = value / divisor
+        val formatted = if (number >= 100 || number % 1.0 == 0.0) "%.0f".format(java.util.Locale.US, number)
+        else "%.1f".format(java.util.Locale.US, number)
+        return "\$$formatted$suffix"
+    }
+    return when {
+        value >= 1_000_000_000L -> compact(1_000_000_000.0, "B")
+        value >= 1_000_000L -> compact(1_000_000.0, "M")
+        else -> java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US).format(value)
     }
 }
 

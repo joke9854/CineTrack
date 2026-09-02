@@ -1,6 +1,6 @@
-# CineTrack 0.67
+# CineTrack 0.68
 
-CineTrack 0.67 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
+CineTrack 0.68 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
 
 ## Open in Android Studio
 
@@ -21,7 +21,11 @@ CineTrack 0.67 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It co
 
 The app never inserts mockup/demo titles. Without a TMDB token, discovery stays empty and reports the missing configuration; Simkl and Room continue to show only real account and locally saved data.
 
-## Included 0.67 behavior
+## Included 0.68 behavior
+
+- Progress persists the latest watched-show interaction so a newly aired episode cannot jump back above the show watched afterward.
+- The Changelog control opens a native in-app popup populated from the latest GitHub release notes.
+- TMDB Useful information includes status, networks, budget, box office, production companies/countries and original language alongside its existing details.
 
 - Marking a Progress episode watched advances to the next locally cached episode immediately, persists that show’s new up-next row before the Simkl request, and keeps the card at the top.
 - Viewing time is decomposed into localized years, months, days, hours and minutes; actor/director statistics include portraits.
