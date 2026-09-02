@@ -7,7 +7,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.repository.SimklSyncOutcome
+import com.cinetrack.data.update.AppUpdateState
+import com.cinetrack.data.update.AppChangelogState
+import com.cinetrack.data.update.GitHubAppUpdater
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
@@ -17,6 +21,8 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.StreamingProvider
+import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -36,15 +42,19 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.util.zip.ZipInputStream
+import android.net.Uri
 
 class CineTrackViewModel(private val repository: CineTrackRepository) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
+    private var pendingProgressRefresh = ProgressRefreshRequest()
     private var startupStateBuilding = true
     private val detailMediaCache = mutableMapOf<String, MediaCard>()
     private val detailRatingsCache = mutableMapOf<String, List<RatingScore>>()
@@ -55,6 +65,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
+    private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
+    val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
@@ -62,6 +74,13 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
     private val _discoverFiltersLoading = MutableStateFlow(false)
     val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
+    private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
+    val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
+    private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
+    val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
+    private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
+    val appChangelogState: StateFlow<AppChangelogState> = _appChangelogState.asStateFlow()
+    private var downloadedUpdateFile: File? = null
 
     init {
         viewModelScope.launch {
@@ -110,12 +129,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else Result.success(SimklSyncOutcome(itemsChanged = false))
             var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
             var discoverError: Throwable? = null
-            if (databaseChanged) {
-                // The Simkl transaction is already complete. Publish it before
-                // any slower TMDB schedule/title enrichment starts.
-                _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
-            }
-            if (cached.rails.values.all { it.isEmpty() }) {
+            if (cached.tmdbApiConfigured && cached.rails.values.all { it.isEmpty() }) {
                 withContext(Dispatchers.IO) {
                     runCatching { repository.refreshDiscover() }
                         .onSuccess { databaseChanged = true }
@@ -129,7 +143,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 _state.value = _state.value.copy(error = error)
             }
             startupStateBuilding = false
-            if (coldSync.getOrNull()?.itemsChanged == true) scheduleProgressCacheRefresh()
+            // A successful Simkl sync already rebuilt the correctness-critical
+            // Progress cache and queued cosmetic enrichment. Only disconnected or
+            // failed startup paths still need an independent cache refresh.
+            if (!cached.simklConnected || coldSync.isFailure) scheduleProgressCacheRefresh()
         }
         viewModelScope.launch {
             val interval = TimeUnit.MINUTES.toMillis(510)
@@ -142,6 +159,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun refresh() {
+        if (!_state.value.tmdbApiConfigured) return
         viewModelScope.launch {
             refreshMutex.withLock {
                 _state.value = _state.value.copy(refreshing = true, error = null)
@@ -171,6 +189,96 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    fun loadStreamingProviders(mediaType: MediaType) {
+        viewModelScope.launch {
+            _streamingProviders.value = withContext(Dispatchers.IO) {
+                repository.loadStreamingProviders(mediaType).let { providers ->
+                    val preferred = _state.value.preferredProviders
+                    if (preferred.isEmpty()) providers else providers.filter { it.name in preferred }
+                }
+            }
+        }
+    }
+
+    fun loadSettingsStreamingProviders() {
+        viewModelScope.launch {
+            val providers = withContext(Dispatchers.IO) {
+                repository.loadSettingsStreamingProviders()
+            }
+            _streamingProviders.value = providers
+            if (providers.isNotEmpty()) {
+                val availableNames = providers.map(StreamingProvider::name).toSet()
+                val retained = _state.value.preferredProviders.intersect(availableNames)
+                if (retained != _state.value.preferredProviders) setPreferredProviders(retained)
+            }
+        }
+    }
+
+    fun setPreferredProviders(values: Set<String>) {
+        _state.value = _state.value.copy(preferredProviders = values)
+        viewModelScope.launch { repository.preferences.setPreferredProviders(values) }
+    }
+
+    fun setCardDensity(value: String) {
+        _state.value = _state.value.copy(cardDensity = value)
+        viewModelScope.launch { repository.preferences.setCardDensity(value) }
+    }
+
+    fun hideUpcomingEpisode(episode: EpisodeCard) {
+        val hidden = _state.value.hiddenUpcoming + episode.scheduleKey
+        _state.value = _state.value.copy(
+            hiddenUpcoming = hidden,
+            calendar = _state.value.calendar.filterNot {
+                it.media.id == episode.showId && it.season == episode.season && it.episodeNumber == episode.number
+            },
+        )
+        viewModelScope.launch { repository.preferences.setHiddenUpcoming(hidden) }
+    }
+
+    fun hideDiscoveryItem(media: MediaCard) {
+        val hidden = _state.value.hiddenDiscovery + media.stableKey
+        _state.value = _state.value.copy(
+            hiddenDiscovery = hidden,
+            rails = _state.value.rails.mapValues { (_, items) -> items.filterNot { it.stableKey == media.stableKey } },
+        )
+        _searchResults.value = _searchResults.value.filterNot { it.stableKey == media.stableKey }
+        _discoverFilterResults.value = _discoverFilterResults.value.filterNot { it.stableKey == media.stableKey }
+        viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
+    }
+
+    fun restoreHiddenDiscovery() {
+        _state.value = _state.value.copy(hiddenDiscovery = emptySet())
+        viewModelScope.launch {
+            repository.preferences.setHiddenDiscovery(emptySet())
+            val error = withContext(Dispatchers.IO) { runCatching { repository.refreshDiscover() }.exceptionOrNull() }
+            if (error == null) {
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync)
+            } else _state.value = _state.value.copy(error = error.message)
+        }
+    }
+
+    fun loadViewingInsights() {
+        if (_viewingInsights.value.loading || _viewingInsights.value.actors.isNotEmpty() || _viewingInsights.value.directors.isNotEmpty()) return
+        viewModelScope.launch {
+            _viewingInsights.value = ViewingPeopleInsights(loading = true)
+            val result = withContext(Dispatchers.IO) { runCatching { repository.loadViewingPeople(_state.value.history) } }
+            _viewingInsights.value = result.fold(
+                onSuccess = { (actors, directors) -> ViewingPeopleInsights(actors, directors) },
+                onFailure = { ViewingPeopleInsights() },
+            )
+        }
+    }
+
+    fun restoreHiddenUpcoming() {
+        _state.value = _state.value.copy(hiddenUpcoming = emptySet())
+        viewModelScope.launch {
+            repository.preferences.setHiddenUpcoming(emptySet())
+            val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _state.value = cached.copy(sync = _state.value.sync)
+        }
+    }
+
     fun setStatus(media: MediaCard, status: LibraryStatus) {
         viewModelScope.launch {
             val syncState = _state.value.sync
@@ -184,7 +292,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else null
             // The Simkl request starts immediately after the local commit. TMDB
             // metadata enrichment is independent and must never delay that push.
-            scheduleProgressCacheRefresh()
+            scheduleProgressCacheRefresh(
+                ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
+            )
             if (pushError != null) {
                 _state.value = _state.value.copy(error = pushError.message)
             }
@@ -207,34 +317,37 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 }
                 if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
             }
-            scheduleProgressCacheRefresh()
+            scheduleProgressCacheRefresh(
+                ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
+            )
         }
     }
 
     fun markPlaybackWatched(playback: PlaybackCard) {
+        val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
+            .find(playback.episodeLabel.orEmpty())
+        val season = playback.season ?: parsed?.groupValues?.getOrNull(1)?.toIntOrNull()
+        val episodeNumber = playback.episodeNumber ?: parsed?.groupValues?.getOrNull(2)?.toIntOrNull()
+        val episode = if (playback.media.type == MediaType.TV && season != null && episodeNumber != null) {
+            EpisodeCard(
+                id = playback.episodeId ?: 0,
+                showId = playback.media.id,
+                season = season,
+                number = episodeNumber,
+                title = playback.episodeTitle.orEmpty(),
+                overview = "",
+                airDate = playback.episodeAirDate,
+            )
+        } else null
+        if (episode != null) {
+            advancePlaybackImmediately(playback, episode)
+        }
         viewModelScope.launch {
-            val parsed = Regex("S\\s*(\\d+)\\D+?(\\d+)", RegexOption.IGNORE_CASE)
-                .find(playback.episodeLabel.orEmpty())
-            val season = playback.season ?: parsed?.groupValues?.getOrNull(1)?.toIntOrNull()
-            val episodeNumber = playback.episodeNumber ?: parsed?.groupValues?.getOrNull(2)?.toIntOrNull()
-            val episode = if (playback.media.type == MediaType.TV && season != null && episodeNumber != null) {
-                EpisodeCard(
-                    id = playback.episodeId ?: 0,
-                    showId = playback.media.id,
-                    season = season,
-                    number = episodeNumber,
-                    title = playback.episodeTitle.orEmpty(),
-                    overview = "",
-                    airDate = null,
-                )
-            } else null
             if (episode != null) {
-                val syncState = _state.value.sync
-                val refreshed = withContext(Dispatchers.IO) {
-                    repository.markEpisodeWatched(episode)
-                    repository.loadCachedState().copy(sync = syncState)
-                }
-                _state.value = refreshed
+                withContext(Dispatchers.IO) { repository.markEpisodeWatched(episode) }
+                scheduleProgressCacheRefresh(
+                    ProgressRefreshRequest(episodeHistoryChanged = true),
+                )
             } else if (playback.media.type == MediaType.MOVIE) {
                 repository.markWatched(playback.media)
                 _state.value = _state.value.copy(
@@ -250,11 +363,64 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    /**
+     * The next cached episode is known before the Simkl write starts. Publish it
+     * synchronously so the checked card changes in the same frame as the tap.
+     */
+    private fun advancePlaybackImmediately(playback: PlaybackCard, watchedEpisode: EpisodeCard) {
+        updateCachedEpisode(watchedEpisode, watched = true)
+        val current = _state.value
+        val zone = if (current.metadataTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(current.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
+        val today = LocalDate.now(zone)
+        val updatedEpisodes = current.episodes.map { episode ->
+            if (
+                episode.showId == watchedEpisode.showId &&
+                episode.season == watchedEpisode.season &&
+                episode.number == watchedEpisode.number
+            ) episode.copy(watched = true) else episode
+        }
+        val next = updatedEpisodes.asSequence()
+            .filter { it.showId == watchedEpisode.showId }
+            .filter { !current.excludeSpecials || it.season > 0 }
+            .filterNot(EpisodeCard::watched)
+            .filter {
+                it.season > watchedEpisode.season ||
+                    (it.season == watchedEpisode.season && it.number > watchedEpisode.number)
+            }
+            .filter { candidate ->
+                candidate.airDate?.take(10)?.let { raw ->
+                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                } == true
+            }
+            .minWithOrNull(compareBy(EpisodeCard::season, EpisodeCard::number))
+        val advancedCard = next?.let { candidate ->
+            PlaybackCard(
+                media = playback.media,
+                episodeId = candidate.id.takeIf { it > 0 },
+                episodeLabel = "S${candidate.season.toString().padStart(2, '0')} E${candidate.number.toString().padStart(2, '0')}",
+                episodeTitle = candidate.title,
+                season = candidate.season,
+                episodeNumber = candidate.number,
+                progress = 0f,
+                remainingMinutes = candidate.runtimeMinutes ?: playback.durationMinutes ?: playback.media.runtimeMinutes,
+                durationMinutes = candidate.runtimeMinutes ?: playback.durationMinutes ?: playback.media.runtimeMinutes,
+                episodeAirDate = candidate.airDate,
+            )
+        }
+        _state.value = current.copy(
+            episodes = updatedEpisodes,
+            playbackTv = listOfNotNull(advancedCard) + current.playbackTv.filterNot {
+                it.media.id == playback.media.id
+            },
+        )
+    }
+
     fun markEpisodeWatched(episode: EpisodeCard) {
         updateCachedEpisode(episode, watched = true)
         viewModelScope.launch {
             repository.markEpisodeWatched(episode)
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true, promoteShowId = episode.showId)
         }
     }
 
@@ -262,7 +428,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         updateCachedEpisode(episode, watched)
         viewModelScope.launch {
             repository.setEpisodeWatched(episode, watched)
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true, promoteShowId = episode.showId.takeIf { watched })
         }
     }
 
@@ -275,7 +441,23 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         viewModelScope.launch {
             episodes.forEach { repository.setEpisodeWatched(it, watched) }
-            refreshCachedState()
+            refreshCachedState(refreshProgress = true, promoteShowId = episodes.firstOrNull()?.showId.takeIf { watched })
+        }
+    }
+
+    fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
+        val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
+        changed.groupBy(EpisodeCard::showId).forEach { (showId, showEpisodes) ->
+            val numbers = showEpisodes.map { it.season to it.number }.toSet()
+            detailEpisodeCache[showId] = detailEpisodeCache[showId].orEmpty().map { cached ->
+                if ((cached.season to cached.number) in numbers) cached.copy(watched = watched) else cached
+            }
+        }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                changed.forEach { repository.setEpisodeWatched(it, watched) }
+            }
+            refreshCachedState(refreshProgress = true, promoteShowId = changed.firstOrNull()?.showId.takeIf { watched })
         }
     }
 
@@ -285,9 +467,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    private suspend fun refreshCachedState() {
+    private suspend fun refreshCachedState(refreshProgress: Boolean = false, promoteShowId: Int? = null) {
         val current = _state.value
-        val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+        val cached = withContext(Dispatchers.IO) {
+            if (refreshProgress) {
+                repository.refreshProgressCache(
+                    ProgressRefreshRequest(episodeHistoryChanged = true),
+                )
+            }
+            repository.loadCachedState()
+        }
         val watchedNumbers = cached.history.mapNotNull { event ->
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
                 Triple(event.media.id, event.season, event.episodeNumber)
@@ -296,6 +485,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         _state.value = cached.copy(
             sync = current.sync,
             people = current.people,
+            playbackTv = cached.playbackTv.let { items ->
+                val promoted = promoteShowId?.let { id -> items.firstOrNull { it.media.id == id } }
+                if (promoted == null) items else listOf(promoted) + items.filterNot { it.media.id == promoteShowId }
+            },
             episodes = current.episodes.map { episode ->
                 episode.copy(watched = Triple(episode.showId, episode.season, episode.number) in watchedNumbers)
             },
@@ -329,17 +522,18 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
-            // Simkl membership/history/playback became durable in one Room
-            // transaction. Make it visible now; schedule enrichment separately.
+            // The repository does not finish the visible sync until both the
+            // remote transaction and correctness-critical Progress data are complete.
             _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 .copy(sync = completedSync)
-            scheduleProgressCacheRefresh()
+            viewModelScope.launch(Dispatchers.IO) { repository.createAutomaticBackup() }
         } else if (outcome != null && exposeProgress) {
             // Complete the synchronization indicator without replacing any page
             // collections when Simkl reported an unchanged activity generation.
             _state.value = _state.value.copy(sync = completedSync)
         } else if (result.isFailure) {
-            _state.value = _state.value.copy(
+            val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _state.value = cached.copy(
                 sync = completedSync,
                 error = result.exceptionOrNull()?.message ?: completedSync.message,
             )
@@ -351,16 +545,21 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
      * Refreshes derived Progress metadata without extending the visible Simkl
      * synchronization or queueing duplicate refreshes after rapid status taps.
      */
-    private fun scheduleProgressCacheRefresh() {
+    private fun scheduleProgressCacheRefresh(
+        request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
+    ) {
         progressRefreshRequested = true
+        pendingProgressRefresh = pendingProgressRefresh.mergedWith(request)
         if (progressRefreshJob?.isActive == true) return
         progressRefreshJob = viewModelScope.launch {
             do {
                 progressRefreshRequested = false
-                val refreshError = withContext(Dispatchers.IO) {
-                    runCatching { repository.refreshProgressCache() }.exceptionOrNull()
+                val refreshRequest = pendingProgressRefresh
+                pendingProgressRefresh = ProgressRefreshRequest()
+                val refreshResult = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshProgressCache(refreshRequest) }
                 }
-                if (refreshError == null) {
+                if (refreshResult.getOrDefault(false)) {
                     val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
                     val current = _state.value
                     _state.value = cached.copy(
@@ -439,7 +638,22 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
     }
     fun setLanguage(value: String) = viewModelScope.launch { repository.preferences.setLanguage(value) }
-    fun setNotification(kind: String, enabled: Boolean) = viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+    fun setNotification(kind: String, enabled: Boolean) {
+        _state.value = when (kind) {
+            "episodes" -> _state.value.copy(notificationEpisodes = enabled)
+            "movies" -> _state.value.copy(notificationMovies = enabled)
+            else -> _state.value.copy(notificationSync = enabled)
+        }
+        viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
+    }
+
+    fun setExcludeSpecials(enabled: Boolean) {
+        _state.value = _state.value.copy(excludeSpecials = enabled)
+        viewModelScope.launch {
+            repository.preferences.setExcludeSpecials(enabled)
+            scheduleProgressCacheRefresh()
+        }
+    }
     fun setRatingSource(source: String, enabled: Boolean) {
         val key = when (source.lowercase()) {
             "rotten tomatoes", "r.tomatoes", "tomatoes" -> "tomatoes"
@@ -472,6 +686,44 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun setUiAccent(value: String) {
         _state.value = _state.value.copy(uiAccent = value)
         viewModelScope.launch { repository.setUiAccent(value) }
+    }
+
+    fun completeIntroduction() {
+        _state.value = _state.value.copy(introductionCompleted = true)
+        viewModelScope.launch { repository.setIntroductionCompleted(true) }
+    }
+
+    fun verifyAndSetTmdbApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTmdbApiKey(value) }
+            if (result.isSuccess) {
+                _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)
+                onResult(Result.success(Unit))
+                val refreshError = withContext(Dispatchers.IO) {
+                    runCatching { repository.refreshDiscover() }.exceptionOrNull()
+                }
+                if (refreshError == null) {
+                    val current = _state.value
+                    _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }.copy(
+                        sync = current.sync,
+                        people = current.people,
+                    )
+                } else {
+                    _state.value = _state.value.copy(error = refreshError.message)
+                }
+            } else onResult(result)
+        }
+    }
+
+    fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetMdbListApiKey(value) }
+            if (result.isSuccess) {
+                detailRatingsCache.clear()
+                _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
+            }
+            onResult(result)
+        }
     }
 
     fun setTmdbApiKey(value: String?) {
@@ -553,6 +805,136 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_logs)))
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun checkForAppUpdate() {
+        if (_appUpdateState.value is AppUpdateState.Checking || _appUpdateState.value is AppUpdateState.Downloading) return
+        viewModelScope.launch {
+            _appUpdateState.value = AppUpdateState.Checking
+            GitHubAppUpdater.check()
+                .onSuccess { update ->
+                    _appUpdateState.value = update?.let(AppUpdateState::Available) ?: AppUpdateState.UpToDate
+                }
+                .onFailure { failure ->
+                    _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update check failed")
+                }
+        }
+    }
+
+    fun loadAppChangelog() {
+        if (_appChangelogState.value is AppChangelogState.Loading) return
+        viewModelScope.launch {
+            _appChangelogState.value = AppChangelogState.Loading
+            GitHubAppUpdater.latestRelease()
+                .onSuccess { release ->
+                    _appChangelogState.value = release?.let(AppChangelogState::Available)
+                        ?: AppChangelogState.Empty
+                }
+                .onFailure { failure ->
+                    _appChangelogState.value = AppChangelogState.Error(
+                        failure.message ?: "Could not load the changelog",
+                    )
+                }
+        }
+    }
+
+    fun openAppUpdate(context: Context) {
+        val update = (_appUpdateState.value as? AppUpdateState.Available)?.update ?: return
+        viewModelScope.launch {
+            val cached = downloadedUpdateFile?.takeIf(File::exists)
+            if (cached != null) {
+                runCatching { GitHubAppUpdater.launchInstaller(context, cached) }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+                return@launch
+            }
+            _appUpdateState.value = AppUpdateState.Downloading(update, 0f)
+            GitHubAppUpdater.download(context, update) { progress ->
+                _appUpdateState.value = AppUpdateState.Downloading(update, progress)
+            }.onSuccess { apk ->
+                downloadedUpdateFile = apk
+                _appUpdateState.value = AppUpdateState.Available(update)
+                runCatching { GitHubAppUpdater.launchInstaller(context, apk) }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+            }.onFailure { failure ->
+                _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update download failed")
+            }
+        }
+    }
+
+    fun restoreData(context: Context, uri: Uri) {
+        viewModelScope.launch {
+            runCatching {
+                val restored = withContext(Dispatchers.IO) {
+                    val entries = linkedMapOf<String, String>()
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        ZipInputStream(input).use { archive ->
+                            var entry = archive.nextEntry
+                            while (entry != null) {
+                                if (!entry.isDirectory) {
+                                    check(entry.size <= 10_000_000L || entry.size < 0L) { "Backup entry is too large" }
+                                    entries[entry.name] = archive.readBytes().decodeToString()
+                                }
+                                archive.closeEntry()
+                                entry = archive.nextEntry
+                            }
+                        }
+                    } ?: error("Could not open backup")
+                    repository.restoreBackupFiles(entries)
+                    repository.refreshProgressCache()
+                }
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync, error = null)
+                restored
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun restoreAutomaticBackup() {
+        viewModelScope.launch {
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    repository.restoreAutomaticBackup()
+                    repository.refreshProgressCache()
+                }
+                val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                _state.value = cached.copy(sync = _state.value.sync, error = null)
+            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    fun exportCalendar(context: Context) {
+        viewModelScope.launch {
+            runCatching {
+                val file = withContext(Dispatchers.IO) {
+                    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
+                    File(directory, "cinetrack-calendar.ics").apply {
+                        writeText(buildString {
+                            appendLine("BEGIN:VCALENDAR")
+                            appendLine("VERSION:2.0")
+                            appendLine("PRODID:-//CineTrack//Upcoming//EN")
+                            _state.value.calendar.forEach { item ->
+                                val day = item.timestamp.take(10).replace("-", "")
+                                val uid = "${item.media.stableKey}-${item.season ?: 0}-${item.episodeNumber ?: 0}-$day@cinetrack"
+                                val summary = (item.media.title + item.episodeLabel?.let { " · $it" }.orEmpty())
+                                    .replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
+                                appendLine("BEGIN:VEVENT")
+                                appendLine("UID:$uid")
+                                appendLine("DTSTART;VALUE=DATE:$day")
+                                appendLine("SUMMARY:$summary")
+                                appendLine("END:VEVENT")
+                            }
+                            appendLine("END:VCALENDAR")
+                        })
+                    }
+                }
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
+                context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                    type = "text/calendar"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }, context.getString(com.cinetrack.R.string.export_calendar)))
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
     }

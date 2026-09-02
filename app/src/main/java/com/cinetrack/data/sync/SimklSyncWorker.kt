@@ -38,12 +38,14 @@ class SimklSyncWorker(
         if (!application.container.preferences.simklConnectedValue()) return Result.success()
         if (!application.container.repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
         return application.container.repository.syncSimkl { }.fold(
-            onSuccess = { outcome ->
-                // Refresh durable Progress inputs after the atomic Simkl commit.
-                // Failure here keeps the previous episode/calendar cache valid and
-                // does not turn a successful account sync into a destructive retry.
-                if (outcome.itemsChanged) {
-                    runCatching { application.container.repository.refreshProgressCache() }
+            onSuccess = {
+                runCatching {
+                    ReleaseNotifier.notifyUpcoming(
+                        applicationContext,
+                        application.container.repository.loadCachedState(),
+                        application.container.preferences,
+                        application.container.repository,
+                    )
                 }
                 Result.success()
             },

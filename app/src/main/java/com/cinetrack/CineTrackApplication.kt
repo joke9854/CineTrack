@@ -6,6 +6,7 @@ import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.sync.SimklWorkScheduler
+import com.cinetrack.data.sync.ReleaseNotifier
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.atomic.AtomicReference
@@ -17,6 +18,7 @@ class CineTrackApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this)
+        ReleaseNotifier.createChannel(this)
         runBlocking {
             SimklWorkScheduler.update(
                 this@CineTrackApplication,

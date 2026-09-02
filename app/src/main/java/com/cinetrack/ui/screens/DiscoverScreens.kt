@@ -42,6 +42,8 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.WarningAmber
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -102,6 +104,8 @@ fun DiscoverScreen(
     onSeeAll: (String) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
+    onOpenTmdbSettings: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
     val listState = rememberLazyListState()
@@ -147,7 +151,35 @@ fun DiscoverScreen(
                         }
                     }
                 }
-                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus) }
+                if (!state.tmdbApiConfigured) item {
+                    Column(
+                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
+                            .glass(RoundedCornerShape(18.dp))
+                            .background(Color(0xFF8A5B00).copy(alpha = .20f), RoundedCornerShape(18.dp))
+                            .border(.8.dp, Color(0xFFFFC75D).copy(alpha = .45f), RoundedCornerShape(18.dp))
+                            .padding(15.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(Icons.Filled.WarningAmber, null, tint = Color(0xFFFFD37A), modifier = Modifier.size(23.dp))
+                            Spacer(Modifier.width(10.dp))
+                            Text(stringResource(R.string.discover_tmdb_warning_title), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                        }
+                        Text(
+                            stringResource(R.string.discover_tmdb_warning_message),
+                            color = TextSecondary,
+                            fontSize = 12.5.sp,
+                            lineHeight = 17.sp,
+                            modifier = Modifier.padding(top = 9.dp, bottom = 12.dp),
+                        )
+                        PrimaryAction(
+                            text = stringResource(R.string.open_api_settings),
+                            icon = Icons.Filled.Settings,
+                            modifier = Modifier.fillMaxWidth(),
+                            onClick = onOpenTmdbSettings,
+                        )
+                    }
+                }
+                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested) }
                 if (state.allMedia.isEmpty() && !state.loading) item {
                     Text(
                         state.error ?: stringResource(R.string.no_catalog_data),
@@ -156,9 +188,9 @@ fun DiscoverScreen(
                         modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(14.dp)).padding(12.dp),
                     )
                 }
-                railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus)
-                railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus)
-                railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus)
+                railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
             }
         }
     }
@@ -172,11 +204,12 @@ private fun LazyListScope.railSection(
     onSeeAll: (String) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
     item { SectionHeader(title, Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 13.dp), seeAll, { onSeeAll(railId) }) }
-    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus) }
+    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item { Spacer(Modifier.height(4.dp)) }
 }
 
@@ -187,6 +220,7 @@ private fun HeroCarousel(
     onPage: (Int) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val pagerState = rememberPagerState(initialPage = selectedPage, pageCount = { items.size })
     LaunchedEffect(pagerState.currentPage) { onPage(pagerState.currentPage) }
@@ -203,7 +237,7 @@ private fun HeroCarousel(
             pageSpacing = 10.dp,
             key = { items[it].stableKey },
         ) { page ->
-            HeroCard(items[page], onMedia, onStatus)
+            HeroCard(items[page], onMedia, onStatus, onNotInterested)
         }
         Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), horizontalArrangement = Arrangement.Center) {
             items.indices.forEach { page ->
@@ -223,6 +257,7 @@ private fun HeroCard(
     media: MediaCard,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
@@ -293,6 +328,7 @@ private fun HeroCard(
             currentStatus = media.status,
             onDismiss = { statusPopup = false },
             onStatus = { status -> onStatus(media, status); statusPopup = false },
+            onNotInterested = { onNotInterested(media); statusPopup = false },
         )
     }
 }
@@ -304,6 +340,7 @@ fun DiscoverListScreen(
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     val title = when (railId) {
         RailIds.TRENDING_TV -> stringResource(R.string.trending_tv)
@@ -325,7 +362,13 @@ fun DiscoverListScreen(
             ) {
                 items(state.rails[railId].orEmpty(), key = MediaCard::stableKey) { media ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        MediaPoster(media, width = maxWidth, onStatus = { onStatus(media, it) }, onClick = { onMedia(media) })
+                        MediaPoster(
+                            media,
+                            width = maxWidth,
+                            onStatus = { onStatus(media, it) },
+                            onNotInterested = { onNotInterested(media) },
+                            onClick = { onMedia(media) },
+                        )
                     }
                 }
             }

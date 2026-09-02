@@ -20,6 +20,8 @@ fun secret(name: String): String =
 
 fun escaped(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
+val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
+
 android {
     namespace = "com.cinetrack"
     compileSdk = 36
@@ -28,8 +30,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 23
         targetSdk = 36
-        versionCode = 61
-        versionName = "0.61"
+        versionCode = 68
+        versionName = "0.68"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -38,6 +40,19 @@ android {
         buildConfigField("String", "MDBLIST_API_KEY", "\"${escaped(secret("MDBLIST_API_KEY"))}\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${escaped(secret("SIMKL_CLIENT_ID"))}\"")
         buildConfigField("String", "SIMKL_REDIRECT_URI", "\"cinetrack://simkl\"")
+        buildConfigField("String", "GITHUB_UPDATE_REPO", "\"joke9854/CineTrack\"")
+        buildConfigField("String", "GITHUB_UPDATE_CHANNEL", "\"testing\"")
+    }
+
+    signingConfigs {
+        if (!releaseKeystorePath.isNullOrBlank()) {
+            create("release") {
+                storeFile = file(releaseKeystorePath)
+                storePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD").orNull
+            }
+        }
     }
 
     buildTypes {
@@ -47,6 +62,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            if (!releaseKeystorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -98,6 +114,7 @@ dependencies {
     implementation("androidx.room:room-ktx:2.8.4")
     ksp("androidx.room:room-compiler:2.8.4")
     implementation("androidx.datastore:datastore-preferences:1.2.0")
+    implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
@@ -107,6 +124,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
+    implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")

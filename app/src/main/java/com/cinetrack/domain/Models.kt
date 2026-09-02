@@ -29,10 +29,20 @@ data class MediaCard(
     val genres: List<String> = emptyList(),
     val providers: List<String> = emptyList(),
     val providerLogos: Map<String, String> = emptyMap(),
+    val subscriptionProviders: List<String> = emptyList(),
+    val rentProviders: List<String> = emptyList(),
+    val buyProviders: List<String> = emptyList(),
+    val providerLink: String? = null,
     val seasons: List<SeasonCard> = emptyList(),
     val collectionId: Int? = null,
     val libraryUpdatedAt: Long? = null,
     val tmdbStatus: String? = null,
+    val networks: List<String> = emptyList(),
+    val budget: Long? = null,
+    val boxOffice: Long? = null,
+    val productionCompanies: List<String> = emptyList(),
+    val productionCountries: List<String> = emptyList(),
+    val originalLanguage: String? = null,
 ) {
     val stableKey: String get() = "${type.name}:$id"
     val year: String get() = releaseDate?.take(4).orEmpty()
@@ -55,6 +65,13 @@ data class PlaybackCard(
     val progress: Float,
     val remainingMinutes: Int? = null,
     val durationMinutes: Int? = null,
+    val episodeAirDate: String? = null,
+)
+
+data class StreamingProvider(
+    val id: Int,
+    val name: String,
+    val logoUrl: String? = null,
 )
 
 data class EpisodeCard(
@@ -70,6 +87,7 @@ data class EpisodeCard(
     val watched: Boolean = false,
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')} · E${number.toString().padStart(2, '0')}"
+    val scheduleKey: String get() = "$showId:$season:$number"
 }
 
 data class PersonCard(
@@ -111,6 +129,7 @@ enum class SyncStage {
     HISTORY,
     CALENDAR,
     COMMIT,
+    PROCESSING,
     COMPLETE,
     ERROR,
 }
@@ -121,6 +140,27 @@ data class SyncProgress(
     val stage: SyncStage = SyncStage.IDLE,
     val message: String? = null,
     val lastSuccessfulSync: Long? = null,
+    val report: SyncReport = SyncReport(),
+)
+
+data class SyncReport(
+    val downloaded: Int = 0,
+    val uploaded: Int = 0,
+    val added: Int = 0,
+    val removed: Int = 0,
+    val unchanged: Int = 0,
+    val pendingLocalChanges: Int = 0,
+    val failedOperations: Int = 0,
+    val conflicts: Int = 0,
+    val lastFullSync: Long? = null,
+    val lastIncrementalSync: Long? = null,
+    val databaseUntouched: Boolean = false,
+)
+
+data class ViewingPeopleInsights(
+    val actors: List<PersonCard> = emptyList(),
+    val directors: List<PersonCard> = emptyList(),
+    val loading: Boolean = false,
 )
 
 data class AppUiState(
@@ -138,6 +178,9 @@ data class AppUiState(
     val simklConnected: Boolean = false,
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
+    val notificationEpisodes: Boolean = true,
+    val notificationMovies: Boolean = true,
+    val notificationSync: Boolean = true,
     val ratingSources: Set<String> = setOf("imdb", "tmdb", "metacritic", "tomatoes"),
     val contentRegions: Set<String> = emptySet(),
     val uiAccent: String = "watching",
@@ -146,6 +189,12 @@ data class AppUiState(
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
     val metadataTimezone: String = "system",
+    val excludeSpecials: Boolean = true,
+    val preferredProviders: Set<String> = emptySet(),
+    val cardDensity: String = "standard",
+    val hiddenUpcoming: Set<String> = emptySet(),
+    val hiddenDiscovery: Set<String> = emptySet(),
+    val introductionCompleted: Boolean = false,
 ) {
     val allMedia: List<MediaCard>
         get() = (
@@ -163,9 +212,17 @@ data class AppUiState(
 data class DiscoverMovieFilters(
     val mediaType: MediaType = MediaType.MOVIE,
     val genreIds: Set<Int> = emptySet(),
+    val excludedGenreIds: Set<Int> = emptySet(),
     val releaseYear: Int? = null,
     val minimumRating: Double? = null,
     val sortBy: String = "popularity.desc",
+    val animeMode: String = "all",
+    val hideWatched: Boolean = false,
+    val hideDropped: Boolean = false,
+    val providerIds: Set<Int> = emptySet(),
+    val maximumRuntime: Int? = null,
+    val originalLanguage: String? = null,
+    val decadeStart: Int? = null,
 )
 
 object RailIds {

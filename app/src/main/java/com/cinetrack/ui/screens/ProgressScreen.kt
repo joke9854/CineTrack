@@ -23,6 +23,7 @@ import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Insights
 import androidx.compose.material.icons.filled.NotificationsNone
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
@@ -98,10 +100,12 @@ import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.TimelineCard
+import com.cinetrack.domain.ViewingPeopleInsights
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.MediaRail
 import com.cinetrack.ui.components.PageTitle
@@ -122,12 +126,13 @@ import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
 import java.time.Instant
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-private enum class ProgressTab { IN_PROGRESS, CALENDAR, HISTORY }
+private enum class ProgressTab { IN_PROGRESS, CALENDAR, HISTORY, STATISTICS }
 private enum class PlaybackOrder { RECENT, TITLE, TOP_RATED, REMAINING, RANDOM }
 
 @Composable
@@ -138,23 +143,35 @@ fun ProgressScreen(
     onMedia: (MediaCard) -> Unit,
     onWatched: (PlaybackCard) -> Unit,
     onEpisode: (EpisodeCard) -> Unit,
+    onHideUpcoming: (EpisodeCard) -> Unit,
+    viewingInsights: ViewingPeopleInsights,
+    onLoadViewingInsights: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
     var tab by rememberSaveable { mutableStateOf(ProgressTab.IN_PROGRESS) }
     val progressListState = rememberLazyListState()
     val calendarListState = rememberLazyListState()
     val historyListState = rememberLazyListState()
+    val statisticsListState = rememberLazyListState()
     val activeListState = when (tab) {
         ProgressTab.IN_PROGRESS -> progressListState
         ProgressTab.CALENDAR -> calendarListState
         ProgressTab.HISTORY -> historyListState
+        ProgressTab.STATISTICS -> statisticsListState
     }
     NavCollapseEffect(activeListState, onCompactNav)
+    LaunchedEffect(tab) {
+        if (tab == ProgressTab.STATISTICS) onLoadViewingInsights()
+    }
     val artwork = state.playbackTv.firstOrNull()?.media?.posterUrl
         ?: state.playbackMovies.firstOrNull()?.media?.posterUrl
         ?: state.episodes.firstOrNull()?.stillUrl
-    val upcomingEpisodes = remember(state.episodes, state.rails, state.playbackTv) {
-        val today = LocalDate.now()
+    val today = remember(state.metadataTimezone) {
+        val zone = if (state.metadataTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(state.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
+        LocalDate.now(zone)
+    }
+    val upcomingEpisodes = remember(state.episodes, state.rails, state.playbackTv, state.excludeSpecials, state.hiddenUpcoming, today) {
         val trackedShowIds = (
             state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
                 .filter {
@@ -167,6 +184,8 @@ fun ProgressScreen(
             ).toSet()
         state.episodes.asSequence()
             .filter { it.showId in trackedShowIds }
+            .filter { !state.excludeSpecials || it.season > 0 }
+            .filter { it.scheduleKey !in state.hiddenUpcoming }
             .filter { episode ->
                 episode.airDate?.take(10)?.let { raw ->
                     runCatching { !LocalDate.parse(raw).isBefore(today) }.getOrDefault(false)
@@ -218,6 +237,7 @@ fun ProgressScreen(
                         ProgressTab.IN_PROGRESS -> progressListState
                         ProgressTab.CALENDAR -> calendarListState
                         ProgressTab.HISTORY -> historyListState
+                        ProgressTab.STATISTICS -> statisticsListState
                     },
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(bottom = 116.dp),
@@ -247,9 +267,17 @@ fun ProgressScreen(
                             onWatched = onWatched,
                             )
                         }
-                    if (upcomingEpisodes.isNotEmpty()) {
-                        item { UpcomingEpisodesRail(upcomingEpisodes, state.allMedia, onEpisode) }
-                        }
+                    val comingSoon = upcomingEpisodes.filter { episode ->
+                        episode.airDate?.take(10)?.let { raw ->
+                            runCatching { LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+                        } == true
+                    }
+                    if (comingSoon.isNotEmpty()) {
+                        item { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, state.allMedia, onEpisode, onHideUpcoming) }
+                    }
+                    if (upcomingEpisodes.isEmpty()) {
+                        item { UpcomingDiagnostics(state) }
+                    }
                         val tvList = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().filter { it.type == com.cinetrack.domain.MediaType.TV && !it.watched && it.status != com.cinetrack.domain.LibraryStatus.COMPLETED }
                         val movieList = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().filter { it.type == com.cinetrack.domain.MediaType.MOVIE && !it.watched && it.status != com.cinetrack.domain.LibraryStatus.COMPLETED }
                         if (tvList.isNotEmpty()) {
@@ -278,6 +306,7 @@ fun ProgressScreen(
                             key = { index, item -> "calendar:${item.media.stableKey}:${item.timestamp}:${item.episodeLabel.orEmpty()}:$index" },
                         ) { _, item -> TimelineRow(item, onMedia, onEpisode, history = false) }
                     }
+                    ProgressTab.STATISTICS -> item { StatisticsSection(state, viewingInsights) }
                 }
             }
             }
@@ -343,6 +372,7 @@ private fun syncStageLabel(stage: SyncStage): String = when (stage) {
     SyncStage.HISTORY -> stringResource(R.string.sync_stage_history)
     SyncStage.CALENDAR -> stringResource(R.string.sync_stage_calendar)
     SyncStage.COMMIT -> stringResource(R.string.sync_stage_commit)
+    SyncStage.PROCESSING -> stringResource(R.string.sync_stage_processing)
     else -> stringResource(R.string.syncing)
 }
 
@@ -378,14 +408,24 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(
-                    when (tab) { ProgressTab.IN_PROGRESS -> Icons.Filled.PlayCircle; ProgressTab.CALENDAR -> Icons.Filled.CalendarMonth; ProgressTab.HISTORY -> Icons.Filled.History },
+                    when (tab) {
+                        ProgressTab.IN_PROGRESS -> Icons.Filled.PlayCircle
+                        ProgressTab.CALENDAR -> Icons.Filled.CalendarMonth
+                        ProgressTab.HISTORY -> Icons.Filled.History
+                        ProgressTab.STATISTICS -> Icons.Filled.Insights
+                    },
                     null,
                     tint = if (active) AccentLight else TextMuted,
                     modifier = Modifier.size(17.dp),
                 )
                 Spacer(Modifier.width(5.dp))
                 Text(
-                    when (tab) { ProgressTab.IN_PROGRESS -> stringResource(R.string.in_progress); ProgressTab.CALENDAR -> stringResource(R.string.calendar); ProgressTab.HISTORY -> stringResource(R.string.history) },
+                    when (tab) {
+                        ProgressTab.IN_PROGRESS -> stringResource(R.string.in_progress)
+                        ProgressTab.CALENDAR -> stringResource(R.string.calendar)
+                        ProgressTab.HISTORY -> stringResource(R.string.history)
+                        ProgressTab.STATISTICS -> stringResource(R.string.statistics)
+                    },
                     color = contentColor,
                     fontSize = 13.sp,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
@@ -505,12 +545,10 @@ private fun ExpandablePlaybackSection(
                 }
             }
         }
-        if (items.size > 3 || (showEpisodeControl && items.isNotEmpty())) {
+        if (orderedItems.size > 3) {
             Row(
                 Modifier.padding(start = 20.dp, end = 20.dp, bottom = 22.dp).offset(y = buttonOffset).fillMaxWidth().height(40.dp)
-                    .glass(RoundedCornerShape(999.dp)).clickable {
-                        if (orderedItems.size > 3) expanded = !expanded else orderedItems.firstOrNull()?.media?.let(onMedia)
-                    },
+                    .glass(RoundedCornerShape(999.dp)).clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -637,6 +675,9 @@ private fun PlaybackRow(
             (1f - item.remainingMinutes.toFloat() / item.durationMinutes.toFloat()).coerceIn(0f, 1f)
         else -> 0f
     }
+    val remainingMinutes = item.remainingMinutes ?: item.durationMinutes
+        ?.takeIf { it > 0 && item.progress > 0f }
+        ?.let { duration -> (duration * (1f - item.progress.coerceIn(0f, 1f))).toInt().coerceAtLeast(0) }
     val openItem = {
         val season = item.season
         val number = item.episodeNumber
@@ -680,7 +721,9 @@ private fun PlaybackRow(
                 } else stringResource(R.string.movies)
                 Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
-                    item.remainingMinutes?.let { "$it min ${stringResource(R.string.remaining).lowercase()}" } ?: if (item.progress > 0f) "${(item.progress * 100).toInt()}%" else if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next) else stringResource(R.string.in_progress),
+                    remainingMinutes?.let { "${formatDurationMinutes(it)} ${stringResource(R.string.remaining).lowercase()}" }
+                        ?: if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next)
+                        else stringResource(R.string.in_progress),
                     color = AccentLight,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -738,9 +781,15 @@ private fun ProgressEmpty(message: String) {
 }
 
 @Composable
-private fun UpcomingEpisodesRail(episodes: List<EpisodeCard>, shows: List<MediaCard>, onEpisode: (EpisodeCard) -> Unit) {
+private fun UpcomingEpisodesRail(
+    title: String,
+    episodes: List<EpisodeCard>,
+    shows: List<MediaCard>,
+    onEpisode: (EpisodeCard) -> Unit,
+    onHide: (EpisodeCard) -> Unit,
+) {
     Column(Modifier.padding(top = 8.dp, bottom = 18.dp)) {
-        SectionHeader(stringResource(R.string.upcoming_episodes), Modifier.padding(horizontal = 20.dp))
+        SectionHeader(title, Modifier.padding(horizontal = 20.dp))
         Spacer(Modifier.height(13.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(episodes.distinctBy(EpisodeCard::id), key = EpisodeCard::id) { episode ->
@@ -748,7 +797,14 @@ private fun UpcomingEpisodesRail(episodes: List<EpisodeCard>, shows: List<MediaC
                 val interaction = remember(episode.showId, episode.season, episode.number) { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
                 val hapticOpenEpisode = rememberLightHapticAction { onEpisode(episode) }
-                Column(Modifier.width(236.dp).clickable(interactionSource = interaction, indication = null, onClick = hapticOpenEpisode)) {
+                Column(
+                    Modifier.width(236.dp).combinedClickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = hapticOpenEpisode,
+                        onLongClick = { onHide(episode) },
+                    ),
+                ) {
                     Box(Modifier.fillMaxWidth().height(132.dp).clip(RoundedCornerShape(17.dp)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .65f), Info.copy(alpha = .28f))))
                         .border(if (pressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (pressed) .9f else 0f), RoundedCornerShape(17.dp))) {
                         if (!episode.stillUrl.isNullOrBlank()) AsyncImage(episode.stillUrl, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -761,6 +817,227 @@ private fun UpcomingEpisodesRail(episodes: List<EpisodeCard>, shows: List<MediaC
                     }
                     Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpcomingDiagnostics(state: AppUiState) {
+    val trackedShows = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().count {
+        it.type == com.cinetrack.domain.MediaType.TV && it.status != com.cinetrack.domain.LibraryStatus.NONE
+    }
+    Column(
+        Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()
+            .glass(RoundedCornerShape(16.dp)).padding(14.dp),
+    ) {
+        Text(stringResource(R.string.why_not_shown), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        Spacer(Modifier.height(5.dp))
+        Text(
+            if (trackedShows == 0) stringResource(R.string.no_tracked_shows_for_upcoming)
+            else stringResource(R.string.no_announced_episodes, trackedShows),
+            color = TextMuted,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+        )
+    }
+}
+
+@Composable
+private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) {
+    val now = remember(state.metadataTimezone) {
+        val zone = if (state.metadataTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(state.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
+        LocalDate.now(zone)
+    }
+    val historyDates = remember(state.history) { state.history.mapNotNull { timelineLocalDate(it.timestamp) } }
+    val monthly = historyDates.count { it.year == now.year && it.month == now.month }
+    val yearly = historyDates.count { it.year == now.year }
+    val watchedMinutes = remember(state.history) {
+        state.history.sumOf { event -> event.media.runtimeMinutes ?: if (event.media.type == com.cinetrack.domain.MediaType.TV) 45 else 0 }
+    }
+    val library = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
+    val completed = library.count { it.status == com.cinetrack.domain.LibraryStatus.COMPLETED }
+    val abandoned = library.count { it.status == com.cinetrack.domain.LibraryStatus.DROPPED }
+    val finishedTotal = completed + abandoned
+    val completionRate = if (finishedTotal == 0) 0 else completed * 100 / finishedTotal
+    val topGenres = remember(state.history) {
+        state.history.flatMap { it.media.genres }.groupingBy { it.lowercase() }.eachCount().entries
+            .sortedByDescending { it.value }.take(4).map { it.key.replaceFirstChar { char -> char.uppercase() } }
+    }
+    val watchedDays = historyDates.groupingBy { it }.eachCount()
+    val heatmapWeeks = remember(now, watchedDays) {
+        val firstMonday = now.minusWeeks(15).with(DayOfWeek.MONDAY)
+        (0L until 16L).map { week ->
+            (0L until 7L).map { day -> firstMonday.plusWeeks(week).plusDays(day) }
+        }
+    }
+    val maxDailyActivity = watchedDays.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val longestStreak = remember(watchedDays) {
+        var longest = 0
+        var current = 0
+        var previous: LocalDate? = null
+        watchedDays.keys.sorted().forEach { day ->
+            current = if (previous?.plusDays(1) == day) current + 1 else 1
+            longest = maxOf(longest, current)
+            previous = day
+        }
+        longest
+    }
+    Column(Modifier.padding(horizontal = 20.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        SectionHeader(stringResource(R.string.statistics))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            StatisticTile(stringResource(R.string.this_month), monthly.toString(), Modifier.weight(1f))
+            StatisticTile(stringResource(R.string.this_year), yearly.toString(), Modifier.weight(1f))
+            StatisticTile(stringResource(R.string.time_watched), formatWatchedDurationMinutes(watchedMinutes), Modifier.weight(1f))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            StatisticTile(stringResource(R.string.completion_rate), "$completionRate%", Modifier.weight(1f))
+            StatisticTile(stringResource(R.string.completed), completed.toString(), Modifier.weight(1f))
+            StatisticTile(stringResource(R.string.dropped), abandoned.toString(), Modifier.weight(1f))
+        }
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
+            Text(stringResource(R.string.most_watched_genres), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(7.dp))
+            Text(topGenres.ifEmpty { listOf("—") }.joinToString(" · "), color = AccentLight, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        }
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
+            Text(stringResource(R.string.most_watched_people), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(9.dp))
+            if (people.loading) {
+                Text(stringResource(R.string.loading), color = TextSecondary, fontSize = 11.5.sp)
+            } else {
+                PeopleStatisticsRow(stringResource(R.string.actors), people.actors)
+                Spacer(Modifier.height(10.dp))
+                PeopleStatisticsRow(stringResource(R.string.directors), people.directors)
+            }
+        }
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.activity_heatmap), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.heatmap_summary, watchedDays.size, longestStreak), color = TextMuted, fontSize = 9.sp, maxLines = 1)
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth().padding(start = 26.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                heatmapWeeks.forEachIndexed { index, week ->
+                    val monthChanged = index == 0 || week.first().month != heatmapWeeks[index - 1].first().month
+                    Text(
+                        if (monthChanged) week.first().format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())) else "",
+                        color = TextMuted,
+                        fontSize = 8.sp,
+                        maxLines = 1,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+            Spacer(Modifier.height(5.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                Column(Modifier.width(22.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    heatmapWeeks.first().forEach { day ->
+                        Text(
+                            day.format(DateTimeFormatter.ofPattern("EEEEE", Locale.getDefault())),
+                            color = TextMuted,
+                            fontSize = 8.5.sp,
+                            lineHeight = 11.sp,
+                            maxLines = 1,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier.fillMaxWidth().height(16.dp),
+                        )
+                    }
+                }
+                heatmapWeeks.forEach { week ->
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        week.forEach { day ->
+                            val count = watchedDays[day] ?: 0
+                            val level = if (count == 0) 0 else ((count * 4 + maxDailyActivity - 1) / maxDailyActivity).coerceIn(1, 4)
+                            Box(
+                                Modifier.fillMaxWidth().height(16.dp).clip(RoundedCornerShape(3.dp))
+                                    .background(
+                                        Accent.copy(
+                                            alpha = when {
+                                                day.isAfter(now) -> .035f
+                                                level == 0 -> .09f
+                                                level == 1 -> .28f
+                                                level == 2 -> .48f
+                                                level == 3 -> .70f
+                                                else -> .96f
+                                            },
+                                        ),
+                                    )
+                                    .then(if (day == now) Modifier.border(1.dp, AccentLight, RoundedCornerShape(3.dp)) else Modifier),
+                            )
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.less_activity), color = TextMuted, fontSize = 8.sp)
+                Spacer(Modifier.width(5.dp))
+                listOf(.09f, .28f, .48f, .70f, .96f).forEach { alpha ->
+                    Box(Modifier.padding(horizontal = 1.5.dp).size(9.dp).clip(RoundedCornerShape(2.dp)).background(Accent.copy(alpha = alpha)))
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(stringResource(R.string.more_activity), color = TextMuted, fontSize = 8.sp)
+            }
+        }
+    }
+}
+
+@Composable
+private fun StatisticTile(label: String, value: String, modifier: Modifier = Modifier) {
+    Column(modifier.glass(RoundedCornerShape(16.dp)).padding(horizontal = 9.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        val longValue = value.length > 14
+        Text(
+            value.ifBlank { "—" },
+            color = TextPrimary,
+            fontSize = if (longValue) 11.sp else 16.sp,
+            lineHeight = if (longValue) 13.sp else 18.sp,
+            fontWeight = FontWeight.ExtraBold,
+            maxLines = if (longValue) 4 else 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
+        Text(label, color = TextMuted, fontSize = 9.5.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
+}
+
+@Composable
+private fun PeopleStatisticsRow(title: String, people: List<PersonCard>) {
+    Text(title, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+    Spacer(Modifier.height(6.dp))
+    if (people.isEmpty()) {
+        Text("—", color = TextSecondary, fontSize = 11.5.sp)
+        return
+    }
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        items(people, key = PersonCard::id) { person ->
+            Column(Modifier.width(64.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(
+                    Modifier.size(48.dp).clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(Accent.copy(alpha = .55f), Info.copy(alpha = .45f)))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    if (!person.profileUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            person.profileUrl,
+                            person.name,
+                            Modifier.fillMaxSize(),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Text(person.name.take(1).uppercase(), color = TextPrimary, fontWeight = FontWeight.Black)
+                    }
+                }
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    person.name,
+                    color = TextSecondary,
+                    fontSize = 9.sp,
+                    lineHeight = 10.5.sp,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                )
             }
         }
     }

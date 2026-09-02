@@ -2,6 +2,9 @@ name: Publish update
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "testing/**"
 
 permissions:
   contents: write
@@ -24,11 +27,13 @@ jobs:
           ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
         run: |
           test -n "$KEYSTORE"
           test -n "$ALIAS"
           test -n "$STORE_PASSWORD"
           test -n "$KEY_PASSWORD"
+          test -n "$SIMKL_CLIENT_ID"
       - name: Restore release keystore
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -55,5 +60,5 @@ jobs:
           gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
             --target "$GITHUB_SHA" \
             --title "CineTrack $VERSION testing" \
-            --notes "Testing build from $GITHUB_REF_NAME ($GITHUB_SHA)." \
+            --notes-file CHANGELOG.md \
             --prerelease

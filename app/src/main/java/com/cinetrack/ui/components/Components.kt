@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.CircularProgressIndicator
@@ -456,6 +457,7 @@ fun MediaPoster(
     progress: Float? = null,
     selectedBorder: Color? = null,
     onStatus: ((LibraryStatus) -> Unit)? = null,
+    onNotInterested: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
     val view = LocalView.current
@@ -475,7 +477,7 @@ fun MediaPoster(
                 onClick()
             },
             onLongClick = {
-                if (onStatus != null) {
+                if (onStatus != null || onNotInterested != null) {
                     view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     statusPopup = true
                 }
@@ -560,6 +562,7 @@ fun MediaPoster(
         currentStatus = media.status,
         onDismiss = { statusPopup = false },
         onStatus = { status -> onStatus?.invoke(status); statusPopup = false },
+        onNotInterested = onNotInterested?.let { action -> { action(); statusPopup = false } },
     )
     }
     }
@@ -596,6 +599,7 @@ fun MediaRail(
     showAirDate: Boolean = false,
     progressByKey: Map<String, Float> = emptyMap(),
     onStatus: ((MediaCard, LibraryStatus) -> Unit)? = null,
+    onNotInterested: ((MediaCard) -> Unit)? = null,
 ) {
     LazyRow(contentPadding = contentPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         items(items.distinctBy(MediaCard::stableKey), key = MediaCard::stableKey) {
@@ -604,6 +608,7 @@ fun MediaRail(
                 showAirDate = showAirDate,
                 progress = progressByKey[it.stableKey],
                 onStatus = onStatus?.let { callback -> { status -> callback(it, status) } },
+                onNotInterested = onNotInterested?.let { callback -> { callback(it) } },
                 onClick = { onMedia(it) },
             )
         }
@@ -616,6 +621,7 @@ fun MediaStatusPopup(
     currentStatus: LibraryStatus,
     onDismiss: () -> Unit,
     onStatus: (LibraryStatus) -> Unit,
+    onNotInterested: (() -> Unit)? = null,
 ) {
     var rendered by remember { mutableStateOf(expanded) }
     val view = LocalView.current
@@ -669,6 +675,16 @@ fun MediaStatusPopup(
                 onClick = {
                     view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onStatus(if (selected) LibraryStatus.NONE else status)
+                },
+            )
+        }
+        if (onNotInterested != null) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.show_less_like_this), color = TextPrimary, fontWeight = FontWeight.Bold) },
+                leadingIcon = { Icon(Icons.Filled.ThumbDown, null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
+                onClick = {
+                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                    onNotInterested()
                 },
             )
         }

@@ -18,6 +18,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.res.stringResource
+import com.cinetrack.R
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
@@ -55,6 +57,61 @@ internal fun formatFullDate(raw: String?): String {
         LocalDate.parse(raw.take(10)).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
     }.getOrDefault(raw)
 }
+
+/** Formats long runtimes as hours instead of leaving values such as "97 min". */
+internal fun formatDurationMinutes(minutes: Int?): String {
+    val value = minutes?.takeIf { it > 0 } ?: return ""
+    if (value < 60) return "$value min"
+    val hours = value / 60
+    val remainder = value % 60
+    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+}
+
+@Composable
+internal fun formatWatchedDurationMinutes(minutes: Int?): String {
+    val value = minutes?.takeIf { it > 0 } ?: return ""
+    val dayMinutes = 24 * 60
+    val yearMinutes = dayMinutes * 365
+    val monthMinutes = dayMinutes * 30
+    val years = value / yearMinutes
+    var remainder = value % yearMinutes
+    val months = remainder / monthMinutes
+    remainder %= monthMinutes
+    val days = remainder / dayMinutes
+    remainder %= dayMinutes
+    val hours = remainder / 60
+    val remainingMinutes = remainder % 60
+
+    val parts = mutableListOf<String>()
+    when {
+        years > 0 -> {
+            parts += durationUnit(years, R.string.duration_year_singular, R.string.duration_year_plural)
+            if (months > 0) parts += durationUnit(months, R.string.duration_month_singular, R.string.duration_month_plural)
+            if (days > 0) parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+        }
+        months > 0 -> {
+            parts += durationUnit(months, R.string.duration_month_singular, R.string.duration_month_plural)
+            if (days > 0) parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+        }
+        days > 0 -> {
+            parts += durationUnit(days, R.string.duration_day_singular, R.string.duration_day_plural)
+            if (hours > 0) parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+            if (remainingMinutes > 0) parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
+        }
+        hours > 0 -> {
+            parts += durationUnit(hours, R.string.duration_hour_singular, R.string.duration_hour_plural)
+            if (remainingMinutes > 0) parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
+        }
+        else -> parts += durationUnit(remainingMinutes, R.string.duration_minute_singular, R.string.duration_minute_plural)
+    }
+    return parts.joinToString(" ")
+}
+
+@Composable
+private fun durationUnit(amount: Int, singularResource: Int, pluralResource: Int): String =
+    stringResource(if (amount == 1) singularResource else pluralResource, amount)
 
 @Composable
 internal fun NavCollapseEffect(listState: LazyListState, onCompact: (Boolean) -> Unit) {

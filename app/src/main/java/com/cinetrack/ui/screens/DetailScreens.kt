@@ -40,15 +40,19 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.AttachMoney
+import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
@@ -78,6 +82,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.res.stringResource
@@ -168,6 +173,10 @@ fun DetailScreen(
     var trailerLoading by remember(media.stableKey) { mutableStateOf(false) }
     var trailerAttempt by remember(media.stableKey) { mutableStateOf(0) }
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
+    var showFullCast by remember(media.stableKey) { mutableStateOf(false) }
+    var pendingPreviousEpisodes by remember(media.stableKey) {
+        mutableStateOf<Pair<EpisodeCard, List<EpisodeCard>>?>(null)
+    }
     val openLibrarySheet = rememberLightHapticAction { librarySheet = true }
     LaunchedEffect(media.status, media.watched, media.libraryUpdatedAt) {
         // Keep the action label/pill tied to the shared Room state even when a
@@ -269,8 +278,18 @@ fun DetailScreen(
                             initialSeason = initialSeason,
                             initialEpisode = initialEpisode,
                             onEpisodeWatched = { episode, watched ->
-                                detailEpisodes = detailEpisodes.map { if (it.season == episode.season && it.number == episode.number) it.copy(watched = watched) else it }
-                                viewModel.setEpisodeWatched(episode, watched)
+                                val previousUnwatched = if (watched) detailEpisodes.filter {
+                                    !it.watched &&
+                                        (it.season < episode.season || (it.season == episode.season && it.number < episode.number))
+                                } else emptyList()
+                                if (previousUnwatched.isNotEmpty()) {
+                                    pendingPreviousEpisodes = episode to previousUnwatched
+                                } else {
+                                    detailEpisodes = detailEpisodes.map {
+                                        if (it.season == episode.season && it.number == episode.number) it.copy(watched = watched) else it
+                                    }
+                                    viewModel.setEpisodeWatched(episode, watched)
+                                }
                             },
                             onSeasonWatched = { seasonEpisodes, watched ->
                                 val numbers = seasonEpisodes.map { it.season to it.number }.toSet()
@@ -279,7 +298,9 @@ fun DetailScreen(
                             },
                         )
                     }
-                    if (detailPeople.isNotEmpty()) CastSection(detailPeople) { selectedPerson = it }
+                    if (detailPeople.isNotEmpty()) {
+                        CastSection(detailPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
+                    }
                     if (collectionItems.isNotEmpty()) {
                         CollectionSection(detail, collectionItems, onMedia)
                     }
@@ -316,6 +337,32 @@ fun DetailScreen(
     }
     selectedPerson?.let { person ->
         ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+    }
+    if (showFullCast) {
+        FullCastSheet(detailPeople, onDismiss = { showFullCast = false }) { person ->
+            showFullCast = false
+            selectedPerson = person
+        }
+    }
+    pendingPreviousEpisodes?.let { (episode, previous) ->
+        PreviousEpisodesPrompt(
+            previousCount = previous.size,
+            onDismiss = { pendingPreviousEpisodes = null },
+            onOnlyThis = {
+                detailEpisodes = detailEpisodes.map {
+                    if (it.season == episode.season && it.number == episode.number) it.copy(watched = true) else it
+                }
+                viewModel.setEpisodeWatched(episode, true)
+                pendingPreviousEpisodes = null
+            },
+            onIncludePrevious = {
+                val affected = (previous + episode).distinctBy { it.season to it.number }
+                val numbers = affected.map { it.season to it.number }.toSet()
+                detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = true) else it }
+                viewModel.setEpisodesWatched(affected, true)
+                pendingPreviousEpisodes = null
+            },
+        )
     }
 }
 
@@ -486,7 +533,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                         Spacer(Modifier.width(6.dp))
                         Text(
                             detailLibraryActionLabel(media.status).uppercase(),
-                            color = statusColor,
+                            color = Color.White,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                         )
@@ -501,7 +548,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                         Spacer(Modifier.width(6.dp))
                         Text(
                             "TMDB · ${tmdbStatusLabel(status)}".uppercase(),
-                            color = AccentLight,
+                            color = Color.White,
                             fontSize = 9.5.sp,
                             fontWeight = FontWeight.ExtraBold,
                         )
@@ -518,7 +565,10 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                     episodeCount.takeIf { it > 0 }?.let { "$it episodes" },
                 ).joinToString(" · ")
             } else {
-                listOfNotNull(media.year.takeIf(String::isNotBlank), media.runtimeMinutes?.let { "$it min" }).joinToString(" · ")
+                listOfNotNull(
+                    media.year.takeIf(String::isNotBlank),
+                    formatDurationMinutes(media.runtimeMinutes).takeIf(String::isNotBlank),
+                ).joinToString(" · ")
             },
             color = TextSecondary,
             fontSize = 12.sp,
@@ -567,20 +617,40 @@ private fun RatingsSection(ratings: List<RatingScore>) {
 
 @Composable
 private fun ProviderSection(media: MediaCard) {
+    val uriHandler = LocalUriHandler.current
     Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass().padding(14.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.PlayArrow, null, tint = AccentLight)
             Spacer(Modifier.width(8.dp))
             SectionHeader(stringResource(R.string.where_to_watch), Modifier.weight(1f))
         }
-        Spacer(Modifier.height(10.dp))
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(media.providers) { provider ->
+        ProviderCategory(stringResource(R.string.subscription), media.subscriptionProviders.ifEmpty { media.providers }, media.providerLogos)
+        ProviderCategory(stringResource(R.string.rent), media.rentProviders, media.providerLogos)
+        ProviderCategory(stringResource(R.string.buy), media.buyProviders, media.providerLogos)
+        media.providerLink?.takeIf(String::isNotBlank)?.let { link ->
+            Spacer(Modifier.height(9.dp))
+            Text(
+                stringResource(R.string.open_provider_options),
+                color = AccentLight,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.clickable { runCatching { uriHandler.openUri(link) } },
+            )
+        }
+    }
+}
+
+@Composable
+private fun ProviderCategory(label: String, providers: List<String>, logos: Map<String, String>) {
+    if (providers.isEmpty()) return
+    Text(label, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        items(providers) { provider ->
                 Row(
                     Modifier.glass(RoundedCornerShape(999.dp)).padding(horizontal = 9.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    val logo = media.providerLogos[provider]
+                    val logo = logos[provider]
                     Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(Accent.copy(alpha = .26f)), contentAlignment = Alignment.Center) {
                         if (!logo.isNullOrBlank()) AsyncImage(logo, provider, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                         else Text(provider.take(1), color = TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Black)
@@ -588,7 +658,6 @@ private fun ProviderSection(media: MediaCard) {
                     Spacer(Modifier.width(7.dp))
                     Text(provider, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
                 }
-            }
         }
     }
 }
@@ -604,8 +673,25 @@ private fun EpisodesSection(
     onSeasonWatched: (List<EpisodeCard>, Boolean) -> Unit,
 ) {
     val grouped = episodes.groupBy(EpisodeCard::season).toSortedMap()
-    var expandedSeason by rememberSaveable(media.stableKey) {
-        mutableStateOf<Int?>(initialSeason?.takeIf { it in grouped } ?: grouped.keys.firstOrNull())
+    val watchingSeason = remember(media.status, episodes) {
+        if (media.status != LibraryStatus.WATCHING) null
+        else {
+            val ordered = episodes.filter { it.season > 0 }
+                .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+            val lastWatched = ordered.lastOrNull(EpisodeCard::watched)
+            ordered.firstOrNull { candidate ->
+                !candidate.watched && (
+                    lastWatched == null || candidate.season > lastWatched.season ||
+                        (candidate.season == lastWatched.season && candidate.number > lastWatched.number)
+                    )
+            }?.season ?: lastWatched?.season ?: ordered.firstOrNull()?.season
+        }
+    }
+    var expandedSeason by rememberSaveable(media.stableKey, media.status) {
+        mutableStateOf<Int?>(
+            initialSeason?.takeIf { it in grouped }
+                ?: watchingSeason?.takeIf { it in grouped },
+        )
     }
     var expandedInfo by remember(media.stableKey) { mutableStateOf<Pair<Int, Int>?>(null) }
     LaunchedEffect(initialSeason, grouped.keys) {
@@ -712,9 +798,9 @@ private fun EpisodesSection(
 }
 
 @Composable
-private fun CastSection(people: List<PersonCard>, onPerson: (PersonCard) -> Unit) {
+private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, onPerson: (PersonCard) -> Unit) {
     Column {
-        SectionHeader(stringResource(R.string.cast_and_crew), Modifier.padding(horizontal = 20.dp), stringResource(R.string.see_all)) { }
+        SectionHeader(stringResource(R.string.cast_and_crew), Modifier.padding(horizontal = 20.dp), stringResource(R.string.see_all), onViewAll)
         Spacer(Modifier.height(10.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(people, key = PersonCard::id) { person ->
@@ -730,6 +816,70 @@ private fun CastSection(people: List<PersonCard>, onPerson: (PersonCard) -> Unit
                     Text(person.name, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(person.role, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPerson: (PersonCard) -> Unit) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            SectionHeader(stringResource(R.string.full_cast))
+            Spacer(Modifier.height(10.dp))
+            LazyColumn(
+                Modifier.fillMaxWidth().heightIn(max = 560.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+                contentPadding = PaddingValues(bottom = 18.dp),
+            ) {
+                items(people, key = PersonCard::id) { person ->
+                    Row(
+                        Modifier.fillMaxWidth().glass(RoundedCornerShape(15.dp))
+                            .blueEdgeClickable(RoundedCornerShape(15.dp)) { onPerson(person) }
+                            .padding(9.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(Modifier.size(48.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
+                            if (!person.profileUrl.isNullOrBlank()) {
+                                AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                            } else {
+                                Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(24.dp))
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(person.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                            Text(person.role, color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun PreviousEpisodesPrompt(
+    previousCount: Int,
+    onDismiss: () -> Unit,
+    onOnlyThis: () -> Unit,
+    onIncludePrevious: () -> Unit,
+) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Text(stringResource(R.string.previous_episodes_title), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                stringResource(R.string.previous_episodes_message, previousCount),
+                color = TextSecondary,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(16.dp))
+            PrimaryAction(stringResource(R.string.mark_previous_too), Icons.Filled.Check, Modifier.fillMaxWidth(), onClick = onIncludePrevious)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onOnlyThis, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(999.dp)) {
+                Text(stringResource(R.string.only_this_episode), color = TextPrimary, fontWeight = FontWeight.Bold)
             }
         }
     }
@@ -814,31 +964,117 @@ private fun UsefulInfoSection(media: MediaCard) {
         SectionHeader(stringResource(R.string.useful_information))
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
+            InfoCell(
+                if (media.type == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie,
+                stringResource(R.string.status),
+                media.tmdbStatus?.takeIf(String::isNotBlank)?.let { tmdbStatusLabel(it) }.orEmpty(),
+                Modifier.weight(1f),
+            )
             InfoCell(Icons.Filled.CalendarMonth, stringResource(R.string.release_date), formatFullDate(media.releaseDate), Modifier.weight(1f))
-            InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), media.runtimeMinutes?.let { "$it min" }.orEmpty(), Modifier.weight(1f))
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
+            InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), formatDurationMinutes(media.runtimeMinutes), Modifier.weight(1f))
             InfoCell(Icons.Filled.Star, stringResource(R.string.rating), media.score?.let { "%.1f / 10".format(it) }.orEmpty(), Modifier.weight(1f))
-            val statusLabel = when (media.status) {
-                LibraryStatus.WATCHING -> stringResource(R.string.in_progress)
-                LibraryStatus.PLAN_TO_WATCH -> stringResource(R.string.plan_to_watch)
-                LibraryStatus.PAUSED -> stringResource(R.string.paused)
-                LibraryStatus.COMPLETED -> stringResource(R.string.completed)
-                LibraryStatus.DROPPED -> stringResource(R.string.dropped)
-                LibraryStatus.NONE -> stringResource(R.string.not_in_library)
+        }
+        if (media.type == MediaType.TV && media.seasons.isNotEmpty()) {
+            val regularSeasons = media.seasons.filter { it.number > 0 }
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(Icons.Filled.Tv, stringResource(R.string.seasons), regularSeasons.size.toString(), Modifier.weight(1f))
+                InfoCell(
+                    Icons.Filled.Info,
+                    stringResource(R.string.episodes),
+                    regularSeasons.sumOf { it.episodeCount }.toString(),
+                    Modifier.weight(1f),
+                )
             }
-            InfoCell(if (media.type == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie, stringResource(R.string.status), statusLabel, Modifier.weight(1f))
+        }
+        if (media.networks.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Tv,
+                stringResource(R.string.networks),
+                media.networks.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
+        }
+        if (media.type == MediaType.MOVIE && (media.budget != null || media.boxOffice != null)) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(Icons.Filled.AttachMoney, stringResource(R.string.budget), formatUsd(media.budget), Modifier.weight(1f))
+                InfoCell(Icons.Filled.AttachMoney, stringResource(R.string.box_office), formatUsd(media.boxOffice), Modifier.weight(1f))
+            }
+        }
+        if (media.productionCountries.isNotEmpty() || !media.originalLanguage.isNullOrBlank()) {
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth()) {
+                InfoCell(
+                    Icons.Filled.Public,
+                    stringResource(R.string.production_countries),
+                    media.productionCountries.joinToString(" · "),
+                    Modifier.weight(1f),
+                    maxLines = 2,
+                )
+                InfoCell(
+                    Icons.Filled.Language,
+                    stringResource(R.string.original_language),
+                    media.originalLanguage.orEmpty(),
+                    Modifier.weight(1f),
+                )
+            }
+        }
+        if (media.productionCompanies.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Business,
+                stringResource(R.string.production_companies),
+                media.productionCompanies.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
+        }
+        if (media.genres.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            InfoCell(
+                Icons.Filled.Movie,
+                stringResource(R.string.genres),
+                media.genres.joinToString(" · "),
+                Modifier.fillMaxWidth(),
+                maxLines = 2,
+            )
         }
     }
 }
 
+private fun formatUsd(amount: Long?): String {
+    val value = amount?.takeIf { it > 0L } ?: return ""
+    fun compact(divisor: Double, suffix: String): String {
+        val number = value / divisor
+        val formatted = if (number >= 100 || number % 1.0 == 0.0) "%.0f".format(java.util.Locale.US, number)
+        else "%.1f".format(java.util.Locale.US, number)
+        return "\$$formatted$suffix"
+    }
+    return when {
+        value >= 1_000_000_000L -> compact(1_000_000_000.0, "B")
+        value >= 1_000_000L -> compact(1_000_000.0, "M")
+        else -> java.text.NumberFormat.getCurrencyInstance(java.util.Locale.US).format(value)
+    }
+}
+
 @Composable
-private fun InfoCell(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+private fun InfoCell(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    maxLines: Int = 1,
+) {
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = AccentLight, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(9.dp))
-        Column { Text(label, color = TextMuted, fontSize = 10.sp); Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1) }
+        Column { Text(label, color = TextMuted, fontSize = 10.sp); Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = maxLines, overflow = TextOverflow.Ellipsis) }
     }
 }
 
@@ -929,6 +1165,15 @@ fun EpisodeDetailScreen(
     var loadedEpisode by remember(show?.id) { mutableStateOf(episode) }
     var loadedEpisodes by remember(show?.id) { mutableStateOf(allEpisodes) }
     var loadedPeople by remember(show?.id) { mutableStateOf(people) }
+    LaunchedEffect(episode?.season, episode?.number, episode?.watched) {
+        val latest = episode ?: return@LaunchedEffect
+        if (loadedEpisode?.season == latest.season && loadedEpisode?.number == latest.number) {
+            loadedEpisode = loadedEpisode?.copy(watched = latest.watched) ?: latest
+        }
+        loadedEpisodes = loadedEpisodes.map { cached ->
+            if (cached.season == latest.season && cached.number == latest.number) latest else cached
+        }
+    }
     LaunchedEffect(show?.stableKey, requestedSeason, requestedNumber) {
         show?.let {
             loadedEpisode = viewModel.loadEpisode(it, requestedSeason, requestedNumber)
@@ -996,6 +1241,7 @@ fun EpisodeDetailScreen(
             }
     }
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
+    var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
     AdaptiveBackground(artworkUrl = currentEpisode.stillUrl ?: show?.backdropUrl ?: show?.posterUrl) {
         HorizontalPager(
             state = pagerState,
@@ -1045,7 +1291,7 @@ fun EpisodeDetailScreen(
                         Column(Modifier.padding(horizontal = 20.dp)) {
                             Text(show?.title.orEmpty().uppercase(), color = AccentLight, fontSize = 11.5.sp, letterSpacing = .7.sp, fontWeight = FontWeight.ExtraBold)
                             Text(displayedEpisode.title, color = Color.White, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${displayedEpisode.label} · ${displayedEpisode.runtimeMinutes ?: 0} min", color = TextSecondary, fontSize = 12.sp)
+                            Text("${displayedEpisode.label} · ${formatDurationMinutes(displayedEpisode.runtimeMinutes)}", color = TextSecondary, fontSize = 12.sp)
                         }
                         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                             OutlinedButton(onClick = onSeries, modifier = Modifier.height(40.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(.7.dp, Color.White.copy(alpha = .28f))) {
@@ -1065,7 +1311,7 @@ fun EpisodeDetailScreen(
                             watched = newWatched
                             onWatched(displayedEpisode.copy(watched = newWatched), newWatched)
                         }
-                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople) { selectedPerson = it }
+                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
                         Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass().padding(14.dp)) {
                             SectionHeader(stringResource(R.string.useful_information))
                             Spacer(Modifier.height(12.dp))
@@ -1075,7 +1321,7 @@ fun EpisodeDetailScreen(
                             }
                             Spacer(Modifier.height(12.dp))
                             Row {
-                                InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), "${displayedEpisode.runtimeMinutes ?: 0} min", Modifier.weight(1f))
+                                InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), formatDurationMinutes(displayedEpisode.runtimeMinutes), Modifier.weight(1f))
                                 InfoCell(Icons.Filled.Star, stringResource(R.string.rating), show?.score?.let { "%.1f / 10".format(it) } ?: "—", Modifier.weight(1f))
                             }
                         }
@@ -1090,5 +1336,11 @@ fun EpisodeDetailScreen(
     }
     selectedPerson?.let { person ->
         ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+    }
+    if (showFullCast) {
+        FullCastSheet(loadedPeople, onDismiss = { showFullCast = false }) { person ->
+            showFullCast = false
+            selectedPerson = person
+        }
     }
 }

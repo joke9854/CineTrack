@@ -7,6 +7,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -38,10 +41,13 @@ import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Movie
@@ -53,14 +59,19 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -77,13 +88,19 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
 import com.cinetrack.BuildConfig
 import com.cinetrack.R
+import com.cinetrack.data.update.AppUpdateState
+import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -144,6 +161,9 @@ fun LibraryScreen(
     var order by rememberSaveable { mutableStateOf(LibraryOrder.RECENTLY_ADDED) }
     var ascending by rememberSaveable { mutableStateOf(false) }
     var showOrderSheet by rememberSaveable { mutableStateOf(false) }
+    var bulkMode by rememberSaveable { mutableStateOf(false) }
+    var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
+    var showBulkSheet by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     NavCollapseGridEffect(gridState, onCompactNav)
     val typeItems = state.rails[RailIds.LIBRARY].orEmpty().filter { it.type == type }
@@ -179,6 +199,15 @@ fun LibraryScreen(
             Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 PageTitle(stringResource(R.string.library), Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                    IconButton(
+                        onClick = rememberLightHapticAction {
+                            bulkMode = !bulkMode
+                            if (!bulkMode) selectedKeys = emptySet()
+                        },
+                        modifier = Modifier.size(40.dp).glassIcon(),
+                    ) {
+                        Icon(Icons.Filled.PlaylistAddCheck, stringResource(R.string.bulk_edit), tint = if (bulkMode) AccentLight else TextSecondary, modifier = Modifier.size(21.dp))
+                    }
                     IconButton(onClick = rememberLightHapticAction(onSearch), modifier = Modifier.size(40.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
@@ -240,6 +269,14 @@ fun LibraryScreen(
                 )
                 counts.forEachIndexed { index, count -> if (count > 0) Box(Modifier.weight(count.toFloat()).fillMaxSize().background(colors[index])) }
             }
+            if (bulkMode) {
+                PrimaryAction(
+                    stringResource(R.string.edit_selected_count, selectedKeys.size),
+                    Icons.Filled.PlaylistAddCheck,
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 10.dp),
+                    enabled = selectedKeys.isNotEmpty(),
+                ) { showBulkSheet = true }
+            }
             if (items.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -250,7 +287,7 @@ fun LibraryScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
+                    columns = GridCells.Fixed(when (state.cardDensity) { "compact" -> 4; "large" -> 2; else -> 3 }),
                     state = gridState,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -260,7 +297,18 @@ fun LibraryScreen(
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val visibleProgress = progressByKey[media.stableKey]
                                 ?: if (media.type == MediaType.TV && media.status == LibraryStatus.WATCHING) .03f else null
-                            MediaPoster(media, width = maxWidth, progress = visibleProgress, onStatus = { onStatus(media, it) }, onClick = { onMedia(media) })
+                            MediaPoster(
+                                media,
+                                width = maxWidth,
+                                progress = visibleProgress,
+                                selectedBorder = AccentLight.takeIf { media.stableKey in selectedKeys },
+                                onStatus = if (bulkMode) null else ({ selected: LibraryStatus -> onStatus(media, selected) }),
+                                onClick = {
+                                    if (bulkMode) {
+                                        selectedKeys = if (media.stableKey in selectedKeys) selectedKeys - media.stableKey else selectedKeys + media.stableKey
+                                    } else onMedia(media)
+                                },
+                            )
                         }
                     }
                 }
@@ -278,6 +326,45 @@ fun LibraryScreen(
                 showOrderSheet = false
             },
         )
+    }
+    if (showBulkSheet) {
+        BulkStatusSheet(
+            selectedCount = selectedKeys.size,
+            onDismiss = { showBulkSheet = false },
+        ) { selectedStatus ->
+            items.filter { it.stableKey in selectedKeys }.forEach { onStatus(it, selectedStatus) }
+            selectedKeys = emptySet()
+            bulkMode = false
+            showBulkSheet = false
+        }
+    }
+}
+
+@Composable
+private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: (LibraryStatus) -> Unit) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
+            Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(12.dp))
+            listOf(
+                LibraryStatus.WATCHING to stringResource(R.string.in_progress),
+                LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
+                LibraryStatus.PAUSED to stringResource(R.string.paused),
+                LibraryStatus.COMPLETED to stringResource(R.string.completed),
+                LibraryStatus.DROPPED to stringResource(R.string.dropped),
+                LibraryStatus.NONE to stringResource(R.string.remove_from_library),
+            ).forEach { (status, label) ->
+                Row(
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(15.dp))
+                        .clickable { onApply(status) }.padding(horizontal = 14.dp, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Box(Modifier.size(10.dp).clip(CircleShape).background(if (status == LibraryStatus.NONE) TextMuted else libraryStatusColor(status)))
+                    Spacer(Modifier.width(10.dp))
+                    Text(label, color = TextPrimary, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
     }
 }
 
@@ -376,7 +463,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
         Text(
             label,
             color = TextMuted,
-            fontSize = 11.5.sp,
+            fontSize = 13.sp,
             letterSpacing = .45.sp,
             fontWeight = FontWeight.ExtraBold,
             style = androidx.compose.material3.MaterialTheme.typography.labelLarge.copy(
@@ -396,14 +483,14 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 @Composable
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val hapticClick = rememberLightHapticAction { onPage(item.page) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(34.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-            Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(18.dp))
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+            Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Text(item.subtitle, color = TextMuted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+            Text(item.subtitle, color = TextSecondary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
@@ -448,21 +535,22 @@ fun SettingsDetailScreen(
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
                     SettingsPages.ServiceSimkl -> SyncSettings(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceTmdb -> Column {
-                        ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::setTmdbApiKey)
+                        ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
                         ContentRegionSettings(state, viewModel)
+                        PreferredProviderSettings(state, viewModel)
                     }
                     SettingsPages.ServiceMdblist -> Column {
-                        ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::setMdbListApiKey)
+                        ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
                         RatingSettings(state, viewModel)
                     }
                     SettingsPages.Appearance -> AppearanceSettings(state, viewModel)
-                    SettingsPages.Notifications -> NotificationSettings(viewModel)
+                    SettingsPages.Notifications -> NotificationSettings(state, viewModel)
                     SettingsPages.Language -> LanguageSettings(viewModel)
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
                     SettingsPages.Logs -> LogsSettings(viewModel)
-                    else -> AboutSettings()
+                    else -> AboutSettings(viewModel)
                 }
             }
         }
@@ -518,15 +606,34 @@ private fun SettingsDetailHero(page: String, title: String) {
 
 @Composable
 private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
-    var background by rememberSaveable(state.backgroundSync) { mutableStateOf(state.backgroundSync) }
-    var wifiOnly by rememberSaveable(state.wifiOnly) { mutableStateOf(state.wifiOnly) }
     SettingsSection(stringResource(R.string.status)) {
         ValueRow(stringResource(R.string.synchronization), if (state.simklConnected) stringResource(R.string.connected) else stringResource(R.string.not_connected), state.simklConnected)
     }
     SettingsSection(stringResource(R.string.synchronization)) {
-        ToggleRow(stringResource(R.string.background_sync), background) { background = it; viewModel.setBackgroundSync(it) }
+        ToggleRow(stringResource(R.string.background_sync), state.backgroundSync, viewModel::setBackgroundSync)
         GlassDivider()
-        ToggleRow(stringResource(R.string.wifi_only), wifiOnly) { wifiOnly = it; viewModel.setWifiOnly(it) }
+        ToggleRow(stringResource(R.string.wifi_only), state.wifiOnly, viewModel::setWifiOnly)
+    }
+    if (state.sync.report.lastIncrementalSync != null || state.sync.report.failedOperations > 0) {
+        val report = state.sync.report
+        SettingsSection(stringResource(R.string.sync_activity)) {
+            ValueRow(stringResource(R.string.downloaded), report.downloaded.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.uploaded), report.uploaded.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.added_removed), "${report.added} / ${report.removed}")
+            GlassDivider(); ValueRow(stringResource(R.string.unchanged), report.unchanged.toString())
+            GlassDivider(); ValueRow(stringResource(R.string.pending_local_changes), report.pendingLocalChanges.toString(), report.pendingLocalChanges == 0)
+            GlassDivider(); ValueRow(stringResource(R.string.failed_operations), report.failedOperations.toString(), report.failedOperations == 0)
+            GlassDivider(); ValueRow(stringResource(R.string.sync_conflicts), report.conflicts.toString(), report.conflicts == 0)
+            report.lastFullSync?.let {
+                GlassDivider(); ValueRow(stringResource(R.string.last_full_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
+            }
+            report.lastIncrementalSync?.let {
+                GlassDivider(); ValueRow(stringResource(R.string.last_incremental_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
+            }
+            if (report.databaseUntouched) {
+                GlassDivider(); ValueRow(stringResource(R.string.database_status), stringResource(R.string.database_untouched), true)
+            }
+        }
     }
     state.error?.takeIf(String::isNotBlank)?.let { error ->
         Text(
@@ -546,7 +653,11 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
         PrimaryAction(
-            text = if (state.simklConnected) stringResource(R.string.sync_now) else stringResource(R.string.connect_simkl),
+            text = when {
+                !state.simklConnected -> stringResource(R.string.connect_simkl)
+                state.sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
+                else -> stringResource(R.string.sync_now)
+            },
             icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
             modifier = Modifier.weight(1f),
             onClick = if (state.simklConnected) viewModel::sync else onConnect,
@@ -569,16 +680,26 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 @Composable
 private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     val choices = listOf(
-        Triple("watching", stringResource(R.string.watching), StatusWatching),
-        Triple("planned", stringResource(R.string.plan_to_watch), StatusPlanned),
-        Triple("paused", stringResource(R.string.paused), StatusPaused),
-        Triple("completed", stringResource(R.string.completed), Success),
-        Triple("dropped", stringResource(R.string.dropped), StatusDropped),
+        Triple("watching", stringResource(R.string.color_blue), StatusWatching),
+        Triple("planned", stringResource(R.string.color_gold), StatusPlanned),
+        Triple("paused", stringResource(R.string.color_orange), StatusPaused),
+        Triple("completed", stringResource(R.string.color_green), Success),
+        Triple("dropped", stringResource(R.string.color_red), StatusDropped),
     )
     SettingsSection(stringResource(R.string.main_ui_color)) {
         choices.forEachIndexed { index, (key, label, color) ->
             AccentChoiceRow(label, color, state.uiAccent == key) { viewModel.setUiAccent(key) }
             if (index != choices.lastIndex) GlassDivider()
+        }
+    }
+    SettingsSection(stringResource(R.string.card_density)) {
+        listOf(
+            Triple("compact", stringResource(R.string.compact), stringResource(R.string.density_compact_description)),
+            Triple("standard", stringResource(R.string.standard), stringResource(R.string.density_standard_description)),
+            Triple("large", stringResource(R.string.large), stringResource(R.string.density_large_description)),
+        ).forEachIndexed { index, (value, label, description) ->
+            ChoiceRow(label, state.cardDensity == value, description) { viewModel.setCardDensity(value) }
+            if (index != 2) GlassDivider()
         }
     }
 }
@@ -596,24 +717,69 @@ private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onCl
     }
 }
 
+private const val SavedCredentialMask = "••••••••••••••••••••••••••••••••"
+
 @Composable
-private fun ApiCredentialSettings(service: String, configured: Boolean, onSave: (String?) -> Unit) {
-    var value by remember(service) { mutableStateOf("") }
+private fun ApiCredentialSettings(
+    service: String,
+    configured: Boolean,
+    onSave: (String, (Result<Unit>) -> Unit) -> Unit,
+) {
+    var value by remember(service) { mutableStateOf(if (configured) SavedCredentialMask else "") }
+    var showingSavedMask by remember(service) { mutableStateOf(configured) }
+    var revealNewValue by remember(service) { mutableStateOf(false) }
+    var validating by remember(service) { mutableStateOf(false) }
+    var validationError by remember(service) { mutableStateOf<String?>(null) }
+    LaunchedEffect(configured) {
+        if (configured && !validating) {
+            value = SavedCredentialMask
+            showingSavedMask = true
+        }
+    }
+    val changed = !showingSavedMask && value.isNotBlank()
+    val help = if (service == "TMDB") stringResource(R.string.tmdb_api_help) else stringResource(R.string.mdblist_api_help)
     SettingsSection(stringResource(R.string.api_credential)) {
-        Column(Modifier.padding(12.dp)) {
+        Column(Modifier.padding(14.dp)) {
             Text(
                 if (configured) stringResource(R.string.api_credential_configured, service) else stringResource(R.string.api_credential_missing, service),
-                color = if (configured) Success else TextMuted,
-                fontSize = 11.5.sp,
+                color = if (configured) Color.White else TextSecondary,
+                fontSize = 13.5.sp,
+                fontWeight = FontWeight.Bold,
             )
+            Text(
+                stringResource(R.string.api_credential_saved_securely),
+                color = TextMuted,
+                fontSize = 11.5.sp,
+                lineHeight = 15.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+            Text(help, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 9.dp))
             Spacer(Modifier.height(9.dp))
             OutlinedTextField(
                 value = value,
-                onValueChange = { value = it },
+                onValueChange = { newValue ->
+                    value = if (showingSavedMask) newValue.replace("•", "") else newValue
+                    showingSavedMask = false
+                    validationError = null
+                },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
+                enabled = !validating,
+                label = { Text(stringResource(R.string.api_key_label)) },
+                visualTransformation = if (revealNewValue && !showingSavedMask) VisualTransformation.None else PasswordVisualTransformation(),
                 placeholder = { Text(stringResource(R.string.api_credential_hint, service), fontSize = 12.sp) },
+                trailingIcon = {
+                    IconButton(
+                        onClick = { if (!showingSavedMask) revealNewValue = !revealNewValue },
+                        enabled = !showingSavedMask,
+                    ) {
+                        Icon(
+                            if (revealNewValue) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                            contentDescription = null,
+                            tint = if (showingSavedMask) TextMuted.copy(alpha = .45f) else TextSecondary,
+                        )
+                    }
+                },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Accent,
                     unfocusedBorderColor = Color.White.copy(alpha = .16f),
@@ -621,15 +787,36 @@ private fun ApiCredentialSettings(service: String, configured: Boolean, onSave: 
                     unfocusedTextColor = TextPrimary,
                 ),
             )
+            validationError?.let { message ->
+                Text(
+                    stringResource(R.string.api_credential_invalid, service, message),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    fontSize = 11.5.sp,
+                    lineHeight = 15.sp,
+                    modifier = Modifier.padding(top = 8.dp),
+                )
+            }
             Spacer(Modifier.height(9.dp))
             PrimaryAction(
-                stringResource(if (value.isBlank()) R.string.use_build_credential else R.string.save),
+                stringResource(R.string.save),
                 Icons.Filled.Save,
                 Modifier.fillMaxWidth(),
+                enabled = changed && !validating,
             ) {
-                onSave(value.takeIf(String::isNotBlank))
-                value = ""
+                validating = true
+                validationError = null
+                onSave(value) { result ->
+                    validating = false
+                    result.onSuccess {
+                        value = SavedCredentialMask
+                        showingSavedMask = true
+                        revealNewValue = false
+                    }.onFailure { error ->
+                        validationError = error.message ?: "Verification failed"
+                    }
+                }
             }
+            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, fontSize = 11.5.sp, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -671,16 +858,37 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun NotificationSettings(viewModel: CineTrackViewModel) {
-    var episodes by rememberSaveable { mutableStateOf(true) }
-    var movies by rememberSaveable { mutableStateOf(true) }
-    var sync by rememberSaveable { mutableStateOf(true) }
+private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+    val context = LocalContext.current
     SettingsSection(stringResource(R.string.notifications)) {
-        ToggleRow(stringResource(R.string.new_episodes), episodes) { episodes = it; viewModel.setNotification("episodes", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), movies) { movies = it; viewModel.setNotification("movies", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), sync) { sync = it; viewModel.setNotification("sync", it) }
+        ToggleRow(stringResource(R.string.new_episodes), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
+        GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), state.notificationMovies) { viewModel.setNotification("movies", it) }
+        GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), state.notificationSync) { viewModel.setNotification("sync", it) }
         GlassDivider(); ValueRow(stringResource(R.string.quiet_hours), "23:00–08:00")
     }
+    SettingsSection(stringResource(R.string.upcoming_episodes)) {
+        ToggleRow(stringResource(R.string.exclude_specials), state.excludeSpecials, viewModel::setExcludeSpecials)
+        GlassDivider()
+        Text(
+            stringResource(R.string.upcoming_diagnostic_explanation),
+            color = TextMuted,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            modifier = Modifier.padding(14.dp),
+        )
+    }
+    if (state.hiddenUpcoming.isNotEmpty()) {
+        PrimaryAction(
+            stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size),
+            Icons.Filled.Refresh,
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+        ) { viewModel.restoreHiddenUpcoming() }
+    }
+    PrimaryAction(
+        stringResource(R.string.export_calendar),
+        Icons.Filled.CalendarMonth,
+        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+    ) { viewModel.exportCalendar(context) }
 }
 
 @Composable
@@ -712,10 +920,9 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         "Rotten Tomatoes" -> "tomatoes"
         else -> label.lowercase()
     }
-    var enabled by remember(state.ratingSources) { mutableStateOf(labels.associateWith { sourceKey(it) in state.ratingSources }) }
     SettingsSection(stringResource(R.string.rating_sources)) {
         labels.forEachIndexed { index, label ->
-            ToggleRow(label, enabled[label] == true) { value -> enabled = enabled + (label to value); viewModel.setRatingSource(label, value) }
+            ToggleRow(label, sourceKey(label) in state.ratingSources) { value -> viewModel.setRatingSource(label, value) }
             if (index != labels.lastIndex) GlassDivider()
         }
     }
@@ -728,17 +935,14 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
         "CA" to "Canada", "AU" to "Australia", "FR" to "France",
         "DE" to "Deutschland", "ES" to "España", "JP" to "Japan", "KR" to "South Korea",
     )
-    var selected by remember(state.contentRegions) { mutableStateOf(state.contentRegions) }
     SettingsSection(stringResource(R.string.content_regions)) {
-        ChoiceRow(stringResource(R.string.all_regions), selected.isEmpty()) {
-            selected = emptySet()
-            viewModel.setContentRegions(selected)
+        ChoiceRow(stringResource(R.string.all_regions), state.contentRegions.isEmpty()) {
+            viewModel.setContentRegions(emptySet())
         }
         choices.forEach { (code, label) ->
             GlassDivider()
-            ToggleRow("$label · $code", code in selected) { checked ->
-                selected = if (checked) selected + code else selected - code
-                viewModel.setContentRegions(selected)
+            ToggleRow("$label · $code", code in state.contentRegions) { checked ->
+                viewModel.setContentRegions(if (checked) state.contentRegions + code else state.contentRegions - code)
             }
         }
     }
@@ -749,6 +953,29 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
         lineHeight = 15.sp,
         modifier = Modifier.padding(horizontal = 26.dp, vertical = 4.dp),
     )
+    if (state.hiddenDiscovery.isNotEmpty()) {
+        PrimaryAction(
+            stringResource(R.string.restore_hidden_recommendations, state.hiddenDiscovery.size),
+            Icons.Filled.Refresh,
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp),
+        ) { viewModel.restoreHiddenDiscovery() }
+    }
+}
+
+@Composable
+private fun PreferredProviderSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+    val providers by viewModel.streamingProviders.collectAsStateWithLifecycle()
+    LaunchedEffect(state.metadataRegion, state.contentRegions) { viewModel.loadSettingsStreamingProviders() }
+    SettingsSection(stringResource(R.string.preferred_providers)) {
+        providers.forEachIndexed { index, provider ->
+            ToggleRow(provider.name, provider.name in state.preferredProviders) { enabled ->
+                viewModel.setPreferredProviders(
+                    if (enabled) state.preferredProviders + provider.name else state.preferredProviders - provider.name,
+                )
+            }
+            if (index != providers.lastIndex) GlassDivider()
+        }
+    }
 }
 
 @Composable
@@ -776,6 +1003,9 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
 @Composable
 private fun ExportSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
+    val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { viewModel.restoreData(context, it) }
+    }
     val labels = linkedMapOf(
         "library" to stringResource(R.string.library),
         "history" to stringResource(R.string.history),
@@ -794,10 +1024,34 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
         icon = Icons.Filled.Download,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
     ) { viewModel.exportData(context, selected.filterValues { it }.keys) }
+    PrimaryAction(
+        text = stringResource(R.string.restore_backup),
+        icon = Icons.Filled.Refresh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+    ) { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }
+    PrimaryAction(
+        text = stringResource(R.string.restore_automatic_backup),
+        icon = Icons.Filled.Refresh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp),
+    ) { viewModel.restoreAutomaticBackup() }
+    Text(
+        stringResource(R.string.restore_backup_explanation),
+        color = TextMuted,
+        fontSize = 10.5.sp,
+        lineHeight = 14.sp,
+        modifier = Modifier.padding(horizontal = 26.dp, vertical = 7.dp),
+    )
 }
 
 @Composable
-private fun AboutSettings() {
+private fun AboutSettings(viewModel: CineTrackViewModel) {
+    val context = LocalContext.current
+    val updateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
+    val changelogState by viewModel.appChangelogState.collectAsStateWithLifecycle()
+    var showChangelog by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (updateState is AppUpdateState.Idle) viewModel.checkForAppUpdate()
+    }
     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth().glass().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         BrandMark(76.dp)
         Spacer(Modifier.height(10.dp))
@@ -811,6 +1065,112 @@ private fun AboutSettings() {
         }
         Spacer(Modifier.height(9.dp))
         Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, fontSize = 12.sp)
+        Spacer(Modifier.height(18.dp))
+        val statusText = when (val current = updateState) {
+            AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
+            AppUpdateState.Checking -> stringResource(R.string.checking_for_updates)
+            AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
+            is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
+            is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
+            is AppUpdateState.Error -> current.message
+        }
+        Text(statusText, color = TextMuted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Spacer(Modifier.height(10.dp))
+        val updateAvailable = updateState is AppUpdateState.Available
+        val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            PrimaryAction(
+                text = if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
+                icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
+                modifier = Modifier.weight(1f),
+                enabled = !busy,
+            ) {
+                if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate()
+            }
+            Spacer(Modifier.width(8.dp))
+            val changelogDescription = stringResource(R.string.changelog)
+            IconButton(
+                onClick = rememberLightHapticAction {
+                    showChangelog = true
+                    viewModel.loadAppChangelog()
+                },
+                modifier = Modifier.size(54.dp).glassIcon(),
+            ) {
+                Icon(Icons.Filled.History, changelogDescription, tint = AccentLight, modifier = Modifier.size(20.dp))
+            }
+        }
+    }
+    if (showChangelog) {
+        ChangelogDialog(changelogState) { showChangelog = false }
+    }
+}
+
+@Composable
+private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().heightIn(max = 620.dp)
+                .glass(RoundedCornerShape(24.dp)).padding(18.dp),
+        ) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Filled.History, null, tint = AccentLight, modifier = Modifier.size(23.dp))
+                Spacer(Modifier.width(9.dp))
+                Text(
+                    stringResource(R.string.changelog),
+                    color = TextPrimary,
+                    fontSize = 19.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onDismiss, modifier = Modifier.size(38.dp)) {
+                    Icon(Icons.Filled.Close, stringResource(R.string.close), tint = TextSecondary)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            when (state) {
+                AppChangelogState.Idle, AppChangelogState.Loading -> Box(
+                    Modifier.fillMaxWidth().height(150.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    CircularProgressIndicator(color = AccentLight, modifier = Modifier.size(34.dp))
+                }
+                AppChangelogState.Empty -> Text(
+                    stringResource(R.string.changelog_empty),
+                    color = TextSecondary,
+                    fontSize = 12.sp,
+                )
+                is AppChangelogState.Error -> Text(
+                    state.message,
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    fontSize = 12.sp,
+                )
+                is AppChangelogState.Available -> Column(
+                    Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
+                ) {
+                    Text(state.update.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(
+                        stringResource(R.string.changelog_version, state.update.version),
+                        color = AccentLight,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text(
+                        state.update.notes.ifBlank { stringResource(R.string.changelog_empty) },
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                    )
+                }
+            }
+            Spacer(Modifier.height(14.dp))
+            PrimaryAction(
+                text = stringResource(R.string.close),
+                icon = Icons.Filled.Close,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onDismiss,
+            )
+        }
     }
 }
 
@@ -820,12 +1180,12 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Text(
             title.uppercase(),
             color = AccentLight,
-            fontSize = 10.sp,
+            fontSize = 12.5.sp,
             fontWeight = FontWeight.ExtraBold,
             style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(
                 shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .78f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
             ),
-            modifier = Modifier.padding(start = 6.dp, bottom = 7.dp),
+            modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
         )
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)), content = { content() })
     }
@@ -834,8 +1194,8 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
     val hapticToggle = rememberLightHapticAction { onChecked(!checked) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         CompactSwitch(checked) { onChecked(!checked) }
     }
 }
@@ -860,18 +1220,18 @@ private fun CompactSwitch(checked: Boolean, onClick: () -> Unit) {
 @Composable
 private fun ValueRow(title: String, value: String, success: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(value, color = if (success) Success else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(value, color = if (success) Color.White else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 11.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = TextMuted, fontSize = 10.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         Box(Modifier.size(9.dp).clip(CircleShape).background(if (configured) Success else TextMuted))
         Spacer(Modifier.width(6.dp))
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
@@ -899,10 +1259,16 @@ private fun ServiceLogo(name: String) {
 }
 
 @Composable
-private fun ChoiceRow(title: String, selected: Boolean, onClick: () -> Unit) {
+private fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 13.5.sp, modifier = Modifier.weight(1f), fontWeight = FontWeight.Bold)
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            if (!description.isNullOrBlank()) {
+                Spacer(Modifier.height(2.dp))
+                Text(description, color = TextMuted, fontSize = 10.5.sp, lineHeight = 14.sp)
+            }
+        }
         Box(Modifier.size(20.dp).clip(CircleShape).background(if (selected) Accent else Color.Transparent).then(if (!selected) Modifier.border(1.dp, TextMuted, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
             if (selected) Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
         }

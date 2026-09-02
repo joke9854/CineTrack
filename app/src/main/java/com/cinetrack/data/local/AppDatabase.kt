@@ -5,12 +5,15 @@ import androidx.room.Dao
 import androidx.room.Database
 import androidx.room.Entity
 import androidx.room.Insert
+import androidx.room.Index
 import androidx.room.OnConflictStrategy
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.Transaction
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -103,7 +106,10 @@ data class PlaybackEntity(
     val episodeTitle: String? = null,
 )
 
-@Entity(tableName = "watch_history")
+@Entity(
+    tableName = "watch_history",
+    indices = [Index(value = ["mediaType", "mediaId", "season", "episodeNumber"])],
+)
 data class WatchHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val mediaType: String,
@@ -113,6 +119,23 @@ data class WatchHistoryEntity(
     val episodeNumber: Int? = null,
     val episodeTitle: String? = null,
     val watchedAt: String,
+)
+
+/**
+ * Durable, derived next-episode selection. Keeping this separate from playback
+ * avoids rescanning the complete episode/history tables every time AppUiState is
+ * rebuilt after a synchronization or process recreation.
+ */
+@Entity(tableName = "up_next")
+data class UpNextEntity(
+    @PrimaryKey val showId: Int,
+    val episodeId: Int?,
+    val season: Int,
+    val episodeNumber: Int,
+    val episodeTitle: String,
+    val episodeAirDate: String?,
+    val durationMinutes: Int?,
+    val refreshedAt: Long,
 )
 
 @Entity(tableName = "sync_state")
@@ -145,7 +168,15 @@ data class AppDatabaseSnapshot(
     val episodes: List<EpisodeEntity>,
     val playback: List<PlaybackEntity>,
     val history: List<WatchHistoryEntity>,
+    val upNext: List<UpNextEntity>,
     val syncStates: List<SyncStateEntity>,
+)
+
+/** Small transactional input set used only by the post-import Progress rebuild. */
+data class ProgressDatabaseSnapshot(
+    val media: List<MediaEntity>,
+    val states: List<UserMediaStateEntity>,
+    val history: List<WatchHistoryEntity>,
 )
 
 @Dao
@@ -168,6 +199,9 @@ interface AppSnapshotDao {
     @Query("SELECT * FROM watch_history ORDER BY watchedAt DESC")
     suspend fun history(): List<WatchHistoryEntity>
 
+    @Query("SELECT * FROM up_next ORDER BY showId")
+    suspend fun upNext(): List<UpNextEntity>
+
     @Query("SELECT * FROM sync_state")
     suspend fun syncStates(): List<SyncStateEntity>
 
@@ -179,7 +213,51 @@ interface AppSnapshotDao {
         episodes = episodes(),
         playback = playback(),
         history = history(),
+        upNext = upNext(),
         syncStates = syncStates(),
+    )
+}
+
+@Dao
+interface ProgressSnapshotDao {
+    @Query(
+        """SELECT media.* FROM media
+           INNER JOIN user_media_state
+             ON media.mediaType = user_media_state.mediaType AND media.tmdbId = user_media_state.mediaId
+           WHERE media.mediaType = 'TV' AND user_media_state.status NOT IN ('NONE', 'DROPPED')""",
+    )
+    suspend fun activeTvMedia(): List<MediaEntity>
+
+    @Query("SELECT * FROM user_media_state WHERE mediaType = 'TV' AND status NOT IN ('NONE', 'DROPPED')")
+    suspend fun activeTvStates(): List<UserMediaStateEntity>
+
+    @Query(
+        """SELECT watch_history.* FROM watch_history
+           INNER JOIN user_media_state
+             ON user_media_state.mediaType = 'TV' AND watch_history.mediaId = user_media_state.mediaId
+           WHERE watch_history.mediaType = 'TV'
+             AND watch_history.season IS NOT NULL
+             AND watch_history.episodeNumber IS NOT NULL
+             AND user_media_state.status NOT IN ('NONE', 'DROPPED')
+           ORDER BY watch_history.watchedAt DESC""",
+    )
+    suspend fun activeTvHistory(): List<WatchHistoryEntity>
+
+
+    @Query(
+        """SELECT episodes.* FROM episodes
+           INNER JOIN user_media_state
+             ON user_media_state.mediaType = 'TV' AND episodes.showId = user_media_state.mediaId
+           WHERE user_media_state.status NOT IN ('NONE', 'DROPPED')
+           ORDER BY episodes.showId, episodes.season, episodes.number""",
+    )
+    suspend fun activeTvEpisodes(): List<EpisodeEntity>
+
+    @Transaction
+    suspend fun snapshot(): ProgressDatabaseSnapshot = ProgressDatabaseSnapshot(
+        media = activeTvMedia(),
+        states = activeTvStates(),
+        history = activeTvHistory(),
     )
 }
 
@@ -253,6 +331,9 @@ interface StateDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<UserMediaStateEntity>)
 
+    @Query("UPDATE user_media_state SET updatedAt = :updatedAt WHERE mediaType = :type AND mediaId = :id")
+    suspend fun touch(type: String, id: Int, updatedAt: Long)
+
     @Query("SELECT * FROM user_media_state WHERE dirty = 1 ORDER BY updatedAt")
     suspend fun pendingStates(): List<UserMediaStateEntity>
 
@@ -306,6 +387,27 @@ interface TimelineDao {
 }
 
 @Dao
+interface UpNextDao {
+    @Query("SELECT * FROM up_next ORDER BY showId")
+    suspend fun snapshot(): List<UpNextEntity>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAll(items: List<UpNextEntity>)
+
+    @Query("DELETE FROM up_next WHERE showId = :showId")
+    suspend fun delete(showId: Int)
+
+    @Query("DELETE FROM up_next")
+    suspend fun clear()
+
+    @Transaction
+    suspend fun replaceAll(items: List<UpNextEntity>) {
+        clear()
+        if (items.isNotEmpty()) upsertAll(items)
+    }
+}
+
+@Dao
 interface SyncDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsert(state: SyncStateEntity)
@@ -315,6 +417,9 @@ interface SyncDao {
 
     @Query("SELECT * FROM sync_state WHERE area = :area LIMIT 1")
     suspend fun get(area: String): SyncStateEntity?
+
+    @Query("DELETE FROM sync_state WHERE area = :area")
+    suspend fun delete(area: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun queue(write: PendingWriteEntity)
@@ -355,29 +460,53 @@ interface PeopleDao {
         UserMediaStateEntity::class,
         PlaybackEntity::class,
         WatchHistoryEntity::class,
+        UpNextEntity::class,
         SyncStateEntity::class,
         PendingWriteEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun snapshotDao(): AppSnapshotDao
+    abstract fun progressSnapshotDao(): ProgressSnapshotDao
     abstract fun mediaDao(): MediaDao
     abstract fun stateDao(): StateDao
     abstract fun timelineDao(): TimelineDao
+    abstract fun upNextDao(): UpNextDao
     abstract fun syncDao(): SyncDao
     abstract fun peopleDao(): PeopleDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
+        private val migration3To4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `up_next` (
+                       `showId` INTEGER NOT NULL,
+                       `episodeId` INTEGER,
+                       `season` INTEGER NOT NULL,
+                       `episodeNumber` INTEGER NOT NULL,
+                       `episodeTitle` TEXT NOT NULL,
+                       `episodeAirDate` TEXT,
+                       `durationMinutes` INTEGER,
+                       `refreshedAt` INTEGER NOT NULL,
+                       PRIMARY KEY(`showId`))""",
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_watch_history_mediaType_mediaId_season_episodeNumber` " +
+                        "ON `watch_history` (`mediaType`, `mediaId`, `season`, `episodeNumber`)",
+                )
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).build().also { instance = it }
+            ).addMigrations(migration3To4).build().also { instance = it }
         }
     }
 }

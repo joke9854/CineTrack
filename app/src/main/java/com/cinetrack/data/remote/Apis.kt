@@ -48,6 +48,10 @@ data class TmdbMediaDto(
     @SerialName("media_type") val mediaType: String? = null,
     val runtime: Int? = null,
     val status: String? = null,
+    val budget: Long? = null,
+    val revenue: Long? = null,
+    val networks: List<TmdbCompanyDto> = emptyList(),
+    @SerialName("production_companies") val productionCompanies: List<TmdbCompanyDto> = emptyList(),
     @SerialName("production_countries") val productionCountries: List<TmdbCountryDto> = emptyList(),
     @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val genres: List<TmdbGenreDto> = emptyList(),
@@ -70,6 +74,7 @@ data class TmdbMediaDto(
 )
 
 @Serializable data class TmdbGenreDto(val id: Int, val name: String)
+@Serializable data class TmdbCompanyDto(val id: Int = 0, val name: String = "", @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbCountryDto(@SerialName("iso_3166_1") val code: String, val name: String = "")
 @Serializable data class TmdbCollectionRefDto(val id: Int, val name: String, @SerialName("poster_path") val posterPath: String? = null)
 @Serializable data class TmdbCreditsDto(val cast: List<TmdbPersonCreditDto> = emptyList(), val crew: List<TmdbPersonCreditDto> = emptyList())
@@ -81,6 +86,7 @@ data class TmdbMediaDto(
     @SerialName("profile_path") val profilePath: String? = null,
 )
 @Serializable data class TmdbProviderResultDto(val results: Map<String, TmdbProviderCountryDto> = emptyMap())
+@Serializable data class TmdbProviderListDto(val results: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderDto(@SerialName("provider_id") val id: Int, @SerialName("provider_name") val name: String, @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbSeasonSummaryDto(
@@ -152,6 +158,10 @@ interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
     @GET("3/movie/upcoming") suspend fun upcomingMovies(@Query("page") page: Int = 1): TmdbPage
+    @GET("3/watch/providers/movie")
+    suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
+    @GET("3/watch/providers/tv")
+    suspend fun tvProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/discover/movie")
     suspend fun discoverMovies(
         @Query("with_origin_country") originCountries: String? = null,
@@ -159,8 +169,14 @@ interface TmdbService {
         @Query("primary_release_date.gte") dateFrom: String? = null,
         @Query("primary_release_year") releaseYear: Int? = null,
         @Query("with_genres") genreIds: String? = null,
+        @Query("without_genres") excludedGenreIds: String? = null,
         @Query("vote_average.gte") minimumRating: Double? = null,
         @Query("vote_count.gte") minimumVotes: Int? = null,
+        @Query("with_watch_providers") providerIds: String? = null,
+        @Query("watch_region") watchRegion: String? = null,
+        @Query("with_runtime.lte") maximumRuntime: Int? = null,
+        @Query("with_original_language") originalLanguage: String? = null,
+        @Query("primary_release_date.lte") dateTo: String? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -169,8 +185,15 @@ interface TmdbService {
         @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("first_air_date_year") releaseYear: Int? = null,
         @Query("with_genres") genreIds: String? = null,
+        @Query("without_genres") excludedGenreIds: String? = null,
         @Query("vote_average.gte") minimumRating: Double? = null,
         @Query("vote_count.gte") minimumVotes: Int? = null,
+        @Query("with_watch_providers") providerIds: String? = null,
+        @Query("watch_region") watchRegion: String? = null,
+        @Query("with_runtime.lte") maximumRuntime: Int? = null,
+        @Query("with_original_language") originalLanguage: String? = null,
+        @Query("first_air_date.gte") dateFrom: String? = null,
+        @Query("first_air_date.lte") dateTo: String? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -252,6 +275,21 @@ data class SimklOAuthResponse(
     val show: SimklMedia? = null,
     val movie: SimklMedia? = null,
 )
+@Serializable data class SimklCalendarItem(
+    val title: String = "",
+    val date: String = "",
+    @SerialName("release_date") val releaseDate: String = "",
+    val ids: SimklCalendarIds = SimklCalendarIds(),
+    val episode: SimklCalendarEpisode = SimklCalendarEpisode(),
+)
+@Serializable data class SimklCalendarIds(
+    @SerialName("simkl_id") val simklId: Long? = null,
+    val tmdb: String? = null,
+)
+@Serializable data class SimklCalendarEpisode(
+    val season: Int = 0,
+    @SerialName("episode") val number: Int = 0,
+)
 @Serializable data class SimklSyncRequest(val movies: List<SimklSyncItem> = emptyList(), val shows: List<SimklSyncItem> = emptyList())
 @Serializable data class SimklSyncItem(
     val ids: SimklIds,
@@ -296,11 +334,17 @@ interface SimklSyncService {
     @POST("sync/add-to-list") suspend fun addToList(@Body request: SimklSyncRequest)
 }
 
+interface SimklCalendarService {
+    @GET("calendar/tv.json") suspend fun tv(): List<SimklCalendarItem>
+    @GET("calendar/anime.json") suspend fun anime(): List<SimklCalendarItem>
+}
+
 data class ApiServices(
     val tmdb: TmdbService,
     val mdbList: MdbListService,
     val simklAuth: SimklAuthService,
     val simklSync: SimklSyncService,
+    val simklCalendar: SimklCalendarService,
 )
 
 object NetworkFactory {
@@ -379,6 +423,7 @@ object NetworkFactory {
             mdbList = retrofit("https://api.mdblist.com/", common.build()).create(MdbListService::class.java),
             simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
             simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
+            simklCalendar = retrofit("https://data.simkl.in/", common.build()).create(SimklCalendarService::class.java),
         )
     }
 }

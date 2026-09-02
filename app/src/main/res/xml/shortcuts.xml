@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="search" android:enabled="true" android:icon="@drawable/ic_launcher_foreground" android:shortcutShortLabel="@string/search">
+        <intent android:action="android.intent.action.VIEW" android:data="cinetrack://app/search" />
+    </shortcut>
+    <shortcut android:shortcutId="up_next" android:enabled="true" android:icon="@drawable/ic_launcher_foreground" android:shortcutShortLabel="@string/up_next">
+        <intent android:action="android.intent.action.VIEW" android:data="cinetrack://app/up-next" />
+    </shortcut>
+    <shortcut android:shortcutId="sync" android:enabled="true" android:icon="@drawable/ic_service_simkl" android:shortcutShortLabel="@string/sync_now">
+        <intent android:action="android.intent.action.VIEW" android:data="cinetrack://app/sync" />
+    </shortcut>
+</shortcuts>

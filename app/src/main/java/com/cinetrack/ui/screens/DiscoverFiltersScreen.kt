@@ -23,6 +23,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -46,6 +47,7 @@ import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.MediaPoster
@@ -63,10 +65,14 @@ import java.time.Year
 fun DiscoverFiltersScreen(
     results: List<MediaCard>,
     loading: Boolean,
+    providers: List<StreamingProvider>,
+    regionKey: String,
     onApply: (DiscoverMovieFilters) -> Unit,
+    onLoadProviders: (MediaType) -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
+    onNotInterested: (MediaCard) -> Unit,
 ) {
     var mediaType by remember { mutableStateOf(MediaType.MOVIE) }
     val genres = if (mediaType == MediaType.TV) {
@@ -105,18 +111,38 @@ fun DiscoverFiltersScreen(
         "vote_average.desc" to stringResource(R.string.sort_rating),
     )
     var selectedGenres by remember { mutableStateOf(emptySet<Int>()) }
+    var excludedGenres by remember { mutableStateOf(emptySet<Int>()) }
     var year by remember { mutableStateOf<Int?>(null) }
     var rating by remember { mutableStateOf<Double?>(null) }
     var sortBy by remember { mutableStateOf("popularity.desc") }
+    var animeMode by remember { mutableStateOf("all") }
+    var hideWatched by remember { mutableStateOf(false) }
+    var hideDropped by remember { mutableStateOf(false) }
+    var providerIds by remember { mutableStateOf(emptySet<Int>()) }
+    var maximumRuntime by remember { mutableStateOf<Int?>(null) }
+    var originalLanguage by remember { mutableStateOf<String?>(null) }
+    var decadeStart by remember { mutableStateOf<Int?>(null) }
     fun filters() = DiscoverMovieFilters(
         mediaType = mediaType,
         genreIds = selectedGenres,
+        excludedGenreIds = excludedGenres,
         releaseYear = year,
         minimumRating = rating,
         sortBy = sortBy,
+        animeMode = animeMode,
+        hideWatched = hideWatched,
+        hideDropped = hideDropped,
+        providerIds = providerIds,
+        maximumRuntime = maximumRuntime,
+        originalLanguage = originalLanguage,
+        decadeStart = decadeStart,
     )
 
     LaunchedEffect(Unit) { onApply(filters()) }
+    LaunchedEffect(mediaType, regionKey) {
+        providerIds = emptySet()
+        onLoadProviders(mediaType)
+    }
     AdaptiveBackground(artworkUrl = results.firstOrNull()?.backdropUrl ?: results.firstOrNull()?.posterUrl) {
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding(),
@@ -134,18 +160,34 @@ fun DiscoverFiltersScreen(
                 FilterPill(stringResource(R.string.movies), mediaType == MediaType.MOVIE) {
                     mediaType = MediaType.MOVIE
                     selectedGenres = emptySet()
+                    excludedGenres = emptySet()
                 }
                 FilterPill(stringResource(R.string.tv_shows), mediaType == MediaType.TV) {
                     mediaType = MediaType.TV
                     selectedGenres = emptySet()
+                    excludedGenres = emptySet()
                 }
             } }
             item { FilterSection(stringResource(R.string.genres)) {
                 genres.forEach { (id, label) ->
-                    FilterPill(label, id in selectedGenres) {
-                        selectedGenres = if (id in selectedGenres) selectedGenres - id else selectedGenres + id
+                    val mode = when {
+                        id in selectedGenres -> 1
+                        id in excludedGenres -> -1
+                        else -> 0
+                    }
+                    GenreFilterPill(label, mode) {
+                        when (mode) {
+                            0 -> { selectedGenres = selectedGenres + id; excludedGenres = excludedGenres - id }
+                            1 -> { selectedGenres = selectedGenres - id; excludedGenres = excludedGenres + id }
+                            else -> excludedGenres = excludedGenres - id
+                        }
                     }
                 }
+            } }
+            item { FilterSection(stringResource(R.string.anime_filter)) {
+                FilterPill(stringResource(R.string.any), animeMode == "all") { animeMode = "all" }
+                FilterPill(stringResource(R.string.anime_only), animeMode == "only") { animeMode = "only" }
+                FilterPill(stringResource(R.string.exclude_anime), animeMode == "exclude") { animeMode = "exclude" }
             } }
             item { FilterSection(stringResource(R.string.release_year)) {
                 years.forEach { value -> FilterPill(value?.toString() ?: stringResource(R.string.any), year == value) { year = value } }
@@ -155,6 +197,32 @@ fun DiscoverFiltersScreen(
             } }
             item { FilterSection(stringResource(R.string.order_by)) {
                 sorts.forEach { (value, label) -> FilterPill(label, sortBy == value) { sortBy = value } }
+            } }
+            item { FilterSection(stringResource(R.string.streaming_provider)) {
+                providers.forEach { provider ->
+                    FilterPill(provider.name, provider.id in providerIds) {
+                        providerIds = if (provider.id in providerIds) providerIds - provider.id else providerIds + provider.id
+                    }
+                }
+            } }
+            item { FilterSection(stringResource(R.string.maximum_runtime)) {
+                listOf<Int?>(null, 60, 90, 120, 180).forEach { value ->
+                    FilterPill(value?.let { "$it min" } ?: stringResource(R.string.any), maximumRuntime == value) { maximumRuntime = value }
+                }
+            } }
+            item { FilterSection(stringResource(R.string.original_language)) {
+                listOf<String?>(null, "en", "it", "ja", "ko", "fr", "es").forEach { value ->
+                    FilterPill(value?.uppercase() ?: stringResource(R.string.any), originalLanguage == value) { originalLanguage = value }
+                }
+            } }
+            item { FilterSection(stringResource(R.string.decade)) {
+                listOf<Int?>(null, 2020, 2010, 2000, 1990, 1980).forEach { value ->
+                    FilterPill(value?.let { "${it}s" } ?: stringResource(R.string.any), decadeStart == value) { decadeStart = value }
+                }
+            } }
+            item { FilterSection(stringResource(R.string.visibility)) {
+                FilterPill(stringResource(R.string.hide_watched), hideWatched) { hideWatched = !hideWatched }
+                FilterPill(stringResource(R.string.hide_abandoned), hideDropped) { hideDropped = !hideDropped }
             } }
             item {
                 PrimaryAction(
@@ -175,7 +243,13 @@ fun DiscoverFiltersScreen(
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { media ->
                         BoxWithConstraints(Modifier.weight(1f)) {
-                            MediaPoster(media, width = maxWidth, onStatus = { onStatus(media, it) }, onClick = { onMedia(media) })
+                            MediaPoster(
+                                media,
+                                width = maxWidth,
+                                onStatus = { onStatus(media, it) },
+                                onNotInterested = { onNotInterested(media) },
+                                onClick = { onMedia(media) },
+                            )
                         }
                     }
                     repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
@@ -211,5 +285,33 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
             Spacer(Modifier.width(5.dp))
         }
         Text(label, color = if (selected) TextPrimary else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
+    val hapticClick = rememberLightHapticAction(onClick)
+    val activeColor = if (mode < 0) Color(0xFFFF5C5C) else AccentLight
+    Row(
+        Modifier.clip(RoundedCornerShape(999.dp)).glass(RoundedCornerShape(999.dp))
+            .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
+            .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        if (mode != 0) {
+            Icon(
+                if (mode > 0) Icons.Filled.Check else Icons.Filled.Close,
+                null,
+                tint = activeColor,
+                modifier = Modifier.size(15.dp),
+            )
+            Spacer(Modifier.width(5.dp))
+        }
+        Text(
+            label,
+            color = if (mode == 0) TextMuted else TextPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
