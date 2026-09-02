@@ -69,7 +69,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     private val _syncProgress = MutableStateFlow(_state.value.sync)
     val syncProgress: StateFlow<SyncProgress> = _syncProgress.asStateFlow()
     val syncRunning: StateFlow<Boolean> = syncProgress
-        .map(SyncProgress::running)
+        .map { progress: SyncProgress -> progress.running }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())

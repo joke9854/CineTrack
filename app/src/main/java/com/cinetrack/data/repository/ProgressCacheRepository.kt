@@ -1,7 +1,7 @@
 package com.cinetrack.data.repository
 
 import com.cinetrack.data.local.AppDatabase
-import com.cinetrack.data.local.toDomain
+import com.cinetrack.data.local.EpisodeEntity
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
 import kotlinx.coroutines.async
@@ -33,7 +33,7 @@ internal class ProgressCacheRepository(
     ): Map<String, EpisodeCard> {
         val today = localToday()
         val excludeSpecials = preferences.excludeSpecials.first()
-        val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toDomain() })
+        val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toEpisodeCard() })
             .groupBy(EpisodeCard::showId)
         val watchedByShow = watched.groupBy { it.first }
         val distinctShows = shows.distinctBy(MediaCard::stableKey)
@@ -104,3 +104,15 @@ internal class ProgressCacheRepository(
         return LocalDate.now(zone)
     }
 }
+
+private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(
+    id = tmdbId ?: 0,
+    showId = showId,
+    season = season,
+    number = number,
+    title = title,
+    overview = overview,
+    airDate = airDate,
+    stillUrl = stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
+    runtimeMinutes = runtimeMinutes,
+)
