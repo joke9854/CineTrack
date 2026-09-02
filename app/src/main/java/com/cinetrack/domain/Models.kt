@@ -1,5 +1,6 @@
 package com.cinetrack.domain
 
+import androidx.compose.runtime.Immutable
 import java.time.LocalDate
 import java.time.Period
 
@@ -14,6 +15,7 @@ enum class LibraryStatus {
     DROPPED,
 }
 
+@Immutable
 data class MediaCard(
     val id: Int,
     val type: MediaType,
@@ -48,6 +50,7 @@ data class MediaCard(
     val year: String get() = releaseDate?.take(4).orEmpty()
 }
 
+@Immutable
 data class SeasonCard(
     val number: Int,
     val title: String,
@@ -55,6 +58,7 @@ data class SeasonCard(
     val posterUrl: String? = null,
 )
 
+@Immutable
 data class PlaybackCard(
     val media: MediaCard,
     val episodeId: Int? = null,
@@ -68,12 +72,14 @@ data class PlaybackCard(
     val episodeAirDate: String? = null,
 )
 
+@Immutable
 data class StreamingProvider(
     val id: Int,
     val name: String,
     val logoUrl: String? = null,
 )
 
+@Immutable
 data class EpisodeCard(
     val id: Int,
     val showId: Int,
@@ -90,6 +96,7 @@ data class EpisodeCard(
     val scheduleKey: String get() = "$showId:$season:$number"
 }
 
+@Immutable
 data class PersonCard(
     val id: Int,
     val name: String,
@@ -105,12 +112,14 @@ data class PersonCard(
     }.getOrNull()
 }
 
+@Immutable
 data class RatingScore(
     val source: String,
     val score: String,
     val voteCount: String? = null,
 )
 
+@Immutable
 data class TimelineCard(
     val media: MediaCard,
     val label: String,
@@ -134,6 +143,7 @@ enum class SyncStage {
     ERROR,
 }
 
+@Immutable
 data class SyncProgress(
     val running: Boolean = false,
     val progress: Float = 0f,
@@ -143,6 +153,7 @@ data class SyncProgress(
     val report: SyncReport = SyncReport(),
 )
 
+@Immutable
 data class SyncReport(
     val downloaded: Int = 0,
     val uploaded: Int = 0,
@@ -157,12 +168,14 @@ data class SyncReport(
     val databaseUntouched: Boolean = false,
 )
 
+@Immutable
 data class ViewingPeopleInsights(
     val actors: List<PersonCard> = emptyList(),
     val directors: List<PersonCard> = emptyList(),
     val loading: Boolean = false,
 )
 
+@Immutable
 data class AppUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
@@ -209,6 +222,7 @@ data class AppUiState(
         allMedia.firstOrNull { it.type == type && it.id == id }
 }
 
+@Immutable
 data class DiscoverMovieFilters(
     val mediaType: MediaType = MediaType.MOVIE,
     val genreIds: Set<Int> = emptySet(),

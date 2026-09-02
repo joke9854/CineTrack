@@ -106,6 +106,7 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
+import com.cinetrack.domain.SyncProgress
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -237,7 +238,10 @@ fun LibraryScreen(
                 }
             }
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(filterChoices) { (value, label, color) ->
+                items(
+                    filterChoices,
+                    key = { (value, label, _) -> "${value?.name ?: "all"}:$label" },
+                ) { (value, label, color) ->
                     val selected = status == value
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }
                     Row(
@@ -531,9 +535,9 @@ fun SettingsDetailScreen(
             item {
                 if (page != SettingsPages.About) SettingsDetailHero(page, title)
                 when (page) {
-                    SettingsPages.Sync -> SyncSettings(state, viewModel, { viewModel.beginSimklLogin(context) })
+                    SettingsPages.Sync -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
-                    SettingsPages.ServiceSimkl -> SyncSettings(state, viewModel, { viewModel.beginSimklLogin(context) })
+                    SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceTmdb -> Column {
                         ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
@@ -605,7 +609,18 @@ private fun SettingsDetailHero(page: String, title: String) {
 }
 
 @Composable
-private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
+private fun SyncSettingsHost(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
+    val sync by viewModel.syncProgress.collectAsStateWithLifecycle()
+    SyncSettings(state, sync, viewModel, onConnect)
+}
+
+@Composable
+private fun SyncSettings(
+    state: AppUiState,
+    sync: SyncProgress,
+    viewModel: CineTrackViewModel,
+    onConnect: () -> Unit,
+) {
     SettingsSection(stringResource(R.string.status)) {
         ValueRow(stringResource(R.string.synchronization), if (state.simklConnected) stringResource(R.string.connected) else stringResource(R.string.not_connected), state.simklConnected)
     }
@@ -614,8 +629,8 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
         GlassDivider()
         ToggleRow(stringResource(R.string.wifi_only), state.wifiOnly, viewModel::setWifiOnly)
     }
-    if (state.sync.report.lastIncrementalSync != null || state.sync.report.failedOperations > 0) {
-        val report = state.sync.report
+    if (sync.report.lastIncrementalSync != null || sync.report.failedOperations > 0) {
+        val report = sync.report
         SettingsSection(stringResource(R.string.sync_activity)) {
             ValueRow(stringResource(R.string.downloaded), report.downloaded.toString())
             GlassDivider(); ValueRow(stringResource(R.string.uploaded), report.uploaded.toString())
@@ -643,7 +658,7 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
         )
     }
-    state.sync.message?.takeIf { state.sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { error ->
+    sync.message?.takeIf { sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { error ->
         Text(
             error,
             color = androidx.compose.material3.MaterialTheme.colorScheme.error,
@@ -655,7 +670,7 @@ private fun SyncSettings(state: AppUiState, viewModel: CineTrackViewModel, onCon
         PrimaryAction(
             text = when {
                 !state.simklConnected -> stringResource(R.string.connect_simkl)
-                state.sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
+                sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
                 else -> stringResource(R.string.sync_now)
             },
             icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,

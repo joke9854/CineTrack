@@ -68,7 +68,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.security.MessageDigest
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicInteger
 
 data class SimklSyncOutcome(val itemsChanged: Boolean, val report: SyncReport = SyncReport())
 
@@ -136,6 +135,9 @@ class CineTrackRepository(
     private var progressEnrichmentJob: Job? = null
     @Volatile private var progressEnrichmentRequested = false
     private val libraryPushMutex = Mutex()
+    private val progressCacheRepository by lazy {
+        ProgressCacheRepository(database, preferences, tmdbApiKey, ::loadEpisodes)
+    }
     val progressCacheRefreshing: Boolean get() = progressCacheMutex.isLocked
     suspend fun loadInitial(): AppUiState {
         val cached = loadCachedState()
@@ -1002,73 +1004,12 @@ class CineTrackRepository(
         watched: Set<Triple<Int, Int, Int>>,
         cachedEpisodes: List<EpisodeCard>? = null,
         onItemProcessed: ((processed: Int, total: Int) -> Unit)? = null,
-    ): Map<String, EpisodeCard> {
-        val today = localToday()
-        val excludeSpecials = preferences.excludeSpecials.first()
-        val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toDomain() })
-            .groupBy(EpisodeCard::showId)
-        val distinctShows = shows.distinctBy(MediaCard::stableKey)
-        if (distinctShows.isEmpty()) return emptyMap()
-        val requestSlots = Semaphore(permits = 4)
-        val completed = AtomicInteger(0)
-        val progressLock = Any()
-        val loaded = coroutineScope {
-            distinctShows.map { show ->
-                async {
-                    try {
-                        requestSlots.withPermit {
-                            val lastWatched = watched.asSequence()
-                                .filter { it.first == show.id && it.second > 0 }
-                                .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
-
-                            fun nextFrom(source: List<EpisodeCard>): EpisodeCard? {
-                                val candidates = source.asSequence()
-                                    .filter { !excludeSpecials || it.season > 0 }
-                                    .filter { episode ->
-                                        episode.airDate?.take(10)?.let { raw ->
-                                            runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                                        } == true
-                                    }
-                                    .filterNot { Triple(show.id, it.season, it.number) in watched }
-                                    .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
-                                    .toList()
-                                return lastWatched?.let { last ->
-                                    candidates.firstOrNull {
-                                        it.season > last.second || (it.season == last.second && it.number > last.third)
-                                    }
-                                } ?: candidates.firstOrNull()
-                            }
-
-                            // Usually Simkl's schedule plus Room is enough. If not, only
-                            // fetch the current and following season instead of every
-                            // historical season for every show in the progress list.
-                            var candidates = cachedByShow[show.id].orEmpty()
-                            var episode = nextFrom(candidates)
-                            if (episode == null && tmdbApiKey().isNotBlank()) {
-                                val seasons = if (lastWatched != null) {
-                                    listOf(lastWatched.second, lastWatched.second + 1)
-                                } else {
-                                    listOf(show.seasons.firstOrNull { it.number > 0 }?.number ?: 1)
-                                }
-                                for (season in seasons.distinct().filter { it > 0 }) {
-                                    val fetched = runCatching { loadEpisodes(show, season) }.getOrDefault(emptyList())
-                                    candidates = (candidates + fetched).distinctBy { it.season to it.number }
-                                    episode = nextFrom(candidates)
-                                    if (episode != null) break
-                                }
-                            }
-                            episode?.let { show.stableKey to it }
-                        }
-                    } finally {
-                        synchronized(progressLock) {
-                            onItemProcessed?.invoke(completed.incrementAndGet(), distinctShows.size)
-                        }
-                    }
-                }
-            }.awaitAll().filterNotNull()
-        }
-        return loaded.toMap(linkedMapOf())
-    }
+    ): Map<String, EpisodeCard> = progressCacheRepository.loadUpNextEpisodes(
+        shows = shows,
+        watched = watched,
+        cachedEpisodes = cachedEpisodes,
+        onItemProcessed = onItemProcessed,
+    )
 
     suspend fun enrichHistoryLabels(items: List<TimelineCard>): List<TimelineCard> {
         val missing = items.filter {

@@ -22,15 +22,18 @@ import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.StreamingProvider
+import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,6 +66,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         AppUiState(loading = true, simklConnected = repository.simklConnectedNow()),
     )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
+    private val _syncProgress = MutableStateFlow(_state.value.sync)
+    val syncProgress: StateFlow<SyncProgress> = _syncProgress.asStateFlow()
+    val syncRunning: StateFlow<Boolean> = syncProgress
+        .map { progress: SyncProgress -> progress.running }
+        .distinctUntilChanged()
+        .stateIn(viewModelScope, SharingStarted.Eagerly, false)
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
@@ -107,11 +116,13 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 if (syncMutex.isLocked || refreshMutex.isLocked || repository.progressCacheRefreshing || startupStateBuilding) return@collectLatest
                 val current = _state.value
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+                val latestSync = if (_syncProgress.value.running) _syncProgress.value else cached.sync
+                _syncProgress.value = latestSync
                 _state.value = cached.copy(
                     refreshing = current.refreshing,
                     error = current.error,
                     people = current.people,
-                    sync = if (current.sync.running) current.sync else cached.sync,
+                    sync = latestSync,
                 )
             }
         }
@@ -120,6 +131,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             // before any network work so process recreation never looks like a
             // disconnected, empty account while enrichment is running.
             val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            _syncProgress.value = cached.sync
             _state.value = cached
             val coldSync = if (cached.simklConnected) {
                 // Keep the cached UI stable while a cold-start delta check runs.
@@ -253,7 +265,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             val error = withContext(Dispatchers.IO) { runCatching { repository.refreshDiscover() }.exceptionOrNull() }
             if (error == null) {
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
-                _state.value = cached.copy(sync = _state.value.sync)
+                _state.value = cached.copy(sync = _syncProgress.value)
             } else _state.value = _state.value.copy(error = error.message)
         }
     }
@@ -275,13 +287,13 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch {
             repository.preferences.setHiddenUpcoming(emptySet())
             val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
-            _state.value = cached.copy(sync = _state.value.sync)
+            _state.value = cached.copy(sync = _syncProgress.value)
         }
     }
 
     fun setStatus(media: MediaCard, status: LibraryStatus) {
         viewModelScope.launch {
-            val syncState = _state.value.sync
+            val syncState = _syncProgress.value
             val refreshed = withContext(Dispatchers.IO) {
                 repository.setLibraryStatus(media, status)
                 repository.loadCachedState().copy(sync = syncState)
@@ -483,7 +495,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else null
         }.toSet()
         _state.value = cached.copy(
-            sync = current.sync,
+            sync = _syncProgress.value,
             people = current.people,
             playbackTv = cached.playbackTv.let { items ->
                 val promoted = promoteShowId?.let { id -> items.firstOrNull { it.media.id == id } }
@@ -496,7 +508,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun sync() {
-        if (_state.value.sync.running) return
+        if (_syncProgress.value.running) return
         viewModelScope.launch { performSimklSync(force = true) }
     }
 
@@ -511,15 +523,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         if (!force && !repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) {
             return@withLock Result.success(SimklSyncOutcome(itemsChanged = false))
         }
-        var completedSync = _state.value.sync
+        var completedSync = _syncProgress.value
         val result = withContext(Dispatchers.IO) {
             repository.syncSimkl { progress ->
                 completedSync = progress
                 if (exposeProgress) {
-                    _state.value = _state.value.copy(sync = progress)
+                    _syncProgress.value = progress
                 }
             }
         }
+        _syncProgress.value = completedSync
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
             // The repository does not finish the visible sync until both the
@@ -565,7 +578,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     _state.value = cached.copy(
                         refreshing = current.refreshing,
                         people = current.people,
-                        sync = current.sync,
+                        sync = _syncProgress.value,
                         error = current.error,
                     )
                 }
@@ -676,7 +689,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             if (refreshError == null) {
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
                 val current = _state.value
-                _state.value = cached.copy(sync = current.sync, people = current.people, error = current.error)
+                _state.value = cached.copy(sync = _syncProgress.value, people = current.people, error = current.error)
             } else {
                 _state.value = _state.value.copy(error = refreshError.message)
             }
@@ -705,7 +718,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 if (refreshError == null) {
                     val current = _state.value
                     _state.value = withContext(Dispatchers.IO) { repository.loadCachedState() }.copy(
-                        sync = current.sync,
+                        sync = _syncProgress.value,
                         people = current.people,
                     )
                 } else {
@@ -885,7 +898,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     repository.refreshProgressCache()
                 }
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
-                _state.value = cached.copy(sync = _state.value.sync, error = null)
+                _state.value = cached.copy(sync = _syncProgress.value, error = null)
                 restored
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
@@ -899,7 +912,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     repository.refreshProgressCache()
                 }
                 val cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
-                _state.value = cached.copy(sync = _state.value.sync, error = null)
+                _state.value = cached.copy(sync = _syncProgress.value, error = null)
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
     }
