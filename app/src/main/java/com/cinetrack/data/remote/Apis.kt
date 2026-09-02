@@ -349,6 +349,7 @@ data class ApiServices(
 
 object NetworkFactory {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
+    private val TMDB_API_KEY_PATTERN = Regex("[A-Fa-f0-9]{32}")
 
     fun create(
         token: () -> String?,
@@ -364,8 +365,9 @@ object NetworkFactory {
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(logger)
+            .build()
 
-        val tmdbClient = common.build().newBuilder().addInterceptor { chain ->
+        val tmdbClient = common.newBuilder().addInterceptor { chain ->
             val original = chain.request()
             val language = metadataLanguage().takeUnless { it == "system" }.orEmpty()
                 .ifBlank { Locale.getDefault().toLanguageTag() }
@@ -378,16 +380,16 @@ object NetworkFactory {
                 if (original.url.queryParameter("language") == null && language.isNotBlank()) addQueryParameter("language", language)
                 if (original.url.queryParameter("region") == null && region.isNotBlank()) addQueryParameter("region", region)
                 if (original.url.queryParameter("timezone") == null && timezone.isNotBlank()) addQueryParameter("timezone", timezone)
-                if (key.matches(Regex("[A-Fa-f0-9]{32}"))) addQueryParameter("api_key", key)
+                if (key.matches(TMDB_API_KEY_PATTERN)) addQueryParameter("api_key", key)
             }.build()
             val request = original.newBuilder().url(url)
                 .header("accept", "application/json")
-                .apply { if (key.isNotBlank() && !key.matches(Regex("[A-Fa-f0-9]{32}"))) header("Authorization", "Bearer $key") }
+                .apply { if (key.isNotBlank() && !key.matches(TMDB_API_KEY_PATTERN)) header("Authorization", "Bearer $key") }
                 .build()
             chain.proceed(request)
         }.build()
 
-        val simklClient = common.build().newBuilder().addInterceptor { chain ->
+        val simklClient = common.newBuilder().addInterceptor { chain ->
             val original = chain.request()
             val url = original.url.newBuilder().apply {
                 if (BuildConfig.SIMKL_CLIENT_ID.isNotBlank()) addQueryParameter("client_id", BuildConfig.SIMKL_CLIENT_ID)
@@ -403,7 +405,7 @@ object NetworkFactory {
             }.build()
             chain.proceed(request)
         }.build()
-        val simklAuthClient = common.build().newBuilder().addInterceptor { chain ->
+        val simklAuthClient = common.newBuilder().addInterceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()
                     .header("Accept", "application/json")
@@ -420,10 +422,10 @@ object NetworkFactory {
 
         return ApiServices(
             tmdb = retrofit("https://api.themoviedb.org/", tmdbClient).create(TmdbService::class.java),
-            mdbList = retrofit("https://api.mdblist.com/", common.build()).create(MdbListService::class.java),
+            mdbList = retrofit("https://api.mdblist.com/", common.newBuilder().build()).create(MdbListService::class.java),
             simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
             simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
-            simklCalendar = retrofit("https://data.simkl.in/", common.build()).create(SimklCalendarService::class.java),
+            simklCalendar = retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java),
         )
     }
 }

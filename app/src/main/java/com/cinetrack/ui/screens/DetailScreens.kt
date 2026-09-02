@@ -645,7 +645,7 @@ private fun ProviderCategory(label: String, providers: List<String>, logos: Map<
     if (providers.isEmpty()) return
     Text(label, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items(providers) { provider ->
+        items(providers, key = { it }) { provider ->
                 Row(
                     Modifier.glass(RoundedCornerShape(999.dp)).padding(horizontal = 9.dp, vertical = 7.dp),
                     verticalAlignment = Alignment.CenterVertically,

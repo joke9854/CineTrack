@@ -78,6 +78,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -125,6 +126,7 @@ import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.StateFlow
 import java.time.Instant
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -138,6 +140,8 @@ private enum class PlaybackOrder { RECENT, TITLE, TOP_RATED, REMAINING, RANDOM }
 @Composable
 fun ProgressScreen(
     state: AppUiState,
+    syncProgress: StateFlow<SyncProgress>,
+    syncRunning: StateFlow<Boolean>,
     onSearch: () -> Unit,
     onSync: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -148,6 +152,7 @@ fun ProgressScreen(
     onLoadViewingInsights: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
+    val isSyncRunning by syncRunning.collectAsStateWithLifecycle()
     var tab by rememberSaveable { mutableStateOf(ProgressTab.IN_PROGRESS) }
     val progressListState = rememberLazyListState()
     val calendarListState = rememberLazyListState()
@@ -200,9 +205,44 @@ fun ProgressScreen(
             )
             .toList()
     }
+    val comingSoon = remember(upcomingEpisodes, today) {
+        upcomingEpisodes.filter { episode ->
+            episode.airDate?.take(10)?.let { raw ->
+                runCatching { LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
+            } == true
+        }
+    }
+    val libraryItems = remember(state.rails) {
+        state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
+    }
+    val tvList = remember(libraryItems) {
+        libraryItems.filter {
+            it.type == com.cinetrack.domain.MediaType.TV && !it.watched &&
+                it.status != com.cinetrack.domain.LibraryStatus.COMPLETED
+        }
+    }
+    val movieList = remember(libraryItems) {
+        libraryItems.filter {
+            it.type == com.cinetrack.domain.MediaType.MOVIE && !it.watched &&
+                it.status != com.cinetrack.domain.LibraryStatus.COMPLETED
+        }
+    }
+    val trackedShowCount = remember(libraryItems) {
+        libraryItems.count {
+            it.type == com.cinetrack.domain.MediaType.TV &&
+                it.status != com.cinetrack.domain.LibraryStatus.NONE
+        }
+    }
+    val allMedia = remember(
+        state.rails,
+        state.playbackTv,
+        state.playbackMovies,
+        state.history,
+        state.calendar,
+    ) { state.allMedia }
     AdaptiveBackground(artworkUrl = artwork) {
         LongPullRefreshContainer(
-            refreshing = state.sync.running,
+            refreshing = isSyncRunning,
             onRefresh = onSync,
             enabled = state.simklConnected,
         ) {
@@ -217,7 +257,7 @@ fun ProgressScreen(
                     }
                 }
                 ProgressTabs(tab) { tab = it }
-                SyncCard(state.sync, state.simklConnected, onSync)
+                SyncCard(syncProgress, state.simklConnected, onSync)
             AnimatedContent(
                 targetState = tab,
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -267,19 +307,12 @@ fun ProgressScreen(
                             onWatched = onWatched,
                             )
                         }
-                    val comingSoon = upcomingEpisodes.filter { episode ->
-                        episode.airDate?.take(10)?.let { raw ->
-                            runCatching { LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                        } == true
-                    }
                     if (comingSoon.isNotEmpty()) {
-                        item { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, state.allMedia, onEpisode, onHideUpcoming) }
+                        item { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, allMedia, onEpisode, onHideUpcoming) }
                     }
                     if (upcomingEpisodes.isEmpty()) {
-                        item { UpcomingDiagnostics(state) }
+                        item { UpcomingDiagnostics(trackedShowCount) }
                     }
-                        val tvList = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().filter { it.type == com.cinetrack.domain.MediaType.TV && !it.watched && it.status != com.cinetrack.domain.LibraryStatus.COMPLETED }
-                        val movieList = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().filter { it.type == com.cinetrack.domain.MediaType.MOVIE && !it.watched && it.status != com.cinetrack.domain.LibraryStatus.COMPLETED }
                         if (tvList.isNotEmpty()) {
                             item { SectionHeader(stringResource(R.string.your_tv_list), Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 12.dp)) }
                             item { MediaRail(tvList, onMedia) }
@@ -316,7 +349,8 @@ fun ProgressScreen(
 }
 
 @Composable
-private fun SyncCard(sync: SyncProgress, connected: Boolean, onSync: () -> Unit) {
+private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, onSync: () -> Unit) {
+    val sync by syncProgress.collectAsStateWithLifecycle()
     Column(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 20.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
@@ -382,7 +416,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
         contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 16.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(ProgressTab.entries) { tab ->
+        items(ProgressTab.entries, key = ProgressTab::name) { tab ->
             val active = tab == selected
             val hapticSelect = rememberLightHapticAction { onSelected(tab) }
             val pillColor by animateColorAsState(
@@ -823,10 +857,7 @@ private fun UpcomingEpisodesRail(
 }
 
 @Composable
-private fun UpcomingDiagnostics(state: AppUiState) {
-    val trackedShows = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().count {
-        it.type == com.cinetrack.domain.MediaType.TV && it.status != com.cinetrack.domain.LibraryStatus.NONE
-    }
+private fun UpcomingDiagnostics(trackedShows: Int) {
     Column(
         Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()
             .glass(RoundedCornerShape(16.dp)).padding(14.dp),
@@ -851,28 +882,32 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         LocalDate.now(zone)
     }
     val historyDates = remember(state.history) { state.history.mapNotNull { timelineLocalDate(it.timestamp) } }
-    val monthly = historyDates.count { it.year == now.year && it.month == now.month }
-    val yearly = historyDates.count { it.year == now.year }
+    val (monthly, yearly) = remember(historyDates, now) {
+        historyDates.count { it.year == now.year && it.month == now.month } to
+            historyDates.count { it.year == now.year }
+    }
     val watchedMinutes = remember(state.history) {
         state.history.sumOf { event -> event.media.runtimeMinutes ?: if (event.media.type == com.cinetrack.domain.MediaType.TV) 45 else 0 }
     }
-    val library = state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
-    val completed = library.count { it.status == com.cinetrack.domain.LibraryStatus.COMPLETED }
-    val abandoned = library.count { it.status == com.cinetrack.domain.LibraryStatus.DROPPED }
+    val library = remember(state.rails) { state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty() }
+    val (completed, abandoned) = remember(library) {
+        library.count { it.status == com.cinetrack.domain.LibraryStatus.COMPLETED } to
+            library.count { it.status == com.cinetrack.domain.LibraryStatus.DROPPED }
+    }
     val finishedTotal = completed + abandoned
     val completionRate = if (finishedTotal == 0) 0 else completed * 100 / finishedTotal
     val topGenres = remember(state.history) {
         state.history.flatMap { it.media.genres }.groupingBy { it.lowercase() }.eachCount().entries
             .sortedByDescending { it.value }.take(4).map { it.key.replaceFirstChar { char -> char.uppercase() } }
     }
-    val watchedDays = historyDates.groupingBy { it }.eachCount()
+    val watchedDays = remember(historyDates) { historyDates.groupingBy { it }.eachCount() }
     val heatmapWeeks = remember(now, watchedDays) {
         val firstMonday = now.minusWeeks(15).with(DayOfWeek.MONDAY)
         (0L until 16L).map { week ->
             (0L until 7L).map { day -> firstMonday.plusWeeks(week).plusDays(day) }
         }
     }
-    val maxDailyActivity = watchedDays.values.maxOrNull()?.coerceAtLeast(1) ?: 1
+    val maxDailyActivity = remember(watchedDays) { watchedDays.values.maxOrNull()?.coerceAtLeast(1) ?: 1 }
     val longestStreak = remember(watchedDays) {
         var longest = 0
         var current = 0

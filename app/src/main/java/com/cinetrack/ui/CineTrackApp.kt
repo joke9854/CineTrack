@@ -235,6 +235,8 @@ fun CineTrackApp(
             composable(Routes.Progress) {
                 ProgressScreen(
                     state = state,
+                    syncProgress = viewModel.syncProgress,
+                    syncRunning = viewModel.syncRunning,
                     onSearch = { navController.navigate("search/progress") },
                     onSync = viewModel::sync,
                     onMedia = openMedia,
