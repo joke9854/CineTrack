@@ -144,7 +144,7 @@ fun DiscoverScreen(
                         ) {
                             Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(9.dp))
-                            Text(stringResource(R.string.search_hint), color = TextMuted, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.search_hint), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
                         IconButton(onClick = rememberLightHapticAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
@@ -162,12 +162,12 @@ fun DiscoverScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.WarningAmber, null, tint = Color(0xFFFFD37A), modifier = Modifier.size(23.dp))
                             Spacer(Modifier.width(10.dp))
-                            Text(stringResource(R.string.discover_tmdb_warning_title), color = Color.White, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(stringResource(R.string.discover_tmdb_warning_title), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
                         }
                         Text(
                             stringResource(R.string.discover_tmdb_warning_message),
                             color = TextSecondary,
-                            fontSize = 12.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                             lineHeight = 17.sp,
                             modifier = Modifier.padding(top = 9.dp, bottom = 12.dp),
                         )
@@ -184,7 +184,7 @@ fun DiscoverScreen(
                     Text(
                         state.error ?: stringResource(R.string.no_catalog_data),
                         color = TextSecondary,
-                        fontSize = 12.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(14.dp)).padding(12.dp),
                     )
                 }
@@ -293,11 +293,11 @@ private fun HeroCard(
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
-            Text(metadata, color = TextSecondary, fontSize = 11.sp, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
+            Text(metadata, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
             Text(media.title.uppercase(), color = Color.White, fontSize = 38.sp, lineHeight = 40.sp, letterSpacing = .8.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-            media.score?.let { Text("★  %.1f".format(it), color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp)) }
+            media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp)) }
             media.overview.takeIf(String::isNotBlank)?.let {
-                Text(it, color = TextSecondary, fontSize = 13.sp, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
             }
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -317,7 +317,7 @@ private fun HeroCard(
                     Text(
                         if (media.status == com.cinetrack.domain.LibraryStatus.NONE) stringResource(R.string.add_to_library) else stringResource(R.string.in_library),
                         color = Color.White,
-                        fontSize = 13.5.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.ExtraBold,
                     )
                 }

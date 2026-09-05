@@ -423,7 +423,7 @@ fun CineTrackApp(
             ) {
                 Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(10.dp))
-                Text(state.error.orEmpty(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(state.error.orEmpty(), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             }
         }
 
@@ -442,9 +442,9 @@ fun CineTrackApp(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     BrandMark(76.dp)
                     Spacer(Modifier.height(18.dp))
-                    Text("CineTrack", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("CineTrack", color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.loading_library), color = AccentLight.copy(alpha = .78f), fontSize = 12.sp)
+                    Text(stringResource(R.string.loading_library), color = AccentLight.copy(alpha = .78f), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                 }
             }
         }

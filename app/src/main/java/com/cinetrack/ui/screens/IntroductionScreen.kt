@@ -72,7 +72,7 @@ fun IntroductionScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BrandMark(62.dp)
-            Text("CineTrack", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 12.dp))
+            Text("CineTrack", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 12.dp))
             Spacer(Modifier.weight(1f))
             Box(
                 Modifier.size(78.dp).glass(RoundedCornerShape(24.dp)).background(Accent.copy(alpha = .20f)),
@@ -83,7 +83,7 @@ fun IntroductionScreen(
             Text(
                 stringResource(page.title),
                 color = TextPrimary,
-                fontSize = 27.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
                 lineHeight = 32.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
@@ -92,7 +92,7 @@ fun IntroductionScreen(
             Text(
                 stringResource(page.body),
                 color = TextSecondary,
-                fontSize = 15.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 12.dp),
@@ -123,7 +123,7 @@ fun IntroductionScreen(
                 Text(
                     stringResource(R.string.intro_later),
                     color = TextSecondary,
-                    fontSize = 14.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.fillMaxWidth().height(48.dp).clickable(onClick = later).padding(top = 15.dp),

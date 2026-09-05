@@ -359,11 +359,11 @@ private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, 
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text("SIMKL", color = TextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.ExtraBold)
+                Text("SIMKL", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
                 Text(
                     if (connected) relativeSyncLabel(sync.lastSuccessfulSync) else stringResource(R.string.not_connected),
                     color = TextPrimary,
-                    fontSize = 13.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
                 )
             }
@@ -380,7 +380,7 @@ private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, 
                     trackColor = Color.White.copy(alpha = .10f),
                 )
                 Spacer(Modifier.height(7.dp))
-                Text(sync.message ?: syncStageLabel(sync.stage), color = TextSecondary, fontSize = 11.sp)
+                Text(sync.message ?: syncStageLabel(sync.stage), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -461,7 +461,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
                         ProgressTab.STATISTICS -> stringResource(R.string.statistics)
                     },
                     color = contentColor,
-                    fontSize = 13.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
                     maxLines = 1,
                 )
@@ -506,7 +506,7 @@ private fun ExpandablePlaybackSection(
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, letterSpacing = .2.sp, modifier = Modifier.weight(1f).padding(bottom = 12.dp))
+            Text(title, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, letterSpacing = .2.sp, modifier = Modifier.weight(1f).padding(bottom = 12.dp))
             if (showEpisodeControl) {
                 Row(
                     Modifier.padding(bottom = 8.dp).glass(RoundedCornerShape(999.dp)).clickable(onClick = rememberLightHapticAction { showOrderSheet = true })
@@ -524,7 +524,7 @@ private fun ExpandablePlaybackSection(
                             PlaybackOrder.RANDOM -> stringResource(R.string.order_random)
                         },
                         color = TextSecondary,
-                        fontSize = 10.5.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                     )
                 }
@@ -539,7 +539,7 @@ private fun ExpandablePlaybackSection(
             Text(
                 stringResource(R.string.no_playback),
                 color = TextMuted,
-                fontSize = 11.5.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 14.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(14.dp),
             )
         }
@@ -586,7 +586,7 @@ private fun ExpandablePlaybackSection(
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(if (expanded) stringResource(R.string.collapse) else showAllLabel, color = TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                Text(if (expanded) stringResource(R.string.collapse) else showAllLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(7.dp))
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(16.dp))
             }
@@ -640,7 +640,7 @@ private fun PlaybackOrderSheet(
     var ascending by remember(initialAscending) { mutableStateOf(initialAscending) }
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = 18.dp)) {
-            Text(stringResource(R.string.sort_by), color = AccentLight, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
+            Text(stringResource(R.string.sort_by), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
             Spacer(Modifier.height(12.dp))
             PlaybackOrder.entries.forEach { option ->
                 val active = option == selected
@@ -748,18 +748,18 @@ private fun PlaybackRow(
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             }
             Column(Modifier.weight(1f).fillMaxHeight().padding(start = 15.dp, end = 52.dp, top = 14.dp, bottom = 13.dp)) {
-                Text(item.media.title.uppercase(), color = TextPrimary, fontSize = 16.sp, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(item.media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
                     val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
                     listOfNotNull(numbered.takeIf(String::isNotBlank), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
                 } else stringResource(R.string.movies)
-                Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 Text(
                     remainingMinutes?.let { "${formatDurationMinutes(it)} ${stringResource(R.string.remaining).lowercase()}" }
                         ?: if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next)
                         else stringResource(R.string.in_progress),
                     color = AccentLight,
-                    fontSize = 11.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                 )
@@ -787,7 +787,7 @@ private fun PlaybackRow(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(34.dp))
-                    Text(stringResource(R.string.watched), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(stringResource(R.string.watched), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
                 }
             }
         }
@@ -809,7 +809,7 @@ private fun ProgressEmpty(message: String) {
     Text(
         message,
         color = TextSecondary,
-        fontSize = 12.sp,
+        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(16.dp),
     )
 }
@@ -843,13 +843,13 @@ private fun UpcomingEpisodesRail(
                         .border(if (pressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (pressed) .9f else 0f), RoundedCornerShape(17.dp))) {
                         if (!episode.stillUrl.isNullOrBlank()) AsyncImage(episode.stillUrl, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .74f)))))
-                        Text(shortAirDate(episode.airDate), color = TextPrimary, fontSize = 9.5.sp, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(8.dp).glass(RoundedCornerShape(8.dp)).padding(horizontal = 7.dp, vertical = 4.dp))
+                        Text(shortAirDate(episode.airDate), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(8.dp).glass(RoundedCornerShape(8.dp)).padding(horizontal = 7.dp, vertical = 4.dp))
                         Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp).clip(CircleShape).background(Color(0x99060D13)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.NotificationsNone, null, tint = Color.White, modifier = Modifier.size(13.dp))
                         }
-                        Text(showTitle, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(11.dp))
+                        Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(11.dp))
                     }
-                    Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
+                    Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 8.dp))
                 }
             }
         }
@@ -862,13 +862,13 @@ private fun UpcomingDiagnostics(trackedShows: Int) {
         Modifier.padding(horizontal = 20.dp, vertical = 10.dp).fillMaxWidth()
             .glass(RoundedCornerShape(16.dp)).padding(14.dp),
     ) {
-        Text(stringResource(R.string.why_not_shown), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+        Text(stringResource(R.string.why_not_shown), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
         Spacer(Modifier.height(5.dp))
         Text(
             if (trackedShows == 0) stringResource(R.string.no_tracked_shows_for_upcoming)
             else stringResource(R.string.no_announced_episodes, trackedShows),
             color = TextMuted,
-            fontSize = 11.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             lineHeight = 15.sp,
         )
     }
@@ -932,15 +932,15 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
             StatisticTile(stringResource(R.string.dropped), abandoned.toString(), Modifier.weight(1f))
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
-            Text(stringResource(R.string.most_watched_genres), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Text(stringResource(R.string.most_watched_genres), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(7.dp))
-            Text(topGenres.ifEmpty { listOf("—") }.joinToString(" · "), color = AccentLight, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text(topGenres.ifEmpty { listOf("—") }.joinToString(" · "), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
-            Text(stringResource(R.string.most_watched_people), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+            Text(stringResource(R.string.most_watched_people), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(9.dp))
             if (people.loading) {
-                Text(stringResource(R.string.loading), color = TextSecondary, fontSize = 11.5.sp)
+                Text(stringResource(R.string.loading), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             } else {
                 PeopleStatisticsRow(stringResource(R.string.actors), people.actors)
                 Spacer(Modifier.height(10.dp))
@@ -949,8 +949,8 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         }
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(17.dp)).padding(14.dp)) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.activity_heatmap), color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
-                Text(stringResource(R.string.heatmap_summary, watchedDays.size, longestStreak), color = TextMuted, fontSize = 9.sp, maxLines = 1)
+                Text(stringResource(R.string.activity_heatmap), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
+                Text(stringResource(R.string.heatmap_summary, watchedDays.size, longestStreak), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1)
             }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth().padding(start = 26.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -959,7 +959,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                     Text(
                         if (monthChanged) week.first().format(com.cinetrack.ui.UiDateFormatters.current.month) else "",
                         color = TextMuted,
-                        fontSize = 8.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         maxLines = 1,
                         modifier = Modifier.weight(1f),
                     )
@@ -972,7 +972,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                         Text(
                             day.format(com.cinetrack.ui.UiDateFormatters.current.narrowWeekday),
                             color = TextMuted,
-                            fontSize = 8.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                             lineHeight = 11.sp,
                             maxLines = 1,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -1007,13 +1007,13 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
             }
             Spacer(Modifier.height(10.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End, verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(R.string.less_activity), color = TextMuted, fontSize = 8.sp)
+                Text(stringResource(R.string.less_activity), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Spacer(Modifier.width(5.dp))
                 listOf(.09f, .28f, .48f, .70f, .96f).forEach { alpha ->
                     Box(Modifier.padding(horizontal = 1.5.dp).size(9.dp).clip(RoundedCornerShape(2.dp)).background(Accent.copy(alpha = alpha)))
                 }
                 Spacer(Modifier.width(5.dp))
-                Text(stringResource(R.string.more_activity), color = TextMuted, fontSize = 8.sp)
+                Text(stringResource(R.string.more_activity), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         }
     }
@@ -1032,16 +1032,16 @@ private fun StatisticTile(label: String, value: String, modifier: Modifier = Mod
             maxLines = if (longValue) 4 else 1,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
-        Text(label, color = TextMuted, fontSize = 9.5.sp, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 
 @Composable
 private fun PeopleStatisticsRow(title: String, people: List<PersonCard>) {
-    Text(title, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+    Text(title, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
     Spacer(Modifier.height(6.dp))
     if (people.isEmpty()) {
-        Text("—", color = TextSecondary, fontSize = 11.5.sp)
+        Text("—", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         return
     }
     LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1067,7 +1067,7 @@ private fun PeopleStatisticsRow(title: String, people: List<PersonCard>) {
                 Text(
                     person.name,
                     color = TextSecondary,
-                    fontSize = 9.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     lineHeight = 10.5.sp,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1089,7 +1089,7 @@ private fun HistoryTimelineItem(
     val previousDay = previous?.let { timelineLocalDate(it.timestamp) }
     Column {
         if (currentDay != null && currentDay != previousDay) {
-            Text(historyDayLabel(currentDay), color = TextSecondary, fontSize = 12.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp))
+            Text(historyDayLabel(currentDay), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(start = 20.dp, top = 8.dp, bottom = 8.dp))
         }
         TimelineRow(item, onMedia, onEpisode, history = true)
     }
@@ -1135,8 +1135,8 @@ private fun TimelineRow(
         if (!history) {
             val date = timelineLocalDate(item.timestamp)
             Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(date?.dayOfMonth?.toString()?.padStart(2, '0').orEmpty(), color = AccentLight, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(date?.dayOfMonth?.toString()?.padStart(2, '0').orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
+                Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
         }
         Box(Modifier.width(68.dp).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .5f), Info.copy(alpha = .32f))))) {
@@ -1145,10 +1145,10 @@ private fun TimelineRow(
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             val typeLabel = if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
-            Text(if (history) "$typeLabel · ${timelineTime(item.timestamp)}" else typeLabel, color = TextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-            Text(item.media.title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 13.5.sp, maxLines = 1)
+            Text(if (history) "$typeLabel · ${timelineTime(item.timestamp)}" else typeLabel, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            Text(item.media.title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1)
             val episodeText = item.episodeLabel ?: item.media.year
-            Text(episodeText, color = TextMuted, fontSize = 10.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(episodeText, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (history) Icon(Icons.Filled.Check, null, tint = Success, modifier = Modifier.size(24.dp))
     }

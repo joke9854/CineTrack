@@ -262,7 +262,7 @@ fun DiscoverFiltersScreen(
 @Composable
 private fun FilterSection(title: String, content: @Composable RowScope.() -> Unit) {
     Column(Modifier.fillMaxWidth()) {
-        Text(title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp))
+        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp))
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -284,7 +284,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
             Icon(Icons.Filled.Check, null, tint = AccentLight, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(5.dp))
         }
-        Text(label, color = if (selected) TextPrimary else TextMuted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+        Text(label, color = if (selected) TextPrimary else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
     }
 }
 
@@ -310,7 +310,7 @@ private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
         Text(
             label,
             color = if (mode == 0) TextMuted else TextPrimary,
-            fontSize = 12.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Bold,
         )
     }

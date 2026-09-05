@@ -401,7 +401,7 @@ private fun TrailerActionButton(onClick: () -> Unit) {
     ) {
         Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(8.dp))
-        Text(stringResource(R.string.trailer), color = Color.White, fontSize = 13.5.sp, fontWeight = FontWeight.ExtraBold)
+        Text(stringResource(R.string.trailer), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -418,11 +418,11 @@ private fun TrailerPlayerSheet(
             Text(
                 stringResource(R.string.watch_trailer),
                 color = TextPrimary,
-                fontSize = 20.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.ExtraBold,
                 maxLines = 1,
             )
-            Text(title, color = TextMuted, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(title, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
             Spacer(Modifier.height(14.dp))
             Box(
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(20.dp))
@@ -508,7 +508,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
         Text(
             media.title,
             color = TextPrimary,
-            fontSize = 30.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
             lineHeight = 33.sp,
             fontWeight = FontWeight.ExtraBold,
             maxLines = 2,
@@ -534,7 +534,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                         Text(
                             detailLibraryActionLabel(media.status).uppercase(),
                             color = Color.White,
-                            fontSize = 9.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.ExtraBold,
                         )
                     }
@@ -549,7 +549,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                         Text(
                             "TMDB · ${tmdbStatusLabel(status)}".uppercase(),
                             color = Color.White,
-                            fontSize = 9.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.ExtraBold,
                         )
                     }
@@ -571,7 +571,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
                 ).joinToString(" · ")
             },
             color = TextSecondary,
-            fontSize = 12.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             textAlign = TextAlign.Center,
         )
         if (media.genres.isNotEmpty()) {
@@ -579,7 +579,7 @@ private fun DetailIdentity(media: MediaCard, episodes: List<EpisodeCard>) {
             Text(
                 media.genres.joinToString(" · "),
                 color = TextPrimary,
-                fontSize = 12.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 textAlign = TextAlign.Center,
                 maxLines = 2,
@@ -593,7 +593,7 @@ private fun GlassTextSection(title: String, body: String) {
     Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass().padding(14.dp)) {
         SectionHeader(title)
         Spacer(Modifier.height(8.dp))
-        Text(body, color = TextSecondary, fontSize = 13.sp, lineHeight = 19.sp)
+        Text(body, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 19.sp)
     }
 }
 
@@ -608,8 +608,8 @@ private fun RatingsSection(ratings: List<RatingScore>) {
                 Modifier.weight(1f).glass(RoundedCornerShape(12.dp)).padding(horizontal = 5.dp, vertical = 9.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(rating.source, color = TextMuted, fontSize = 8.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(rating.score, color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                Text(rating.source, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(rating.score, color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
             }
         }
     }
@@ -632,7 +632,7 @@ private fun ProviderSection(media: MediaCard) {
             Text(
                 stringResource(R.string.open_provider_options),
                 color = AccentLight,
-                fontSize = 11.5.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.clickable { runCatching { uriHandler.openUri(link) } },
             )
@@ -643,7 +643,7 @@ private fun ProviderSection(media: MediaCard) {
 @Composable
 private fun ProviderCategory(label: String, providers: List<String>, logos: Map<String, String>) {
     if (providers.isEmpty()) return
-    Text(label, color = TextMuted, fontSize = 10.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
+    Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp, bottom = 6.dp))
     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         items(providers, key = { it }) { provider ->
                 Row(
@@ -653,10 +653,10 @@ private fun ProviderCategory(label: String, providers: List<String>, logos: Map<
                     val logo = logos[provider]
                     Box(Modifier.size(24.dp).clip(RoundedCornerShape(7.dp)).background(Accent.copy(alpha = .26f)), contentAlignment = Alignment.Center) {
                         if (!logo.isNullOrBlank()) AsyncImage(logo, provider, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                        else Text(provider.take(1), color = TextPrimary, fontSize = 10.sp, fontWeight = FontWeight.Black)
+                        else Text(provider.take(1), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black)
                     }
                     Spacer(Modifier.width(7.dp))
-                    Text(provider, color = TextPrimary, fontWeight = FontWeight.SemiBold, fontSize = 12.sp)
+                    Text(provider, color = TextPrimary, fontWeight = FontWeight.SemiBold, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                 }
         }
     }
@@ -733,13 +733,13 @@ private fun EpisodesSection(
                         Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(summary?.title ?: "Season $seasonNumber", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp)
+                                Text(summary?.title ?: "Season $seasonNumber", color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.width(7.dp))
                                 Box(Modifier.size(27.dp).clip(CircleShape).background(Color(0xFF59606B).copy(alpha = .52f)), contentAlignment = Alignment.Center) {
                                     Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(17.dp))
                                 }
                             }
-                            Text("$watched of ${summary?.episodeCount ?: seasonEpisodes.size} episodes", color = TextMuted, fontSize = 10.5.sp)
+                            Text("$watched of ${summary?.episodeCount ?: seasonEpisodes.size} episodes", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
                         Box(Modifier.size(32.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else Color(0xFF59606B).copy(alpha = .60f)).clickable(onClick = hapticSeasonWatched), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = if (allWatched) Success else TextSecondary, modifier = Modifier.size(18.dp))
@@ -772,9 +772,9 @@ private fun EpisodesSection(
                                     }
                                     Spacer(Modifier.width(9.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text("S$seasonNumber E${episode.number}", color = TextMuted, fontSize = 9.5.sp, fontWeight = FontWeight.Bold)
-                                        Text(episode.title, color = TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(formatFullDate(episode.airDate), color = TextMuted, fontSize = 9.5.sp)
+                                        Text("S$seasonNumber E${episode.number}", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                                        Text(episode.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(formatFullDate(episode.airDate), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                                     }
                                     Box(Modifier.size(28.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape).clickable(onClick = hapticInfo), contentAlignment = Alignment.Center) {
                                         Icon(Icons.Filled.Info, null, tint = TextSecondary, modifier = Modifier.size(14.dp))
@@ -785,7 +785,7 @@ private fun EpisodesSection(
                                     }
                                 }
                                 AnimatedVisibility(infoVisible) {
-                                    Text(episode.overview.ifBlank { stringResource(R.string.overview) }, color = TextSecondary, fontSize = 11.5.sp, lineHeight = 16.sp, modifier = Modifier.padding(start = 75.dp, end = 12.dp, bottom = 10.dp))
+                                    Text(episode.overview.ifBlank { stringResource(R.string.overview) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp, modifier = Modifier.padding(start = 75.dp, end = 12.dp, bottom = 10.dp))
                                 }
                                 }
                             }
@@ -813,8 +813,8 @@ private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, onPerso
                         else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(34.dp))
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(person.name, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(person.role, color = TextMuted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -848,8 +848,8 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPer
                         }
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(person.name, color = TextPrimary, fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                            Text(person.role, color = TextMuted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
                 }
@@ -867,12 +867,12 @@ private fun PreviousEpisodesPrompt(
 ) {
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
-            Text(stringResource(R.string.previous_episodes_title), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold)
+            Text(stringResource(R.string.previous_episodes_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(7.dp))
             Text(
                 stringResource(R.string.previous_episodes_message, previousCount),
                 color = TextSecondary,
-                fontSize = 13.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 lineHeight = 18.sp,
             )
             Spacer(Modifier.height(16.dp))
@@ -926,7 +926,7 @@ private fun CollectionSection(current: MediaCard, related: List<MediaCard>, onMe
                     Text(
                         stringResource(R.string.movie_n_of_n, collection.indexOf(item) + 1, collection.size),
                         color = if (item.stableKey == current.stableKey) Gold else TextMuted,
-                        fontSize = 10.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     )
                 }
             }
@@ -1074,7 +1074,7 @@ private fun InfoCell(
     Row(modifier, verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(12.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) { Icon(icon, null, tint = AccentLight, modifier = Modifier.size(18.dp)) }
         Spacer(Modifier.width(9.dp))
-        Column { Text(label, color = TextMuted, fontSize = 10.sp); Text(value.ifBlank { "—" }, color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = maxLines, overflow = TextOverflow.Ellipsis) }
+        Column { Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall); Text(value.ifBlank { "—" }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = maxLines, overflow = TextOverflow.Ellipsis) }
     }
 }
 
@@ -1096,12 +1096,12 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {
-                    Text(details.name, color = TextPrimary, fontSize = 20.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold)
-                    Text(details.role, color = AccentLight, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text(details.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold)
+                    Text(details.role, color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     val age = details.age()
                     val born = listOfNotNull(formatFullDate(details.birthday).takeIf(String::isNotBlank), age?.let { stringResource(R.string.years_old, it) }).joinToString(" · ")
-                    if (born.isNotBlank()) Text(born, color = TextSecondary, fontSize = 11.sp)
-                    details.placeOfBirth?.let { Text(it, color = TextMuted, fontSize = 10.sp, maxLines = 1) }
+                    if (born.isNotBlank()) Text(born, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                    details.placeOfBirth?.let { Text(it, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1) }
                 }
             }
             if (details.biography.isNotBlank()) {
@@ -1109,7 +1109,7 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                 Text(
                     details.biography,
                     color = TextSecondary,
-                    fontSize = 12.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     lineHeight = 17.sp,
                     maxLines = if (biographyExpanded) Int.MAX_VALUE else 5,
                     overflow = TextOverflow.Ellipsis,
@@ -1119,7 +1119,7 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                     Text(
                         if (biographyExpanded) stringResource(R.string.collapse) else stringResource(R.string.see_all),
                         color = AccentLight,
-                        fontSize = 11.5.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.padding(top = 5.dp).clickable { biographyExpanded = !biographyExpanded },
                     )
@@ -1137,9 +1137,9 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                             }
                             Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(movie.title, color = TextPrimary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text(movie.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            Text(movie.year, color = AccentLight, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                            Text(movie.year, color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -1289,15 +1289,15 @@ fun EpisodeDetailScreen(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
                         Column(Modifier.padding(horizontal = 20.dp)) {
-                            Text(show?.title.orEmpty().uppercase(), color = AccentLight, fontSize = 11.5.sp, letterSpacing = .7.sp, fontWeight = FontWeight.ExtraBold)
-                            Text(displayedEpisode.title, color = Color.White, fontSize = 28.sp, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("${displayedEpisode.label} · ${formatDurationMinutes(displayedEpisode.runtimeMinutes)}", color = TextSecondary, fontSize = 12.sp)
+                            Text(show?.title.orEmpty().uppercase(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, letterSpacing = .7.sp, fontWeight = FontWeight.ExtraBold)
+                            Text(displayedEpisode.title, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            Text("${displayedEpisode.label} · ${formatDurationMinutes(displayedEpisode.runtimeMinutes)}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                         }
                         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
                             OutlinedButton(onClick = onSeries, modifier = Modifier.height(40.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(.7.dp, Color.White.copy(alpha = .28f))) {
                                 Icon(Icons.Filled.Info, null, tint = TextSecondary, modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(7.dp))
-                                Text(stringResource(R.string.series_details), color = TextPrimary, fontSize = 12.sp, maxLines = 1)
+                                Text(stringResource(R.string.series_details), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1)
                             }
                         }
                         GlassTextSection(stringResource(R.string.overview), displayedEpisode.overview)
@@ -1326,8 +1326,8 @@ fun EpisodeDetailScreen(
                             }
                         }
                         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                            OutlinedButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(0) } }, enabled = previous != null, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(999.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text(stringResource(R.string.previous_episode), fontSize = 11.sp, maxLines = 1) }
-                            OutlinedButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(2) } }, enabled = next != null, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(999.dp)) { Text(stringResource(R.string.next_episode), fontSize = 11.sp, maxLines = 1); Spacer(Modifier.width(5.dp)); Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(17.dp)) }
+                            OutlinedButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(0) } }, enabled = previous != null, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(999.dp)) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null, modifier = Modifier.size(17.dp)); Spacer(Modifier.width(5.dp)); Text(stringResource(R.string.previous_episode), style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1) }
+                            OutlinedButton(onClick = { pagerScope.launch { pagerState.animateScrollToPage(2) } }, enabled = next != null, modifier = Modifier.weight(1f).height(44.dp), shape = RoundedCornerShape(999.dp)) { Text(stringResource(R.string.next_episode), style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1); Spacer(Modifier.width(5.dp)); Icon(Icons.AutoMirrored.Filled.ArrowForward, null, modifier = Modifier.size(17.dp)) }
                         }
                     }
                 }

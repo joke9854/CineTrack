@@ -405,10 +405,10 @@ fun PageTitle(title: String, modifier: Modifier = Modifier) {
         title,
         modifier = modifier,
         color = Accent,
-        fontSize = 29.sp,
+
         lineHeight = 32.sp,
         fontWeight = FontWeight.Black,
-        style = MaterialTheme.typography.headlineLarge.copy(
+        style = MaterialTheme.typography.displaySmall.copy(
             shadow = Shadow(Color.Black.copy(alpha = .82f), Offset(0f, 4f), 9f),
         ),
     )
@@ -425,7 +425,7 @@ fun SectionHeader(
         Text(
             title,
             color = TextPrimary,
-            fontSize = 17.5.sp,
+
             lineHeight = 21.sp,
             fontWeight = FontWeight.ExtraBold,
             style = MaterialTheme.typography.titleMedium.copy(
@@ -439,7 +439,7 @@ fun SectionHeader(
                 Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = hapticAction).padding(start = 10.dp, top = 7.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(actionLabel, color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                Text(actionLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(2.dp))
                 Icon(Icons.Filled.ChevronRight, null, tint = TextSecondary, modifier = Modifier.size(15.dp))
             }
@@ -520,7 +520,7 @@ fun MediaPoster(
                     Text(
                         dateLabel,
                         color = Color.White,
-                        fontSize = 9.5.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         lineHeight = 10.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
@@ -553,8 +553,8 @@ fun MediaPoster(
         }
         if (showTitle) {
             Spacer(Modifier.height(7.dp))
-            Text(media.title.uppercase(), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, fontSize = 11.sp)
+            Text(media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
     MediaStatusPopup(
@@ -717,7 +717,7 @@ fun PrimaryAction(
     ) {
         Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(7.dp))
-        Text(text, color = if (enabled) Color.White else TextMuted, fontSize = 14.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1)
     }
 }
 
@@ -821,7 +821,7 @@ fun LiquidBottomNav(
                             Text(
                                 item.label,
                                 color = if (selected) Color.White else Color(0xFFE2E6EA),
-                                fontSize = 10.sp,
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                                 lineHeight = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1,
@@ -873,8 +873,8 @@ fun LibraryStatusSheet(
     val hapticDismiss = rememberLightHapticAction(onDismiss)
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Text(stringResource(R.string.choose_library_status), modifier = Modifier.fillMaxWidth(), color = TextMuted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(stringResource(R.string.choose_library_status), modifier = Modifier.fillMaxWidth(), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(13.dp))
             val choices = listOf(
                 Triple(LibraryStatus.PLAN_TO_WATCH, stringResource(R.string.plan_to_watch), Icons.Filled.Bookmark),
@@ -901,7 +901,7 @@ fun LibraryStatusSheet(
                     }
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(label, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        Text(label, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text(
                             when (status) {
                                 LibraryStatus.PLAN_TO_WATCH -> "Save for later"
@@ -912,7 +912,7 @@ fun LibraryStatusSheet(
                                 else -> ""
                             },
                             color = TextMuted,
-                            fontSize = 10.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         )
                     }
                     Box(Modifier.size(22.dp).clip(CircleShape).background(if (selected) statusColor else Color(0xFF555A65)), contentAlignment = Alignment.Center) {

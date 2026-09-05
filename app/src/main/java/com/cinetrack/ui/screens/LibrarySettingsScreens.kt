@@ -233,7 +233,7 @@ fun LibraryScreen(
                         Icon(if (item == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie, null, tint = if (selected) AccentLight else TextMuted, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.size(6.dp))
                         val count = state.rails[RailIds.LIBRARY].orEmpty().count { it.type == item }
-                        Text("${if (item == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)} · $count", color = if (selected) TextPrimary else TextSecondary, fontSize = 13.sp, fontWeight = FontWeight.ExtraBold)
+                        Text("${if (item == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)} · $count", color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
                     }
                 }
             }
@@ -252,7 +252,7 @@ fun LibraryScreen(
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
                         if (value != null) Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-                        Text("$label · $count", color = if (selected) TextPrimary else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                        Text("$label · $count", color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                     }
                 }
             }
@@ -285,8 +285,8 @@ fun LibraryScreen(
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.AutoAwesome, null, tint = AccentLight, modifier = Modifier.size(40.dp))
-                        Text(stringResource(R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
-                        Text(stringResource(R.string.empty_library_description), color = TextMuted, fontSize = 12.sp)
+                        Text(stringResource(R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        Text(stringResource(R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                     }
                 }
             } else {
@@ -348,7 +348,7 @@ fun LibraryScreen(
 private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: (LibraryStatus) -> Unit) {
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp)) {
-            Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, fontSize = 19.sp, fontWeight = FontWeight.ExtraBold)
+            Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(12.dp))
             listOf(
                 LibraryStatus.WATCHING to stringResource(R.string.in_progress),
@@ -383,7 +383,7 @@ private fun LibraryOrderSheet(
     var ascending by remember(initialAscending) { mutableStateOf(initialAscending) }
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = 18.dp)) {
-            Text(stringResource(R.string.sort_by), color = AccentLight, fontSize = 11.sp, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
+            Text(stringResource(R.string.sort_by), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
             Spacer(Modifier.height(12.dp))
             LibraryOrder.entries.forEach { option ->
                 val active = selected == option
@@ -467,10 +467,10 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
         Text(
             label,
             color = TextMuted,
-            fontSize = 13.sp,
+
             letterSpacing = .45.sp,
             fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.material3.MaterialTheme.typography.labelLarge.copy(
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
                 shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .72f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
             ),
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
@@ -493,8 +493,8 @@ private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-            Text(item.subtitle, color = TextSecondary, fontSize = 11.5.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+            Text(item.subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
@@ -602,8 +602,8 @@ private fun SettingsDetailHero(page: String, title: String) {
         }
         Spacer(Modifier.width(12.dp))
         Column {
-            Text(title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
-            Text(description, color = TextMuted, fontSize = 10.5.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+            Text(description, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -654,7 +654,7 @@ private fun SyncSettings(
         Text(
             error,
             color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-            fontSize = 12.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
         )
     }
@@ -662,7 +662,7 @@ private fun SyncSettings(
         Text(
             error,
             color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-            fontSize = 12.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
         )
     }
@@ -677,7 +677,7 @@ private fun SyncSettings(
             modifier = Modifier.weight(1f),
             onClick = if (state.simklConnected) viewModel::sync else onConnect,
         )
-        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(999.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f))) { Text(stringResource(R.string.disconnect), fontSize = 11.sp) }
+        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(999.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f))) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
     }
 }
 
@@ -728,7 +728,7 @@ private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onCl
         }
         Spacer(Modifier.width(11.dp))
         Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        if (selected) Text(stringResource(R.string.active), color = color, fontSize = 11.sp, fontWeight = FontWeight.ExtraBold)
+        if (selected) Text(stringResource(R.string.active), color = color, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -758,17 +758,17 @@ private fun ApiCredentialSettings(
             Text(
                 if (configured) stringResource(R.string.api_credential_configured, service) else stringResource(R.string.api_credential_missing, service),
                 color = if (configured) Color.White else TextSecondary,
-                fontSize = 13.5.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.Bold,
             )
             Text(
                 stringResource(R.string.api_credential_saved_securely),
                 color = TextMuted,
-                fontSize = 11.5.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 lineHeight = 15.sp,
                 modifier = Modifier.padding(top = 4.dp),
             )
-            Text(help, color = TextSecondary, fontSize = 12.sp, lineHeight = 16.sp, modifier = Modifier.padding(top = 9.dp))
+            Text(help, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp, modifier = Modifier.padding(top = 9.dp))
             Spacer(Modifier.height(9.dp))
             OutlinedTextField(
                 value = value,
@@ -782,7 +782,7 @@ private fun ApiCredentialSettings(
                 enabled = !validating,
                 label = { Text(stringResource(R.string.api_key_label)) },
                 visualTransformation = if (revealNewValue && !showingSavedMask) VisualTransformation.None else PasswordVisualTransformation(),
-                placeholder = { Text(stringResource(R.string.api_credential_hint, service), fontSize = 12.sp) },
+                placeholder = { Text(stringResource(R.string.api_credential_hint, service), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
                 trailingIcon = {
                     IconButton(
                         onClick = { if (!showingSavedMask) revealNewValue = !revealNewValue },
@@ -806,7 +806,7 @@ private fun ApiCredentialSettings(
                 Text(
                     stringResource(R.string.api_credential_invalid, service, message),
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-                    fontSize = 11.5.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     lineHeight = 15.sp,
                     modifier = Modifier.padding(top = 8.dp),
                 )
@@ -831,7 +831,7 @@ private fun ApiCredentialSettings(
                     }
                 }
             }
-            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, fontSize = 11.5.sp, modifier = Modifier.padding(top = 8.dp))
+            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp))
         }
     }
 }
@@ -887,7 +887,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
         Text(
             stringResource(R.string.upcoming_diagnostic_explanation),
             color = TextMuted,
-            fontSize = 11.sp,
+            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             lineHeight = 15.sp,
             modifier = Modifier.padding(14.dp),
         )
@@ -964,7 +964,7 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
     Text(
         stringResource(R.string.content_regions_scope),
         color = TextMuted,
-        fontSize = 11.sp,
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
         lineHeight = 15.sp,
         modifier = Modifier.padding(horizontal = 26.dp, vertical = 4.dp),
     )
@@ -1002,7 +1002,7 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
             ValueRow(stringResource(R.string.logs), stringResource(R.string.no_errors_logged), success = true)
         } else {
             logs.takeLast(20).asReversed().forEachIndexed { index, entry ->
-                Text(entry, color = TextSecondary, fontSize = 10.5.sp, lineHeight = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
+                Text(entry, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 14.sp, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
                 if (index != logs.takeLast(20).lastIndex) GlassDivider()
             }
         }
@@ -1052,7 +1052,7 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
     Text(
         stringResource(R.string.restore_backup_explanation),
         color = TextMuted,
-        fontSize = 10.5.sp,
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
         lineHeight = 14.sp,
         modifier = Modifier.padding(horizontal = 26.dp, vertical = 7.dp),
     )
@@ -1070,8 +1070,8 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
     Column(Modifier.padding(horizontal = 20.dp, vertical = 6.dp).fillMaxWidth().glass().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         BrandMark(76.dp)
         Spacer(Modifier.height(10.dp))
-        Text("CineTrack", color = TextPrimary, fontWeight = FontWeight.ExtraBold, fontSize = 22.sp)
-        Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextMuted, fontSize = 12.sp)
+        Text("CineTrack", color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
+        Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             ServiceLogo("TMDB")
@@ -1079,7 +1079,7 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             ServiceLogo("Simkl")
         }
         Spacer(Modifier.height(9.dp))
-        Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, fontSize = 12.sp)
+        Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(18.dp))
         val statusText = when (val current = updateState) {
             AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
@@ -1089,7 +1089,7 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
             is AppUpdateState.Error -> current.message
         }
-        Text(statusText, color = TextMuted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        Text(statusText, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
         Spacer(Modifier.height(10.dp))
         val updateAvailable = updateState is AppUpdateState.Available
         val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
@@ -1133,7 +1133,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                 Text(
                     stringResource(R.string.changelog),
                     color = TextPrimary,
-                    fontSize = 19.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.ExtraBold,
                     modifier = Modifier.weight(1f),
                 )
@@ -1152,28 +1152,28 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                 AppChangelogState.Empty -> Text(
                     stringResource(R.string.changelog_empty),
                     color = TextSecondary,
-                    fontSize = 12.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 )
                 is AppChangelogState.Error -> Text(
                     state.message,
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-                    fontSize = 12.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 )
                 is AppChangelogState.Available -> Column(
                     Modifier.fillMaxWidth().weight(1f, fill = false).verticalScroll(rememberScrollState()),
                 ) {
-                    Text(state.update.title, color = TextPrimary, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+                    Text(state.update.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     Text(
                         stringResource(R.string.changelog_version, state.update.version),
                         color = AccentLight,
-                        fontSize = 11.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.height(12.dp))
                     Text(
                         state.update.notes.ifBlank { stringResource(R.string.changelog_empty) },
                         color = TextSecondary,
-                        fontSize = 12.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                         lineHeight = 17.sp,
                     )
                 }
@@ -1195,9 +1195,9 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
         Text(
             title.uppercase(),
             color = AccentLight,
-            fontSize = 12.5.sp,
+
             fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.material3.MaterialTheme.typography.labelMedium.copy(
+            style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
                 shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .78f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
             ),
             modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
@@ -1210,7 +1210,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
     val hapticToggle = rememberLightHapticAction { onChecked(!checked) }
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         CompactSwitch(checked) { onChecked(!checked) }
     }
 }
@@ -1235,8 +1235,8 @@ private fun CompactSwitch(checked: Boolean, onClick: () -> Unit) {
 @Composable
 private fun ValueRow(title: String, value: String, success: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(value, color = if (success) Color.White else TextSecondary, fontSize = 12.5.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(value, color = if (success) Color.White else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -1246,7 +1246,7 @@ private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onC
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
-        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, fontSize = 14.5.sp, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+        Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         Box(Modifier.size(9.dp).clip(CircleShape).background(if (configured) Success else TextMuted))
         Spacer(Modifier.width(6.dp))
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
@@ -1278,10 +1278,10 @@ private fun ChoiceRow(title: String, selected: Boolean, description: String? = n
     val hapticClick = rememberLightHapticAction(onClick)
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 14.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (!description.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
-                Text(description, color = TextMuted, fontSize = 10.5.sp, lineHeight = 14.sp)
+                Text(description, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 14.sp)
             }
         }
         Box(Modifier.size(20.dp).clip(CircleShape).background(if (selected) Accent else Color.Transparent).then(if (!selected) Modifier.border(1.dp, TextMuted, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
