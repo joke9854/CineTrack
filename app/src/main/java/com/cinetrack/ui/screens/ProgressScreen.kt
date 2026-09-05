@@ -263,11 +263,11 @@ fun ProgressScreen(
                 modifier = Modifier.fillMaxWidth().weight(1f),
                 transitionSpec = {
                     if (targetState.ordinal > initialState.ordinal) {
-                        (slideInHorizontally(tween(310)) { it / 3 } + fadeIn(tween(230))) togetherWith
-                            (slideOutHorizontally(tween(260)) { -it / 4 } + fadeOut(tween(190)))
+                        (slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Long)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))) togetherWith
+                            (slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)))
                     } else {
-                        (slideInHorizontally(tween(310)) { -it / 3 } + fadeIn(tween(230))) togetherWith
-                            (slideOutHorizontally(tween(260)) { it / 4 } + fadeOut(tween(190)))
+                        (slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Long)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))) togetherWith
+                            (slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)))
                     }
                 },
                 label = "progressTabPage",
@@ -421,17 +421,17 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
             val hapticSelect = rememberLightHapticAction { onSelected(tab) }
             val pillColor by animateColorAsState(
                 if (active) Accent.copy(alpha = .30f) else Color.Black.copy(alpha = .08f),
-                tween(240, easing = FastOutSlowInEasing),
+                tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
                 label = "progressPillColor",
             )
             val contentColor by animateColorAsState(
                 if (active) TextPrimary else TextSecondary,
-                tween(220),
+                tween(com.cinetrack.ui.theme.Motion.Medium),
                 label = "progressPillContent",
             )
             val pillScale by animateFloatAsState(
                 if (active) 1f else .985f,
-                tween(240, easing = FastOutSlowInEasing),
+                tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
                 label = "progressPillScale",
             )
             Row(
@@ -548,8 +548,8 @@ private fun ExpandablePlaybackSection(
         }
         AnimatedVisibility(
             visible = expanded,
-            enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(330)) + fadeIn(tween(250)),
-            exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(280)) + fadeOut(tween(190)),
+            enter = expandVertically(expandFrom = Alignment.Top, animationSpec = tween(com.cinetrack.ui.theme.Motion.Long)) + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium)),
+            exit = shrinkVertically(shrinkTowards = Alignment.Top, animationSpec = tween(com.cinetrack.ui.theme.Motion.Medium)) + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
         ) {
             Column {
                 orderedItems.drop(3).forEach { PlaybackRow(it, onMedia, onEpisode, onWatched) }
@@ -620,8 +620,8 @@ private fun AnimatedPlaybackSlot(
         targetState = item,
         contentKey = { card -> "$slot:${card.media.stableKey}:${card.season}:${card.episodeNumber}" },
         transitionSpec = {
-            (slideInHorizontally(tween(340, easing = FastOutSlowInEasing)) { it / 7 } + fadeIn(tween(250))) togetherWith
-                (slideOutHorizontally(tween(250, easing = FastOutSlowInEasing)) { -it / 8 } + fadeOut(tween(180)))
+            (slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Long, easing = FastOutSlowInEasing)) { it / 7 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))) togetherWith
+                (slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 8 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)))
         },
         label = "nextPlaybackCard",
     ) { card ->
@@ -778,8 +778,8 @@ private fun PlaybackRow(
         AnimatedVisibility(
             visible = confirming,
             modifier = Modifier.matchParentSize(),
-            enter = slideInHorizontally(tween(310, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(120)),
-            exit = slideOutHorizontally(tween(230, easing = FastOutSlowInEasing)) { -it / 5 } + fadeOut(tween(190)),
+            enter = slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Long, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)),
+            exit = slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
         ) {
             Box(
                 Modifier.fillMaxSize().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Success.copy(alpha = .96f)),
@@ -798,7 +798,7 @@ private fun PlaybackRow(
 @Composable
 private fun AnimatedProgressBar(progress: Float) {
     val safeProgress = progress.coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(safeProgress, tween(420), label = "progressValue")
+    val animatedProgress by animateFloatAsState(safeProgress, tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
     Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
         Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }

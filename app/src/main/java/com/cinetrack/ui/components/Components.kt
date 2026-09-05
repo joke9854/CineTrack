@@ -217,7 +217,7 @@ fun Modifier.blueEdgeClickable(
     val interactionSource = remember { MutableInteractionSource() }
     val view = LocalView.current
     val pressed by interactionSource.collectIsPressedAsState()
-    val alpha by animateFloatAsState(if (pressed) .95f else 0f, tween(120), label = "blueEdgePress")
+    val alpha by animateFloatAsState(if (pressed) .95f else 0f, tween(com.cinetrack.ui.theme.Motion.Short), label = "blueEdgePress")
     this
         .border(1.7.dp, Accent.copy(alpha = alpha), shape)
         .combinedClickable(
@@ -333,9 +333,9 @@ fun AdaptiveBackground(
             (it.blue * .45f + .20f).coerceIn(0f, 1f),
         )
     } ?: if (artworkUrl.isNullOrBlank() && glow == null) com.cinetrack.ui.theme.SurfacePalette.NeutralMuted else Background1
-    val primary by animateColorAsState(primaryTarget, tween(420), label = "adaptivePrimary")
-    val secondary by animateColorAsState(secondaryTarget, tween(420), label = "adaptiveSecondary")
-    val base by animateColorAsState(baseTarget, tween(420), label = "adaptiveBase")
+    val primary by animateColorAsState(primaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptivePrimary")
+    val secondary by animateColorAsState(secondaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveSecondary")
+    val base by animateColorAsState(baseTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveBase")
     Box(
         Modifier
             .fillMaxSize()
@@ -468,7 +468,7 @@ fun MediaPoster(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
-    val edgeAlpha by animateFloatAsState(if (pressed || statusPopup) .95f else 0f, tween(120), label = "posterEdge")
+    val edgeAlpha by animateFloatAsState(if (pressed || statusPopup) .95f else 0f, tween(com.cinetrack.ui.theme.Motion.Short), label = "posterEdge")
     RevealOnMount(media.stableKey, modifier.width(width)) {
     Box {
     Column(
@@ -631,12 +631,12 @@ fun MediaStatusPopup(
     val view = LocalView.current
     val popupAlpha by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(if (expanded) 175 else 215, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (expanded) com.cinetrack.ui.theme.Motion.Short else com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
         label = "statusPopupAlpha",
     )
     val popupScale by animateFloatAsState(
         targetValue = if (expanded) 1f else .93f,
-        animationSpec = tween(if (expanded) 205 else 225, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (expanded) com.cinetrack.ui.theme.Motion.Medium else com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
         label = "statusPopupScale",
     )
     LaunchedEffect(expanded) {
@@ -766,17 +766,17 @@ fun LiquidBottomNav(
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
     val labelFraction by animateFloatAsState(
         targetValue = if (compact) 0f else 1f,
-        animationSpec = if (motionEnabled) tween(260, easing = FastOutSlowInEasing) else tween(0),
+        animationSpec = if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navLabels",
     )
     val height by animateDpAsState(
         if (compact) 54.dp else 64.dp,
-        if (motionEnabled) tween(260, easing = FastOutSlowInEasing) else tween(0),
+        if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navHeight",
     )
     val sidePadding by animateDpAsState(
         if (compact) 58.dp else 28.dp,
-        if (motionEnabled) tween(280, easing = FastOutSlowInEasing) else tween(0),
+        if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navSidePadding",
     )
     Box(
@@ -795,7 +795,7 @@ fun LiquidBottomNav(
                 val selected = index == selectedIndex
                 val selectedAlpha by animateFloatAsState(
                     if (selected) 1f else 0f,
-                    if (motionEnabled) tween(220, easing = FastOutSlowInEasing) else tween(0),
+                    if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
                     label = "navSelection",
                 )
                 Column(

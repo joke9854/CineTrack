@@ -37,8 +37,8 @@ val TextSecondary = Color(0xFFD7DEE4)
 val TextMuted = Color(0xFFA2AEB8)
 
 object DesignTokens {
-    const val NavTravelMs = 320
-    const val SheetTravelMs = 360
+    const val NavTravelMs = Motion.Long
+    const val SheetTravelMs = Motion.Long
     const val WatchedConfirmationMs = 720L
 }
 

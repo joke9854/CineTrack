@@ -36,11 +36,11 @@ class BaselineProfileGenerator {
             "Pass mediaTitle matching a cached title and complete onboarding before profiling."
         }
         rule.collect(packageName = "com.cinetrack") {
-            startActivityAndWait(Intent(Intent.ACTION_VIEW, Uri.parse("cinetrack://app/progress")))
+            startActivityAndWait(Intent(Intent.ACTION_VIEW, Uri.parse("cinetrack://app/progress")).setPackage(packageName))
             check(device.wait(Until.hasObject(By.textContains(mediaTitle)), 15_000)) {
                 "Expected a configured Progress library containing $mediaTitle"
             }
-            startActivityAndWait(Intent(Intent.ACTION_VIEW, Uri.parse("cinetrack://detail/$mediaType/$mediaId")))
+            startActivityAndWait(Intent(Intent.ACTION_VIEW, Uri.parse("cinetrack://detail/$mediaType/$mediaId")).setPackage(packageName))
             check(device.wait(Until.hasObject(By.textContains(mediaTitle)), 15_000))
             device.waitForIdle()
         }

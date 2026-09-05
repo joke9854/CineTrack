@@ -1018,6 +1018,9 @@ class CineTrackRepository(
     )
 
     suspend fun enrichHistoryLabels(items: List<TimelineCard>): List<TimelineCard> {
+        // Keep this call's results until its output is built. The process-wide
+        // LRU may evict early titles when an import contains more than 750 rows.
+        val resolvedTitles = mutableMapOf<String, String>()
         val missing = items.filter {
             it.media.type == MediaType.TV && it.season != null && it.episodeNumber != null &&
                 (it.episodeLabel.isNullOrBlank() || !it.episodeLabel.contains(" · "))
@@ -1038,15 +1041,20 @@ class CineTrackRepository(
                                     database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, item.season!!, item.episodeNumber!!, title)
                                 }
                         }
+                        key to episodeTitleCache[key]
                     }
-                }.forEach { it.await() }
+                }.forEach { pending ->
+                    val (key, title) = pending.await()
+                    if (!title.isNullOrBlank()) resolvedTitles[key] = title
+                }
             }
         }
         return items.map { item ->
             if (item.media.type != MediaType.TV || item.season == null || item.episodeNumber == null) item
             else {
                 val existingTitle = item.episodeLabel?.substringAfter(" · ", "")?.takeIf(String::isNotBlank)
-                val title = episodeTitleCache["${item.media.id}:${item.season}:${item.episodeNumber}"] ?: existingTitle
+                val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+                val title = resolvedTitles[key] ?: episodeTitleCache[key] ?: existingTitle
                 val number = "S${item.season.toString().padStart(2, '0')} E${item.episodeNumber.toString().padStart(2, '0')}"
                 item.copy(episodeLabel = listOfNotNull(number, title?.takeIf(String::isNotBlank)).joinToString(" · "))
             }

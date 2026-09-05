@@ -186,10 +186,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220))
-                    else -> slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             exitTransition = {
@@ -197,10 +197,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(180))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(180))
-                    else -> slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(150))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
             popEnterTransition = {
@@ -208,10 +208,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220))
-                    else -> slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             popExitTransition = {
@@ -219,10 +219,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(180))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(180))
-                    else -> slideOutHorizontally(tween(230, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(170))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
         ) {
@@ -422,8 +422,8 @@ fun CineTrackApp(
 
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
-            enter = fadeIn(tween(180)) + slideInHorizontally(tween(260)) { it / 5 },
-            exit = fadeOut(tween(180)),
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 5 },
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
         ) {
             Row(
@@ -438,8 +438,8 @@ fun CineTrackApp(
 
         AnimatedVisibility(
             visible = !minimumLaunchElapsed || state.loading,
-            enter = fadeIn(tween(120)),
-            exit = fadeOut(tween(360, easing = FastOutSlowInEasing)),
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)),
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Long, easing = FastOutSlowInEasing)),
             modifier = Modifier.align(Alignment.Center),
         ) {
             Box(
