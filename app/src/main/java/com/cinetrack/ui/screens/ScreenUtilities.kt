@@ -44,7 +44,7 @@ internal fun LongPullRefreshContainer(
             refreshing = refreshing,
             state = pullState,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 6.dp),
-            backgroundColor = Color(0xE6272B32),
+            backgroundColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
             contentColor = AccentLight,
             scale = true,
         )

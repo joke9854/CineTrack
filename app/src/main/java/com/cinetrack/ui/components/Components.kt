@@ -140,6 +140,10 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.Locale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 
 @Composable
@@ -185,10 +189,10 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.
         .clip(shape)
         // Keep chromatic gradients on the page background. Controls use a
         // neutral, low-opacity material so artwork colour can pass through.
-        .background(Color(0xFF171B21).copy(alpha = .27f))
+        .background(com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .27f))
         .border(
             .5.dp,
-            Color.White.copy(alpha = .10f),
+            GlassEdgeBrush,
             shape,
         )
 
@@ -202,8 +206,8 @@ fun Modifier.glassIcon(): Modifier =
     padding(4.dp)
         .shadow(8.dp, CircleShape, clip = false)
         .clip(CircleShape)
-        .background(Color(0xFF171A20).copy(alpha = .50f))
-        .border(.55.dp, Color.White.copy(alpha = .09f), CircleShape)
+        .background(com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .50f))
+        .border(.55.dp, GlassEdgeBrush, CircleShape)
 
 fun Modifier.blueEdgeClickable(
     shape: RoundedCornerShape,
@@ -253,8 +257,8 @@ fun GlassBackButton(
                 .scale(buttonScale)
                 .shadow(9.dp, CircleShape, clip = false)
                 .clip(CircleShape)
-                .background(Color(0xD925292F))
-                .border(.55.dp, Color.White.copy(alpha = .10f), CircleShape)
+                .background(com.cinetrack.ui.theme.SurfacePalette.BackControl)
+                .border(.55.dp, GlassEdgeBrush, CircleShape)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
@@ -320,15 +324,15 @@ fun AdaptiveBackground(
     val artworkColors by produceState<Pair<Color, Color>?>(artworkUrl?.let { artworkColorCache.get(it) }, artworkUrl) {
         value = artworkUrl?.let { url -> artworkColorCache.get(url) ?: extractArtworkColors(context, url)?.also { artworkColorCache.put(url, it) } }
     }
-    val primaryTarget = glow ?: artworkColors?.first ?: Color(0xFFB8BEC7)
-    val secondaryTarget = secondaryGlow ?: artworkColors?.second ?: Color(0xFF8B919B)
+    val primaryTarget = glow ?: artworkColors?.first ?: com.cinetrack.ui.theme.SurfacePalette.SoftText
+    val secondaryTarget = secondaryGlow ?: artworkColors?.second ?: com.cinetrack.ui.theme.SurfacePalette.LightMuted
     val baseTarget = artworkColors?.first?.let {
         Color(
             (it.red * .45f + .17f).coerceIn(0f, 1f),
             (it.green * .45f + .18f).coerceIn(0f, 1f),
             (it.blue * .45f + .20f).coerceIn(0f, 1f),
         )
-    } ?: if (artworkUrl.isNullOrBlank() && glow == null) Color(0xFF8A8F97) else Background1
+    } ?: if (artworkUrl.isNullOrBlank() && glow == null) com.cinetrack.ui.theme.SurfacePalette.NeutralMuted else Background1
     val primary by animateColorAsState(primaryTarget, tween(420), label = "adaptivePrimary")
     val secondary by animateColorAsState(secondaryTarget, tween(420), label = "adaptiveSecondary")
     val base by animateColorAsState(baseTarget, tween(420), label = "adaptiveBase")
@@ -508,7 +512,7 @@ fun MediaPoster(
             } else {
                 Text(
                     media.title.take(1),
-                    color = Color.White.copy(alpha = .84f),
+                    color = com.cinetrack.ui.theme.WhiteBright,
                     fontSize = 46.sp,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Center),
@@ -546,7 +550,7 @@ fun MediaPoster(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(7.dp).size(27.dp),
                     color = Success,
-                    trackColor = Color(0xCC152129),
+                    trackColor = com.cinetrack.ui.theme.SurfacePalette.BlueOverlay,
                     strokeWidth = 2.5.dp,
                 )
             }
@@ -582,11 +586,11 @@ private fun StateBadge(color: Color, icon: ImageVector, label: String, modifier:
 
 private fun posterBrush(seed: Int): Brush {
     val palettes = listOf(
-        listOf(Color(0xFFF49A47), Color(0xFF214C73), Color(0xFF111522)),
-        listOf(Color(0xFF38B99C), Color(0xFF275D7C), Color(0xFF121925)),
-        listOf(Color(0xFFA8B1CF), Color(0xFF6B7082), Color(0xFF171821)),
-        listOf(Color(0xFF996BCB), Color(0xFF3A416E), Color(0xFF171421)),
-        listOf(Color(0xFFD76870), Color(0xFF573B66), Color(0xFF151824)),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterOrange, com.cinetrack.ui.theme.SurfacePalette.PosterBlue, com.cinetrack.ui.theme.SurfacePalette.WarmPosterShadow),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterMint, com.cinetrack.ui.theme.SurfacePalette.PosterCyan, com.cinetrack.ui.theme.SurfacePalette.CoolPosterShadow),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.LavenderText, com.cinetrack.ui.theme.SurfacePalette.PosterGray, com.cinetrack.ui.theme.SurfacePalette.WarmSurface),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterLilac, com.cinetrack.ui.theme.SurfacePalette.PosterIndigo, com.cinetrack.ui.theme.SurfacePalette.VioletDeep),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterRose, com.cinetrack.ui.theme.SurfacePalette.PosterPlum, com.cinetrack.ui.theme.SurfacePalette.VioletPosterShadow),
     )
     return Brush.linearGradient(palettes[abs(seed) % palettes.size])
 }
@@ -654,7 +658,7 @@ fun MediaStatusPopup(
             transformOrigin = TransformOrigin(.5f, 0f)
         },
         shape = popupShape,
-        containerColor = Color(0xF21A1D24),
+        containerColor = com.cinetrack.ui.theme.SurfacePalette.ModalSurface,
         tonalElevation = 0.dp,
         shadowElevation = 18.dp,
         border = BorderStroke(.8.dp, AccentLight.copy(alpha = .24f)),
@@ -707,9 +711,9 @@ fun PrimaryAction(
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
-                else SolidColor(Color.White.copy(alpha = .07f)),
+                else SolidColor(com.cinetrack.ui.theme.GlassSubtle),
             )
-            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else Color(0xFF687083).copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .clickable(enabled = enabled, onClick = hapticClick)
             .padding(horizontal = 18.dp),
         horizontalArrangement = Arrangement.Center,
@@ -727,7 +731,7 @@ fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
         modifier
             .size(size)
             .clip(RoundedCornerShape(size * .23f))
-            .background(Color(0xFF1A2130).copy(alpha = .82f))
+            .background(com.cinetrack.ui.theme.SurfacePalette.PlaybackSurface.copy(alpha = .82f))
             .border(.7.dp, AccentLight.copy(alpha = .28f), RoundedCornerShape(size * .23f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -735,7 +739,7 @@ fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
             progress = { .76f },
             modifier = Modifier.size(size * .68f),
             color = AccentLight,
-            trackColor = Color.White.copy(alpha = .14f),
+            trackColor = com.cinetrack.ui.theme.Glass,
             strokeWidth = size * .055f,
         )
         Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(size * .34f))
@@ -756,6 +760,7 @@ fun LiquidBottomNav(
     compact: Boolean,
     onSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
     val view = LocalView.current
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
@@ -781,8 +786,8 @@ fun LiquidBottomNav(
             .height(height)
             .shadow(15.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), clip = false)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .background(Color(0xFF1C1C1E).copy(alpha = .78f))
-            .border(.65.dp, Color.White.copy(alpha = .11f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(com.cinetrack.ui.theme.SurfacePalette.NavSurface.copy(alpha = .78f)))
+            .border(.65.dp, GlassEdgeBrush, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .padding(horizontal = 7.dp, vertical = 5.dp),
     ) {
         Row(Modifier.fillMaxSize()) {
@@ -809,7 +814,7 @@ fun LiquidBottomNav(
                     Icon(
                         if (selected) item.filledIcon else item.outlineIcon,
                         contentDescription = item.label,
-                        tint = if (selected) AccentLight else Color(0xFFE7EBEF),
+                        tint = if (selected) AccentLight else com.cinetrack.ui.theme.SurfacePalette.BrightText,
                         modifier = Modifier.size(if (compact) 25.dp else 22.dp),
                     )
                     if (labelFraction > .01f) {
@@ -820,7 +825,7 @@ fun LiquidBottomNav(
                             Spacer(Modifier.height(6.dp * labelFraction))
                             Text(
                                 item.label,
-                                color = if (selected) Color.White else Color(0xFFE2E6EA),
+                                color = if (selected) Color.White else com.cinetrack.ui.theme.SurfacePalette.LightText,
                                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                                 lineHeight = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
@@ -848,13 +853,13 @@ fun SharedGlassSheet(
         // its own safe horizontal inset.
         modifier = Modifier.fillMaxWidth(),
         sheetState = sheetState,
-        containerColor = Color(0xFF171920).copy(alpha = .90f),
+        containerColor = com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
         shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
         dragHandle = {
             Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(Color.White.copy(alpha = .36f)))
+                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
             }
         },
     ) {
@@ -915,8 +920,8 @@ fun LibraryStatusSheet(
                             style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         )
                     }
-                    Box(Modifier.size(22.dp).clip(CircleShape).background(if (selected) statusColor else Color(0xFF555A65)), contentAlignment = Alignment.Center) {
-                        if (selected) Icon(Icons.Filled.Check, null, tint = Color(0xFF082417), modifier = Modifier.size(15.dp))
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(if (selected) statusColor else com.cinetrack.ui.theme.SurfacePalette.NeutralFill), contentAlignment = Alignment.Center) {
+                        if (selected) Icon(Icons.Filled.Check, null, tint = com.cinetrack.ui.theme.SurfacePalette.SuccessInk, modifier = Modifier.size(15.dp))
                     }
                 }
             }
@@ -931,7 +936,7 @@ fun LibraryStatusSheet(
 
 @Composable
 fun GlassDivider() {
-    HorizontalDivider(color = Color.White.copy(alpha = .10f), thickness = 1.dp)
+    HorizontalDivider(color = com.cinetrack.ui.theme.Glass, thickness = 1.dp)
 }
 
 @Composable

@@ -223,13 +223,13 @@ fun DetailScreen(
                         .background(
                             Brush.verticalGradient(
                                 listOf(
-                                    Color(0xFF171A20).copy(alpha = .46f),
-                                    Color(0xFF11141A).copy(alpha = .56f),
+                                    com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
+                                    com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
                                 ),
                             ),
                             sheetShape,
                         )
-                        .border(.6.dp, Color.White.copy(alpha = .10f), sheetShape)
+                        .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
                         .navigationBarsPadding()
                         .padding(top = 32.dp, bottom = 72.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -393,8 +393,8 @@ private fun TrailerActionButton(onClick: () -> Unit) {
     Row(
         Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(48.dp)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .background(Color(0xFFFF0000).copy(alpha = .84f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .border(.7.dp, Color(0xFFFF7777).copy(alpha = .55f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .background(com.cinetrack.ui.theme.SurfacePalette.YouTubeRed.copy(alpha = .84f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .border(.7.dp, com.cinetrack.ui.theme.SurfacePalette.TrailerBorder.copy(alpha = .55f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .clickable(onClick = hapticClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -426,11 +426,11 @@ private fun TrailerPlayerSheet(
             Spacer(Modifier.height(14.dp))
             Box(
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
-                    .background(Color(0xFF090A0D)),
+                    .background(com.cinetrack.ui.theme.SurfacePalette.BottomFade),
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    loading -> CircularProgressIndicator(color = Color(0xFFFF3434))
+                    loading -> CircularProgressIndicator(color = com.cinetrack.ui.theme.SurfacePalette.TrailerLoading)
                     trailerKey.isNullOrBlank() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.trailer_unavailable), color = TextSecondary, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(12.dp))
@@ -486,7 +486,7 @@ private fun DetailHero(media: MediaCard, onBack: () -> Unit) {
         Box(
             Modifier.align(Alignment.Center).padding(top = 60.dp).width(214.dp).aspectRatio(.70f)
                 .shadow(18.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large), clip = false)
-                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(Accent, Color(0xFF202637))))
+                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(Accent, com.cinetrack.ui.theme.SurfacePalette.BlueSurface)))
         ) {
                 if (!media.posterUrl.isNullOrBlank()) AsyncImage(media.posterUrl, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
         }
@@ -727,7 +727,7 @@ private fun EpisodesSection(
                             .padding(11.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.width(62.dp).height(92.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(Info.copy(alpha = .36f), Color(0xFF07131C))))) {
+                        Box(Modifier.width(62.dp).height(92.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(Info.copy(alpha = .36f), com.cinetrack.ui.theme.SurfacePalette.ArtworkBackdrop)))) {
                             summary?.posterUrl?.let { AsyncImage(it, summary.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
                         }
                         Spacer(Modifier.width(11.dp))
@@ -735,18 +735,18 @@ private fun EpisodesSection(
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(summary?.title ?: stringResource(R.string.season_number, seasonNumber), color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                                 Spacer(Modifier.width(7.dp))
-                                Box(Modifier.size(27.dp).clip(CircleShape).background(Color(0xFF59606B).copy(alpha = .52f)), contentAlignment = Alignment.Center) {
+                                Box(Modifier.size(27.dp).clip(CircleShape).background(com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .52f)), contentAlignment = Alignment.Center) {
                                     Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(17.dp))
                                 }
                             }
                             Text(stringResource(R.string.season_progress, watched, summary?.episodeCount ?: seasonEpisodes.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
-                        Box(Modifier.size(32.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else Color(0xFF59606B).copy(alpha = .60f)).clickable(onClick = hapticSeasonWatched), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(32.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)).clickable(onClick = hapticSeasonWatched), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Check, stringResource(if (allWatched) R.string.mark_unwatched else R.string.mark_watched), tint = if (allWatched) Success else TextSecondary, modifier = Modifier.size(18.dp))
                         }
                     }
                     val total = (summary?.episodeCount ?: seasonEpisodes.size).coerceAtLeast(1)
-                    Box(Modifier.fillMaxWidth().height(4.dp).background(Color(0xFF4A4E57))) {
+                    Box(Modifier.fillMaxWidth().height(4.dp).background(com.cinetrack.ui.theme.SurfacePalette.ProgressTrack)) {
                         Box(Modifier.fillMaxWidth(watched.toFloat() / total).fillMaxSize().background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
                     }
                     AnimatedVisibility(expanded) {
@@ -767,7 +767,7 @@ private fun EpisodesSection(
                                         .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)) { onEpisode(episode) },
                                 ) {
                                 Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                    Box(Modifier.width(66.dp).height(44.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Color(0xFF07131C))) {
+                                    Box(Modifier.width(66.dp).height(44.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(com.cinetrack.ui.theme.SurfacePalette.ArtworkBackdrop)) {
                                         episode.stillUrl?.let { AsyncImage(it, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds) }
                                     }
                                     Spacer(Modifier.width(9.dp))
@@ -780,8 +780,8 @@ private fun EpisodesSection(
                                         Icon(Icons.Filled.Info, stringResource(if (infoVisible) R.string.hide_episode_info else R.string.show_episode_info, episode.title), tint = TextSecondary, modifier = Modifier.size(14.dp))
                                     }
                                     Spacer(Modifier.width(7.dp))
-                                    Box(Modifier.size(28.dp).clip(CircleShape).background(if (episode.watched) Success else Color(0xFF555963)).clickable(onClick = hapticWatched), contentAlignment = Alignment.Center) {
-                                        Icon(Icons.Filled.Check, stringResource(if (episode.watched) R.string.mark_unwatched else R.string.mark_watched), tint = if (episode.watched) Color(0xFF09271A) else TextSecondary, modifier = Modifier.size(15.dp))
+                                    Box(Modifier.size(28.dp).clip(CircleShape).background(if (episode.watched) Success else com.cinetrack.ui.theme.SurfacePalette.EpisodeToggle).clickable(onClick = hapticWatched), contentAlignment = Alignment.Center) {
+                                        Icon(Icons.Filled.Check, stringResource(if (episode.watched) R.string.mark_unwatched else R.string.mark_watched), tint = if (episode.watched) com.cinetrack.ui.theme.SurfacePalette.WatchedInk else TextSecondary, modifier = Modifier.size(15.dp))
                                     }
                                 }
                                 AnimatedVisibility(infoVisible) {
@@ -1130,7 +1130,7 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                 Spacer(Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     details.movieCredits.forEach { movie ->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Color.White.copy(alpha = .045f))
+                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(com.cinetrack.ui.theme.GlassBare)
                             .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)) { onDismiss(); onMedia(movie) }.padding(7.dp), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.width(42.dp).height(60.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f))) {
                                 if (!movie.posterUrl.isNullOrBlank()) AsyncImage(movie.posterUrl, movie.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -1263,7 +1263,7 @@ fun EpisodeDetailScreen(
             ) {
                 item {
                     Box(Modifier.fillMaxWidth().statusBarsPadding().height(330.dp)) {
-                        Box(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 74.dp, bottom = 46.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(Color(0xFF287C77), Color(0xFF202831))))) {
+                        Box(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 74.dp, bottom = 46.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.EpisodeTeal, com.cinetrack.ui.theme.SurfacePalette.EpisodeSurface)))) {
                             if (!displayedEpisode.stillUrl.isNullOrBlank()) AsyncImage(displayedEpisode.stillUrl, displayedEpisode.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .54f)))))
                         }
@@ -1277,13 +1277,13 @@ fun EpisodeDetailScreen(
                             .background(
                                 Brush.verticalGradient(
                                     listOf(
-                                        Color(0xFF171A20).copy(alpha = .46f),
-                                        Color(0xFF11141A).copy(alpha = .56f),
+                                        com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
+                                        com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
                                     ),
                                 ),
                                 sheetShape,
                             )
-                            .border(.6.dp, Color.White.copy(alpha = .10f), sheetShape)
+                            .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
                             .navigationBarsPadding()
                             .padding(top = 32.dp, bottom = 72.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1294,7 +1294,7 @@ fun EpisodeDetailScreen(
                             Text("${displayedEpisode.label} · ${formatDurationMinutes(displayedEpisode.runtimeMinutes)}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                         }
                         Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
-                            OutlinedButton(onClick = onSeries, modifier = Modifier.height(40.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small), border = BorderStroke(.7.dp, Color.White.copy(alpha = .28f))) {
+                            OutlinedButton(onClick = onSeries, modifier = Modifier.height(40.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small), border = BorderStroke(.7.dp, com.cinetrack.ui.theme.GlassStrokeStrong)) {
                                 Icon(Icons.Filled.Info, null, tint = TextSecondary, modifier = Modifier.size(15.dp))
                                 Spacer(Modifier.width(7.dp))
                                 Text(stringResource(R.string.series_details), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1)

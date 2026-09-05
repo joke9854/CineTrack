@@ -355,7 +355,7 @@ private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, 
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
                 SimklMark()
-                Box(Modifier.align(Alignment.TopEnd).size(9.dp).clip(CircleShape).background(if (connected) Success else TextMuted).border(2.dp, Color(0xFF4B4746), CircleShape))
+                Box(Modifier.align(Alignment.TopEnd).size(9.dp).clip(CircleShape).background(if (connected) Success else TextMuted).border(2.dp, com.cinetrack.ui.theme.SurfacePalette.WarmGray, CircleShape))
             }
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
@@ -377,7 +377,7 @@ private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, 
                     progress = { sync.progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
                     color = if (sync.stage == SyncStage.ERROR) MaterialTheme.colorScheme.error else AccentLight,
-                    trackColor = Color.White.copy(alpha = .10f),
+                    trackColor = com.cinetrack.ui.theme.Glass,
                 )
                 Spacer(Modifier.height(7.dp))
                 Text(sync.message ?: syncStageLabel(sync.stage), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
@@ -390,8 +390,8 @@ private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, 
 private fun SimklMark() {
     Box(
         Modifier.size(40.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
-            .background(Color(0xFFF2F2F4).copy(alpha = .92f))
-            .border(.55.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
+            .background(com.cinetrack.ui.theme.SurfacePalette.NeutralText.copy(alpha = .92f))
+            .border(.55.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
         contentAlignment = Alignment.Center,
     ) {
         Image(painterResource(R.drawable.ic_service_simkl), contentDescription = "Simkl", modifier = Modifier.size(25.dp))
@@ -565,9 +565,9 @@ private fun ExpandablePlaybackSection(
                         drawContent()
                         drawRect(
                             brush = Brush.verticalGradient(
-                                0f to Color.White.copy(alpha = .66f),
-                                .44f to Color.White.copy(alpha = .40f),
-                                .78f to Color.White.copy(alpha = .14f),
+                                0f to com.cinetrack.ui.theme.WhiteEmphasis,
+                                .44f to com.cinetrack.ui.theme.GlassDisabled,
+                                .78f to com.cinetrack.ui.theme.Glass,
                                 1f to Color.Transparent,
                             ),
                             blendMode = BlendMode.DstIn,
@@ -743,7 +743,7 @@ private fun PlaybackRow(
             .clickable(interactionSource = cardInteraction, indication = null, onClick = hapticOpenItem),
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(118.dp).fillMaxHeight().background(Brush.linearGradient(listOf(Color(0xFF705446), Color(0xFF152538))))) {
+            Box(Modifier.width(118.dp).fillMaxHeight().background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid)))) {
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             }
@@ -770,7 +770,7 @@ private fun PlaybackRow(
             IconButton(
                 onClick = rememberLightHapticAction { confirming = true },
                 modifier = Modifier.align(Alignment.Bottom).padding(end = 28.dp, bottom = 20.dp).size(35.dp).clip(CircleShape)
-                    .background(Color(0xFF44505A).copy(alpha = .62f)).border(1.1.dp, Accent.copy(alpha = .86f), CircleShape),
+                    .background(com.cinetrack.ui.theme.SurfacePalette.NeutralSlate.copy(alpha = .62f)).border(1.1.dp, Accent.copy(alpha = .86f), CircleShape),
             ) {
                 Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(18.dp).scale(checkScale))
             }
@@ -799,7 +799,7 @@ private fun PlaybackRow(
 private fun AnimatedProgressBar(progress: Float) {
     val safeProgress = progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(safeProgress, tween(420), label = "progressValue")
-    Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(Color.White.copy(alpha = .10f))) {
+    Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
         Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }
 }
@@ -844,7 +844,7 @@ private fun UpcomingEpisodesRail(
                         if (!episode.stillUrl.isNullOrBlank()) AsyncImage(episode.stillUrl, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .74f)))))
                         Text(shortAirDate(episode.airDate), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(8.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = 7.dp, vertical = 4.dp))
-                        Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp).clip(CircleShape).background(Color(0x99060D13)), contentAlignment = Alignment.Center) {
+                        Box(Modifier.align(Alignment.TopEnd).padding(8.dp).size(24.dp).clip(CircleShape).background(com.cinetrack.ui.theme.SurfacePalette.DeepOverlay), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.NotificationsNone, null, tint = Color.White, modifier = Modifier.size(13.dp))
                         }
                         Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(11.dp))

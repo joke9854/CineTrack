@@ -102,7 +102,7 @@ fun IntroductionScreen(
                 pages.indices.forEach { index ->
                     Box(
                         Modifier.size(if (index == pageIndex) 20.dp else 8.dp, 8.dp)
-                            .background(if (index == pageIndex) AccentLight else Color.White.copy(alpha = .20f), CircleShape),
+                            .background(if (index == pageIndex) AccentLight else com.cinetrack.ui.theme.GlassBorder, CircleShape),
                     )
                 }
             }

@@ -2,6 +2,4 @@
 sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
 
 # API values can also be supplied as Gradle properties or environment variables.
-TMDB_API_TOKEN=
-MDBLIST_API_KEY=
 SIMKL_CLIENT_ID=

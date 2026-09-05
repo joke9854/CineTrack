@@ -155,12 +155,12 @@ fun DiscoverScreen(
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
                             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                            .background(Color(0xFF8A5B00).copy(alpha = .20f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                            .border(.8.dp, Color(0xFFFFC75D).copy(alpha = .45f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                            .background(com.cinetrack.ui.theme.SurfacePalette.WarningDark.copy(alpha = .20f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                            .border(.8.dp, com.cinetrack.ui.theme.StatusPlanned.copy(alpha = .45f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .padding(15.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.WarningAmber, null, tint = Color(0xFFFFD37A), modifier = Modifier.size(23.dp))
+                            Icon(Icons.Filled.WarningAmber, null, tint = com.cinetrack.ui.theme.SurfacePalette.WarningLight, modifier = Modifier.size(23.dp))
                             Spacer(Modifier.width(10.dp))
                             Text(stringResource(R.string.discover_tmdb_warning_title), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
                         }
@@ -244,7 +244,7 @@ private fun HeroCarousel(
                 Box(
                     Modifier.width(if (pagerState.currentPage == page) 16.dp else 6.dp).height(6.dp)
                         .clip(RoundedCornerShape(4.dp))
-                        .background(if (pagerState.currentPage == page) com.cinetrack.ui.theme.Accent else Color.White.copy(alpha = .24f)),
+                        .background(if (pagerState.currentPage == page) com.cinetrack.ui.theme.Accent else com.cinetrack.ui.theme.GlassStrokeMedium),
                 )
                 if (page != items.lastIndex) Spacer(Modifier.width(6.dp))
             }
@@ -268,7 +268,7 @@ private fun HeroCard(
             .fillMaxWidth()
             .height(250.dp)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
-            .background(Brush.linearGradient(listOf(Color(0xFF705446), Color(0xFF172331), Color(0xFF07101C))))
+            .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.SeaSurface, com.cinetrack.ui.theme.SurfacePalette.PosterShadow)))
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) com.cinetrack.ui.theme.Accent else Color.Transparent, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .combinedClickable(
@@ -410,9 +410,9 @@ fun SearchScreen(
                     shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AccentLight,
-                        unfocusedBorderColor = Color.White.copy(alpha = .18f),
-                        focusedContainerColor = Color.White.copy(alpha = .08f),
-                        unfocusedContainerColor = Color.White.copy(alpha = .06f),
+                        unfocusedBorderColor = com.cinetrack.ui.theme.GlassStrong,
+                        focusedContainerColor = com.cinetrack.ui.theme.GlassSubtle,
+                        unfocusedContainerColor = com.cinetrack.ui.theme.GlassFaint,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = { if (remoteSearch) onQuery(query) }),

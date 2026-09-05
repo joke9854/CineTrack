@@ -291,7 +291,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 @Composable
 private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
-    val activeColor = if (mode < 0) Color(0xFFFF5C5C) else AccentLight
+    val activeColor = if (mode < 0) com.cinetrack.ui.theme.SurfacePalette.Negative else AccentLight
     Row(
         Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))

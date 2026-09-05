@@ -677,7 +677,7 @@ private fun SyncSettings(
             modifier = Modifier.weight(1f),
             onClick = if (state.simklConnected) viewModel::sync else onConnect,
         )
-        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f))) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
+        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), colors = ButtonDefaults.buttonColors(containerColor = com.cinetrack.ui.theme.GlassSubtle)) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
     }
 }
 
@@ -797,7 +797,7 @@ private fun ApiCredentialSettings(
                 },
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Accent,
-                    unfocusedBorderColor = Color.White.copy(alpha = .16f),
+                    unfocusedBorderColor = com.cinetrack.ui.theme.GlassStrong,
                     focusedTextColor = TextPrimary,
                     unfocusedTextColor = TextPrimary,
                 ),
@@ -1221,7 +1221,7 @@ private fun CompactSwitch(checked: Boolean, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
     Box(
         Modifier.width(52.dp).height(32.dp).clip(CircleShape)
-            .background(if (checked) Accent else Color.White.copy(alpha = .12f))
+            .background(if (checked) Accent else com.cinetrack.ui.theme.Glass)
             .border(.7.dp, AccentLight.copy(alpha = .24f), CircleShape)
             .clickable(onClick = hapticClick),
     ) {
@@ -1256,13 +1256,13 @@ private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onC
 @Composable
 private fun ServiceLogo(name: String) {
     val (logo, background, logoSize) = when (name.lowercase()) {
-        "tmdb" -> Triple(R.drawable.ic_service_tmdb, Color(0xFF0D253F), 29.dp)
-        "mdblist" -> Triple(R.drawable.ic_service_mdblist, Color(0xFFF4F7FB), 24.dp)
-        else -> Triple(R.drawable.ic_service_simkl, Color(0xFFF4F4F5), 24.dp)
+        "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
+        "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
+        else -> Triple(R.drawable.ic_service_simkl, com.cinetrack.ui.theme.SurfacePalette.WarmText, 24.dp)
     }
     Box(
         Modifier.size(38.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(background)
-            .border(.65.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
+            .border(.65.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
         contentAlignment = Alignment.Center,
     ) {
         Image(

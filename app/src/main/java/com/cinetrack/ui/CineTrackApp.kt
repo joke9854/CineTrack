@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -110,6 +112,11 @@ fun CineTrackApp(
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as CineTrackApplication
+    val navHazeState = remember { HazeState() }
+    val navBlurEnabled = remember(context) {
+        android.os.Build.VERSION.SDK_INT >= 31 &&
+            !(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
+    }
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
@@ -171,6 +178,7 @@ fun CineTrackApp(
 
     Box(Modifier.fillMaxSize().imePadding()) {
         NavHost(
+            modifier = if (showBottomNav && navBlurEnabled) Modifier.hazeSource(navHazeState) else Modifier,
             navController = navController,
             startDestination = Routes.Discover,
             enterTransition = {
@@ -396,6 +404,7 @@ fun CineTrackApp(
 
         if (showBottomNav) {
             LiquidBottomNav(
+                hazeState = if (navBlurEnabled) navHazeState else null,
                 items = navItems,
                 selectedIndex = selectedIndex,
                 compact = compactNav,

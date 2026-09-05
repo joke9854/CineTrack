@@ -45,8 +45,6 @@ jobs:
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          TMDB_API_TOKEN: ${{ secrets.TMDB_API_TOKEN }}
-          MDBLIST_API_KEY: ${{ secrets.MDBLIST_API_KEY }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
         run: ./gradlew :app:assembleRelease
       - name: Publish GitHub prerelease

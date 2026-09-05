@@ -37,8 +37,9 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
-        buildConfigField("String", "TMDB_API_TOKEN", "\"${escaped(secret("TMDB_API_TOKEN"))}\"")
-        buildConfigField("String", "MDBLIST_API_KEY", "\"${escaped(secret("MDBLIST_API_KEY"))}\"")
+        // Personal credentials are entered in Settings, never compiled into APKs.
+        buildConfigField("String", "TMDB_API_TOKEN", "\"\"")
+        buildConfigField("String", "MDBLIST_API_KEY", "\"\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${escaped(secret("SIMKL_CLIENT_ID"))}\"")
         buildConfigField("String", "SIMKL_REDIRECT_URI", "\"cinetrack://simkl\"")
         buildConfigField("String", "GITHUB_UPDATE_REPO", "\"joke9854/CineTrack\"")
@@ -128,6 +129,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Stable Haze API compatible with the app's current Compose toolchain.
+    implementation("dev.chrisbanes.haze:haze:1.6.10")
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 
