@@ -1,13 +1,13 @@
-# CineTrack 0.69
+# CineTrack 0.70
 
-CineTrack 0.69 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
+CineTrack 0.70 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It combines a TMDB-first catalogue, MDBList ratings and two-way Simkl synchronization with an offline-first Room cache and a native Compose interface.
 
 ## Open in Android Studio
 
 1. Extract the ZIP and open the `CineTrack` folder in Android Studio.
 2. Use JDK 17 and let Android Studio install Android SDK 36 if it is missing.
 3. Copy `local.properties.example` to `local.properties`.
-4. Set `sdk.dir` and add the API values you want to use:
+4. Set `sdk.dir` and the SIMKL application client ID:
 
    ```properties
    sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
@@ -21,7 +21,12 @@ Enter your personal TMDB and MDBList keys in the app's Settings. They are never 
 
 The app never inserts mockup/demo titles. Without a TMDB token, discovery stays empty and reports the missing configuration; Simkl and Room continue to show only real account and locally saved data.
 
-## Included 0.69 behavior
+## Included behavior
+
+- Version 0.70 adds debounced/cancellable search, bounded caches, shared date formatters, foreground due-sync checks and one bounded retry for HTTP 429.
+- Shared design tokens, larger episode/season touch areas, accessible switch semantics, localized templates and reduced-motion-aware loading skeletons unify the interface.
+- Supported Android 12+ devices use live bottom-navigation blur; other devices retain a translucent fallback. Explicit app-triggered vibrations are consistently disabled.
+- Resource shrinking is enabled. Baseline Profile configuration is included, while app-specific generation and measured performance validation require a connected device. See [optimization notes](docs/OPTIMIZATION_NOTES.md) and [profile generation](baselineprofile/README.md).
 
 - Immutable Compose domain models and a dedicated synchronization-progress stream prevent per-item sync progress from invalidating the full app state.
 - Startup preferences load concurrently; background scheduling starts asynchronously after setup.
@@ -54,7 +59,6 @@ The app never inserts mockup/demo titles. Without a TMDB token, discovery stays 
 - Mark-as-watched actions stay consistent between show, movie and episode detail pages.
 - English metadata fallback when the selected TMDB language has missing titles, descriptions, actor biographies or episode text.
 - Movie and TV discovery filters with genre, year, minimum rating and sorting controls.
-- Light haptic feedback across navigation, cards, status controls and primary actions.
 - Refined status-menu dismissal and compact Progress/Library action controls.
 
 - Item removals are sent to Simkl immediately with their preserved Simkl/TMDB identifiers and cannot be blocked by an older pending write.
@@ -119,8 +123,6 @@ The project uses Android Gradle Plugin 8.13.2/JDK 17, Compose BOM 2025.08.00 (Co
 ## Simkl troubleshooting
 
 After accepting the Simkl authorization, Android should return directly to CineTrack and the Synchronization page should change to Connected before the first sync starts. CineTrack exchanges the authorization code with Simkl's public-client PKCE flow using form-encoded `code`, `client_id`, `code_verifier`, `redirect_uri`, and `grant_type=authorization_code` fields; no client secret is stored in the APK. If authorization or an API request fails, the Synchronization page shows the provider/HTTP error instead of silently remaining disconnected. Check the redirect URI first: `cinetrack://simkl` and `cinetrack://simkl/` are different values.
-
-This revision increments the Room schema and intentionally drops the earlier development database once so any previously seeded mockup rows are removed. Real TMDB and Simkl content is then repopulated normally.
 
 ## Publishing testing updates
 

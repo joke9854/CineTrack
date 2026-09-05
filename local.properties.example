@@ -1,5 +1,6 @@
 # Copy this file to local.properties and set sdk.dir.
 sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
 
-# API values can also be supplied as Gradle properties or environment variables.
+# The SIMKL client ID can also be supplied as a Gradle property or environment variable.
+# Enter personal TMDB and MDBList keys only in the app's Settings.
 SIMKL_CLIENT_ID=
