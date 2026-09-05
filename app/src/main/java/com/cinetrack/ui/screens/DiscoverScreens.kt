@@ -2,7 +2,6 @@
 
 package com.cinetrack.ui.screens
 
-import android.view.HapticFeedbackConstants
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -65,7 +64,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -88,7 +86,7 @@ import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.SectionHeader
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
@@ -139,14 +137,14 @@ fun DiscoverScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberLightHapticAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(17.dp))
                             Spacer(Modifier.width(9.dp))
                             Text(stringResource(R.string.search_hint), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = rememberLightHapticAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
+                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
                         }
                     }
@@ -259,7 +257,6 @@ private fun HeroCard(
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
 ) {
-    val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
@@ -275,11 +272,9 @@ private fun HeroCard(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onMedia(media)
                 },
                 onLongClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     statusPopup = true
                 },
             ),
@@ -304,7 +299,7 @@ private fun HeroCard(
                 Row(
                     Modifier.height(46.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(if (media.status != com.cinetrack.domain.LibraryStatus.NONE) com.cinetrack.ui.theme.Success.copy(alpha = .12f) else Color.Transparent)
-                        .clickable(onClick = rememberLightHapticAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                        .clickable(onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(

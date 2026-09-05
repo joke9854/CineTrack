@@ -25,7 +25,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -54,7 +53,7 @@ import com.cinetrack.ui.components.MediaPoster
 import com.cinetrack.ui.components.PageTitle
 import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.glass
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextMuted
@@ -273,11 +272,11 @@ private fun FilterSection(title: String, content: @Composable RowScope.() -> Uni
 
 @Composable
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     Row(
         Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (selected) Accent.copy(alpha = .30f) else Color.Transparent)
-            .clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
+            .clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected) {
@@ -290,12 +289,12 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     val activeColor = if (mode < 0) com.cinetrack.ui.theme.SurfacePalette.Negative else AccentLight
     Row(
         Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
-            .clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
+            .clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (mode != 0) {

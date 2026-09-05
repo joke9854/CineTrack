@@ -5,6 +5,8 @@ package com.cinetrack.ui.screens
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
@@ -64,7 +66,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -119,7 +120,7 @@ import com.cinetrack.ui.components.SharedGlassSheet
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
 import com.cinetrack.ui.components.libraryStatusColor
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.Success
@@ -201,7 +202,7 @@ fun LibraryScreen(
                 PageTitle(stringResource(R.string.library), Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                     IconButton(
-                        onClick = rememberLightHapticAction {
+                        onClick = rememberUiAction {
                             bulkMode = !bulkMode
                             if (!bulkMode) selectedKeys = emptySet()
                         },
@@ -209,10 +210,10 @@ fun LibraryScreen(
                     ) {
                         Icon(Icons.Filled.PlaylistAddCheck, stringResource(R.string.bulk_edit), tint = if (bulkMode) AccentLight else TextSecondary, modifier = Modifier.size(21.dp))
                     }
-                    IconButton(onClick = rememberLightHapticAction(onSearch), modifier = Modifier.size(40.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(40.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
-                    IconButton(onClick = rememberLightHapticAction { showOrderSheet = true }, modifier = Modifier.size(40.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(40.dp).glassIcon()) {
                         Icon(Icons.Filled.FilterList, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
                 }
@@ -486,8 +487,8 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 
 @Composable
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
-    val hapticClick = rememberLightHapticAction { onPage(item.page) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    val clickAction = rememberUiAction { onPage(item.page) }
+    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
             Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
         }
@@ -721,8 +722,8 @@ private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel)
 
 @Composable
 private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    val clickAction = rememberUiAction(onClick)
+    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(22.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
             if (selected) Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
@@ -1105,7 +1106,7 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             Spacer(Modifier.width(8.dp))
             val changelogDescription = stringResource(R.string.changelog)
             IconButton(
-                onClick = rememberLightHapticAction {
+                onClick = rememberUiAction {
                     showChangelog = true
                     viewModel.loadAppChangelog()
                 },
@@ -1147,7 +1148,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                     Modifier.fillMaxWidth().height(150.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    com.cinetrack.ui.components.SkeletonLines(Modifier.fillMaxWidth().padding(16.dp))
+                    com.cinetrack.ui.components.SkeletonLines(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg))
                 }
                 AppChangelogState.Empty -> Text(
                     stringResource(R.string.changelog_empty),
@@ -1208,22 +1209,19 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
 
 @Composable
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    val hapticToggle = rememberLightHapticAction { onChecked(!checked) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticToggle).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChecked).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        CompactSwitch(checked) { onChecked(!checked) }
+        CompactSwitch(checked)
     }
 }
 
 @Composable
-private fun CompactSwitch(checked: Boolean, onClick: () -> Unit) {
+private fun CompactSwitch(checked: Boolean) {
     val knobOffset by animateDpAsState(if (checked) 22.dp else 3.dp, label = "switchKnob")
-    val hapticClick = rememberLightHapticAction(onClick)
     Box(
         Modifier.width(52.dp).height(32.dp).clip(CircleShape)
             .background(if (checked) Accent else com.cinetrack.ui.theme.Glass)
-            .border(.7.dp, AccentLight.copy(alpha = .24f), CircleShape)
-            .clickable(onClick = hapticClick),
+            .border(.7.dp, AccentLight.copy(alpha = .24f), CircleShape),
     ) {
         Box(
             Modifier.offset(x = knobOffset, y = 3.dp).size(26.dp).clip(CircleShape)
@@ -1242,8 +1240,8 @@ private fun ValueRow(title: String, value: String, success: Boolean = false) {
 
 @Composable
 private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    val clickAction = rememberUiAction(onClick)
+    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -1275,8 +1273,8 @@ private fun ServiceLogo(name: String) {
 
 @Composable
 private fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    val clickAction = rememberUiAction(onClick)
+    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (!description.isNullOrBlank()) {

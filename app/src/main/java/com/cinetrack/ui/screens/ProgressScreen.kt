@@ -116,7 +116,7 @@ import com.cinetrack.ui.components.SectionHeader
 import com.cinetrack.ui.components.SharedGlassSheet
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.DesignTokens
@@ -131,7 +131,6 @@ import java.time.Instant
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 private enum class ProgressTab { IN_PROGRESS, CALENDAR, HISTORY, STATISTICS }
@@ -252,7 +251,7 @@ fun ProgressScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     PageTitle(stringResource(R.string.progress), Modifier.weight(1f))
-                    IconButton(onClick = rememberLightHapticAction(onSearch), modifier = Modifier.size(42.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(42.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextPrimary, modifier = Modifier.size(21.dp))
                     }
                 }
@@ -418,7 +417,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
     ) {
         items(ProgressTab.entries, key = ProgressTab::name) { tab ->
             val active = tab == selected
-            val hapticSelect = rememberLightHapticAction { onSelected(tab) }
+            val selectAction = rememberUiAction { onSelected(tab) }
             val pillColor by animateColorAsState(
                 if (active) Accent.copy(alpha = .30f) else Color.Black.copy(alpha = .08f),
                 tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
@@ -437,7 +436,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
             Row(
                 Modifier.scale(pillScale).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                     .background(pillColor)
-                    .clickable(onClick = hapticSelect).padding(vertical = com.cinetrack.ui.theme.Spacing.sm, horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                    .clickable(onClick = selectAction).padding(vertical = com.cinetrack.ui.theme.Spacing.sm, horizontal = com.cinetrack.ui.theme.Spacing.lg),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -509,7 +508,7 @@ private fun ExpandablePlaybackSection(
             Text(title, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, letterSpacing = .2.sp, modifier = Modifier.weight(1f).padding(bottom = com.cinetrack.ui.theme.Spacing.md))
             if (showEpisodeControl) {
                 Row(
-                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberLightHapticAction { showOrderSheet = true })
+                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction { showOrderSheet = true })
                         .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -734,13 +733,13 @@ private fun PlaybackRow(
     }
     val cardInteraction = remember(item.media.stableKey, item.season, item.episodeNumber) { MutableInteractionSource() }
     val cardPressed by cardInteraction.collectIsPressedAsState()
-    val hapticOpenItem = rememberLightHapticAction(openItem)
+    val openItemAction = rememberUiAction(openItem)
     RevealOnMount("${item.media.stableKey}:${item.season}:${item.episodeNumber}") {
     Box(
         Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md).fillMaxWidth().height(146.dp)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .border(if (cardPressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (cardPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
-            .clickable(interactionSource = cardInteraction, indication = null, onClick = hapticOpenItem),
+            .clickable(interactionSource = cardInteraction, indication = null, onClick = openItemAction),
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(118.dp).fillMaxHeight().background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid)))) {
@@ -768,7 +767,7 @@ private fun PlaybackRow(
                 Spacer(Modifier.height(15.dp))
             }
             IconButton(
-                onClick = rememberLightHapticAction { confirming = true },
+                onClick = rememberUiAction { confirming = true },
                 modifier = Modifier.align(Alignment.Bottom).padding(end = 28.dp, bottom = com.cinetrack.ui.theme.Spacing.xl).size(35.dp).clip(CircleShape)
                     .background(com.cinetrack.ui.theme.SurfacePalette.NeutralSlate.copy(alpha = .62f)).border(1.1.dp, Accent.copy(alpha = .86f), CircleShape),
             ) {
@@ -830,12 +829,12 @@ private fun UpcomingEpisodesRail(
                 val showTitle = shows.firstOrNull { it.id == episode.showId && it.type == com.cinetrack.domain.MediaType.TV }?.title.orEmpty()
                 val interaction = remember(episode.showId, episode.season, episode.number) { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
-                val hapticOpenEpisode = rememberLightHapticAction { onEpisode(episode) }
+                val openEpisodeAction = rememberUiAction { onEpisode(episode) }
                 Column(
                     Modifier.width(236.dp).combinedClickable(
                         interactionSource = interaction,
                         indication = null,
-                        onClick = hapticOpenEpisode,
+                        onClick = openEpisodeAction,
                         onLongClick = { onHide(episode) },
                     ),
                 ) {
@@ -1123,13 +1122,13 @@ private fun TimelineRow(
     }
     val interaction = remember(item.media.stableKey, item.timestamp, item.episodeLabel) { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val hapticOpenItem = rememberLightHapticAction(openItem)
+    val openItemAction = rememberUiAction(openItem)
     RevealOnMount("${item.media.stableKey}:${item.timestamp}:${item.episodeLabel}") {
     Row(
         Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md).fillMaxWidth().height(if (history) 112.dp else 120.dp)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
             .border(if (pressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (pressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-            .clickable(interactionSource = interaction, indication = null, onClick = hapticOpenItem).padding(com.cinetrack.ui.theme.Spacing.md),
+            .clickable(interactionSource = interaction, indication = null, onClick = openItemAction).padding(com.cinetrack.ui.theme.Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!history) {

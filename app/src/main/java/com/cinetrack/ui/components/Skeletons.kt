@@ -35,7 +35,11 @@ import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 
 @Composable
-fun SkeletonBox(modifier: Modifier, shape: Shape = RoundedCornerShape(Radius.Medium)) {
+fun SkeletonBox(
+    modifier: Modifier,
+    shape: Shape = RoundedCornerShape(Radius.Medium),
+    description: String? = null,
+) {
     val motionEnabled = Build.VERSION.SDK_INT < 26 || ValueAnimator.areAnimatorsEnabled()
     val opacity = if (motionEnabled) {
         rememberInfiniteTransition(label = "skeleton").animateFloat(
@@ -46,7 +50,7 @@ fun SkeletonBox(modifier: Modifier, shape: Shape = RoundedCornerShape(Radius.Med
         )
     } else remember { mutableStateOf(.72f) }
     Box(
-        modifier.clearAndSetSemantics { }
+        modifier.clearAndSetSemantics { if (description != null) contentDescription = description }
             .graphicsLayer { alpha = opacity.value }
             .clip(shape).background(GlassStrong),
     )

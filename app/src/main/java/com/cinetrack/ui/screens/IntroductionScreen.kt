@@ -42,7 +42,7 @@ import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.BrandMark
 import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.glass
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextPrimary
@@ -119,7 +119,7 @@ fun IntroductionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onOpenSettings,
                 )
-                val later = rememberLightHapticAction(onFinish)
+                val later = rememberUiAction(onFinish)
                 Text(
                     stringResource(R.string.intro_later),
                     color = TextSecondary,

@@ -48,6 +48,11 @@ completed design pass is not distributed to installed apps.
 - Action labels cover episode info, watched/unwatched controls and key visibility.
   Decorative icons next to text stay silent. English/Italian season counts,
   episode counts, season progress and runtime templates use resources.
+- Settings switches expose one toggleable row with checked-state semantics;
+  the visual knob no longer creates a second nested action.
+- The minimal haptic option is applied uniformly: explicit app-triggered
+  vibrations are removed from navigation, cards and state controls. Visual
+  press and watched-state feedback remains; platform gesture feedback is unchanged.
 - Loading skeletons replace spinners for known detail, Discover result, trailer
   and changelog layouts. Pulsing is disabled when system animations are disabled;
   opacity changes are read in the graphics layer. Watched-progress rings remain.

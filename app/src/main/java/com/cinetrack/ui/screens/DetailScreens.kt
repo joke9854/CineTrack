@@ -61,7 +61,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -115,7 +114,7 @@ import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.blueEdgeClickable
 import com.cinetrack.ui.components.libraryStatusColor
 import com.cinetrack.ui.components.libraryStatusIcon
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.Gold
@@ -177,7 +176,7 @@ fun DetailScreen(
     var pendingPreviousEpisodes by remember(media.stableKey) {
         mutableStateOf<Pair<EpisodeCard, List<EpisodeCard>>?>(null)
     }
-    val openLibrarySheet = rememberLightHapticAction { librarySheet = true }
+    val openLibrarySheet = rememberUiAction { librarySheet = true }
     LaunchedEffect(media.status, media.watched, media.libraryUpdatedAt) {
         // Keep the action label/pill tied to the shared Room state even when a
         // Simkl push or another screen changes this title while detail stays open.
@@ -389,13 +388,13 @@ private fun mergeWatchedEpisodes(
 
 @Composable
 private fun TrailerActionButton(onClick: () -> Unit) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     Row(
         Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().height(48.dp)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(com.cinetrack.ui.theme.SurfacePalette.YouTubeRed.copy(alpha = .84f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .border(.7.dp, com.cinetrack.ui.theme.SurfacePalette.TrailerBorder.copy(alpha = .55f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .clickable(onClick = hapticClick),
+            .clickable(onClick = clickAction),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -430,7 +429,7 @@ private fun TrailerPlayerSheet(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    loading -> com.cinetrack.ui.components.SkeletonBox(Modifier.fillMaxSize())
+                    loading -> com.cinetrack.ui.components.SkeletonBox(Modifier.fillMaxSize(), description = stringResource(R.string.loading))
                     trailerKey.isNullOrBlank() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.trailer_unavailable), color = TextSecondary, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(12.dp))
@@ -712,8 +711,8 @@ private fun EpisodesSection(
                 val watched = seasonEpisodes.count(EpisodeCard::watched)
                 val allWatched = watched == seasonEpisodes.size && seasonEpisodes.isNotEmpty()
                 val summary = media.seasons.firstOrNull { it.number == seasonNumber }
-                val hapticExpand = rememberLightHapticAction { expandedSeason = if (expanded) null else seasonNumber }
-                val hapticSeasonWatched = rememberLightHapticAction { onSeasonWatched(seasonEpisodes, !allWatched) }
+                val expandAction = rememberUiAction { expandedSeason = if (expanded) null else seasonNumber }
+                val seasonWatchedAction = rememberUiAction { onSeasonWatched(seasonEpisodes, !allWatched) }
                 Column(
                     Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .border(if (seasonPressed) 1.6.dp else 0.dp, Accent.copy(alpha = if (seasonPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)),
@@ -723,7 +722,7 @@ private fun EpisodesSection(
                             .clickable(
                                 interactionSource = seasonInteraction,
                                 indication = null,
-                            ) { hapticExpand() }
+                            ) { expandAction() }
                             .padding(com.cinetrack.ui.theme.Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -741,7 +740,7 @@ private fun EpisodesSection(
                             }
                             Text(stringResource(R.string.season_progress, watched, summary?.episodeCount ?: seasonEpisodes.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
-                        Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticSeasonWatched).padding(8.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = seasonWatchedAction).padding(8.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Check, stringResource(if (allWatched) R.string.mark_unwatched else R.string.mark_watched), tint = if (allWatched) Success else TextSecondary, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -754,10 +753,10 @@ private fun EpisodesSection(
                             seasonEpisodes.forEach { episode ->
                                 val infoVisible = expandedInfo == (episode.season to episode.number)
                                 val returnTarget = episode.season == initialSeason && episode.number == initialEpisode
-                                val hapticInfo = rememberLightHapticAction {
+                                val infoAction = rememberUiAction {
                                     expandedInfo = if (infoVisible) null else episode.season to episode.number
                                 }
-                                val hapticWatched = rememberLightHapticAction { onEpisodeWatched(episode, !episode.watched) }
+                                val watchedAction = rememberUiAction { onEpisodeWatched(episode, !episode.watched) }
                                 Column(
                                     Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
                                         .then(
@@ -776,11 +775,11 @@ private fun EpisodesSection(
                                         Text(episode.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(formatFullDate(episode.airDate), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                                     }
-                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticInfo).padding(10.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = infoAction).padding(10.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape), contentAlignment = Alignment.Center) {
                                         Icon(Icons.Filled.Info, stringResource(if (infoVisible) R.string.hide_episode_info else R.string.show_episode_info, episode.title), tint = TextSecondary, modifier = Modifier.size(14.dp))
                                     }
                                     Spacer(Modifier.width(7.dp))
-                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticWatched).padding(10.dp).clip(CircleShape).background(if (episode.watched) Success else com.cinetrack.ui.theme.SurfacePalette.EpisodeToggle), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = watchedAction).padding(10.dp).clip(CircleShape).background(if (episode.watched) Success else com.cinetrack.ui.theme.SurfacePalette.EpisodeToggle), contentAlignment = Alignment.Center) {
                                         Icon(Icons.Filled.Check, stringResource(if (episode.watched) R.string.mark_unwatched else R.string.mark_watched), tint = if (episode.watched) com.cinetrack.ui.theme.SurfacePalette.WatchedInk else TextSecondary, modifier = Modifier.size(15.dp))
                                     }
                                 }

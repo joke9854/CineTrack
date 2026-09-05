@@ -22,7 +22,6 @@ import androidx.compose.ui.res.stringResource
 import com.cinetrack.R
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun LongPullRefreshContainer(

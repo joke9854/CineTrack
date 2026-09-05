@@ -5,7 +5,6 @@ package com.cinetrack.ui.components
 import android.animation.ValueAnimator
 import android.os.Build
 import android.util.LruCache
-import android.view.HapticFeedbackConstants
 import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -99,7 +98,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -138,21 +136,16 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 
 @Composable
-fun rememberLightHapticAction(action: () -> Unit): () -> Unit {
-    val view = LocalView.current
+fun rememberUiAction(action: () -> Unit): () -> Unit {
     val currentAction by rememberUpdatedState(action)
-    return remember(view) {
+    return remember {
         {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             currentAction()
         }
     }
@@ -215,7 +208,6 @@ fun Modifier.blueEdgeClickable(
     onClick: () -> Unit,
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
-    val view = LocalView.current
     val pressed by interactionSource.collectIsPressedAsState()
     val alpha by animateFloatAsState(if (pressed) .95f else 0f, tween(com.cinetrack.ui.theme.Motion.Short), label = "blueEdgePress")
     this
@@ -225,12 +217,10 @@ fun Modifier.blueEdgeClickable(
             indication = null,
             role = Role.Button,
             onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
             },
             onLongClick = onLongClick?.let { action ->
                 {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     action()
                 }
             },
@@ -242,7 +232,7 @@ fun GlassBackButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val buttonScale by animateFloatAsState(
@@ -263,7 +253,7 @@ fun GlassBackButton(
                     interactionSource = interactionSource,
                     indication = null,
                     role = Role.Button,
-                    onClick = hapticClick,
+                    onClick = clickAction,
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -438,9 +428,9 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
         )
         if (actionLabel != null && onAction != null) {
-            val hapticAction = rememberLightHapticAction(onAction)
+            val primaryAction = rememberUiAction(onAction)
             Row(
-                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticAction).padding(start = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
+                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = primaryAction).padding(start = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(actionLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -464,7 +454,6 @@ fun MediaPoster(
     onNotInterested: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
@@ -477,12 +466,10 @@ fun MediaPoster(
             indication = null,
             role = Role.Button,
             onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
             },
             onLongClick = {
                 if (onStatus != null || onNotInterested != null) {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     statusPopup = true
                 }
             },
@@ -628,7 +615,6 @@ fun MediaStatusPopup(
     onNotInterested: (() -> Unit)? = null,
 ) {
     var rendered by remember { mutableStateOf(expanded) }
-    val view = LocalView.current
     val popupAlpha by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(if (expanded) com.cinetrack.ui.theme.Motion.Short else com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
@@ -677,7 +663,6 @@ fun MediaStatusPopup(
                 leadingIcon = { Icon(libraryStatusIcon(status), null, tint = libraryStatusColor(status), modifier = Modifier.size(18.dp)) },
                 trailingIcon = { if (selected) Icon(Icons.Filled.Check, null, tint = libraryStatusColor(status), modifier = Modifier.size(17.dp)) },
                 onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onStatus(if (selected) LibraryStatus.NONE else status)
                 },
             )
@@ -687,7 +672,6 @@ fun MediaStatusPopup(
                 text = { Text(stringResource(R.string.show_less_like_this), color = TextPrimary, fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.ThumbDown, null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
                 onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onNotInterested()
                 },
             )
@@ -704,7 +688,7 @@ fun PrimaryAction(
     containerColor: Color = Accent,
     onClick: () -> Unit,
 ) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     Row(
         modifier
             .height(46.dp)
@@ -714,7 +698,7 @@ fun PrimaryAction(
                 else SolidColor(com.cinetrack.ui.theme.GlassSubtle),
             )
             .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .clickable(enabled = enabled, onClick = hapticClick)
+            .clickable(enabled = enabled, onClick = clickAction)
             .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
@@ -762,7 +746,6 @@ fun LiquidBottomNav(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
 ) {
-    val view = LocalView.current
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
     val labelFraction by animateFloatAsState(
         targetValue = if (compact) 0f else 1f,
@@ -805,7 +788,6 @@ fun LiquidBottomNav(
                         .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(Accent.copy(alpha = .18f * selectedAlpha))
                         .clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onSelected(index)
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -874,8 +856,7 @@ fun LibraryStatusSheet(
     onDismiss: () -> Unit,
     onStatus: (LibraryStatus) -> Unit,
 ) {
-    val view = LocalView.current
-    val hapticDismiss = rememberLightHapticAction(onDismiss)
+    val dismissAction = rememberUiAction(onDismiss)
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
             Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -895,7 +876,6 @@ fun LibraryStatusSheet(
                     Modifier.fillMaxWidth().padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .background(if (selected) statusColor.copy(alpha = .15f) else Color.Transparent)
                         .clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onStatus(if (selected) LibraryStatus.NONE else status)
                         }
                         .padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md),
@@ -926,7 +906,7 @@ fun LibraryStatusSheet(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticDismiss),
+                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = dismissAction),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) { Text(stringResource(android.R.string.cancel), color = TextSecondary, fontWeight = FontWeight.Bold) }
