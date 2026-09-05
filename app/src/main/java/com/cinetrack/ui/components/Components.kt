@@ -570,7 +570,7 @@ fun MediaPoster(
 
 private fun formattedAirDate(raw: String?): String = runCatching {
     val date = LocalDate.parse(raw?.take(10))
-    date.format(DateTimeFormatter.ofPattern("dd\nMMM", Locale.getDefault())).uppercase(Locale.getDefault())
+    date.format(com.cinetrack.ui.UiDateFormatters.current.dayMonth).uppercase(Locale.getDefault())
 }.getOrDefault("")
 
 @Composable

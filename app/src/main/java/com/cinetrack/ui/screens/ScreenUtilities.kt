@@ -54,7 +54,7 @@ internal fun LongPullRefreshContainer(
 internal fun formatFullDate(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
     return runCatching {
-        LocalDate.parse(raw.take(10)).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+        LocalDate.parse(raw.take(10)).format(com.cinetrack.ui.UiDateFormatters.current.date)
     }.getOrDefault(raw)
 }
 

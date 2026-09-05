@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    id("androidx.baselineprofile")
 }
 
 val localProperties = Properties().apply {
@@ -62,6 +63,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             if (!releaseKeystorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -86,6 +88,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    baselineProfile(project(":baselineprofile"))
     // Compose 1.12 (BOM 2026.08.00) requires compileSdk 37 and AGP 9.1.
     // Compose 1.9 is the stable API 36-compatible baseline for this project.
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")

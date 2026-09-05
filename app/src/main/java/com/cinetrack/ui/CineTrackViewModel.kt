@@ -25,6 +25,8 @@ import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -78,6 +80,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
+    private val searchQuery = MutableStateFlow("")
     val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
     private val _discoverFilterResults = MutableStateFlow<List<MediaCard>>(emptyList())
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
@@ -91,7 +94,21 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val appChangelogState: StateFlow<AppChangelogState> = _appChangelogState.asStateFlow()
     private var downloadedUpdateFile: File? = null
 
+    @OptIn(FlowPreview::class)
+    private fun observeSearch() {
+        viewModelScope.launch {
+            searchQuery.debounce { if (it.isBlank()) 0L else 300L }
+                .distinctUntilChanged()
+                .collectLatest { query ->
+                    val results = withContext(Dispatchers.IO) { repository.search(query) }
+                    // A newer keystroke may still be inside its debounce window.
+                    if (searchQuery.value == query) _searchResults.value = results
+                }
+        }
+    }
+
     init {
+        observeSearch()
         viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
             state
@@ -188,7 +205,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun search(query: String) {
-        viewModelScope.launch { _searchResults.value = repository.search(query) }
+        searchQuery.value = query.trim()
+        if (query.isBlank()) _searchResults.value = emptyList()
     }
 
     fun applyDiscoverFilters(filters: DiscoverMovieFilters) {

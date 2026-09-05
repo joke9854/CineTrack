@@ -5,13 +5,14 @@ on:
   push:
     branches:
       - "testing/**"
+      - "beta-testing"
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: startsWith(github.ref_name, 'testing/')
+    if: (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') && !contains(github.event.head_commit.message, '[skip release]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

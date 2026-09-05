@@ -42,13 +42,13 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
     override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
         .memoryCache {
             MemoryCache.Builder(this)
-                .maxSizePercent(.20)
+                .maxSizePercent(.15)
                 .build()
         }
         .diskCache {
             DiskCache.Builder()
                 .directory(cacheDir.resolve("cinetrack_image_cache"))
-                .maxSizePercent(.03)
+                .maxSizeBytes(150L * 1024 * 1024)
                 .build()
         }
         .crossfade(true)

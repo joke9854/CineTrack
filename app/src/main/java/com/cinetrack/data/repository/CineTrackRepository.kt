@@ -129,7 +129,7 @@ class CineTrackRepository(
         scheduleTime(item.episodeAirDate),
     )
 
-    private val episodeTitleCache = mutableMapOf<String, String>()
+    private val episodeTitleCache = BoundedLruCache<String, String>(750)
     private val progressCacheMutex = Mutex()
     private val progressEnrichmentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressEnrichmentJob: Job? = null
@@ -602,7 +602,10 @@ class CineTrackRepository(
                                         services.tmdb.movie(candidate.id, append = "")
                                     }
                                     details.originCountries + details.productionCountries.map { it.code }
-                                }.getOrDefault(emptyList())
+                                }.getOrElse { error ->
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    emptyList()
+                                }
                             }
                             candidate.takeIf {
                                 countries.any { country -> country.uppercase() in allowedRegions }
@@ -615,7 +618,10 @@ class CineTrackRepository(
                 .map { it.toEntity(if (it.mediaType == "tv") MediaType.TV else MediaType.MOVIE) }
             database.mediaDao().upsertMedia(items)
             items
-        }.getOrDefault(emptyList()) else emptyList()
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            emptyList()
+        } else emptyList()
         // Discover search follows the TMDB content-region allowlist. When an
         // allowlist is active, do not merge unclassified local/imported rows back
         // into these results; Library and Progress searches remain unfiltered.

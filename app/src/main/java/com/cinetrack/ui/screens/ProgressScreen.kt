@@ -957,7 +957,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                 heatmapWeeks.forEachIndexed { index, week ->
                     val monthChanged = index == 0 || week.first().month != heatmapWeeks[index - 1].first().month
                     Text(
-                        if (monthChanged) week.first().format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault())) else "",
+                        if (monthChanged) week.first().format(com.cinetrack.ui.UiDateFormatters.current.month) else "",
                         color = TextMuted,
                         fontSize = 8.sp,
                         maxLines = 1,
@@ -970,7 +970,7 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
                 Column(Modifier.width(22.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     heatmapWeeks.first().forEach { day ->
                         Text(
-                            day.format(DateTimeFormatter.ofPattern("EEEEE", Locale.getDefault())),
+                            day.format(com.cinetrack.ui.UiDateFormatters.current.narrowWeekday),
                             color = TextMuted,
                             fontSize = 8.5.sp,
                             lineHeight = 11.sp,
@@ -1136,7 +1136,7 @@ private fun TimelineRow(
             val date = timelineLocalDate(item.timestamp)
             Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(date?.dayOfMonth?.toString()?.padStart(2, '0').orEmpty(), color = AccentLight, fontSize = 14.sp, fontWeight = FontWeight.Black)
-                Text(date?.format(DateTimeFormatter.ofPattern("MMM", Locale.getDefault()))?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, fontSize = 9.sp, fontWeight = FontWeight.Bold)
             }
         }
         Box(Modifier.width(68.dp).fillMaxHeight().clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .5f), Info.copy(alpha = .32f))))) {
@@ -1160,13 +1160,13 @@ private fun timelineLocalDate(raw: String): LocalDate? = runCatching {
 }.getOrElse { runCatching { LocalDate.parse(raw.take(10)) }.getOrNull() }
 
 private fun timelineTime(raw: String): String = runCatching {
-    Instant.parse(raw).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm"))
+    Instant.parse(raw).atZone(ZoneId.systemDefault()).format(com.cinetrack.ui.UiDateFormatters.current.time)
 }.getOrDefault("")
 
-private fun historyDayLabel(date: LocalDate): String = date.format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+private fun historyDayLabel(date: LocalDate): String = date.format(com.cinetrack.ui.UiDateFormatters.current.date)
 
 private fun shortAirDate(raw: String?): String = runCatching {
-    LocalDate.parse(raw?.take(10)).format(DateTimeFormatter.ofPattern("EEE\ndd MMM", Locale.getDefault())).uppercase(Locale.getDefault())
+    LocalDate.parse(raw?.take(10)).format(com.cinetrack.ui.UiDateFormatters.current.weekdayDate).uppercase(Locale.getDefault())
 }.getOrDefault("")
 
 private fun relativeSyncLabel(lastSync: Long?): String {
