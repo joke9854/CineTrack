@@ -440,7 +440,7 @@ fun SectionHeader(
         if (actionLabel != null && onAction != null) {
             val hapticAction = rememberLightHapticAction(onAction)
             Row(
-                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticAction).padding(start = 10.dp, top = 7.dp, bottom = 7.dp),
+                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticAction).padding(start = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(actionLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -528,8 +528,8 @@ fun MediaPoster(
                         lineHeight = 10.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact))
-                            .background(Accent).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(com.cinetrack.ui.theme.Spacing.sm).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact))
+                            .background(Accent).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
                     )
                 }
             }
@@ -548,7 +548,7 @@ fun MediaPoster(
             if (progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
                 CircularProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(7.dp).size(27.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp),
                     color = Success,
                     trackColor = com.cinetrack.ui.theme.SurfacePalette.BlueOverlay,
                     strokeWidth = 2.5.dp,
@@ -579,7 +579,7 @@ private fun formattedAirDate(raw: String?): String = runCatching {
 
 @Composable
 private fun StateBadge(color: Color, icon: ImageVector, label: String, modifier: Modifier) {
-    Box(modifier.padding(7.dp).size(27.dp).clip(CircleShape).background(color).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+    Box(modifier.padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp).clip(CircleShape).background(color).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
     }
 }
@@ -715,7 +715,7 @@ fun PrimaryAction(
             )
             .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .clickable(enabled = enabled, onClick = hapticClick)
-            .padding(horizontal = 18.dp),
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -788,7 +788,7 @@ fun LiquidBottomNav(
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(com.cinetrack.ui.theme.SurfacePalette.NavSurface.copy(alpha = .78f)))
             .border(.65.dp, GlassEdgeBrush, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .padding(horizontal = 7.dp, vertical = 5.dp),
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
     ) {
         Row(Modifier.fillMaxSize()) {
             items.forEachIndexed { index, item ->
@@ -858,7 +858,7 @@ fun SharedGlassSheet(
         scrimColor = Color.Black.copy(alpha = .62f),
         shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
         dragHandle = {
-            Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
+            Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
                 Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
             }
         },
@@ -877,7 +877,7 @@ fun LibraryStatusSheet(
     val view = LocalView.current
     val hapticDismiss = rememberLightHapticAction(onDismiss)
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
+        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
             Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Text(stringResource(R.string.choose_library_status), modifier = Modifier.fillMaxWidth(), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(13.dp))
@@ -892,13 +892,13 @@ fun LibraryStatusSheet(
                 val selected = media.status == status
                 val statusColor = libraryStatusColor(status)
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                    Modifier.fillMaxWidth().padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .background(if (selected) statusColor.copy(alpha = .15f) else Color.Transparent)
                         .clickable {
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onStatus(if (selected) LibraryStatus.NONE else status)
                         }
-                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                        .padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(statusColor.copy(alpha = .20f)), contentAlignment = Alignment.Center) {

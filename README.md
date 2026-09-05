@@ -11,13 +11,13 @@ CineTrack 0.69 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It co
 
    ```properties
    sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
-   TMDB_API_TOKEN=your_tmdb_v4_read_token
-   MDBLIST_API_KEY=your_mdblist_key
    SIMKL_CLIENT_ID=your_simkl_client_id
    ```
 
 5. Register `cinetrack://simkl` as the Simkl redirect URI in the Simkl developer app. It must match exactly, including casing and the absence of a trailing slash. CineTrack uses the Android-safe PKCE authorization flow and does not require a client secret.
 6. Sync Gradle and run the `app` configuration.
+
+Enter your personal TMDB and MDBList keys in the app's Settings. They are never injected from local.properties, Gradle properties or CI secrets into any APK. Only the SIMKL application client ID is embedded at build time. Existing keys saved in Settings are retained.
 
 The app never inserts mockup/demo titles. Without a TMDB token, discovery stays empty and reports the missing configuration; Simkl and Room continue to show only real account and locally saved data.
 
@@ -132,7 +132,7 @@ Configure these GitHub Actions repository secrets with the same permanent keysto
 - `ANDROID_KEY_PASSWORD`
 - `SIMKL_CLIENT_ID`
 
-Pushing a version-bumped commit to `testing/**` runs the signed release workflow. It publishes a testing prerelease containing the universal APK and its SHA-256 file. CineTrack checks that channel, downloads and verifies the APK, then opens Android's installer. `local.properties`, keystores, APKs and environment files are ignored by Git and must never be committed.
+Pushing a version-bumped commit to `beta-testing` (or `testing/**`) runs the signed release workflow. Commits containing `[skip release]` run validation without publishing intermediate app updates. The release workflow publishes a testing prerelease containing the universal APK and its SHA-256 file. CineTrack checks that channel, downloads and verifies the APK, then opens Android's installer. `local.properties`, keystores, APKs and environment files are ignored by Git and must never be committed. TMDB/MDBList GitHub secrets are not used by the build.
 
 ## Attribution and license
 

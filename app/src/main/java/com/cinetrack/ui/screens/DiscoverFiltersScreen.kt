@@ -150,7 +150,7 @@ fun DiscoverFiltersScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
-                Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                     GlassBackButton(onClick = onBack)
                     Spacer(Modifier.width(12.dp))
                     PageTitle(stringResource(R.string.content_filters), Modifier.weight(1f))
@@ -228,7 +228,7 @@ fun DiscoverFiltersScreen(
                 PrimaryAction(
                     stringResource(R.string.apply_filters),
                     Icons.Filled.Tune,
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl),
                 ) { onApply(filters()) }
             }
             if (loading) item {
@@ -237,10 +237,10 @@ fun DiscoverFiltersScreen(
                 }
             }
             if (!loading && results.isEmpty()) item {
-                Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp))
+                Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xxl))
             }
             items(results.chunked(3), key = { row -> row.joinToString("|") { it.stableKey } }) { row ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     row.forEach { media ->
                         BoxWithConstraints(Modifier.weight(1f)) {
                             MediaPoster(
@@ -262,9 +262,9 @@ fun DiscoverFiltersScreen(
 @Composable
 private fun FilterSection(title: String, content: @Composable RowScope.() -> Unit) {
     Column(Modifier.fillMaxWidth()) {
-        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp))
+        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs))
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = com.cinetrack.ui.theme.Spacing.xl),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             content = content,
         )
@@ -277,7 +277,7 @@ private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     Row(
         Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (selected) Accent.copy(alpha = .30f) else Color.Transparent)
-            .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
+            .clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (selected) {
@@ -295,7 +295,7 @@ private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
     Row(
         Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
-            .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
+            .clickable(onClick = hapticClick).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (mode != 0) {

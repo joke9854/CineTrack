@@ -130,16 +130,16 @@ fun DiscoverScreen(
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 item {
-                    PageTitle(stringResource(R.string.discover), Modifier.padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 16.dp))
+                    PageTitle(stringResource(R.string.discover), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg))
                 }
                 item {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 6.dp),
+                        Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xs),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberLightHapticAction(onSearch)).padding(horizontal = 16.dp),
+                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberLightHapticAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(17.dp))
@@ -153,11 +153,11 @@ fun DiscoverScreen(
                 }
                 if (!state.tmdbApiConfigured) item {
                     Column(
-                        Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
+                        Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)
                             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .background(com.cinetrack.ui.theme.SurfacePalette.WarningDark.copy(alpha = .20f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .border(.8.dp, com.cinetrack.ui.theme.StatusPlanned.copy(alpha = .45f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                            .padding(15.dp),
+                            .padding(com.cinetrack.ui.theme.Spacing.lg),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Filled.WarningAmber, null, tint = com.cinetrack.ui.theme.SurfacePalette.WarningLight, modifier = Modifier.size(23.dp))
@@ -169,7 +169,7 @@ fun DiscoverScreen(
                             color = TextSecondary,
                             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                             lineHeight = 17.sp,
-                            modifier = Modifier.padding(top = 9.dp, bottom = 12.dp),
+                            modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.md),
                         )
                         PrimaryAction(
                             text = stringResource(R.string.open_api_settings),
@@ -185,7 +185,7 @@ fun DiscoverScreen(
                         state.error ?: stringResource(R.string.no_catalog_data),
                         color = TextSecondary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(12.dp),
+                        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(com.cinetrack.ui.theme.Spacing.md),
                     )
                 }
                 railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
@@ -208,7 +208,7 @@ private fun LazyListScope.railSection(
 ) {
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
-    item { SectionHeader(title, Modifier.padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 13.dp), seeAll, { onSeeAll(railId) }) }
+    item { SectionHeader(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md), seeAll, { onSeeAll(railId) }) }
     item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item { Spacer(Modifier.height(4.dp)) }
 }
@@ -230,7 +230,7 @@ private fun HeroCarousel(
             pagerState.animateScrollToPage((pagerState.currentPage + 1) % items.size)
         }
     }
-    Column(Modifier.padding(top = 18.dp, bottom = 4.dp)) {
+    Column(Modifier.padding(top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs)) {
         HorizontalPager(
             state = pagerState,
             contentPadding = PaddingValues(horizontal = 20.dp),
@@ -239,7 +239,7 @@ private fun HeroCarousel(
         ) { page ->
             HeroCard(items[page], onMedia, onStatus, onNotInterested)
         }
-        Row(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 4.dp), horizontalArrangement = Arrangement.Center) {
+        Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.Center) {
             items.indices.forEach { page ->
                 Box(
                     Modifier.width(if (pagerState.currentPage == page) 16.dp else 6.dp).height(6.dp)
@@ -289,22 +289,22 @@ private fun HeroCard(
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .76f), Color.Black.copy(alpha = .34f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
-        Column(Modifier.align(Alignment.BottomStart).padding(20.dp)) {
+        Column(Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.xl)) {
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
             Text(metadata, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
-            Text(media.title.uppercase(), color = Color.White, fontSize = 38.sp, lineHeight = 40.sp, letterSpacing = .8.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
-            media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = 4.dp)) }
+            Text(media.title.uppercase(), color = Color.White, fontSize = 38.sp, lineHeight = 40.sp, letterSpacing = .8.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs)) }
             media.overview.takeIf(String::isNotBlank)?.let {
-                Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 6.dp))
+                Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
             }
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
                     Modifier.height(46.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(if (media.status != com.cinetrack.domain.LibraryStatus.NONE) com.cinetrack.ui.theme.Success.copy(alpha = .12f) else Color.Transparent)
-                        .clickable(onClick = rememberLightHapticAction { statusPopup = true }).padding(horizontal = 18.dp),
+                        .clickable(onClick = rememberLightHapticAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
@@ -350,9 +350,9 @@ fun DiscoverListScreen(
     val backgroundItem = state.rails[railId].orEmpty().firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 18.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
-                PageTitle(title, Modifier.padding(start = 12.dp))
+                PageTitle(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.md))
             }
             LazyVerticalGrid(
                 columns = GridCells.Fixed(3),
@@ -398,7 +398,7 @@ fun SearchScreen(
     }
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
                 OutlinedTextField(
                     value = query,
@@ -419,7 +419,7 @@ fun SearchScreen(
                 )
             }
             if (query.isNotBlank() && visibleResults.isEmpty()) {
-                Text(stringResource(R.string.loading), color = TextMuted, modifier = Modifier.padding(24.dp))
+                Text(stringResource(R.string.loading), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl))
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),

@@ -88,6 +88,10 @@ android {
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
 }
 
+baselineProfile {
+    automaticGenerationDuringBuild = false
+}
+
 dependencies {
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     baselineProfile(project(":baselineprofile"))

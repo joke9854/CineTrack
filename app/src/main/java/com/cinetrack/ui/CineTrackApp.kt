@@ -416,7 +416,7 @@ fun CineTrackApp(
                         restoreState = true
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 18.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = com.cinetrack.ui.theme.Spacing.lg),
             )
         }
 
@@ -424,10 +424,10 @@ fun CineTrackApp(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
             enter = fadeIn(tween(180)) + slideInHorizontally(tween(260)) { it / 5 },
             exit = fadeOut(tween(180)),
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
         ) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(13.dp),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(com.cinetrack.ui.theme.Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))
