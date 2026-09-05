@@ -40,6 +40,11 @@ completed design pass is not distributed to installed apps.
   palette names. Close neutral overlays use shared glass tokens.
 - Padding uses 4/8/12/16/20/24/32dp tokens only within a 2dp tolerance.
   Large bottom/hero clearances, dynamic inset padding and other exceptions remain.
+- Motion uses 150/250/350 ms timings without changing easing. Zero-duration and
+  420 ms transitions remain named exceptions; confirmation timers are unchanged.
+- The four requested touch targets are 48dp. Season and episode circles retain
+  their 32/28dp visual sizes with padding inside the clickable area. Exact 8/10dp
+  hit-target padding is intentional, rather than rounded onto the spacing scale.
 - Action labels cover episode info, watched/unwatched controls and key visibility.
   Decorative icons next to text stay silent. English/Italian season counts,
   episode counts, season progress and runtime templates use resources.

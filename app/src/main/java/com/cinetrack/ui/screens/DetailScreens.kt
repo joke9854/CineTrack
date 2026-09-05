@@ -741,7 +741,7 @@ private fun EpisodesSection(
                             }
                             Text(stringResource(R.string.season_progress, watched, summary?.episodeCount ?: seasonEpisodes.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
-                        Box(Modifier.size(32.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)).clickable(onClick = hapticSeasonWatched), contentAlignment = Alignment.Center) {
+                        Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticSeasonWatched).padding(8.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)), contentAlignment = Alignment.Center) {
                             Icon(Icons.Filled.Check, stringResource(if (allWatched) R.string.mark_unwatched else R.string.mark_watched), tint = if (allWatched) Success else TextSecondary, modifier = Modifier.size(18.dp))
                         }
                     }
@@ -776,11 +776,11 @@ private fun EpisodesSection(
                                         Text(episode.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                         Text(formatFullDate(episode.airDate), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                                     }
-                                    Box(Modifier.size(28.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape).clickable(onClick = hapticInfo), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticInfo).padding(10.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape), contentAlignment = Alignment.Center) {
                                         Icon(Icons.Filled.Info, stringResource(if (infoVisible) R.string.hide_episode_info else R.string.show_episode_info, episode.title), tint = TextSecondary, modifier = Modifier.size(14.dp))
                                     }
                                     Spacer(Modifier.width(7.dp))
-                                    Box(Modifier.size(28.dp).clip(CircleShape).background(if (episode.watched) Success else com.cinetrack.ui.theme.SurfacePalette.EpisodeToggle).clickable(onClick = hapticWatched), contentAlignment = Alignment.Center) {
+                                    Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = hapticWatched).padding(10.dp).clip(CircleShape).background(if (episode.watched) Success else com.cinetrack.ui.theme.SurfacePalette.EpisodeToggle), contentAlignment = Alignment.Center) {
                                         Icon(Icons.Filled.Check, stringResource(if (episode.watched) R.string.mark_unwatched else R.string.mark_watched), tint = if (episode.watched) com.cinetrack.ui.theme.SurfacePalette.WatchedInk else TextSecondary, modifier = Modifier.size(15.dp))
                                     }
                                 }

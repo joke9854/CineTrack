@@ -530,7 +530,7 @@ private fun ExpandablePlaybackSection(
                 }
             }
             if (expanded) {
-                IconButton(onClick = { expanded = false }, modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).size(30.dp)) {
+                IconButton(onClick = { expanded = false }, modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp)) {
                     Icon(Icons.Filled.ExpandLess, stringResource(R.string.collapse), tint = TextSecondary, modifier = Modifier.size(18.dp))
                 }
             }
