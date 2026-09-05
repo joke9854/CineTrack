@@ -224,7 +224,7 @@ fun LibraryScreen(
                 listOf(MediaType.TV, MediaType.MOVIE).forEach { item ->
                     val selected = item == type
                     Row(
-                        Modifier.weight(1f).height(40.dp).glass(RoundedCornerShape(11.dp))
+                        Modifier.weight(1f).height(40.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
                             .clickable { type = item },
                         horizontalArrangement = Arrangement.Center,
@@ -245,7 +245,7 @@ fun LibraryScreen(
                     val selected = status == value
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }
                     Row(
-                        modifier = Modifier.glass(RoundedCornerShape(999.dp))
+                        modifier = Modifier.glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
                             .clickable { status = value }.padding(horizontal = 14.dp, vertical = 9.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -359,7 +359,7 @@ private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: 
                 LibraryStatus.NONE to stringResource(R.string.remove_from_library),
             ).forEach { (status, label) ->
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(15.dp))
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .clickable { onApply(status) }.padding(horizontal = 14.dp, vertical = 13.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -388,7 +388,7 @@ private fun LibraryOrderSheet(
             LibraryOrder.entries.forEach { option ->
                 val active = selected == option
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(16.dp))
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .background(if (active) Accent.copy(alpha = .18f) else Color.Transparent)
                         .clickable {
                             selected = option
@@ -418,7 +418,7 @@ private fun LibraryOrderSheet(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 14.dp).glass(RoundedCornerShape(16.dp))
+                Modifier.fillMaxWidth().padding(top = 2.dp, bottom = 14.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                     .clickable { ascending = !ascending }.padding(horizontal = 15.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -475,7 +475,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
             ),
             modifier = Modifier.padding(start = 20.dp, bottom = 8.dp),
         )
-        Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp))) {
+        Column(Modifier.padding(horizontal = 20.dp).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) {
             items.forEachIndexed { index, item ->
                 SettingsRow(item, onPage)
                 if (index != items.lastIndex) GlassDivider()
@@ -488,7 +488,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val hapticClick = rememberLightHapticAction { onPage(item.page) }
     Row(Modifier.fillMaxWidth().clickable(onClick = hapticClick).padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
             Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.size(12.dp))
@@ -595,9 +595,9 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.Logs -> stringResource(R.string.logs_summary)
         else -> "ZIP · JSONL · CSV"
     }
-    Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
         if (serviceName != null) ServiceLogo(serviceName)
-        else Box(Modifier.size(42.dp).clip(RoundedCornerShape(13.dp)).background(Accent.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
+        else Box(Modifier.size(42.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Accent.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = AccentLight, modifier = Modifier.size(21.dp))
         }
         Spacer(Modifier.width(12.dp))
@@ -655,7 +655,7 @@ private fun SyncSettings(
             error,
             color = androidx.compose.material3.MaterialTheme.colorScheme.error,
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(12.dp),
         )
     }
     sync.message?.takeIf { sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { error ->
@@ -663,7 +663,7 @@ private fun SyncSettings(
             error,
             color = androidx.compose.material3.MaterialTheme.colorScheme.error,
             style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(14.dp)).padding(12.dp),
+            modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(12.dp),
         )
     }
     Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
@@ -677,7 +677,7 @@ private fun SyncSettings(
             modifier = Modifier.weight(1f),
             onClick = if (state.simklConnected) viewModel::sync else onConnect,
         )
-        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(999.dp), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f))) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
+        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), colors = ButtonDefaults.buttonColors(containerColor = Color.White.copy(alpha = .08f))) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
     }
 }
 
@@ -790,7 +790,7 @@ private fun ApiCredentialSettings(
                     ) {
                         Icon(
                             if (revealNewValue) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                            contentDescription = null,
+                            contentDescription = stringResource(if (revealNewValue) R.string.hide_api_key else R.string.show_api_key),
                             tint = if (showingSavedMask) TextMuted.copy(alpha = .45f) else TextSecondary,
                         )
                     }
@@ -1125,7 +1125,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 620.dp)
-                .glass(RoundedCornerShape(24.dp)).padding(18.dp),
+                .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).padding(18.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.History, null, tint = AccentLight, modifier = Modifier.size(23.dp))
@@ -1202,7 +1202,7 @@ private fun SettingsSection(title: String, content: @Composable () -> Unit) {
             ),
             modifier = Modifier.padding(start = 6.dp, bottom = 8.dp),
         )
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(16.dp)), content = { content() })
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)), content = { content() })
     }
 }
 
@@ -1261,8 +1261,8 @@ private fun ServiceLogo(name: String) {
         else -> Triple(R.drawable.ic_service_simkl, Color(0xFFF4F4F5), 24.dp)
     }
     Box(
-        Modifier.size(38.dp).clip(RoundedCornerShape(12.dp)).background(background)
-            .border(.65.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(12.dp)),
+        Modifier.size(38.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(background)
+            .border(.65.dp, Color.White.copy(alpha = .18f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
         contentAlignment = Alignment.Center,
     ) {
         Image(

@@ -418,7 +418,7 @@ fun CineTrackApp(
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp),
         ) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(13.dp),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(13.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))

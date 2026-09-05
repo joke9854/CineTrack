@@ -154,7 +154,7 @@ fun rememberLightHapticAction(action: () -> Unit): () -> Unit {
     }
 }
 
-fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(22.dp)): Modifier =
+fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)): Modifier =
     drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         // drawOutline is not available in every Compose UI version supported by
@@ -436,7 +436,7 @@ fun SectionHeader(
         if (actionLabel != null && onAction != null) {
             val hapticAction = rememberLightHapticAction(onAction)
             Row(
-                Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = hapticAction).padding(start = 10.dp, top = 7.dp, bottom = 7.dp),
+                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticAction).padding(start = 10.dp, top = 7.dp, bottom = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(actionLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -488,13 +488,13 @@ fun MediaPoster(
             Modifier
                 .fillMaxWidth()
                 .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                 .background(posterBrush(media.id))
                 .then(
-                    selectedBorder?.let { Modifier.border(2.dp, it, RoundedCornerShape(16.dp)) }
+                    selectedBorder?.let { Modifier.border(2.dp, it, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) }
                         ?: Modifier,
                 )
-                .border(1.8.dp, Accent.copy(alpha = edgeAlpha), RoundedCornerShape(16.dp)),
+                .border(1.8.dp, Accent.copy(alpha = edgeAlpha), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)),
         ) {
             if (!media.posterUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -524,7 +524,7 @@ fun MediaPoster(
                         lineHeight = 10.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp))
+                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact))
                             .background(Accent).padding(horizontal = 8.dp, vertical = 5.dp),
                     )
                 }
@@ -642,7 +642,7 @@ fun MediaStatusPopup(
             rendered = false
         }
     }
-    val popupShape = RoundedCornerShape(24.dp)
+    val popupShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
     DropdownMenu(
         expanded = rendered,
         onDismissRequest = onDismiss,
@@ -704,12 +704,12 @@ fun PrimaryAction(
     Row(
         modifier
             .height(46.dp)
-            .glass(RoundedCornerShape(999.dp))
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
                 else SolidColor(Color.White.copy(alpha = .07f)),
             )
-            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else Color(0xFF687083).copy(alpha = .22f), RoundedCornerShape(999.dp))
+            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else Color(0xFF687083).copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .clickable(enabled = enabled, onClick = hapticClick)
             .padding(horizontal = 18.dp),
         horizontalArrangement = Arrangement.Center,
@@ -779,10 +779,10 @@ fun LiquidBottomNav(
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .height(height)
-            .shadow(15.dp, RoundedCornerShape(999.dp), clip = false)
-            .clip(RoundedCornerShape(999.dp))
+            .shadow(15.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), clip = false)
+            .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(Color(0xFF1C1C1E).copy(alpha = .78f))
-            .border(.65.dp, Color.White.copy(alpha = .11f), RoundedCornerShape(999.dp))
+            .border(.65.dp, Color.White.copy(alpha = .11f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .padding(horizontal = 7.dp, vertical = 5.dp),
     ) {
         Row(Modifier.fillMaxSize()) {
@@ -797,7 +797,7 @@ fun LiquidBottomNav(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(Accent.copy(alpha = .18f * selectedAlpha))
                         .clickable {
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -851,7 +851,7 @@ fun SharedGlassSheet(
         containerColor = Color(0xFF171920).copy(alpha = .90f),
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
         dragHandle = {
             Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
                 Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(Color.White.copy(alpha = .36f)))
@@ -887,7 +887,7 @@ fun LibraryStatusSheet(
                 val selected = media.status == status
                 val statusColor = libraryStatusColor(status)
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(15.dp))
+                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .background(if (selected) statusColor.copy(alpha = .15f) else Color.Transparent)
                         .clickable {
                             view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
@@ -896,7 +896,7 @@ fun LibraryStatusSheet(
                         .padding(horizontal = 12.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(statusColor.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(statusColor.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
                         Icon(icon, null, tint = statusColor, modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(11.dp))
@@ -921,7 +921,7 @@ fun LibraryStatusSheet(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(999.dp)).clickable(onClick = hapticDismiss),
+                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = hapticDismiss),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) { Text(stringResource(android.R.string.cancel), color = TextSecondary, fontWeight = FontWeight.Bold) }

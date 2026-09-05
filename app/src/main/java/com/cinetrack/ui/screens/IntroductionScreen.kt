@@ -75,7 +75,7 @@ fun IntroductionScreen(
             Text("CineTrack", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 12.dp))
             Spacer(Modifier.weight(1f))
             Box(
-                Modifier.size(78.dp).glass(RoundedCornerShape(24.dp)).background(Accent.copy(alpha = .20f)),
+                Modifier.size(78.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Accent.copy(alpha = .20f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(page.icon, null, tint = AccentLight, modifier = Modifier.size(36.dp))

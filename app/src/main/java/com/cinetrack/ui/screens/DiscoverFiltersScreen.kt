@@ -275,7 +275,7 @@ private fun FilterSection(title: String, content: @Composable RowScope.() -> Uni
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
     Row(
-        Modifier.clip(RoundedCornerShape(999.dp)).glass(RoundedCornerShape(999.dp))
+        Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (selected) Accent.copy(alpha = .30f) else Color.Transparent)
             .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -293,7 +293,7 @@ private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
     val hapticClick = rememberLightHapticAction(onClick)
     val activeColor = if (mode < 0) Color(0xFFFF5C5C) else AccentLight
     Row(
-        Modifier.clip(RoundedCornerShape(999.dp)).glass(RoundedCornerShape(999.dp))
+        Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
             .clickable(onClick = hapticClick).padding(horizontal = 13.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,

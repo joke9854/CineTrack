@@ -139,7 +139,7 @@ fun DiscoverScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(999.dp)).clickable(onClick = rememberLightHapticAction(onSearch)).padding(horizontal = 16.dp),
+                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberLightHapticAction(onSearch)).padding(horizontal = 16.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(17.dp))
@@ -154,9 +154,9 @@ fun DiscoverScreen(
                 if (!state.tmdbApiConfigured) item {
                     Column(
                         Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp)
-                            .glass(RoundedCornerShape(18.dp))
-                            .background(Color(0xFF8A5B00).copy(alpha = .20f), RoundedCornerShape(18.dp))
-                            .border(.8.dp, Color(0xFFFFC75D).copy(alpha = .45f), RoundedCornerShape(18.dp))
+                            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                            .background(Color(0xFF8A5B00).copy(alpha = .20f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                            .border(.8.dp, Color(0xFFFFC75D).copy(alpha = .45f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .padding(15.dp),
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -185,7 +185,7 @@ fun DiscoverScreen(
                         state.error ?: stringResource(R.string.no_catalog_data),
                         color = TextSecondary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(14.dp)).padding(12.dp),
+                        modifier = Modifier.padding(horizontal = 20.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(12.dp),
                     )
                 }
                 railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
@@ -267,10 +267,10 @@ private fun HeroCard(
         Modifier
             .fillMaxWidth()
             .height(250.dp)
-            .clip(RoundedCornerShape(22.dp))
+            .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .background(Brush.linearGradient(listOf(Color(0xFF705446), Color(0xFF172331), Color(0xFF07101C))))
-            .glass(RoundedCornerShape(22.dp))
-            .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) com.cinetrack.ui.theme.Accent else Color.Transparent, RoundedCornerShape(22.dp))
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
+            .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) com.cinetrack.ui.theme.Accent else Color.Transparent, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .combinedClickable(
                 interactionSource = interactionSource,
                 indication = null,
@@ -302,7 +302,7 @@ private fun HeroCard(
             Spacer(Modifier.height(14.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(
-                    Modifier.height(46.dp).glass(RoundedCornerShape(999.dp))
+                    Modifier.height(46.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(if (media.status != com.cinetrack.domain.LibraryStatus.NONE) com.cinetrack.ui.theme.Success.copy(alpha = .12f) else Color.Transparent)
                         .clickable(onClick = rememberLightHapticAction { statusPopup = true }).padding(horizontal = 18.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -407,7 +407,7 @@ fun SearchScreen(
                     placeholder = { Text(stringResource(R.string.search_hint)) },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
                     singleLine = true,
-                    shape = RoundedCornerShape(18.dp),
+                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium),
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = AccentLight,
                         unfocusedBorderColor = Color.White.copy(alpha = .18f),

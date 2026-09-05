@@ -59,12 +59,14 @@ internal fun formatFullDate(raw: String?): String {
 }
 
 /** Formats long runtimes as hours instead of leaving values such as "97 min". */
+@Composable
 internal fun formatDurationMinutes(minutes: Int?): String {
     val value = minutes?.takeIf { it > 0 } ?: return ""
-    if (value < 60) return "$value min"
+    if (value < 60) return stringResource(R.string.runtime_minutes_short, value)
     val hours = value / 60
     val remainder = value % 60
-    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+    return if (remainder == 0) stringResource(R.string.runtime_hours_short, hours)
+    else stringResource(R.string.runtime_hours_minutes_short, hours, remainder)
 }
 
 @Composable
