@@ -941,7 +941,16 @@ fun GlassDivider() {
 
 @Composable
 fun LoadingPane(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = AccentLight)
+    val loading = stringResource(R.string.loading)
+    Column(
+        modifier.fillMaxSize().padding(20.dp).semantics { contentDescription = loading },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+    ) {
+        SkeletonBox(Modifier.width(160.dp).height(240.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.72f).height(24.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.9f).height(14.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.8f).height(14.dp))
+        SkeletonBox(Modifier.fillMaxWidth().height(80.dp))
     }
 }

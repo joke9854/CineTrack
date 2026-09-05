@@ -233,7 +233,7 @@ fun DiscoverFiltersScreen(
             }
             if (loading) item {
                 Box(Modifier.fillMaxWidth().padding(28.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = Accent, modifier = Modifier.size(30.dp))
+                    com.cinetrack.ui.components.SkeletonPosterRow(Modifier.fillMaxWidth())
                 }
             }
             if (!loading && results.isEmpty()) item {

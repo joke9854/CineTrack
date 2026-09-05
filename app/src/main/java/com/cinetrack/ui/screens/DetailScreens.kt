@@ -430,7 +430,7 @@ private fun TrailerPlayerSheet(
                 contentAlignment = Alignment.Center,
             ) {
                 when {
-                    loading -> CircularProgressIndicator(color = com.cinetrack.ui.theme.SurfacePalette.TrailerLoading)
+                    loading -> com.cinetrack.ui.components.SkeletonBox(Modifier.fillMaxSize())
                     trailerKey.isNullOrBlank() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.trailer_unavailable), color = TextSecondary, fontWeight = FontWeight.Bold)
                         Spacer(Modifier.height(12.dp))

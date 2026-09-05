@@ -1147,7 +1147,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                     Modifier.fillMaxWidth().height(150.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CircularProgressIndicator(color = AccentLight, modifier = Modifier.size(34.dp))
+                    com.cinetrack.ui.components.SkeletonLines(Modifier.fillMaxWidth().padding(16.dp))
                 }
                 AppChangelogState.Empty -> Text(
                     stringResource(R.string.changelog_empty),
