@@ -36,6 +36,8 @@ val TextPrimary = Color(0xFFF8F9FB)
 val TextSecondary = Color(0xFFD7DEE4)
 val TextMuted = Color(0xFFA2AEB8)
 
+const val PosterAspectRatio = 2f / 3f
+
 object DesignTokens {
     const val NavTravelMs = Motion.Long
     const val SheetTravelMs = Motion.Long

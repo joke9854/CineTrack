@@ -491,7 +491,7 @@ fun MediaPoster(
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
+                .aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
                 .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                 .background(posterBrush(media.id))
                 .then(
@@ -943,9 +943,9 @@ fun GlassDivider() {
 fun LoadingPane(modifier: Modifier = Modifier) {
     val loading = stringResource(R.string.loading)
     Column(
-        modifier.fillMaxSize().padding(20.dp).semantics { contentDescription = loading },
+        modifier.fillMaxSize().padding(com.cinetrack.ui.theme.Spacing.xl).semantics { contentDescription = loading },
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+        verticalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.md, Alignment.CenterVertically),
     ) {
         SkeletonBox(Modifier.width(160.dp).height(240.dp))
         SkeletonBox(Modifier.fillMaxWidth(.72f).height(24.dp))

@@ -47,6 +47,14 @@ jobs:
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
         run: ./gradlew :app:testReleaseUnitTest :app:assembleRelease
+      - name: Verify signed APK and profile assets
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$SIGNER" verify "$APK"
+          if ! unzip -l "$APK" 'assets/dexopt/*'; then
+            echo "No packaged profile; app-specific generation is pending a device run."
+          fi
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}

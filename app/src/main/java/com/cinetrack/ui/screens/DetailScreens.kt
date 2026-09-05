@@ -484,7 +484,7 @@ private fun DetailHero(media: MediaCard, onBack: () -> Unit) {
             modifier = Modifier.statusBarsPadding().padding(start = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.sm),
         )
         Box(
-            Modifier.align(Alignment.Center).padding(top = 60.dp).width(214.dp).aspectRatio(.70f)
+            Modifier.align(Alignment.Center).padding(top = 60.dp).width(214.dp).aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
                 .shadow(18.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large), clip = false)
                 .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(Accent, com.cinetrack.ui.theme.SurfacePalette.BlueSurface)))
         ) {

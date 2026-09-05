@@ -48,6 +48,11 @@ completed design pass is not distributed to installed apps.
 - Action labels cover episode info, watched/unwatched controls and key visibility.
   Decorative icons next to text stay silent. English/Italian season counts,
   episode counts, season progress and runtime templates use resources.
+- Loading skeletons replace spinners for known detail, Discover result, trailer
+  and changelog layouts. Pulsing is disabled when system animations are disabled;
+  opacity changes are read in the graphics layer. Watched-progress rings remain.
+- Shared poster geometry uses 2:3, including skeletons. The previous 0.70 detail
+  poster becomes approximately 15dp taller at 214dp width; 16:9 stills are unchanged.
 - Live Haze blur is scoped to the bottom navigation on Android 12+ devices not
   classified as low-RAM. Other devices retain the translucent fallback. Neutral
   glass borders use a directional highlight; semantic selection/status colors

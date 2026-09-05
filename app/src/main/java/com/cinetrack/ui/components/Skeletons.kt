@@ -66,6 +66,6 @@ fun SkeletonLines(modifier: Modifier = Modifier) {
 fun SkeletonPosterRow(modifier: Modifier = Modifier) {
     val loading = stringResource(R.string.loading)
     Row(modifier.semantics { contentDescription = loading }, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-        repeat(3) { SkeletonBox(Modifier.weight(1f).aspectRatio(2f / 3f)) }
+        repeat(3) { SkeletonBox(Modifier.weight(1f).aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)) }
     }
 }
