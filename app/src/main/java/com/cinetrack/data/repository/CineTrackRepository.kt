@@ -129,7 +129,7 @@ class CineTrackRepository(
         scheduleTime(item.episodeAirDate),
     )
 
-    private val episodeTitleCache = mutableMapOf<String, String>()
+    private val episodeTitleCache = BoundedLruCache<String, String>(750)
     private val progressCacheMutex = Mutex()
     private val progressEnrichmentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressEnrichmentJob: Job? = null
@@ -602,7 +602,10 @@ class CineTrackRepository(
                                         services.tmdb.movie(candidate.id, append = "")
                                     }
                                     details.originCountries + details.productionCountries.map { it.code }
-                                }.getOrDefault(emptyList())
+                                }.getOrElse { error ->
+                                    if (error is kotlinx.coroutines.CancellationException) throw error
+                                    emptyList()
+                                }
                             }
                             candidate.takeIf {
                                 countries.any { country -> country.uppercase() in allowedRegions }
@@ -615,7 +618,10 @@ class CineTrackRepository(
                 .map { it.toEntity(if (it.mediaType == "tv") MediaType.TV else MediaType.MOVIE) }
             database.mediaDao().upsertMedia(items)
             items
-        }.getOrDefault(emptyList()) else emptyList()
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            emptyList()
+        } else emptyList()
         // Discover search follows the TMDB content-region allowlist. When an
         // allowlist is active, do not merge unclassified local/imported rows back
         // into these results; Library and Progress searches remain unfiltered.
@@ -1012,6 +1018,9 @@ class CineTrackRepository(
     )
 
     suspend fun enrichHistoryLabels(items: List<TimelineCard>): List<TimelineCard> {
+        // Keep this call's results until its output is built. The process-wide
+        // LRU may evict early titles when an import contains more than 750 rows.
+        val resolvedTitles = mutableMapOf<String, String>()
         val missing = items.filter {
             it.media.type == MediaType.TV && it.season != null && it.episodeNumber != null &&
                 (it.episodeLabel.isNullOrBlank() || !it.episodeLabel.contains(" · "))
@@ -1032,15 +1041,20 @@ class CineTrackRepository(
                                     database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, item.season!!, item.episodeNumber!!, title)
                                 }
                         }
+                        key to episodeTitleCache[key]
                     }
-                }.forEach { it.await() }
+                }.forEach { pending ->
+                    val (key, title) = pending.await()
+                    if (!title.isNullOrBlank()) resolvedTitles[key] = title
+                }
             }
         }
         return items.map { item ->
             if (item.media.type != MediaType.TV || item.season == null || item.episodeNumber == null) item
             else {
                 val existingTitle = item.episodeLabel?.substringAfter(" · ", "")?.takeIf(String::isNotBlank)
-                val title = episodeTitleCache["${item.media.id}:${item.season}:${item.episodeNumber}"] ?: existingTitle
+                val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+                val title = resolvedTitles[key] ?: episodeTitleCache[key] ?: existingTitle
                 val number = "S${item.season.toString().padStart(2, '0')} E${item.episodeNumber.toString().padStart(2, '0')}"
                 item.copy(episodeLabel = listOfNotNull(number, title?.takeIf(String::isNotBlank)).joinToString(" · "))
             }

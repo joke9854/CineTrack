@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "CineTrack"
 include(":app")
+include(":baselineprofile")

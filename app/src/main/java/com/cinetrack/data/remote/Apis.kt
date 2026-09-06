@@ -362,6 +362,7 @@ object NetworkFactory {
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         val common = OkHttpClient.Builder()
+            .addInterceptor(RateLimitInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(logger)

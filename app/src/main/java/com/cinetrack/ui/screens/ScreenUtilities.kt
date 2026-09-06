@@ -22,7 +22,6 @@ import androidx.compose.ui.res.stringResource
 import com.cinetrack.R
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 
 @Composable
 internal fun LongPullRefreshContainer(
@@ -43,8 +42,8 @@ internal fun LongPullRefreshContainer(
         PullRefreshIndicator(
             refreshing = refreshing,
             state = pullState,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 6.dp),
-            backgroundColor = Color(0xE6272B32),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.xs),
+            backgroundColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
             contentColor = AccentLight,
             scale = true,
         )
@@ -54,17 +53,19 @@ internal fun LongPullRefreshContainer(
 internal fun formatFullDate(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
     return runCatching {
-        LocalDate.parse(raw.take(10)).format(DateTimeFormatter.ofPattern("dd/MM/yyyy"))
+        LocalDate.parse(raw.take(10)).format(com.cinetrack.ui.UiDateFormatters.current.date)
     }.getOrDefault(raw)
 }
 
 /** Formats long runtimes as hours instead of leaving values such as "97 min". */
+@Composable
 internal fun formatDurationMinutes(minutes: Int?): String {
     val value = minutes?.takeIf { it > 0 } ?: return ""
-    if (value < 60) return "$value min"
+    if (value < 60) return stringResource(R.string.runtime_minutes_short, value)
     val hours = value / 60
     val remainder = value % 60
-    return if (remainder == 0) "${hours}h" else "${hours}h ${remainder}m"
+    return if (remainder == 0) stringResource(R.string.runtime_hours_short, hours)
+    else stringResource(R.string.runtime_hours_minutes_short, hours, remainder)
 }
 
 @Composable

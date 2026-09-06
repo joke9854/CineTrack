@@ -331,4 +331,16 @@
     <string name="intro_later">Non ora</string>
     <string name="retry_failed_sync">Riprova operazioni non riuscite</string>
     <string name="restore_automatic_backup">Ripristina l’ultimo backup automatico</string>
+    <string name="mark_unwatched">Segna come non visto</string>
+    <string name="show_episode_info">Mostra informazioni su %1$s</string>
+    <string name="hide_episode_info">Nascondi informazioni su %1$s</string>
+    <string name="show_api_key">Mostra chiave API</string>
+    <string name="hide_api_key">Nascondi chiave API</string>
+    <string name="season_number">Stagione %1$d</string>
+    <string name="season_progress">%1$d episodi visti su %2$d</string>
+    <string name="runtime_minutes_short">%1$d min</string>
+    <string name="runtime_hours_short">%1$d h</string>
+    <string name="runtime_hours_minutes_short">%1$d h %2$d min</string>
+    <plurals name="season_count"><item quantity="one">%d stagione</item><item quantity="other">%d stagioni</item></plurals>
+    <plurals name="episode_count"><item quantity="one">%d episodio</item><item quantity="other">%d episodi</item></plurals>
 </resources>

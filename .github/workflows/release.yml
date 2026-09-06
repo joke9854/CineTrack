@@ -5,13 +5,14 @@ on:
   push:
     branches:
       - "testing/**"
+      - "beta-testing"
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: startsWith(github.ref_name, 'testing/')
+    if: (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') && !contains(github.event.head_commit.message, '[skip release]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,16 +39,22 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/cinetrack-release.jks"
-      - name: Build signed APK
+      - name: Test and build signed APK
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cinetrack-release.jks
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-          TMDB_API_TOKEN: ${{ secrets.TMDB_API_TOKEN }}
-          MDBLIST_API_KEY: ${{ secrets.MDBLIST_API_KEY }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
-        run: ./gradlew :app:assembleRelease
+        run: ./gradlew :app:testReleaseUnitTest :app:assembleRelease
+      - name: Verify signed APK and profile assets
+        run: |
+          APK="app/build/outputs/apk/release/app-release.apk"
+          SIGNER=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -1)
+          "$SIGNER" verify "$APK"
+          if ! unzip -l "$APK" 'assets/dexopt/*'; then
+            echo "No packaged profile; app-specific generation is pending a device run."
+          fi
       - name: Publish GitHub prerelease
         env:
           GH_TOKEN: ${{ github.token }}

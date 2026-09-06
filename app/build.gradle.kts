@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
+    id("androidx.baselineprofile")
 }
 
 val localProperties = Properties().apply {
@@ -30,14 +31,15 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 23
         targetSdk = 36
-        versionCode = 69
-        versionName = "0.69"
+        versionCode = 70
+        versionName = "0.70"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
 
-        buildConfigField("String", "TMDB_API_TOKEN", "\"${escaped(secret("TMDB_API_TOKEN"))}\"")
-        buildConfigField("String", "MDBLIST_API_KEY", "\"${escaped(secret("MDBLIST_API_KEY"))}\"")
+        // Personal credentials are entered in Settings, never compiled into APKs.
+        buildConfigField("String", "TMDB_API_TOKEN", "\"\"")
+        buildConfigField("String", "MDBLIST_API_KEY", "\"\"")
         buildConfigField("String", "SIMKL_CLIENT_ID", "\"${escaped(secret("SIMKL_CLIENT_ID"))}\"")
         buildConfigField("String", "SIMKL_REDIRECT_URI", "\"cinetrack://simkl\"")
         buildConfigField("String", "GITHUB_UPDATE_REPO", "\"joke9854/CineTrack\"")
@@ -62,6 +64,7 @@ android {
         }
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             if (!releaseKeystorePath.isNullOrBlank()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
@@ -85,7 +88,13 @@ android {
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
 }
 
+baselineProfile {
+    automaticGenerationDuringBuild = false
+}
+
 dependencies {
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
+    baselineProfile(project(":baselineprofile"))
     // Compose 1.12 (BOM 2026.08.00) requires compileSdk 37 and AGP 9.1.
     // Compose 1.9 is the stable API 36-compatible baseline for this project.
     val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
@@ -96,6 +105,7 @@ dependencies {
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.activity:activity-compose:1.12.3")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.10.0")
+    implementation("androidx.lifecycle:lifecycle-process:2.10.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.10.0")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.10.0")
     implementation("androidx.navigation:navigation-compose:2.9.8")
@@ -123,6 +133,8 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Stable Haze API compatible with the app's current Compose toolchain.
+    implementation("dev.chrisbanes.haze:haze:1.6.10")
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 

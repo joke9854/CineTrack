@@ -5,7 +5,6 @@ package com.cinetrack.ui.components
 import android.animation.ValueAnimator
 import android.os.Build
 import android.util.LruCache
-import android.view.HapticFeedbackConstants
 import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -99,7 +98,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -138,23 +136,22 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.util.Locale
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 
 @Composable
-fun rememberLightHapticAction(action: () -> Unit): () -> Unit {
-    val view = LocalView.current
+fun rememberUiAction(action: () -> Unit): () -> Unit {
     val currentAction by rememberUpdatedState(action)
-    return remember(view) {
+    return remember {
         {
-            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
             currentAction()
         }
     }
 }
 
-fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(22.dp)): Modifier =
+fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)): Modifier =
     drawWithCache {
         val outline = shape.createOutline(size, layoutDirection, this)
         // drawOutline is not available in every Compose UI version supported by
@@ -185,10 +182,10 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(22.dp)): Modif
         .clip(shape)
         // Keep chromatic gradients on the page background. Controls use a
         // neutral, low-opacity material so artwork colour can pass through.
-        .background(Color(0xFF171B21).copy(alpha = .27f))
+        .background(com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .27f))
         .border(
             .5.dp,
-            Color.White.copy(alpha = .10f),
+            GlassEdgeBrush,
             shape,
         )
 
@@ -202,8 +199,8 @@ fun Modifier.glassIcon(): Modifier =
     padding(4.dp)
         .shadow(8.dp, CircleShape, clip = false)
         .clip(CircleShape)
-        .background(Color(0xFF171A20).copy(alpha = .50f))
-        .border(.55.dp, Color.White.copy(alpha = .09f), CircleShape)
+        .background(com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .50f))
+        .border(.55.dp, GlassEdgeBrush, CircleShape)
 
 fun Modifier.blueEdgeClickable(
     shape: RoundedCornerShape,
@@ -211,9 +208,8 @@ fun Modifier.blueEdgeClickable(
     onClick: () -> Unit,
 ): Modifier = composed {
     val interactionSource = remember { MutableInteractionSource() }
-    val view = LocalView.current
     val pressed by interactionSource.collectIsPressedAsState()
-    val alpha by animateFloatAsState(if (pressed) .95f else 0f, tween(120), label = "blueEdgePress")
+    val alpha by animateFloatAsState(if (pressed) .95f else 0f, tween(com.cinetrack.ui.theme.Motion.Short), label = "blueEdgePress")
     this
         .border(1.7.dp, Accent.copy(alpha = alpha), shape)
         .combinedClickable(
@@ -221,12 +217,10 @@ fun Modifier.blueEdgeClickable(
             indication = null,
             role = Role.Button,
             onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
             },
             onLongClick = onLongClick?.let { action ->
                 {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     action()
                 }
             },
@@ -238,7 +232,7 @@ fun GlassBackButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     val buttonScale by animateFloatAsState(
@@ -253,13 +247,13 @@ fun GlassBackButton(
                 .scale(buttonScale)
                 .shadow(9.dp, CircleShape, clip = false)
                 .clip(CircleShape)
-                .background(Color(0xD925292F))
-                .border(.55.dp, Color.White.copy(alpha = .10f), CircleShape)
+                .background(com.cinetrack.ui.theme.SurfacePalette.BackControl)
+                .border(.55.dp, GlassEdgeBrush, CircleShape)
                 .clickable(
                     interactionSource = interactionSource,
                     indication = null,
                     role = Role.Button,
-                    onClick = hapticClick,
+                    onClick = clickAction,
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -320,18 +314,18 @@ fun AdaptiveBackground(
     val artworkColors by produceState<Pair<Color, Color>?>(artworkUrl?.let { artworkColorCache.get(it) }, artworkUrl) {
         value = artworkUrl?.let { url -> artworkColorCache.get(url) ?: extractArtworkColors(context, url)?.also { artworkColorCache.put(url, it) } }
     }
-    val primaryTarget = glow ?: artworkColors?.first ?: Color(0xFFB8BEC7)
-    val secondaryTarget = secondaryGlow ?: artworkColors?.second ?: Color(0xFF8B919B)
+    val primaryTarget = glow ?: artworkColors?.first ?: com.cinetrack.ui.theme.SurfacePalette.SoftText
+    val secondaryTarget = secondaryGlow ?: artworkColors?.second ?: com.cinetrack.ui.theme.SurfacePalette.LightMuted
     val baseTarget = artworkColors?.first?.let {
         Color(
             (it.red * .45f + .17f).coerceIn(0f, 1f),
             (it.green * .45f + .18f).coerceIn(0f, 1f),
             (it.blue * .45f + .20f).coerceIn(0f, 1f),
         )
-    } ?: if (artworkUrl.isNullOrBlank() && glow == null) Color(0xFF8A8F97) else Background1
-    val primary by animateColorAsState(primaryTarget, tween(420), label = "adaptivePrimary")
-    val secondary by animateColorAsState(secondaryTarget, tween(420), label = "adaptiveSecondary")
-    val base by animateColorAsState(baseTarget, tween(420), label = "adaptiveBase")
+    } ?: if (artworkUrl.isNullOrBlank() && glow == null) com.cinetrack.ui.theme.SurfacePalette.NeutralMuted else Background1
+    val primary by animateColorAsState(primaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptivePrimary")
+    val secondary by animateColorAsState(secondaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveSecondary")
+    val base by animateColorAsState(baseTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveBase")
     Box(
         Modifier
             .fillMaxSize()
@@ -405,10 +399,10 @@ fun PageTitle(title: String, modifier: Modifier = Modifier) {
         title,
         modifier = modifier,
         color = Accent,
-        fontSize = 29.sp,
+
         lineHeight = 32.sp,
         fontWeight = FontWeight.Black,
-        style = MaterialTheme.typography.headlineLarge.copy(
+        style = MaterialTheme.typography.displaySmall.copy(
             shadow = Shadow(Color.Black.copy(alpha = .82f), Offset(0f, 4f), 9f),
         ),
     )
@@ -425,7 +419,7 @@ fun SectionHeader(
         Text(
             title,
             color = TextPrimary,
-            fontSize = 17.5.sp,
+
             lineHeight = 21.sp,
             fontWeight = FontWeight.ExtraBold,
             style = MaterialTheme.typography.titleMedium.copy(
@@ -434,12 +428,12 @@ fun SectionHeader(
             modifier = Modifier.weight(1f),
         )
         if (actionLabel != null && onAction != null) {
-            val hapticAction = rememberLightHapticAction(onAction)
+            val primaryAction = rememberUiAction(onAction)
             Row(
-                Modifier.clip(RoundedCornerShape(999.dp)).clickable(onClick = hapticAction).padding(start = 10.dp, top = 7.dp, bottom = 7.dp),
+                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = primaryAction).padding(start = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(actionLabel, color = TextSecondary, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                Text(actionLabel, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
                 Spacer(Modifier.width(2.dp))
                 Icon(Icons.Filled.ChevronRight, null, tint = TextSecondary, modifier = Modifier.size(15.dp))
             }
@@ -460,11 +454,10 @@ fun MediaPoster(
     onNotInterested: (() -> Unit)? = null,
     onClick: () -> Unit,
 ) {
-    val view = LocalView.current
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
-    val edgeAlpha by animateFloatAsState(if (pressed || statusPopup) .95f else 0f, tween(120), label = "posterEdge")
+    val edgeAlpha by animateFloatAsState(if (pressed || statusPopup) .95f else 0f, tween(com.cinetrack.ui.theme.Motion.Short), label = "posterEdge")
     RevealOnMount(media.stableKey, modifier.width(width)) {
     Box {
     Column(
@@ -473,12 +466,10 @@ fun MediaPoster(
             indication = null,
             role = Role.Button,
             onClick = {
-                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                 onClick()
             },
             onLongClick = {
                 if (onStatus != null || onNotInterested != null) {
-                    view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
                     statusPopup = true
                 }
             },
@@ -487,14 +478,14 @@ fun MediaPoster(
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(2f / 3f)
-                .clip(RoundedCornerShape(16.dp))
+                .aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
+                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                 .background(posterBrush(media.id))
                 .then(
-                    selectedBorder?.let { Modifier.border(2.dp, it, RoundedCornerShape(16.dp)) }
+                    selectedBorder?.let { Modifier.border(2.dp, it, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) }
                         ?: Modifier,
                 )
-                .border(1.8.dp, Accent.copy(alpha = edgeAlpha), RoundedCornerShape(16.dp)),
+                .border(1.8.dp, Accent.copy(alpha = edgeAlpha), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)),
         ) {
             if (!media.posterUrl.isNullOrBlank()) {
                 AsyncImage(
@@ -508,7 +499,7 @@ fun MediaPoster(
             } else {
                 Text(
                     media.title.take(1),
-                    color = Color.White.copy(alpha = .84f),
+                    color = com.cinetrack.ui.theme.WhiteBright,
                     fontSize = 46.sp,
                     fontWeight = FontWeight.Black,
                     modifier = Modifier.align(Alignment.Center),
@@ -520,12 +511,12 @@ fun MediaPoster(
                     Text(
                         dateLabel,
                         color = Color.White,
-                        fontSize = 9.5.sp,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         lineHeight = 10.sp,
                         fontWeight = FontWeight.Black,
                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                        modifier = Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp))
-                            .background(Accent).padding(horizontal = 8.dp, vertical = 5.dp),
+                        modifier = Modifier.align(Alignment.TopStart).padding(com.cinetrack.ui.theme.Spacing.sm).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact))
+                            .background(Accent).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
                     )
                 }
             }
@@ -544,17 +535,17 @@ fun MediaPoster(
             if (progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
                 CircularProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(7.dp).size(27.dp),
+                    modifier = Modifier.align(Alignment.BottomEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp),
                     color = Success,
-                    trackColor = Color(0xCC152129),
+                    trackColor = com.cinetrack.ui.theme.SurfacePalette.BlueOverlay,
                     strokeWidth = 2.5.dp,
                 )
             }
         }
         if (showTitle) {
             Spacer(Modifier.height(7.dp))
-            Text(media.title.uppercase(), color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, fontSize = 11.sp)
+            Text(media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
     MediaStatusPopup(
@@ -570,23 +561,23 @@ fun MediaPoster(
 
 private fun formattedAirDate(raw: String?): String = runCatching {
     val date = LocalDate.parse(raw?.take(10))
-    date.format(DateTimeFormatter.ofPattern("dd\nMMM", Locale.getDefault())).uppercase(Locale.getDefault())
+    date.format(com.cinetrack.ui.UiDateFormatters.current.dayMonth).uppercase(Locale.getDefault())
 }.getOrDefault("")
 
 @Composable
 private fun StateBadge(color: Color, icon: ImageVector, label: String, modifier: Modifier) {
-    Box(modifier.padding(7.dp).size(27.dp).clip(CircleShape).background(color).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
+    Box(modifier.padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp).clip(CircleShape).background(color).semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         Icon(icon, null, tint = Color.White, modifier = Modifier.size(16.dp))
     }
 }
 
 private fun posterBrush(seed: Int): Brush {
     val palettes = listOf(
-        listOf(Color(0xFFF49A47), Color(0xFF214C73), Color(0xFF111522)),
-        listOf(Color(0xFF38B99C), Color(0xFF275D7C), Color(0xFF121925)),
-        listOf(Color(0xFFA8B1CF), Color(0xFF6B7082), Color(0xFF171821)),
-        listOf(Color(0xFF996BCB), Color(0xFF3A416E), Color(0xFF171421)),
-        listOf(Color(0xFFD76870), Color(0xFF573B66), Color(0xFF151824)),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterOrange, com.cinetrack.ui.theme.SurfacePalette.PosterBlue, com.cinetrack.ui.theme.SurfacePalette.WarmPosterShadow),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterMint, com.cinetrack.ui.theme.SurfacePalette.PosterCyan, com.cinetrack.ui.theme.SurfacePalette.CoolPosterShadow),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.LavenderText, com.cinetrack.ui.theme.SurfacePalette.PosterGray, com.cinetrack.ui.theme.SurfacePalette.WarmSurface),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterLilac, com.cinetrack.ui.theme.SurfacePalette.PosterIndigo, com.cinetrack.ui.theme.SurfacePalette.VioletDeep),
+        listOf(com.cinetrack.ui.theme.SurfacePalette.PosterRose, com.cinetrack.ui.theme.SurfacePalette.PosterPlum, com.cinetrack.ui.theme.SurfacePalette.VioletPosterShadow),
     )
     return Brush.linearGradient(palettes[abs(seed) % palettes.size])
 }
@@ -624,15 +615,14 @@ fun MediaStatusPopup(
     onNotInterested: (() -> Unit)? = null,
 ) {
     var rendered by remember { mutableStateOf(expanded) }
-    val view = LocalView.current
     val popupAlpha by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
-        animationSpec = tween(if (expanded) 175 else 215, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (expanded) com.cinetrack.ui.theme.Motion.Short else com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
         label = "statusPopupAlpha",
     )
     val popupScale by animateFloatAsState(
         targetValue = if (expanded) 1f else .93f,
-        animationSpec = tween(if (expanded) 205 else 225, easing = FastOutSlowInEasing),
+        animationSpec = tween(if (expanded) com.cinetrack.ui.theme.Motion.Medium else com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing),
         label = "statusPopupScale",
     )
     LaunchedEffect(expanded) {
@@ -642,7 +632,7 @@ fun MediaStatusPopup(
             rendered = false
         }
     }
-    val popupShape = RoundedCornerShape(24.dp)
+    val popupShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
     DropdownMenu(
         expanded = rendered,
         onDismissRequest = onDismiss,
@@ -654,7 +644,7 @@ fun MediaStatusPopup(
             transformOrigin = TransformOrigin(.5f, 0f)
         },
         shape = popupShape,
-        containerColor = Color(0xF21A1D24),
+        containerColor = com.cinetrack.ui.theme.SurfacePalette.ModalSurface,
         tonalElevation = 0.dp,
         shadowElevation = 18.dp,
         border = BorderStroke(.8.dp, AccentLight.copy(alpha = .24f)),
@@ -673,7 +663,6 @@ fun MediaStatusPopup(
                 leadingIcon = { Icon(libraryStatusIcon(status), null, tint = libraryStatusColor(status), modifier = Modifier.size(18.dp)) },
                 trailingIcon = { if (selected) Icon(Icons.Filled.Check, null, tint = libraryStatusColor(status), modifier = Modifier.size(17.dp)) },
                 onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onStatus(if (selected) LibraryStatus.NONE else status)
                 },
             )
@@ -683,7 +672,6 @@ fun MediaStatusPopup(
                 text = { Text(stringResource(R.string.show_less_like_this), color = TextPrimary, fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.ThumbDown, null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
                 onClick = {
-                    view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                     onNotInterested()
                 },
             )
@@ -700,24 +688,24 @@ fun PrimaryAction(
     containerColor: Color = Accent,
     onClick: () -> Unit,
 ) {
-    val hapticClick = rememberLightHapticAction(onClick)
+    val clickAction = rememberUiAction(onClick)
     Row(
         modifier
             .height(46.dp)
-            .glass(RoundedCornerShape(999.dp))
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
-                else SolidColor(Color.White.copy(alpha = .07f)),
+                else SolidColor(com.cinetrack.ui.theme.GlassSubtle),
             )
-            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else Color(0xFF687083).copy(alpha = .22f), RoundedCornerShape(999.dp))
-            .clickable(enabled = enabled, onClick = hapticClick)
-            .padding(horizontal = 18.dp),
+            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .clickable(enabled = enabled, onClick = clickAction)
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(7.dp))
-        Text(text, color = if (enabled) Color.White else TextMuted, fontSize = 14.5.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1)
     }
 }
 
@@ -727,7 +715,7 @@ fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
         modifier
             .size(size)
             .clip(RoundedCornerShape(size * .23f))
-            .background(Color(0xFF1A2130).copy(alpha = .82f))
+            .background(com.cinetrack.ui.theme.SurfacePalette.PlaybackSurface.copy(alpha = .82f))
             .border(.7.dp, AccentLight.copy(alpha = .28f), RoundedCornerShape(size * .23f)),
         contentAlignment = Alignment.Center,
     ) {
@@ -735,7 +723,7 @@ fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
             progress = { .76f },
             modifier = Modifier.size(size * .68f),
             color = AccentLight,
-            trackColor = Color.White.copy(alpha = .14f),
+            trackColor = com.cinetrack.ui.theme.Glass,
             strokeWidth = size * .055f,
         )
         Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(size * .34f))
@@ -756,22 +744,22 @@ fun LiquidBottomNav(
     compact: Boolean,
     onSelected: (Int) -> Unit,
     modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
 ) {
-    val view = LocalView.current
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
     val labelFraction by animateFloatAsState(
         targetValue = if (compact) 0f else 1f,
-        animationSpec = if (motionEnabled) tween(260, easing = FastOutSlowInEasing) else tween(0),
+        animationSpec = if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navLabels",
     )
     val height by animateDpAsState(
         if (compact) 54.dp else 64.dp,
-        if (motionEnabled) tween(260, easing = FastOutSlowInEasing) else tween(0),
+        if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navHeight",
     )
     val sidePadding by animateDpAsState(
         if (compact) 58.dp else 28.dp,
-        if (motionEnabled) tween(280, easing = FastOutSlowInEasing) else tween(0),
+        if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
         label = "navSidePadding",
     )
     Box(
@@ -779,28 +767,27 @@ fun LiquidBottomNav(
             .fillMaxWidth()
             .padding(horizontal = sidePadding)
             .height(height)
-            .shadow(15.dp, RoundedCornerShape(999.dp), clip = false)
-            .clip(RoundedCornerShape(999.dp))
-            .background(Color(0xFF1C1C1E).copy(alpha = .78f))
-            .border(.65.dp, Color.White.copy(alpha = .11f), RoundedCornerShape(999.dp))
-            .padding(horizontal = 7.dp, vertical = 5.dp),
+            .shadow(15.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), clip = false)
+            .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(com.cinetrack.ui.theme.SurfacePalette.NavSurface.copy(alpha = .78f)))
+            .border(.65.dp, GlassEdgeBrush, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
     ) {
         Row(Modifier.fillMaxSize()) {
             items.forEachIndexed { index, item ->
                 val selected = index == selectedIndex
                 val selectedAlpha by animateFloatAsState(
                     if (selected) 1f else 0f,
-                    if (motionEnabled) tween(220, easing = FastOutSlowInEasing) else tween(0),
+                    if (motionEnabled) tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing) else tween(com.cinetrack.ui.theme.Motion.Instant),
                     label = "navSelection",
                 )
                 Column(
                     Modifier
                         .weight(1f)
                         .fillMaxHeight()
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                         .background(Accent.copy(alpha = .18f * selectedAlpha))
                         .clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onSelected(index)
                         },
                     horizontalAlignment = Alignment.CenterHorizontally,
@@ -809,7 +796,7 @@ fun LiquidBottomNav(
                     Icon(
                         if (selected) item.filledIcon else item.outlineIcon,
                         contentDescription = item.label,
-                        tint = if (selected) AccentLight else Color(0xFFE7EBEF),
+                        tint = if (selected) AccentLight else com.cinetrack.ui.theme.SurfacePalette.BrightText,
                         modifier = Modifier.size(if (compact) 25.dp else 22.dp),
                     )
                     if (labelFraction > .01f) {
@@ -820,8 +807,8 @@ fun LiquidBottomNav(
                             Spacer(Modifier.height(6.dp * labelFraction))
                             Text(
                                 item.label,
-                                color = if (selected) Color.White else Color(0xFFE2E6EA),
-                                fontSize = 10.sp,
+                                color = if (selected) Color.White else com.cinetrack.ui.theme.SurfacePalette.LightText,
+                                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                                 lineHeight = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1,
@@ -848,13 +835,13 @@ fun SharedGlassSheet(
         // its own safe horizontal inset.
         modifier = Modifier.fillMaxWidth(),
         sheetState = sheetState,
-        containerColor = Color(0xFF171920).copy(alpha = .90f),
+        containerColor = com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
-        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp),
+        shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
         dragHandle = {
-            Box(Modifier.fillMaxWidth().padding(vertical = 14.dp), contentAlignment = Alignment.Center) {
-                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(Color.White.copy(alpha = .36f)))
+            Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
+                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
             }
         },
     ) {
@@ -869,12 +856,11 @@ fun LibraryStatusSheet(
     onDismiss: () -> Unit,
     onStatus: (LibraryStatus) -> Unit,
 ) {
-    val view = LocalView.current
-    val hapticDismiss = rememberLightHapticAction(onDismiss)
+    val dismissAction = rememberUiAction(onDismiss)
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = 16.dp)) {
-            Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            Text(stringResource(R.string.choose_library_status), modifier = Modifier.fillMaxWidth(), color = TextMuted, fontSize = 12.sp, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+            Text(stringResource(R.string.add_to_library), modifier = Modifier.fillMaxWidth(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            Text(stringResource(R.string.choose_library_status), modifier = Modifier.fillMaxWidth(), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             Spacer(Modifier.height(13.dp))
             val choices = listOf(
                 Triple(LibraryStatus.PLAN_TO_WATCH, stringResource(R.string.plan_to_watch), Icons.Filled.Bookmark),
@@ -887,21 +873,20 @@ fun LibraryStatusSheet(
                 val selected = media.status == status
                 val statusColor = libraryStatusColor(status)
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = 8.dp).glass(RoundedCornerShape(15.dp))
+                    Modifier.fillMaxWidth().padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .background(if (selected) statusColor.copy(alpha = .15f) else Color.Transparent)
                         .clickable {
-                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
                             onStatus(if (selected) LibraryStatus.NONE else status)
                         }
-                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                        .padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(11.dp)).background(statusColor.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
+                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(statusColor.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
                         Icon(icon, null, tint = statusColor, modifier = Modifier.size(18.dp))
                     }
                     Spacer(Modifier.width(11.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(label, color = TextPrimary, fontSize = 13.5.sp, fontWeight = FontWeight.Bold)
+                        Text(label, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text(
                             when (status) {
                                 LibraryStatus.PLAN_TO_WATCH -> "Save for later"
@@ -912,16 +897,16 @@ fun LibraryStatusSheet(
                                 else -> ""
                             },
                             color = TextMuted,
-                            fontSize = 10.5.sp,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         )
                     }
-                    Box(Modifier.size(22.dp).clip(CircleShape).background(if (selected) statusColor else Color(0xFF555A65)), contentAlignment = Alignment.Center) {
-                        if (selected) Icon(Icons.Filled.Check, null, tint = Color(0xFF082417), modifier = Modifier.size(15.dp))
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(if (selected) statusColor else com.cinetrack.ui.theme.SurfacePalette.NeutralFill), contentAlignment = Alignment.Center) {
+                        if (selected) Icon(Icons.Filled.Check, null, tint = com.cinetrack.ui.theme.SurfacePalette.SuccessInk, modifier = Modifier.size(15.dp))
                     }
                 }
             }
             Row(
-                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(999.dp)).clickable(onClick = hapticDismiss),
+                Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = dismissAction),
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) { Text(stringResource(android.R.string.cancel), color = TextSecondary, fontWeight = FontWeight.Bold) }
@@ -931,12 +916,21 @@ fun LibraryStatusSheet(
 
 @Composable
 fun GlassDivider() {
-    HorizontalDivider(color = Color.White.copy(alpha = .10f), thickness = 1.dp)
+    HorizontalDivider(color = com.cinetrack.ui.theme.Glass, thickness = 1.dp)
 }
 
 @Composable
 fun LoadingPane(modifier: Modifier = Modifier) {
-    Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        CircularProgressIndicator(color = AccentLight)
+    val loading = stringResource(R.string.loading)
+    Column(
+        modifier.fillMaxSize().padding(com.cinetrack.ui.theme.Spacing.xl).semantics { contentDescription = loading },
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.md, Alignment.CenterVertically),
+    ) {
+        SkeletonBox(Modifier.width(160.dp).height(240.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.72f).height(24.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.9f).height(14.dp))
+        SkeletonBox(Modifier.fillMaxWidth(.8f).height(14.dp))
+        SkeletonBox(Modifier.fillMaxWidth().height(80.dp))
     }
 }

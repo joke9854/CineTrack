@@ -42,7 +42,7 @@ import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.BrandMark
 import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.glass
-import com.cinetrack.ui.components.rememberLightHapticAction
+import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextPrimary
@@ -68,14 +68,14 @@ fun IntroductionScreen(
     val page = pages[pageIndex]
     AdaptiveBackground {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = 24.dp, vertical = 24.dp),
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = com.cinetrack.ui.theme.Spacing.xxl),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BrandMark(62.dp)
-            Text("CineTrack", color = TextPrimary, fontSize = 24.sp, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = 12.dp))
+            Text("CineTrack", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md))
             Spacer(Modifier.weight(1f))
             Box(
-                Modifier.size(78.dp).glass(RoundedCornerShape(24.dp)).background(Accent.copy(alpha = .20f)),
+                Modifier.size(78.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Accent.copy(alpha = .20f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(page.icon, null, tint = AccentLight, modifier = Modifier.size(36.dp))
@@ -83,26 +83,26 @@ fun IntroductionScreen(
             Text(
                 stringResource(page.title),
                 color = TextPrimary,
-                fontSize = 27.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
                 lineHeight = 32.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 24.dp),
+                modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xxl),
             )
             Text(
                 stringResource(page.body),
                 color = TextSecondary,
-                fontSize = 15.sp,
+                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = 12.dp),
+                modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md),
             )
             Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = 20.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.xl)) {
                 pages.indices.forEach { index ->
                     Box(
                         Modifier.size(if (index == pageIndex) 20.dp else 8.dp, 8.dp)
-                            .background(if (index == pageIndex) AccentLight else Color.White.copy(alpha = .20f), CircleShape),
+                            .background(if (index == pageIndex) AccentLight else com.cinetrack.ui.theme.GlassBorder, CircleShape),
                     )
                 }
             }
@@ -119,14 +119,14 @@ fun IntroductionScreen(
                     modifier = Modifier.fillMaxWidth(),
                     onClick = onOpenSettings,
                 )
-                val later = rememberLightHapticAction(onFinish)
+                val later = rememberUiAction(onFinish)
                 Text(
                     stringResource(R.string.intro_later),
                     color = TextSecondary,
-                    fontSize = 14.sp,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().height(48.dp).clickable(onClick = later).padding(top = 15.dp),
+                    modifier = Modifier.fillMaxWidth().height(48.dp).clickable(onClick = later).padding(top = com.cinetrack.ui.theme.Spacing.lg),
                 )
             }
         }

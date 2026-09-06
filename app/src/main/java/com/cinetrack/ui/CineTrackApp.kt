@@ -33,6 +33,8 @@ import androidx.compose.material.icons.outlined.Explore
 import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -110,6 +112,11 @@ fun CineTrackApp(
 ) {
     val context = LocalContext.current
     val application = context.applicationContext as CineTrackApplication
+    val navHazeState = remember { HazeState() }
+    val navBlurEnabled = remember(context) {
+        android.os.Build.VERSION.SDK_INT >= 31 &&
+            !(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
+    }
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
@@ -171,6 +178,7 @@ fun CineTrackApp(
 
     Box(Modifier.fillMaxSize().imePadding()) {
         NavHost(
+            modifier = if (showBottomNav && navBlurEnabled) Modifier.hazeSource(navHazeState) else Modifier,
             navController = navController,
             startDestination = Routes.Discover,
             enterTransition = {
@@ -178,10 +186,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220))
-                    else -> slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             exitTransition = {
@@ -189,10 +197,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(180))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(180))
-                    else -> slideOutHorizontally(tween(220, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(150))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
             popEnterTransition = {
@@ -200,10 +208,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(300, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(220))
-                    else -> slideInHorizontally(tween(280, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(220))
+                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             popExitTransition = {
@@ -211,10 +219,10 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(180))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(260, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(180))
-                    else -> slideOutHorizontally(tween(230, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(170))
+                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
         ) {
@@ -396,6 +404,7 @@ fun CineTrackApp(
 
         if (showBottomNav) {
             LiquidBottomNav(
+                hazeState = if (navBlurEnabled) navHazeState else null,
                 items = navItems,
                 selectedIndex = selectedIndex,
                 compact = compactNav,
@@ -407,30 +416,30 @@ fun CineTrackApp(
                         restoreState = true
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 18.dp),
+                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = com.cinetrack.ui.theme.Spacing.lg),
             )
         }
 
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
-            enter = fadeIn(tween(180)) + slideInHorizontally(tween(260)) { it / 5 },
-            exit = fadeOut(tween(180)),
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = 18.dp, vertical = 10.dp),
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 5 },
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
         ) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(13.dp),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(com.cinetrack.ui.theme.Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(10.dp))
-                Text(state.error.orEmpty(), color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
+                Text(state.error.orEmpty(), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             }
         }
 
         AnimatedVisibility(
             visible = !minimumLaunchElapsed || state.loading,
-            enter = fadeIn(tween(120)),
-            exit = fadeOut(tween(360, easing = FastOutSlowInEasing)),
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)),
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Long, easing = FastOutSlowInEasing)),
             modifier = Modifier.align(Alignment.Center),
         ) {
             Box(
@@ -442,9 +451,9 @@ fun CineTrackApp(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     BrandMark(76.dp)
                     Spacer(Modifier.height(18.dp))
-                    Text("CineTrack", color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+                    Text("CineTrack", color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, fontWeight = FontWeight.ExtraBold)
                     Spacer(Modifier.height(6.dp))
-                    Text(stringResource(R.string.loading_library), color = AccentLight.copy(alpha = .78f), fontSize = 12.sp)
+                    Text(stringResource(R.string.loading_library), color = AccentLight.copy(alpha = .78f), style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                 }
             }
         }

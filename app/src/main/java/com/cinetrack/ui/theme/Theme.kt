@@ -36,9 +36,11 @@ val TextPrimary = Color(0xFFF8F9FB)
 val TextSecondary = Color(0xFFD7DEE4)
 val TextMuted = Color(0xFFA2AEB8)
 
+const val PosterAspectRatio = 2f / 3f
+
 object DesignTokens {
-    const val NavTravelMs = 320
-    const val SheetTravelMs = 360
+    const val NavTravelMs = Motion.Long
+    const val SheetTravelMs = Motion.Long
     const val WatchedConfirmationMs = 720L
 }
 
@@ -84,5 +86,5 @@ fun CineTrackTheme(
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) window.isNavigationBarContrastEnforced = false
         }
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors, typography = CineTrackTypography, content = content)
 }
