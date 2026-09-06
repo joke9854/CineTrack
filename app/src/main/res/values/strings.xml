@@ -16,6 +16,8 @@
     <string name="see_all">See all</string>
     <string name="trending_tv">Trending TV shows</string>
     <string name="trending_movies">Trending movies</string>
+    <string name="popular_tv">Popular TV shows</string>
+    <string name="popular_movies">Popular movies</string>
     <string name="upcoming">Upcoming</string>
     <string name="featured">Featured today</string>
     <string name="watch_trailer">Watch trailer</string>

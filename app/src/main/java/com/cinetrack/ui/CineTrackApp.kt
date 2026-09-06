@@ -189,7 +189,7 @@ fun CineTrackApp(
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
-                    else -> fadeIn(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             exitTransition = {
@@ -200,7 +200,7 @@ fun CineTrackApp(
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
-                    else -> fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
             popEnterTransition = {
@@ -211,7 +211,7 @@ fun CineTrackApp(
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
-                    else -> fadeIn(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
             popExitTransition = {
@@ -222,7 +222,7 @@ fun CineTrackApp(
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
-                    else -> fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
         ) {

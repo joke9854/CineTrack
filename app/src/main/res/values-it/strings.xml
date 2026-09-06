@@ -16,6 +16,8 @@
     <string name="see_all">Vedi tutto</string>
     <string name="trending_tv">Serie TV di tendenza</string>
     <string name="trending_movies">Film di tendenza</string>
+    <string name="popular_tv">Serie TV popolari</string>
+    <string name="popular_movies">Film popolari</string>
     <string name="upcoming">In arrivo</string>
     <string name="featured">In evidenza oggi</string>
     <string name="watch_trailer">Guarda trailer</string>

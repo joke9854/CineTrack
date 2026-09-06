@@ -244,6 +244,8 @@ data class DiscoverMovieFilters(
 object RailIds {
     const val TRENDING_TV = "trending-tv"
     const val TRENDING_MOVIES = "trending-movies"
+    const val POPULAR_MOVIES = "popular-movies"
+    const val POPULAR_TV = "popular-tv"
     const val UPCOMING = "upcoming"
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"

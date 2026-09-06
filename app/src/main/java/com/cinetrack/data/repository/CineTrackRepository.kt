@@ -159,25 +159,40 @@ class CineTrackRepository(
         fun List<com.cinetrack.data.remote.TmdbMediaDto>.inAllowedRegions() = filter { dto ->
             allowedRegions.isEmpty() || dto.originCountries.isEmpty() || dto.originCountries.any(allowedRegions::contains)
         }
-        // Cache several pages so View all is a real catalogue view rather than
-        // the same small home rail expanded into a grid.
+        // Bound all Discover requests, and reuse Popular's first page when a
+        // country-filtered Trending list needs filling. No extra fallback call.
+        val requests = Semaphore(6)
+        suspend fun pages(load: suspend (Int) -> List<com.cinetrack.data.remote.TmdbMediaDto>) = coroutineScope {
+            (1..3).map { page -> async { requests.withPermit { load(page) } } }
+                .map { it.await() }.flatten()
+        }
+        val popularTv = async {
+            pages { services.tmdb.discoverTv(regionQuery, sortBy = "popularity.desc", page = it).results }
+                .inAllowedRegions().distinctBy { it.id }
+        }
+        val popularMovies = async {
+            pages { services.tmdb.discoverMovies(regionQuery, sortBy = "popularity.desc", page = it).results }
+                .inAllowedRegions().distinctBy { it.id }
+        }
         val tv = async {
-            (1..3).flatMap { page ->
-                if (regionQuery == null) services.tmdb.trendingTv(page).results
-                else services.tmdb.discoverTv(regionQuery, page = page).results
-            }.inAllowedRegions().map { it.toEntity(MediaType.TV) }
-                .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
+            loadTrendingCandidates(
+                allowedOrigins = allowedRegions,
+                loadPage = { page -> requests.withPermit { services.tmdb.trendingTv(page).results } },
+                loadFallback = { popularTv.await().take(20) },
+                include = { "${MediaType.TV.name}:${it.id}" !in hiddenDiscovery },
+            ).map { it.toEntity(MediaType.TV) }
         }
         val movies = async {
-            (1..3).flatMap { page ->
-                if (regionQuery == null) services.tmdb.trendingMovies(page).results
-                else services.tmdb.discoverMovies(regionQuery, page = page).results
-            }.inAllowedRegions().map { it.toEntity(MediaType.MOVIE) }
-                .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
+            loadTrendingCandidates(
+                allowedOrigins = allowedRegions,
+                loadPage = { page -> requests.withPermit { services.tmdb.trendingMovies(page).results } },
+                loadFallback = { popularMovies.await().take(20) },
+                include = { "${MediaType.MOVIE.name}:${it.id}" !in hiddenDiscovery },
+            ).map { it.toEntity(MediaType.MOVIE) }
         }
         val today = localToday()
         val upcomingMovies = async {
-            (1..3).flatMap { page ->
+            pages { page ->
                 services.tmdb.discoverMovies(
                     originCountries = regionQuery,
                     sortBy = "popularity.desc",
@@ -189,7 +204,7 @@ class CineTrackRepository(
         }
         val upcomingTv = async {
             runCatching {
-                (1..3).flatMap { page ->
+                pages { page ->
                     services.tmdb.upcomingTv(
                         dateFrom = today.plusDays(1).toString(),
                         sortBy = "popularity.desc",
@@ -201,16 +216,23 @@ class CineTrackRepository(
             }
                 .getOrDefault(emptyList())
         }
-        database.withTransaction {
-            database.mediaDao().replaceRail(RailIds.TRENDING_TV, tv.await())
-            database.mediaDao().replaceRail(RailIds.TRENDING_MOVIES, movies.await())
-            val upcoming = (upcomingMovies.await() + upcomingTv.await())
+        fun List<com.cinetrack.data.remote.TmdbMediaDto>.asRail(type: MediaType) =
+            filterNot { "${type.name}:${it.id}" in hiddenDiscovery }.map { it.toEntity(type) }
+        // Await every network result before taking Room's write lock.
+        val rails = linkedMapOf(
+            RailIds.TRENDING_TV to tv.await(),
+            RailIds.TRENDING_MOVIES to movies.await(),
+            RailIds.POPULAR_TV to popularTv.await().asRail(MediaType.TV),
+            RailIds.POPULAR_MOVIES to popularMovies.await().asRail(MediaType.MOVIE),
+            RailIds.UPCOMING to (upcomingMovies.await() + upcomingTv.await())
                 .filter { entity ->
                     entity.releaseDate?.let { raw -> runCatching { LocalDate.parse(raw.take(10)).isAfter(today) }.getOrDefault(false) } == true
                 }
                 .distinctBy { "${it.mediaType}:${it.tmdbId}" }
-                .sortedBy(MediaEntity::releaseDate)
-            database.mediaDao().replaceRail(RailIds.UPCOMING, upcoming)
+                .sortedBy(MediaEntity::releaseDate),
+        )
+        database.withTransaction {
+            rails.forEach { (id, items) -> database.mediaDao().replaceRail(id, items) }
         }
     }
 
@@ -362,6 +384,8 @@ class CineTrackRepository(
         val railIds = listOf(
             RailIds.TRENDING_TV,
             RailIds.TRENDING_MOVIES,
+            RailIds.POPULAR_TV,
+            RailIds.POPULAR_MOVIES,
             RailIds.UPCOMING,
             RailIds.RECOMMENDED,
             RailIds.LIBRARY,

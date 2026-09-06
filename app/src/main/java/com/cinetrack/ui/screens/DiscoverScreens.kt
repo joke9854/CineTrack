@@ -116,6 +116,8 @@ fun DiscoverScreen(
     var heroIndex by remember { mutableStateOf(0) }
     val trendingTvTitle = stringResource(R.string.trending_tv)
     val trendingMoviesTitle = stringResource(R.string.trending_movies)
+    val popularTvTitle = stringResource(R.string.popular_tv)
+    val popularMoviesTitle = stringResource(R.string.popular_movies)
     val upcomingTitle = stringResource(R.string.upcoming)
     val seeAll = stringResource(R.string.see_all)
     val activeHero = heroes.getOrNull(heroIndex)
@@ -188,6 +190,8 @@ fun DiscoverScreen(
                 }
                 railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
                 railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(popularTvTitle, seeAll, RailIds.POPULAR_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(popularMoviesTitle, seeAll, RailIds.POPULAR_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
                 railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
             }
         }
@@ -340,6 +344,8 @@ fun DiscoverListScreen(
     val title = when (railId) {
         RailIds.TRENDING_TV -> stringResource(R.string.trending_tv)
         RailIds.TRENDING_MOVIES -> stringResource(R.string.trending_movies)
+        RailIds.POPULAR_TV -> stringResource(R.string.popular_tv)
+        RailIds.POPULAR_MOVIES -> stringResource(R.string.popular_movies)
         else -> stringResource(R.string.upcoming)
     }
     val backgroundItem = state.rails[railId].orEmpty().firstOrNull()

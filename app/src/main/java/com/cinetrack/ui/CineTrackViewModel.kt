@@ -169,7 +169,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else Result.success(SimklSyncOutcome(itemsChanged = false))
             var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
             var discoverError: Throwable? = null
-            if (cached.tmdbApiConfigured && cached.rails[com.cinetrack.domain.RailIds.UPCOMING].isNullOrEmpty()) {
+            val discoverRails = listOf(
+                com.cinetrack.domain.RailIds.UPCOMING,
+                com.cinetrack.domain.RailIds.POPULAR_TV,
+                com.cinetrack.domain.RailIds.POPULAR_MOVIES,
+            )
+            if (cached.tmdbApiConfigured && discoverRails.any { cached.rails[it].isNullOrEmpty() }) {
                 withContext(Dispatchers.IO) {
                     runCatching { repository.refreshDiscover() }
                         .onSuccess { databaseChanged = true }
