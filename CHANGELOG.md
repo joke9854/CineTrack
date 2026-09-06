@@ -1,21 +1,10 @@
-# CineTrack 0.72 testing
+# CineTrack 0.73 testing
 
-- Progress tabs preserve their individual scroll positions when switching between In progress, Calendar, History and Statistics. Only tapping the currently selected tab returns that list to the top.
-- Episode/movie cards gain another 12dp of text width through smaller side padding. The title keeps its existing size and one-line limit, and the check button stays in place.
-- Live glass blur is now enabled throughout all scheduled detail surfaces, without waiting for the earlier device-scroll gate.
+- Progress episode/movie cards give the progress bar an independent 14dp right margin, keeping it separated from the watched check button.
+- The text column's remaining 4dp right padding is removed, giving titles and details more room while the progress bar keeps its own spacing. Card size, check-button position and title line limit are preserved.
+- Discover's upcoming movies now always use TMDB Discover with dates starting tomorrow, popularity-descending selection and a minimum of 8 votes, with or without configured content regions.
+- Upcoming TV shows use the same minimum of 8 votes and popularity-descending selection. Region filtering, hidden-title exclusions and three-page fetching are retained.
+- The combined upcoming row remains ordered by release date, soonest first, and continues to exclude already-released or undated entries. The new selection takes effect when Discover refreshes.
+- TMDB popularity is now mapped as an optional DTO field for future use; it does not change the final chronological display order.
 
-## Blur locations
-
-- Movie and TV detail panels (retained from 0.71).
-- Episode detail panels.
-- Actor/crew cards in the cast rail on movie, TV and episode detail pages.
-- Actor detail popup, including its handle and filmography cards.
-- Full cast popup and its person cards.
-- Seasons and episodes: season cards and expanded episode cards.
-- Where to watch section.
-- Useful information on movie, TV and episode detail pages.
-- Bottom navigation (existing blur retained).
-
-All these surfaces use the existing 16dp blur material on Android 12+ devices that are not classified as low-RAM. Unsupported devices retain their previous translucent layouts. Detail sections sample the page backdrop; actor popups use a separate capture of the underlying page, so text and images inside the popup remain sharp. No new dependencies or database migration are introduced in this release.
-
-Compilation and release/unit-test checks run in GitHub Actions. Physical-device appearance and frame pacing have not been measured in this workspace; rollout no longer waits for that check, as requested.
+No new dependencies or database migration are introduced. Progress tab scroll preservation and the blur surfaces from 0.72 remain in place. GitHub Actions checks Android compilation, unit tests and the signed APK. Physical-device layout checks have not been performed in this workspace.

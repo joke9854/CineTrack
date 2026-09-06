@@ -177,15 +177,26 @@ class CineTrackRepository(
         val today = localToday()
         val upcomingMovies = async {
             (1..3).flatMap { page ->
-                if (regionQuery == null) services.tmdb.upcomingMovies(page).results
-                else services.tmdb.discoverMovies(regionQuery, sortBy = "primary_release_date.asc", dateFrom = today.plusDays(1).toString(), page = page).results
+                services.tmdb.discoverMovies(
+                    originCountries = regionQuery,
+                    sortBy = "popularity.desc",
+                    dateFrom = today.plusDays(1).toString(),
+                    minimumVotes = 8,
+                    page = page,
+                ).results
             }.inAllowedRegions().map { it.toEntity(MediaType.MOVIE) }
                 .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
         }
         val upcomingTv = async {
             runCatching {
                 (1..3).flatMap { page ->
-                    services.tmdb.upcomingTv(today.plusDays(1).toString(), originCountries = regionQuery, page = page).results
+                    services.tmdb.upcomingTv(
+                        dateFrom = today.plusDays(1).toString(),
+                        sortBy = "popularity.desc",
+                        originCountries = regionQuery,
+                        minimumVotes = 8,
+                        page = page,
+                    ).results
                 }.inAllowedRegions().map { it.toEntity(MediaType.TV) }
                     .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
             }

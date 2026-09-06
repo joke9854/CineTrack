@@ -62,6 +62,7 @@ data class TmdbMediaDto(
     @SerialName("next_episode_to_air") val nextEpisodeToAir: TmdbEpisodeDto? = null,
     @SerialName("watch/providers") val watchProviders: TmdbProviderResultDto? = null,
     val seasons: List<TmdbSeasonSummaryDto> = emptyList(),
+    val popularity: Double? = null,
 )
 
 @Serializable data class TmdbVideoResultsDto(val results: List<TmdbVideoDto> = emptyList())
@@ -157,7 +158,6 @@ data class TmdbCombinedCreditDto(
 interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
-    @GET("3/movie/upcoming") suspend fun upcomingMovies(@Query("page") page: Int = 1): TmdbPage
     @GET("3/watch/providers/movie")
     suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/watch/providers/tv")
@@ -199,9 +199,10 @@ interface TmdbService {
     @GET("3/discover/tv")
     suspend fun upcomingTv(
         @Query("first_air_date.gte") dateFrom: String,
-        @Query("sort_by") sortBy: String = "first_air_date.asc",
+        @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("include_null_first_air_dates") includeUndated: Boolean = false,
         @Query("with_origin_country") originCountries: String? = null,
+        @Query("vote_count.gte") minimumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/search/multi") suspend fun search(@Query("query") query: String, @Query("page") page: Int = 1): TmdbPage

@@ -755,7 +755,7 @@ private fun PlaybackRow(
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.md, end = 4.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.md, end = 0.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
                 Text(item.media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
                     val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
@@ -773,7 +773,7 @@ private fun PlaybackRow(
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
-                AnimatedProgressBar(timelineProgress)
+                AnimatedProgressBar(timelineProgress, Modifier.padding(end = 14.dp))
                 Spacer(Modifier.height(15.dp))
             }
             IconButton(
@@ -805,10 +805,10 @@ private fun PlaybackRow(
 }
 
 @Composable
-private fun AnimatedProgressBar(progress: Float) {
+private fun AnimatedProgressBar(progress: Float, modifier: Modifier = Modifier) {
     val safeProgress = progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(safeProgress, tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
-    Box(Modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
+    Box(modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
         Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }
 }
