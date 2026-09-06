@@ -23,6 +23,15 @@ internal val NavGlassStyle = HazeStyle(
     fallbackTint = HazeTint(Background0.copy(alpha = .78f)),
 )
 
+// Detail foreground sections supply their own tint; blur the backdrop only once.
+internal val DetailBackdropStyle = HazeStyle(
+    backgroundColor = Background0,
+    tint = HazeTint(Color.Transparent),
+    blurRadius = 16.dp,
+    noiseFactor = .03f,
+    fallbackTint = HazeTint(Color.Transparent),
+)
+
 internal val GlassEdgeBrush = Brush.linearGradient(
     listOf(Color.White.copy(alpha = .20f), Color.White.copy(alpha = .04f)),
 )

@@ -359,7 +359,7 @@ fun AdaptiveBackground(
             Box(Modifier.matchParentSize().hazeSource(hazeState).then(backgroundModifier))
             if (blurBackdrop) {
                 Box(Modifier.matchParentSize().hazeEffect(hazeState,
-                    style = NavGlassStyle.copy(tint = dev.chrisbanes.haze.HazeTint(Color.Transparent))))
+                    style = DetailBackdropStyle))
             }
             content()
         }
