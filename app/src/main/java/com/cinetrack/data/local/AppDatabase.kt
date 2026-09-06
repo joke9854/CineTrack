@@ -422,7 +422,7 @@ interface SyncDao {
     suspend fun delete(area: String)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun queue(write: PendingWriteEntity)
+    suspend fun queue(write: PendingWriteEntity): Long
 
     @Query("SELECT * FROM pending_writes ORDER BY createdAt")
     suspend fun pendingWrites(): List<PendingWriteEntity>

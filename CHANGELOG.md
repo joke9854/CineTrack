@@ -1,10 +1,11 @@
-# CineTrack 0.73 testing
+# CineTrack 0.74 testing
 
-- Progress episode/movie cards give the progress bar an independent 14dp right margin, keeping it separated from the watched check button.
-- The text column's remaining 4dp right padding is removed, giving titles and details more room while the progress bar keeps its own spacing. Card size, check-button position and title line limit are preserved.
-- Discover's upcoming movies now always use TMDB Discover with dates starting tomorrow, popularity-descending selection and a minimum of 8 votes, with or without configured content regions.
-- Upcoming TV shows use the same minimum of 8 votes and popularity-descending selection. Region filtering, hidden-title exclusions and three-page fetching are retained.
-- The combined upcoming row remains ordered by release date, soonest first, and continues to exclude already-released or undated entries. The new selection takes effect when Discover refreshes.
-- TMDB popularity is now mapped as an optional DTO field for future use; it does not change the final chronological display order.
+- Fixed watched episodes briefly returning to Progress: local history, next-episode rows and retry writes commit together; background rebuilds rebase on current history, and UI snapshots preserve newer taps.
+- Preserve concurrent local episode edits when committing a Simkl import.
+- Restore Discover’s In arrivo rail by removing the vote-count floor for unreleased titles, and refresh an empty cached upcoming rail at startup. Region filters and chronological ordering remain active.
+- Add consistent 24dp spacing between detail sections, with the watch/trailer actions grouped together.
+- Compose major detail sections lazily, move detail processing to IO, load independent sections concurrently, reuse cast data, and use short fade transitions.
+- Share a single viewport-sized live blur behind detail sections instead of stacking full-height and per-card blur effects. Actor/full-cast sheets retain their own live backdrop blur; existing device fallback remains.
+- Enlarge cast cards and portraits. View all receives uncapped cast/crew, including aggregate TV credits across seasons and complete episode credits.
 
-No new dependencies or database migration are introduced. Progress tab scroll preservation and the blur surfaces from 0.72 remain in place. GitHub Actions checks Android compilation, unit tests and the signed APK. Physical-device layout checks have not been performed in this workspace.
+Validation: automated compilation, unit tests, release build and signature verification run in GitHub Actions. Device scrolling/frame-time verification remains pending; no measured frame-rate claim is made.

@@ -57,6 +57,7 @@ data class TmdbMediaDto(
     val genres: List<TmdbGenreDto> = emptyList(),
     @SerialName("belongs_to_collection") val collection: TmdbCollectionRefDto? = null,
     val credits: TmdbCreditsDto? = null,
+    @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
     val recommendations: TmdbPage? = null,
     val videos: TmdbVideoResultsDto? = null,
     @SerialName("next_episode_to_air") val nextEpisodeToAir: TmdbEpisodeDto? = null,
@@ -84,8 +85,11 @@ data class TmdbMediaDto(
     val name: String,
     val character: String? = null,
     val job: String? = null,
+    val roles: List<TmdbCreditRoleDto> = emptyList(),
+    val jobs: List<TmdbCreditRoleDto> = emptyList(),
     @SerialName("profile_path") val profilePath: String? = null,
 )
+@Serializable data class TmdbCreditRoleDto(val character: String? = null, val job: String? = null)
 @Serializable data class TmdbProviderResultDto(val results: Map<String, TmdbProviderCountryDto> = emptyMap())
 @Serializable data class TmdbProviderListDto(val results: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList())
@@ -113,6 +117,7 @@ data class TmdbEpisodeDto(
     @SerialName("episode_number") val number: Int,
     @SerialName("guest_stars") val guestStars: List<TmdbPersonCreditDto> = emptyList(),
     val crew: List<TmdbPersonCreditDto> = emptyList(),
+    val credits: TmdbCreditsDto? = null,
 )
 
 @Serializable

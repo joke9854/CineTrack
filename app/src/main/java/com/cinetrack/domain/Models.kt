@@ -106,6 +106,8 @@ data class PersonCard(
     val birthday: String? = null,
     val placeOfBirth: String? = null,
     val movieCredits: List<MediaCard> = emptyList(),
+    val isCastMember: Boolean = false,
+    val isDirector: Boolean = false,
 ) {
     fun age(on: LocalDate = LocalDate.now()): Int? = runCatching {
         birthday?.let { Period.between(LocalDate.parse(it), on).years }

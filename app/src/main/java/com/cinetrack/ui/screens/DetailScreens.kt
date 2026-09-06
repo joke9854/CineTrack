@@ -132,6 +132,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.Abs
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.coroutineScope
 
 @Composable
 fun DetailScreen(
@@ -164,7 +165,7 @@ fun DetailScreen(
         )
     }
     var ratings by remember(media.stableKey) { mutableStateOf(viewModel.cachedRatings(media)) }
-    var detailPeople by remember(media.stableKey) { mutableStateOf(people) }
+    var detailPeople by remember(media.stableKey) { mutableStateOf(viewModel.cachedCast(media).ifEmpty { people }) }
     var detailEpisodes by remember(media.stableKey) {
         mutableStateOf(mergeWatchedEpisodes(cachedEpisodes.ifEmpty { episodes }, episodes, history))
     }
@@ -197,13 +198,17 @@ fun DetailScreen(
             watched = media.watched,
             libraryUpdatedAt = media.libraryUpdatedAt,
         )
-        ratings = viewModel.loadRatings(loadedDetail).ifEmpty { ratings }
-        detailPeople = viewModel.loadCast(loadedDetail).ifEmpty { detailPeople }
-        if (loadedDetail.type == MediaType.TV) {
-            detailEpisodes = mergeWatchedEpisodes(viewModel.loadAllEpisodes(loadedDetail), episodes, history)
+        coroutineScope {
+            launch { ratings = viewModel.loadRatings(loadedDetail).ifEmpty { ratings } }
+            launch { detailPeople = viewModel.loadCast(loadedDetail).ifEmpty { detailPeople } }
+            launch {
+                if (loadedDetail.type == MediaType.TV) {
+                    detailEpisodes = mergeWatchedEpisodes(viewModel.loadAllEpisodes(loadedDetail), episodes, history)
+                }
+            }
+            launch { collectionItems = viewModel.loadCollection(loadedDetail) }
+            launch { moreLikeThis = viewModel.loadRecommendations(loadedDetail).ifEmpty { recommended } }
         }
-        collectionItems = viewModel.loadCollection(loadedDetail)
-        moreLikeThis = viewModel.loadRecommendations(loadedDetail).ifEmpty { recommended }
     }
     LaunchedEffect(episodes, history) {
         if (detail.type == MediaType.TV) {
@@ -219,114 +224,149 @@ fun DetailScreen(
     AdaptiveBackground(
         artworkUrl = detail.posterUrl ?: detail.backdropUrl,
         hazeState = detailGlassState,
+        blurBackdrop = true,
         modifier = if (actorGlassState != null && (selectedPerson != null || showFullCast)) Modifier.hazeSource(actorGlassState) else Modifier,
     ) {
         val detailListState = rememberLazyListState()
         LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 0.dp)) {
             item { DetailHero(detail, onBack) }
-            item {
-                val sheetShape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.TallSheet, topEnd = com.cinetrack.ui.theme.Radius.TallSheet)
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .then(
-                            if (detailGlassState != null) {
-                                Modifier.clip(sheetShape).hazeEffect(detailGlassState, style = NavGlassStyle)
-                            } else {
-                                Modifier.background(
-                                    Brush.verticalGradient(
-                                        listOf(
-                                            com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
-                                            com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
-                                        ),
-                                    ),
-                                    sheetShape,
-                                )
-                            },
-                        )
-                        .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
-                        .navigationBarsPadding()
-                        .padding(top = com.cinetrack.ui.theme.Spacing.xxxl, bottom = 72.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
+            item(key = "detail_identity") {
+                DetailSectionSurface(first = true) {
                     DetailIdentity(detail, detailEpisodes)
-                    if (ratings.isNotEmpty()) RatingsSection(ratings)
-                    if (detail.overview.isNotBlank()) GlassTextSection(stringResource(R.string.overview), detail.overview)
-                    Row(
-                        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        val completed = detail.status == LibraryStatus.COMPLETED || detail.watched
-                        PrimaryAction(
-                            text = stringResource(if (completed) R.string.watched else R.string.mark_watched),
-                            icon = Icons.Filled.Check,
-                            modifier = Modifier.weight(1f),
-                            containerColor = if (completed) Success else Accent,
+                }
+            }
+            if (ratings.isNotEmpty()) {
+                item(key = "detail_ratings") {
+                    DetailSectionSurface {
+                        RatingsSection(ratings)
+                    }
+                }
+            }
+            if (detail.overview.isNotBlank()) {
+                item(key = "detail_overview") {
+                    DetailSectionSurface {
+                        GlassTextSection(stringResource(R.string.overview), detail.overview)
+                    }
+                }
+            }
+            item(key = "detail_actions") {
+                DetailSectionSurface {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Row(
+                            Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            val target = if (completed) {
-                                if (detail.type == MediaType.TV) LibraryStatus.WATCHING else LibraryStatus.PLAN_TO_WATCH
-                            } else LibraryStatus.COMPLETED
-                            detail = detail.copy(status = target, watched = target == LibraryStatus.COMPLETED)
-                            onStatus(detail, target)
-                        }
-                        Box(
-                            Modifier.size(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                            val completed = detail.status == LibraryStatus.COMPLETED || detail.watched
+                            PrimaryAction(
+                                text = stringResource(if (completed) R.string.watched else R.string.mark_watched),
+                                icon = Icons.Filled.Check,
+                                modifier = Modifier.weight(1f),
+                                containerColor = if (completed) Success else Accent,
+                            ) {
+                                val target = if (completed) {
+                                    if (detail.type == MediaType.TV) LibraryStatus.WATCHING else LibraryStatus.PLAN_TO_WATCH
+                                } else LibraryStatus.COMPLETED
+                                detail = detail.copy(status = target, watched = target == LibraryStatus.COMPLETED)
+                                onStatus(detail, target)
+                            }
+                            Box(
+                                Modifier.size(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                                 .clickable(onClick = openLibrarySheet),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                if (detail.status == LibraryStatus.NONE) Icons.Outlined.BookmarkBorder else libraryStatusIcon(detail.status),
-                                stringResource(R.string.choose_library_status),
-                                tint = if (detail.status == LibraryStatus.NONE) AccentLight else libraryStatusColor(detail.status),
-                                modifier = Modifier.size(20.dp),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    if (detail.status == LibraryStatus.NONE) Icons.Outlined.BookmarkBorder else libraryStatusIcon(detail.status),
+                                    stringResource(R.string.choose_library_status),
+                                    tint = if (detail.status == LibraryStatus.NONE) AccentLight else libraryStatusColor(detail.status),
+                                    modifier = Modifier.size(20.dp),
+                                )
+                            }
+                        }
+                        TrailerActionButton { trailerSheet = true }
+                    }
+                }
+            }
+            if (detail.type == MediaType.TV && detailEpisodes.isNotEmpty()) {
+                item(key = "detail_episodes") {
+                    DetailSectionSurface {
+                        if (detail.type == MediaType.TV && detailEpisodes.isNotEmpty()) {
+                            EpisodesSection(
+                                detail,
+                                detailEpisodes,
+                                onEpisode,
+                                initialSeason = initialSeason,
+                                initialEpisode = initialEpisode,
+                                hazeState = null,
+                                onEpisodeWatched = { episode, watched ->
+                                    val previousUnwatched = if (watched) detailEpisodes.filter {
+                                        !it.watched &&
+                                        (it.season < episode.season || (it.season == episode.season && it.number < episode.number))
+                                    } else emptyList()
+                                    if (previousUnwatched.isNotEmpty()) {
+                                        pendingPreviousEpisodes = episode to previousUnwatched
+                                    } else {
+                                        detailEpisodes = detailEpisodes.map {
+                                            if (it.season == episode.season && it.number == episode.number) it.copy(watched = watched) else it
+                                        }
+                                        viewModel.setEpisodeWatched(episode, watched)
+                                    }
+                                },
+                                onSeasonWatched = { seasonEpisodes, watched ->
+                                    val numbers = seasonEpisodes.map { it.season to it.number }.toSet()
+                                    detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = watched) else it }
+                                    viewModel.setSeasonWatched(seasonEpisodes, watched)
+                                },
                             )
                         }
                     }
-                    TrailerActionButton { trailerSheet = true }
-                    if (detail.type == MediaType.TV && detailEpisodes.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
-                        EpisodesSection(
-                            detail,
-                            detailEpisodes,
-                            onEpisode,
-                            initialSeason = initialSeason,
-                            initialEpisode = initialEpisode,
-                            hazeState = detailGlassState,
-                            onEpisodeWatched = { episode, watched ->
-                                val previousUnwatched = if (watched) detailEpisodes.filter {
-                                    !it.watched &&
-                                        (it.season < episode.season || (it.season == episode.season && it.number < episode.number))
-                                } else emptyList()
-                                if (previousUnwatched.isNotEmpty()) {
-                                    pendingPreviousEpisodes = episode to previousUnwatched
-                                } else {
-                                    detailEpisodes = detailEpisodes.map {
-                                        if (it.season == episode.season && it.number == episode.number) it.copy(watched = watched) else it
-                                    }
-                                    viewModel.setEpisodeWatched(episode, watched)
-                                }
-                            },
-                            onSeasonWatched = { seasonEpisodes, watched ->
-                                val numbers = seasonEpisodes.map { it.season to it.number }.toSet()
-                                detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = watched) else it }
-                                viewModel.setSeasonWatched(seasonEpisodes, watched)
-                            },
-                        )
-                    }
-                    if (detailPeople.isNotEmpty()) {
-                        CastSection(detailPeople, onViewAll = { showFullCast = true }, hazeState = detailGlassState) { selectedPerson = it }
-                    }
-                    if (collectionItems.isNotEmpty()) {
-                        CollectionSection(detail, collectionItems, onMedia)
-                    }
-                    if (detail.providers.isNotEmpty()) ProviderSection(detail, detailGlassState)
-                    UsefulInfoSection(detail, detailGlassState)
-                    if (moreLikeThis.isNotEmpty()) {
-                        SectionHeader(stringResource(R.string.more_like_this), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.sm))
-                        MediaRail(moreLikeThis.filterNot { it.stableKey == detail.stableKey }, onMedia)
+                }
+            }
+            if (detailPeople.isNotEmpty()) {
+                item(key = "detail_cast") {
+                    DetailSectionSurface {
+                        if (detailPeople.isNotEmpty()) {
+                            CastSection(detailPeople, onViewAll = { showFullCast = true }, hazeState = null) { selectedPerson = it }
+                        }
                     }
                 }
+            }
+            if (collectionItems.isNotEmpty()) {
+                item(key = "detail_collection") {
+                    DetailSectionSurface {
+                        if (collectionItems.isNotEmpty()) {
+                            CollectionSection(detail, collectionItems, onMedia)
+                        }
+                    }
+                }
+            }
+            if (detail.providers.isNotEmpty()) {
+                item(key = "detail_providers") {
+                    DetailSectionSurface {
+                        ProviderSection(detail, null)
+                    }
+                }
+            }
+            item(key = "detail_information") {
+                DetailSectionSurface {
+                    UsefulInfoSection(detail, null)
+                }
+            }
+            if (moreLikeThis.isNotEmpty()) {
+                item(key = "detail_recommendations") {
+                    DetailSectionSurface {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            if (moreLikeThis.isNotEmpty()) {
+                                SectionHeader(stringResource(R.string.more_like_this), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = 0.dp))
+                                MediaRail(moreLikeThis.filterNot { it.stableKey == detail.stableKey }, onMedia)
+                            }
+                        }
+                    }
+                }
+            }
+            item(key = "detail_bottom") {
+                Box(Modifier.fillMaxWidth().background(com.cinetrack.ui.theme.Background0.copy(alpha = .58f))
+                    .navigationBarsPadding().height(72.dp))
             }
         }
     }
@@ -808,24 +848,36 @@ private fun EpisodesSection(
     }
 }
 
+/** Sections are lazy, while the backdrop blur is rendered once at viewport size. */
+@Composable
+private fun DetailSectionSurface(first: Boolean = false, content: @Composable () -> Unit) {
+    val shape = RoundedCornerShape(
+        topStart = if (first) com.cinetrack.ui.theme.Radius.TallSheet else 0.dp,
+        topEnd = if (first) com.cinetrack.ui.theme.Radius.TallSheet else 0.dp,
+    )
+    Box(Modifier.fillMaxWidth()
+        .background(com.cinetrack.ui.theme.Background0.copy(alpha = .58f), shape)
+        .padding(top = if (first) 32.dp else 0.dp, bottom = 24.dp)) { content() }
+}
+
 @Composable
 private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, hazeState: HazeState?, onPerson: (PersonCard) -> Unit) {
     Column {
         SectionHeader(stringResource(R.string.cast_and_crew), Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), stringResource(R.string.see_all), onViewAll)
         Spacer(Modifier.height(10.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(people, key = PersonCard::id) { person ->
+            items(people.take(18), key = PersonCard::id) { person ->
                 Column(
-                    Modifier.width(92.dp).then(if (hazeState != null) Modifier.detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) else Modifier).blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }.padding(vertical = 3.dp),
+                    Modifier.width(116.dp).detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }.padding(horizontal = 4.dp, vertical = 8.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    Box(Modifier.size(76.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
+                    Box(Modifier.size(96.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
                         if (!person.profileUrl.isNullOrBlank()) AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(34.dp))
                     }
                     Spacer(Modifier.height(7.dp))
-                    Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
@@ -845,12 +897,12 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, hazeS
             ) {
                 items(people, key = PersonCard::id) { person ->
                     Row(
-                        Modifier.fillMaxWidth().detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                        Modifier.fillMaxWidth().detailGlass(null, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }
-                            .padding(com.cinetrack.ui.theme.Spacing.sm),
+                            .padding(com.cinetrack.ui.theme.Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.size(48.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
+                        Box(Modifier.size(64.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
                             if (!person.profileUrl.isNullOrBlank()) {
                                 AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                             } else {
@@ -859,7 +911,7 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, hazeS
                         }
                         Spacer(Modifier.width(10.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                            Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                             Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                     }
@@ -1261,12 +1313,13 @@ fun EpisodeDetailScreen(
     AdaptiveBackground(
         artworkUrl = currentEpisode.stillUrl ?: show?.backdropUrl ?: show?.posterUrl,
         hazeState = detailGlassState,
+        blurBackdrop = true,
         modifier = if (actorGlassState != null && (selectedPerson != null || showFullCast)) Modifier.hazeSource(actorGlassState) else Modifier,
     ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
-            beyondViewportPageCount = 1,
+            beyondViewportPageCount = 0,
             key = { it },
         ) { page ->
             val displayedEpisode = when (page) {
@@ -1296,7 +1349,7 @@ fun EpisodeDetailScreen(
                         Modifier.fillMaxWidth()
                             .then(
                                 if (detailGlassState != null) {
-                                    Modifier.clip(sheetShape).hazeEffect(detailGlassState, style = NavGlassStyle)
+                                    Modifier.background(com.cinetrack.ui.theme.Background0.copy(alpha = .58f), sheetShape)
                                 } else {
                                     Modifier.background(
                                         Brush.verticalGradient(
@@ -1312,7 +1365,7 @@ fun EpisodeDetailScreen(
                             .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
                             .navigationBarsPadding()
                             .padding(top = com.cinetrack.ui.theme.Spacing.xxxl, bottom = 72.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(24.dp),
                     ) {
                         Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl)) {
                             Text(show?.title.orEmpty().uppercase(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, letterSpacing = .7.sp, fontWeight = FontWeight.ExtraBold)
@@ -1337,8 +1390,8 @@ fun EpisodeDetailScreen(
                             watched = newWatched
                             onWatched(displayedEpisode.copy(watched = newWatched), newWatched)
                         }
-                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }, hazeState = detailGlassState) { selectedPerson = it }
-                        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().detailGlass(detailGlassState).padding(com.cinetrack.ui.theme.Spacing.md)) {
+                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }, hazeState = null) { selectedPerson = it }
+                        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().detailGlass(null).padding(com.cinetrack.ui.theme.Spacing.md)) {
                             SectionHeader(stringResource(R.string.useful_information))
                             Spacer(Modifier.height(12.dp))
                             Row {

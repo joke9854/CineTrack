@@ -310,6 +310,7 @@ fun AdaptiveBackground(
     glow: Color? = null,
     secondaryGlow: Color? = null,
     hazeState: HazeState? = null,
+    blurBackdrop: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -356,6 +357,10 @@ fun AdaptiveBackground(
             // Capture only the backdrop, never the foreground sheet or its text.
             // Sibling source/effect layers avoid recursive blur and stay viewport-sized.
             Box(Modifier.matchParentSize().hazeSource(hazeState).then(backgroundModifier))
+            if (blurBackdrop) {
+                Box(Modifier.matchParentSize().hazeEffect(hazeState,
+                    style = NavGlassStyle.copy(tint = dev.chrisbanes.haze.HazeTint(Color.Transparent))))
+            }
             content()
         }
     }
