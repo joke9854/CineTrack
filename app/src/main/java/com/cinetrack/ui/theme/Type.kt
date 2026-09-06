@@ -8,7 +8,7 @@ import androidx.compose.ui.unit.sp
 // remain the responsibility of the existing semantic components.
 val CineTrackTypography = Typography(
     labelSmall = TextStyle(fontSize = 10.sp),
-    bodySmall = TextStyle(fontSize = 12.sp),
+    bodySmall = TextStyle(fontSize = 13.sp),
     bodyMedium = TextStyle(fontSize = 14.sp),
     titleSmall = TextStyle(fontSize = 16.sp),
     titleMedium = TextStyle(fontSize = 18.sp),

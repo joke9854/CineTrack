@@ -81,7 +81,7 @@ data class PersonMovieCreditEntity(
     val posterPath: String?,
 )
 
-@Entity(tableName = "user_media_state", primaryKeys = ["mediaType", "mediaId"])
+@Entity(tableName = "user_media_state", primaryKeys = ["mediaType", "mediaId"], indices = [Index(value = ["mediaType", "status"])])
 data class UserMediaStateEntity(
     val mediaType: String,
     val mediaId: Int,
@@ -92,7 +92,7 @@ data class UserMediaStateEntity(
     val dirty: Boolean = false,
 )
 
-@Entity(tableName = "playback", primaryKeys = ["mediaType", "mediaId", "episodeId"])
+@Entity(tableName = "playback", primaryKeys = ["mediaType", "mediaId", "episodeId"], indices = [Index("updatedAt")])
 data class PlaybackEntity(
     val mediaType: String,
     val mediaId: Int,
@@ -108,7 +108,7 @@ data class PlaybackEntity(
 
 @Entity(
     tableName = "watch_history",
-    indices = [Index(value = ["mediaType", "mediaId", "season", "episodeNumber"])],
+    indices = [Index(value = ["mediaType", "mediaId", "season", "episodeNumber"]), Index("watchedAt")],
 )
 data class WatchHistoryEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -464,7 +464,7 @@ interface PeopleDao {
         SyncStateEntity::class,
         PendingWriteEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -501,12 +501,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val migration4To5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_watch_history_watchedAt` ON `watch_history` (`watchedAt`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_updatedAt` ON `playback` (`updatedAt`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_user_media_state_mediaType_status` ON `user_media_state` (`mediaType`, `status`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5).build().also { instance = it }
         }
     }
 }

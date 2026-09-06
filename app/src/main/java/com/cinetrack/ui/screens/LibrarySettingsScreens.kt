@@ -241,7 +241,7 @@ fun LibraryScreen(
             LazyRow(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(
                     filterChoices,
-                    key = { (value, label, _) -> "${value?.name ?: "all"}:$label" },
+                    key = { (value, _, _) -> value?.name ?: "all" },
                 ) { (value, label, color) ->
                     val selected = status == value
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }

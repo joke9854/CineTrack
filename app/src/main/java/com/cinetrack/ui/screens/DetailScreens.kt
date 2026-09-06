@@ -44,8 +44,6 @@ import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Business
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Movie
@@ -110,6 +108,9 @@ import com.cinetrack.ui.components.MediaRail
 import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.SectionHeader
 import com.cinetrack.ui.components.SharedGlassSheet
+import com.cinetrack.ui.components.NavGlassStyle
+import com.cinetrack.ui.components.rememberDetailGlassState
+import dev.chrisbanes.haze.hazeEffect
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.blueEdgeClickable
 import com.cinetrack.ui.components.libraryStatusColor
@@ -210,7 +211,8 @@ fun DetailScreen(
             )
         }
     }
-    AdaptiveBackground(artworkUrl = detail.posterUrl ?: detail.backdropUrl) {
+    val detailGlassState = rememberDetailGlassState()
+    AdaptiveBackground(artworkUrl = detail.posterUrl ?: detail.backdropUrl, hazeState = detailGlassState) {
         val detailListState = rememberLazyListState()
         LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 0.dp)) {
             item { DetailHero(detail, onBack) }
@@ -219,14 +221,20 @@ fun DetailScreen(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .background(
-                            Brush.verticalGradient(
-                                listOf(
-                                    com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
-                                    com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
-                                ),
-                            ),
-                            sheetShape,
+                        .then(
+                            if (detailGlassState != null) {
+                                Modifier.clip(sheetShape).hazeEffect(detailGlassState, style = NavGlassStyle)
+                            } else {
+                                Modifier.background(
+                                    Brush.verticalGradient(
+                                        listOf(
+                                            com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
+                                            com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
+                                        ),
+                                    ),
+                                    sheetShape,
+                                )
+                            },
                         )
                         .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
                         .navigationBarsPadding()
@@ -731,13 +739,7 @@ private fun EpisodesSection(
                         }
                         Spacer(Modifier.width(11.dp))
                         Column(Modifier.weight(1f)) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(summary?.title ?: stringResource(R.string.season_number, seasonNumber), color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-                                Spacer(Modifier.width(7.dp))
-                                Box(Modifier.size(27.dp).clip(CircleShape).background(com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .52f)), contentAlignment = Alignment.Center) {
-                                    Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(17.dp))
-                                }
-                            }
+                            Text(summary?.title ?: stringResource(R.string.season_number, seasonNumber), color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                             Text(stringResource(R.string.season_progress, watched, summary?.episodeCount ?: seasonEpisodes.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
                         Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = seasonWatchedAction).padding(8.dp).clip(CircleShape).background(if (allWatched) Success.copy(alpha = .28f) else com.cinetrack.ui.theme.SurfacePalette.NeutralControl.copy(alpha = .60f)), contentAlignment = Alignment.Center) {

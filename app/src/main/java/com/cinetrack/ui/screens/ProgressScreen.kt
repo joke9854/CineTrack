@@ -255,7 +255,19 @@ fun ProgressScreen(
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextPrimary, modifier = Modifier.size(21.dp))
                     }
                 }
-                ProgressTabs(tab) { tab = it }
+                ProgressTabs(tab) { selected ->
+                    val targetListState = when (selected) {
+                        ProgressTab.IN_PROGRESS -> progressListState
+                        ProgressTab.CALENDAR -> calendarListState
+                        ProgressTab.HISTORY -> historyListState
+                        ProgressTab.STATISTICS -> statisticsListState
+                    }
+                    // Also reset when tapping the already-selected pill. Request
+                    // the position before the incoming page's first measurement.
+                    targetListState.requestScrollToItem(0)
+                    tab = selected
+                    onCompactNav(false)
+                }
                 SyncCard(syncProgress, state.simklConnected, onSync)
             AnimatedContent(
                 targetState = tab,
@@ -746,13 +758,14 @@ private fun PlaybackRow(
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = 52.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = 12.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
                 Text(item.media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
                     val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
                     listOfNotNull(numbered.takeIf(String::isNotBlank), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
                 } else stringResource(R.string.movies)
                 Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Spacer(Modifier.weight(1f))
                 Text(
                     remainingMinutes?.let { "${formatDurationMinutes(it)} ${stringResource(R.string.remaining).lowercase()}" }
                         ?: if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.up_next)
@@ -762,7 +775,7 @@ private fun PlaybackRow(
                     fontWeight = FontWeight.Bold,
                     maxLines = 1,
                 )
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
                 AnimatedProgressBar(timelineProgress)
                 Spacer(Modifier.height(15.dp))
             }

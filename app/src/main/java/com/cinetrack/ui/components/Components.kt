@@ -138,6 +138,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 
@@ -308,6 +309,7 @@ fun AdaptiveBackground(
     artworkUrl: String? = null,
     glow: Color? = null,
     secondaryGlow: Color? = null,
+    hazeState: HazeState? = null,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val context = LocalContext.current
@@ -326,8 +328,7 @@ fun AdaptiveBackground(
     val primary by animateColorAsState(primaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptivePrimary")
     val secondary by animateColorAsState(secondaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveSecondary")
     val base by animateColorAsState(baseTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveBase")
-    Box(
-        Modifier
+    val backgroundModifier = Modifier
             .fillMaxSize()
             .background(base)
             .drawBehind {
@@ -346,9 +347,17 @@ fun AdaptiveBackground(
                     ),
                 )
                 drawRect(Brush.verticalGradient(listOf(Color.Transparent, Background0.copy(alpha = .16f))))
-            },
-        content = content,
-    )
+            }
+    if (hazeState == null) {
+        Box(backgroundModifier, content = content)
+    } else {
+        Box(Modifier.fillMaxSize()) {
+            // Capture only the backdrop, never the foreground sheet or its text.
+            // Sibling source/effect layers avoid recursive blur and stay viewport-sized.
+            Box(Modifier.matchParentSize().hazeSource(hazeState).then(backgroundModifier))
+            content()
+        }
+    }
 }
 
 private suspend fun extractArtworkColors(context: android.content.Context, url: String): Pair<Color, Color>? = withContext(Dispatchers.IO) {
