@@ -2108,7 +2108,12 @@ class CineTrackRepository(
             // Room can bind the complete import in one prepared batch instead
             // of executing one INSERT statement for every watched episode.
             if (importedHistory.isNotEmpty()) {
-                database.timelineDao().insertHistoryItems(importedHistory.filterNot { it.episodeKey() in locallyRemoved })
+                // Retain the local row once, even if the download already includes
+                // that same episode. Otherwise watch-time statistics double-count it.
+                val localKeys = locallyAdded.mapNotNull { it.episodeKey() }.toSet()
+                database.timelineDao().insertHistoryItems(
+                    importedHistory.filterNot { it.episodeKey() in locallyRemoved || it.episodeKey() in localKeys },
+                )
             }
             if (locallyAdded.isNotEmpty()) {
                 database.timelineDao().insertHistoryItems(locallyAdded)
