@@ -310,6 +310,7 @@ fun AdaptiveBackground(
     glow: Color? = null,
     secondaryGlow: Color? = null,
     hazeState: HazeState? = null,
+    modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val context = LocalContext.current
@@ -349,9 +350,9 @@ fun AdaptiveBackground(
                 drawRect(Brush.verticalGradient(listOf(Color.Transparent, Background0.copy(alpha = .16f))))
             }
     if (hazeState == null) {
-        Box(backgroundModifier, content = content)
+        Box(modifier.then(backgroundModifier), content = content)
     } else {
-        Box(Modifier.fillMaxSize()) {
+        Box(modifier.fillMaxSize()) {
             // Capture only the backdrop, never the foreground sheet or its text.
             // Sibling source/effect layers avoid recursive blur and stay viewport-sized.
             Box(Modifier.matchParentSize().hazeSource(hazeState).then(backgroundModifier))
@@ -835,27 +836,37 @@ fun LiquidBottomNav(
 fun SharedGlassSheet(
     onDismiss: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    hazeState: HazeState? = null,
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet)
+    val handle: @Composable () -> Unit = {
+        Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        // Padding the ModalBottomSheet itself also pads/clips its popup window on
-        // some One UI builds. Keep the window full-width; sheet content supplies
-        // its own safe horizontal inset.
         modifier = Modifier.fillMaxWidth(),
         sheetState = sheetState,
-        containerColor = com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
+        containerColor = if (hazeState != null) Color.Transparent else com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
-        shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
-        dragHandle = {
-            Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
-                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
-            }
-        },
+        shape = shape,
+        // Include the handle in the blurred content so the material covers the
+        // whole sheet. Other callers keep the original translucent layout.
+        dragHandle = if (hazeState == null) handle else null,
     ) {
-        content()
-        Spacer(Modifier.height(30.dp))
+        if (hazeState != null) {
+            Column(Modifier.fillMaxWidth().clip(shape).hazeEffect(hazeState, style = NavGlassStyle)) {
+                handle()
+                content()
+                Spacer(Modifier.height(30.dp))
+            }
+        } else {
+            content()
+            Spacer(Modifier.height(30.dp))
+        }
     }
 }
 

@@ -111,6 +111,9 @@ import com.cinetrack.ui.components.SharedGlassSheet
 import com.cinetrack.ui.components.NavGlassStyle
 import com.cinetrack.ui.components.rememberDetailGlassState
 import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
+import com.cinetrack.ui.components.detailGlass
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.blueEdgeClickable
 import com.cinetrack.ui.components.libraryStatusColor
@@ -212,7 +215,12 @@ fun DetailScreen(
         }
     }
     val detailGlassState = rememberDetailGlassState()
-    AdaptiveBackground(artworkUrl = detail.posterUrl ?: detail.backdropUrl, hazeState = detailGlassState) {
+    val actorGlassState = rememberDetailGlassState()
+    AdaptiveBackground(
+        artworkUrl = detail.posterUrl ?: detail.backdropUrl,
+        hazeState = detailGlassState,
+        modifier = if (actorGlassState != null && (selectedPerson != null || showFullCast)) Modifier.hazeSource(actorGlassState) else Modifier,
+    ) {
         val detailListState = rememberLazyListState()
         LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 0.dp)) {
             item { DetailHero(detail, onBack) }
@@ -284,6 +292,7 @@ fun DetailScreen(
                             onEpisode,
                             initialSeason = initialSeason,
                             initialEpisode = initialEpisode,
+                            hazeState = detailGlassState,
                             onEpisodeWatched = { episode, watched ->
                                 val previousUnwatched = if (watched) detailEpisodes.filter {
                                     !it.watched &&
@@ -306,13 +315,13 @@ fun DetailScreen(
                         )
                     }
                     if (detailPeople.isNotEmpty()) {
-                        CastSection(detailPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
+                        CastSection(detailPeople, onViewAll = { showFullCast = true }, hazeState = detailGlassState) { selectedPerson = it }
                     }
                     if (collectionItems.isNotEmpty()) {
                         CollectionSection(detail, collectionItems, onMedia)
                     }
-                    if (detail.providers.isNotEmpty()) ProviderSection(detail)
-                    UsefulInfoSection(detail)
+                    if (detail.providers.isNotEmpty()) ProviderSection(detail, detailGlassState)
+                    UsefulInfoSection(detail, detailGlassState)
                     if (moreLikeThis.isNotEmpty()) {
                         SectionHeader(stringResource(R.string.more_like_this), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.sm))
                         MediaRail(moreLikeThis.filterNot { it.stableKey == detail.stableKey }, onMedia)
@@ -343,10 +352,10 @@ fun DetailScreen(
         )
     }
     selectedPerson?.let { person ->
-        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia, hazeState = actorGlassState)
     }
     if (showFullCast) {
-        FullCastSheet(detailPeople, onDismiss = { showFullCast = false }) { person ->
+        FullCastSheet(detailPeople, onDismiss = { showFullCast = false }, hazeState = actorGlassState) { person ->
             showFullCast = false
             selectedPerson = person
         }
@@ -623,9 +632,9 @@ private fun RatingsSection(ratings: List<RatingScore>) {
 }
 
 @Composable
-private fun ProviderSection(media: MediaCard) {
+private fun ProviderSection(media: MediaCard, hazeState: HazeState?) {
     val uriHandler = LocalUriHandler.current
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().glass().padding(com.cinetrack.ui.theme.Spacing.md)) {
+    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().detailGlass(hazeState).padding(com.cinetrack.ui.theme.Spacing.md)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.PlayArrow, null, tint = AccentLight)
             Spacer(Modifier.width(8.dp))
@@ -676,6 +685,7 @@ private fun EpisodesSection(
     onEpisode: (EpisodeCard) -> Unit,
     initialSeason: Int?,
     initialEpisode: Int?,
+    hazeState: HazeState?,
     onEpisodeWatched: (EpisodeCard, Boolean) -> Unit,
     onSeasonWatched: (List<EpisodeCard>, Boolean) -> Unit,
 ) {
@@ -722,7 +732,7 @@ private fun EpisodesSection(
                 val expandAction = rememberUiAction { expandedSeason = if (expanded) null else seasonNumber }
                 val seasonWatchedAction = rememberUiAction { onSeasonWatched(seasonEpisodes, !allWatched) }
                 Column(
-                    Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                    Modifier.fillMaxWidth().detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                         .border(if (seasonPressed) 1.6.dp else 0.dp, Accent.copy(alpha = if (seasonPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)),
                 ) {
                     Row(
@@ -760,7 +770,7 @@ private fun EpisodesSection(
                                 }
                                 val watchedAction = rememberUiAction { onEpisodeWatched(episode, !episode.watched) }
                                 Column(
-                                    Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+                                    Modifier.fillMaxWidth().detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
                                         .then(
                                             if (returnTarget) Modifier.border(.8.dp, Accent.copy(alpha = .72f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
                                             else Modifier,
@@ -799,14 +809,14 @@ private fun EpisodesSection(
 }
 
 @Composable
-private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, onPerson: (PersonCard) -> Unit) {
+private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, hazeState: HazeState?, onPerson: (PersonCard) -> Unit) {
     Column {
         SectionHeader(stringResource(R.string.cast_and_crew), Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), stringResource(R.string.see_all), onViewAll)
         Spacer(Modifier.height(10.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             items(people, key = PersonCard::id) { person ->
                 Column(
-                    Modifier.width(92.dp).blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }.padding(vertical = 3.dp),
+                    Modifier.width(92.dp).then(if (hazeState != null) Modifier.detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) else Modifier).blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }.padding(vertical = 3.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     Box(Modifier.size(76.dp).clip(CircleShape).background(Brush.linearGradient(listOf(Accent, Info)))) {
@@ -823,8 +833,8 @@ private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, onPerso
 }
 
 @Composable
-private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPerson: (PersonCard) -> Unit) {
-    SharedGlassSheet(onDismiss) {
+private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, hazeState: HazeState?, onPerson: (PersonCard) -> Unit) {
+    SharedGlassSheet(onDismiss, hazeState = hazeState) {
         Column(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
             SectionHeader(stringResource(R.string.full_cast))
             Spacer(Modifier.height(10.dp))
@@ -835,7 +845,7 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPer
             ) {
                 items(people, key = PersonCard::id) { person ->
                     Row(
-                        Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                        Modifier.fillMaxWidth().detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                             .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)) { onPerson(person) }
                             .padding(com.cinetrack.ui.theme.Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
@@ -960,8 +970,8 @@ private fun tmdbStatusLabel(status: String): String = when (status.lowercase()) 
 }
 
 @Composable
-private fun UsefulInfoSection(media: MediaCard) {
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().glass().padding(com.cinetrack.ui.theme.Spacing.md)) {
+private fun UsefulInfoSection(media: MediaCard, hazeState: HazeState?) {
+    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().detailGlass(hazeState).padding(com.cinetrack.ui.theme.Spacing.md)) {
         SectionHeader(stringResource(R.string.useful_information))
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
@@ -1080,12 +1090,12 @@ private fun InfoCell(
 }
 
 @Composable
-private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit) {
+private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit, hazeState: HazeState?) {
     var details by remember(person.id) { mutableStateOf(person) }
     var biographyExpanded by remember(person.id) { mutableStateOf(false) }
     var biographyOverflowing by remember(person.id) { mutableStateOf(false) }
     LaunchedEffect(person.id) { details = viewModel.loadPerson(person) }
-    SharedGlassSheet(onDismiss) {
+    SharedGlassSheet(onDismiss, hazeState = hazeState) {
         Column(
             Modifier.fillMaxWidth().fillMaxHeight(.72f).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)
                 .verticalScroll(rememberScrollState()),
@@ -1131,7 +1141,10 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                 Spacer(Modifier.height(8.dp))
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     details.movieCredits.forEach { movie ->
-                        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(com.cinetrack.ui.theme.GlassBare)
+                        Row(Modifier.fillMaxWidth().then(
+                            if (hazeState != null) Modifier.detailGlass(hazeState, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+                            else Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(com.cinetrack.ui.theme.GlassBare),
+                        )
                             .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)) { onDismiss(); onMedia(movie) }.padding(com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.width(42.dp).height(60.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f))) {
                                 if (!movie.posterUrl.isNullOrBlank()) AsyncImage(movie.posterUrl, movie.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
@@ -1243,7 +1256,13 @@ fun EpisodeDetailScreen(
     }
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
-    AdaptiveBackground(artworkUrl = currentEpisode.stillUrl ?: show?.backdropUrl ?: show?.posterUrl) {
+    val detailGlassState = rememberDetailGlassState()
+    val actorGlassState = rememberDetailGlassState()
+    AdaptiveBackground(
+        artworkUrl = currentEpisode.stillUrl ?: show?.backdropUrl ?: show?.posterUrl,
+        hazeState = detailGlassState,
+        modifier = if (actorGlassState != null && (selectedPerson != null || showFullCast)) Modifier.hazeSource(actorGlassState) else Modifier,
+    ) {
         HorizontalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize(),
@@ -1275,14 +1294,20 @@ fun EpisodeDetailScreen(
                     val sheetShape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.TallSheet, topEnd = com.cinetrack.ui.theme.Radius.TallSheet)
                     Column(
                         Modifier.fillMaxWidth()
-                            .background(
-                                Brush.verticalGradient(
-                                    listOf(
-                                        com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
-                                        com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
-                                    ),
-                                ),
-                                sheetShape,
+                            .then(
+                                if (detailGlassState != null) {
+                                    Modifier.clip(sheetShape).hazeEffect(detailGlassState, style = NavGlassStyle)
+                                } else {
+                                    Modifier.background(
+                                        Brush.verticalGradient(
+                                            listOf(
+                                                com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .46f),
+                                                com.cinetrack.ui.theme.SurfacePalette.SheetSurface.copy(alpha = .56f),
+                                            ),
+                                        ),
+                                        sheetShape,
+                                    )
+                                },
                             )
                             .border(.6.dp, com.cinetrack.ui.theme.Glass, sheetShape)
                             .navigationBarsPadding()
@@ -1312,8 +1337,8 @@ fun EpisodeDetailScreen(
                             watched = newWatched
                             onWatched(displayedEpisode.copy(watched = newWatched), newWatched)
                         }
-                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
-                        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().glass().padding(com.cinetrack.ui.theme.Spacing.md)) {
+                        if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }, hazeState = detailGlassState) { selectedPerson = it }
+                        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().detailGlass(detailGlassState).padding(com.cinetrack.ui.theme.Spacing.md)) {
                             SectionHeader(stringResource(R.string.useful_information))
                             Spacer(Modifier.height(12.dp))
                             Row {
@@ -1336,10 +1361,10 @@ fun EpisodeDetailScreen(
         }
     }
     selectedPerson?.let { person ->
-        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia, hazeState = actorGlassState)
     }
     if (showFullCast) {
-        FullCastSheet(loadedPeople, onDismiss = { showFullCast = false }) { person ->
+        FullCastSheet(loadedPeople, onDismiss = { showFullCast = false }, hazeState = actorGlassState) { person ->
             showFullCast = false
             selectedPerson = person
         }

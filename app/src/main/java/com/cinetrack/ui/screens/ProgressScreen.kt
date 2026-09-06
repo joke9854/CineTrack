@@ -256,17 +256,14 @@ fun ProgressScreen(
                     }
                 }
                 ProgressTabs(tab) { selected ->
-                    val targetListState = when (selected) {
-                        ProgressTab.IN_PROGRESS -> progressListState
-                        ProgressTab.CALENDAR -> calendarListState
-                        ProgressTab.HISTORY -> historyListState
-                        ProgressTab.STATISTICS -> statisticsListState
+                    if (selected == tab) {
+                        // Reselecting the visible list returns it to the top.
+                        activeListState.requestScrollToItem(0)
+                        onCompactNav(false)
+                    } else {
+                        // Each tab keeps its own remembered scroll position.
+                        tab = selected
                     }
-                    // Also reset when tapping the already-selected pill. Request
-                    // the position before the incoming page's first measurement.
-                    targetListState.requestScrollToItem(0)
-                    tab = selected
-                    onCompactNav(false)
                 }
                 SyncCard(syncProgress, state.simklConnected, onSync)
             AnimatedContent(
@@ -758,7 +755,7 @@ private fun PlaybackRow(
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = 12.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.md, end = 4.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
                 Text(item.media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
                     val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")

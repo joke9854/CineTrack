@@ -1,16 +1,21 @@
-# CineTrack 0.71 testing
+# CineTrack 0.72 testing
 
-- Tapping any Progress tab (In progress, Calendar, History or Statistics) returns its list to the top, including a second tap on the selected tab.
-- Remaining time / Up next now sits directly above the progress bar in episode and movie cards.
-- Progress titles gain 40dp of text space by reducing redundant end padding from 52dp to 12dp; card size, title line limit and check-button position are preserved.
-- Season headers no longer show an expand/collapse icon. Tapping the header still opens/closes the season; the current-season default behavior and watched button are preserved.
-- Shared bodySmall text increases from 12sp to 13sp, including plot summaries and secondary labels.
-- Library filter keys use the stable status value and do not change with translated labels.
-- Room upgrades from version 4 to 5 in one data-preserving migration, adding indexes on watch_history(watchedAt), playback(updatedAt), and user_media_state(mediaType, status). The existing episode-history index is retained. Local substring search remains unchanged; no FTS or additional dependencies were introduced.
-- First glass expansion stage: the main movie/TV detail sheet uses the navigation blur material on Android 12+ devices that are not low-RAM. Its source captures only the page background so foreground text stays sharp. Other devices retain the previous translucent sheet.
+- Progress tabs preserve their individual scroll positions when switching between In progress, Calendar, History and Statistics. Only tapping the currently selected tab returns that list to the top.
+- Episode/movie cards gain another 12dp of text width through smaller side padding. The title keeps its existing size and one-line limit, and the check button stays in place.
+- Live glass blur is now enabled throughout all scheduled detail surfaces, without waiting for the earlier device-scroll gate.
 
-## Validation and staged follow-up
+## Blur locations
 
-The index migration is checked against SQLite with 6,000 representative rows for data preservation, unchanged table definitions, index definitions and ordered-query plans. Both CI workflows run this check alongside their Android compilation/unit-test gates.
+- Movie and TV detail panels (retained from 0.71).
+- Episode detail panels.
+- Actor/crew cards in the cast rail on movie, TV and episode detail pages.
+- Actor detail popup, including its handle and filmography cards.
+- Full cast popup and its person cards.
+- Seasons and episodes: season cards and expanded episode cards.
+- Where to watch section.
+- Useful information on movie, TV and episode detail pages.
+- Bottom navigation (existing blur retained).
 
-The requested physical-device scroll gate remains open for the new detail-sheet blur. Actor popup/card, Seasons and episodes, Where to watch, and Useful information blur will be extended one surface at a time after that check, as requested. Visual checks for short/long Progress titles and the shared 13sp text also need a device. App-specific Baseline Profile generation remains a separate pending device task.
+All these surfaces use the existing 16dp blur material on Android 12+ devices that are not classified as low-RAM. Unsupported devices retain their previous translucent layouts. Detail sections sample the page backdrop; actor popups use a separate capture of the underlying page, so text and images inside the popup remain sharp. No new dependencies or database migration are introduced in this release.
+
+Compilation and release/unit-test checks run in GitHub Actions. Physical-device appearance and frame pacing have not been measured in this workspace; rollout no longer waits for that check, as requested.
