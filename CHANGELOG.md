@@ -1,11 +1,11 @@
-# CineTrack 0.75 testing
+# CineTrack 0.76 testing
 
-- Add Popular movies and Popular TV rows with full catalogue grids, English/Italian titles and the configured origin-country filter. Popular has no date restriction.
-- Preserve real Trending order under origin-country filters: fetch two global pages, keep matching origins, then append Popular results only if fewer than ten remain. Deduplicate and respect hidden titles. Global Trending keeps its existing three pages.
-- Load Discover pages concurrently with at most six HTTP requests at once. Reuse Popular results for fallback and finish networking before opening the database transaction.
-- Restore the original slide-and-fade detail-page enter/exit animations, retaining lazy sections and shared viewport blur.
-- Restore the 12dp ratings-to-description gap, retaining 24dp spacing between major sections.
-- Align section headings and body text to common gutters, including top-aligned Useful information labels when values wrap.
-- Use one larger cast/crew card in the row and the complete View all grid: 132dp width, a full-width 160dp rectangular photo, and equal name/role line slots. Photos fill their panels without circular clipping or stretching.
+- Add a Sync operations screen in Settings with pending writes, failed actions, individual retry controls and explicit local/Simkl conflict resolution.
+- Persist the synchronization queue in Room so offline writes and failures survive restarts, with a data-preserving database 5→6 migration.
+- Add notification permission guidance, configurable quiet hours, scheduled upcoming-release reminders and sync-failure notifications that open the affected operations.
+- Harden credentials, backups and updates: Android Keystore-backed API keys, sensitive-log redaction, bounded backup imports, rotating automatic backups and mandatory APK checksum verification.
+- Make startup non-blocking, load detail seasons concurrently, preserve cached upcoming items after partial network failures and avoid unnecessary full-state rebuilds.
+- Bound detail and episode-title caches, invalidate language-dependent entries correctly, and load the Up Next widget through a focused database query.
+- Run compilation, unit tests, lint, Baseline Profile generator compilation and Room migration checks in CI before publishing.
 
-Validation: regression tests cover regional/global request counts, ranking, fallback, deduplication, hidden titles and concurrent page loading. Android compilation, unit tests, signed release and signature checks run in CI. Live network timing and device rendering remain unmeasured.
+Saved TMDB and MDBList keys remain on the device during this update. App-specific Baseline Profile generation and final notification timing checks still require an Android device run.
