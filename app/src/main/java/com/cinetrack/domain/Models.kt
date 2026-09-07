@@ -177,6 +177,26 @@ data class ViewingPeopleInsights(
     val loading: Boolean = false,
 )
 
+enum class SyncOperationStatus { PENDING, FAILED, CONFLICT }
+
+enum class SyncConflictChoice { KEEP_LOCAL, USE_REMOTE }
+
+@Immutable
+data class SyncOperationCard(
+    val id: String,
+    val operation: String,
+    val mediaType: MediaType,
+    val mediaId: Int,
+    val title: String,
+    val status: SyncOperationStatus,
+    val message: String? = null,
+    val localValue: String? = null,
+    val remoteValue: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val attemptCount: Int = 0,
+)
+
 @Immutable
 data class AppUiState(
     val loading: Boolean = true,
@@ -196,6 +216,9 @@ data class AppUiState(
     val notificationEpisodes: Boolean = true,
     val notificationMovies: Boolean = true,
     val notificationSync: Boolean = true,
+    val quietHoursEnabled: Boolean = true,
+    val quietHoursStart: Int = 23,
+    val quietHoursEnd: Int = 8,
     val ratingSources: Set<String> = setOf("imdb", "tmdb", "metacritic", "tomatoes"),
     val contentRegions: Set<String> = emptySet(),
     val uiAccent: String = "watching",

@@ -365,6 +365,8 @@ object NetworkFactory {
         metadataTimezone: () -> String,
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
+            redactHeader("Authorization")
+            redactQueryParams("api_key")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         val common = OkHttpClient.Builder()

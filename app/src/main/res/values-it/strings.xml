@@ -343,6 +343,26 @@
     <string name="runtime_minutes_short">%1$d min</string>
     <string name="runtime_hours_short">%1$d h</string>
     <string name="runtime_hours_minutes_short">%1$d h %2$d min</string>
+    <string name="sync_operations">Operazioni di sincronizzazione</string>
+    <string name="sync_operations_summary">Controlla modifiche in coda, errori e conflitti</string>
+    <string name="sync_operations_status">Stato della coda</string>
+    <string name="pending_writes">Modifiche in attesa</string>
+    <string name="failed_actions">Azioni non riuscite</string>
+    <string name="conflicts_to_resolve">Conflitti da risolvere</string>
+    <string name="no_sync_operations">È tutto sincronizzato. Le nuove modifiche offline e i conflitti appariranno qui.</string>
+    <string name="sync_library_change">Modifica dello stato in raccolta</string>
+    <string name="sync_episode_watched">Episodio segnato come visto</string>
+    <string name="sync_episode_unwatched">Episodio segnato come non visto</string>
+    <string name="sync_history_removed">Rimozione dalla cronologia</string>
+    <string name="keep_local">Mantieni locale</string>
+    <string name="use_simkl">Usa Simkl</string>
+    <string name="local_value">Locale: %1$s</string>
+    <string name="remote_value">Simkl: %1$s</string>
+    <string name="try_now">Prova ora</string>
+    <string name="allow_notifications">Consenti notifiche</string>
+    <string name="quiet_hours_schedule">Orario silenzioso</string>
+    <string name="sync_failed_notification_title">CineTrack non è riuscito a sincronizzare</string>
+    <string name="sync_failed_notification_text">Le modifiche sono al sicuro e verranno riprovate. Apri Operazioni di sincronizzazione per i dettagli.</string>
     <plurals name="season_count"><item quantity="one">%d stagione</item><item quantity="other">%d stagioni</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episodio</item><item quantity="other">%d episodi</item></plurals>
 </resources>

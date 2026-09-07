@@ -63,6 +63,7 @@ import androidx.navigation.navArgument
 import com.cinetrack.CineTrackApplication
 import com.cinetrack.SimklAuthCallback
 import com.cinetrack.R
+import com.cinetrack.data.sync.ReleaseNotifier
 import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.components.BottomNavItem
 import com.cinetrack.ui.components.BrandMark
@@ -83,6 +84,8 @@ import com.cinetrack.ui.screens.SettingsDetailScreen
 import com.cinetrack.ui.screens.SettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private object Routes {
     const val Discover = "discover"
@@ -133,6 +136,14 @@ fun CineTrackApp(
     val requestedRoute by navigationRequest.collectAsStateWithLifecycle()
 
     SideEffect { applyUiAccent(state.uiAccent) }
+
+    LaunchedEffect(state.calendar, state.notificationEpisodes, state.notificationMovies, state.metadataTimezone) {
+        if (state.calendar.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                ReleaseNotifier.scheduleUpcoming(context, state, application.container.preferences)
+            }
+        }
+    }
 
     LaunchedEffect(route) { compactNav = false }
     LaunchedEffect(Unit) {

@@ -1,13 +1,20 @@
-"""Run the production 4→5 migration SQL against SQLite without extra dependencies."""
+"""Run the production 4→5 and 5→6 migration SQL against SQLite."""
 from pathlib import Path
 import re
 import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
-migration = source.split("object : Migration(4, 5) {", 1)[1].split("fun create(context:", 1)[0]
+migration = source.split("object : Migration(4, 5) {", 1)[1].split("private val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
 assert len(statements) == 3, "Expected the three production index statements"
 assert all(sql.startswith("CREATE INDEX IF NOT EXISTS ") for sql in statements)
+
+migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("fun create(context:", 1)[0]
+table_match = re.search(r'database\.execSQL\(\s*"""(CREATE TABLE.*?)""",?\s*\)', migration_6, re.S)
+assert table_match, "Expected the production sync_operations table statement"
+sync_table_statement = " ".join(table_match.group(1).split())
+sync_index_statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration_6)
+assert len(sync_index_statements) == 2, "Expected the two sync_operations indexes"
 
 # Version 4 column/PK definitions. Includes the existing episode-history index.
 db = sqlite3.connect(":memory:")
@@ -54,7 +61,18 @@ with db:
     for sql in statements:
         db.execute(sql)
 
-assert tables_before == db.execute("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+tables_after_index_migration = db.execute("SELECT name, sql FROM sqlite_master WHERE type='table' ORDER BY name").fetchall()
+with db:
+    db.execute(sync_table_statement)
+    for sql in sync_index_statements:
+        db.execute(sql)
+# The migration must also be safe if interrupted after SQLite committed a statement.
+with db:
+    db.execute(sync_table_statement)
+    for sql in sync_index_statements:
+        db.execute(sql)
+
+assert tables_before == tables_after_index_migration
 for table, before in snapshots.items():
     assert before == db.execute(f"SELECT * FROM {table} ORDER BY rowid").fetchall(), table
 for key, sql in queries.items():
@@ -64,6 +82,8 @@ for index, columns in {
     "index_playback_updatedAt": ["updatedAt"],
     "index_user_media_state_mediaType_status": ["mediaType", "status"],
     "index_watch_history_mediaType_mediaId_season_episodeNumber": ["mediaType", "mediaId", "season", "episodeNumber"],
+    "index_sync_operations_status": ["status"],
+    "index_sync_operations_mediaType_mediaId": ["mediaType", "mediaId"],
 }.items():
     assert [row[2] for row in db.execute(f"PRAGMA index_info('{index}')")] == columns, index
 for key, index in (("history", "index_watch_history_watchedAt"), ("playback", "index_playback_updatedAt")):
@@ -73,4 +93,6 @@ for key, index in (("history", "index_watch_history_watchedAt"), ("playback", "i
     assert timestamps == sorted(timestamps, reverse=True)
     print(f"{key}: {plan}")
 assert "SELECT * FROM media WHERE title LIKE '%' || :query || '%' ORDER BY score DESC LIMIT 60" in source
-print("PASS: 6,000 rows preserved, table schemas unchanged, four indexes intact, ordered-query sorts removed, local search unchanged.")
+sync_columns = [row[1] for row in db.execute("PRAGMA table_info('sync_operations')")]
+assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "title", "status", "message", "localValue", "remoteValue", "createdAt", "updatedAt", "attemptCount"]
+print("PASS: 6,000 rows preserved; database indexes and durable sync-operation migration verified.")

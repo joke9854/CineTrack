@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Android Keystore keys do not transfer with cloud backup. Never restore
+         ciphertext that a new installation cannot decrypt. -->
+    <exclude domain="sharedpref" path="cinetrack_secure_credentials.xml" />
+    <exclude domain="sharedpref" path="cinetrack_secure_credentials_v2.xml" />
+    <exclude domain="file" path="backups/" />
+    <exclude domain="file" path="cinetrack-error-log.txt" />
+</full-backup-content>

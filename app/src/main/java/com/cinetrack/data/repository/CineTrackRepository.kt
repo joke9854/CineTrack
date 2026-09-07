@@ -8,6 +8,7 @@ import com.cinetrack.data.local.MediaEntity
 import com.cinetrack.data.local.PendingWriteEntity
 import com.cinetrack.data.local.PlaybackEntity
 import com.cinetrack.data.local.SyncStateEntity
+import com.cinetrack.data.local.SyncOperationEntity
 import com.cinetrack.data.local.UpNextEntity
 import com.cinetrack.data.local.UserMediaStateEntity
 import com.cinetrack.data.local.WatchHistoryEntity
@@ -35,6 +36,9 @@ import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.SeasonCard
 import com.cinetrack.domain.SyncProgress
+import com.cinetrack.domain.SyncConflictChoice
+import com.cinetrack.domain.SyncOperationCard
+import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.domain.SyncReport
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.StreamingProvider
@@ -43,6 +47,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -52,6 +57,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
@@ -92,6 +98,7 @@ class CineTrackRepository(
     private val database: AppDatabase,
     private val services: ApiServices,
     val preferences: AppPreferences,
+    private val awaitStartupReady: suspend () -> Unit = {},
     private val onTokenChanged: (String?) -> Unit = {},
     private val currentToken: () -> String? = { null },
     private val onTmdbApiKeyChanged: (String) -> Unit = {},
@@ -102,6 +109,86 @@ class CineTrackRepository(
     private val onMetadataRegionChanged: (String) -> Unit = {},
     private val onMetadataTimezoneChanged: (String) -> Unit = {},
 ) {
+    suspend fun awaitStartup() = awaitStartupReady()
+
+    suspend fun loadWidgetUpNext(): PlaybackCard? {
+        awaitStartup()
+        val next = database.upNextDao().firstForWidget() ?: return null
+        val media = database.mediaDao().get(MediaType.TV.name, next.showId) ?: return null
+        val state = database.stateDao().get(MediaType.TV.name, next.showId)
+        return PlaybackCard(
+            media = media.toDomain(state),
+            episodeId = next.episodeId,
+            episodeLabel = "S${next.season.toString().padStart(2, '0')} E${next.episodeNumber.toString().padStart(2, '0')}",
+            episodeTitle = next.episodeTitle,
+            season = next.season,
+            episodeNumber = next.episodeNumber,
+            progress = 0f,
+            remainingMinutes = next.durationMinutes,
+            durationMinutes = next.durationMinutes,
+            episodeAirDate = next.episodeAirDate,
+        )
+    }
+    private fun stateOperationId(type: String, id: Int) = "state:$type:$id"
+    private fun writeOperationId(id: Long) = "write:$id"
+
+    private fun SyncOperationEntity.toDomain(): SyncOperationCard? {
+        val type = runCatching { MediaType.valueOf(mediaType) }.getOrNull() ?: return null
+        val operationStatus = runCatching { SyncOperationStatus.valueOf(status) }.getOrNull() ?: return null
+        return SyncOperationCard(
+            id = operationId,
+            operation = operation,
+            mediaType = type,
+            mediaId = mediaId,
+            title = title,
+            status = operationStatus,
+            message = message,
+            localValue = localValue,
+            remoteValue = remoteValue,
+            createdAt = createdAt,
+            updatedAt = updatedAt,
+            attemptCount = attemptCount,
+        )
+    }
+
+    private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
+        database.syncDao().upsertOperation(
+            SyncOperationEntity(
+                operationId = stateOperationId(media.type.name, media.id),
+                operation = "LIBRARY_STATUS",
+                mediaType = media.type.name,
+                mediaId = media.id,
+                title = media.title,
+                status = SyncOperationStatus.PENDING.name,
+                localValue = status.name,
+            ),
+        )
+    }
+
+    private suspend fun queueWriteOperation(writeId: Long, operation: String, mediaType: String, mediaId: Int, title: String, localValue: String) {
+        database.syncDao().upsertOperation(
+            SyncOperationEntity(
+                operationId = writeOperationId(writeId),
+                operation = operation,
+                mediaType = mediaType,
+                mediaId = mediaId,
+                title = title,
+                status = SyncOperationStatus.PENDING.name,
+                localValue = localValue,
+            ),
+        )
+    }
+
+    private suspend fun <T> cancellableResult(block: suspend () -> T): Result<T> = try {
+        Result.success(block())
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private fun syncError(error: Throwable): String =
+        error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
     private suspend fun localToday(): LocalDate {
         val configured = preferences.metadataTimezone.first()
         val zone = if (configured == "system") ZoneId.systemDefault()
@@ -130,22 +217,33 @@ class CineTrackRepository(
     )
 
     private val castCache = BoundedLruCache<String, List<PersonCard>>(32)
+    private val recommendationCandidatesCache = BoundedLruCache<String, List<TmdbMediaDto>>(32)
     private val episodeTitleCache = BoundedLruCache<String, String>(750)
     private val progressCacheMutex = Mutex()
     private val progressEnrichmentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressEnrichmentJob: Job? = null
+    private var automaticBackupJob: Job? = null
     @Volatile private var progressEnrichmentRequested = false
     private val libraryPushMutex = Mutex()
     private val progressCacheRepository by lazy {
         ProgressCacheRepository(database, preferences, tmdbApiKey, ::loadEpisodes)
     }
     val progressCacheRefreshing: Boolean get() = progressCacheMutex.isLocked
+
+    @Synchronized
+    private fun scheduleAutomaticBackup() {
+        automaticBackupJob?.cancel()
+        automaticBackupJob = progressEnrichmentScope.launch {
+            delay(1_500)
+            createAutomaticBackup()
+        }
+    }
     suspend fun loadInitial(): AppUiState {
         val cached = loadCachedState()
         if (tmdbApiKey().isBlank()) {
             return cached.copy(loading = false, error = "TMDB_API_TOKEN is missing")
         }
-        return runCatching {
+        return cancellableResult {
             refreshDiscover()
             loadCachedState().copy(loading = false)
         }.getOrElse { cached.copy(loading = false, error = it.message) }
@@ -203,7 +301,7 @@ class CineTrackRepository(
                 .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
         }
         val upcomingTv = async {
-            runCatching {
+            cancellableResult {
                 pages { page ->
                     services.tmdb.upcomingTv(
                         dateFrom = today.plusDays(1).toString(),
@@ -214,17 +312,22 @@ class CineTrackRepository(
                 }.inAllowedRegions().map { it.toEntity(MediaType.TV) }
                     .filterNot { "${it.mediaType}:${it.tmdbId}" in hiddenDiscovery }
             }
-                .getOrDefault(emptyList())
         }
         fun List<com.cinetrack.data.remote.TmdbMediaDto>.asRail(type: MediaType) =
             filterNot { "${type.name}:${it.id}" in hiddenDiscovery }.map { it.toEntity(type) }
         // Await every network result before taking Room's write lock.
+        val upcomingTvResult = upcomingTv.await()
+        val upcomingTvItems = upcomingTvResult.getOrElse {
+            // A partial Discover refresh must not erase a previously valid rail.
+            // Keep cached TV releases while fresh movie data can still update.
+            database.mediaDao().railMedia(RailIds.UPCOMING).filter { it.mediaType == MediaType.TV.name }
+        }
         val rails = linkedMapOf(
             RailIds.TRENDING_TV to tv.await(),
             RailIds.TRENDING_MOVIES to movies.await(),
             RailIds.POPULAR_TV to popularTv.await().asRail(MediaType.TV),
             RailIds.POPULAR_MOVIES to popularMovies.await().asRail(MediaType.MOVIE),
-            RailIds.UPCOMING to (upcomingMovies.await() + upcomingTv.await())
+            RailIds.UPCOMING to (upcomingMovies.await() + upcomingTvItems)
                 .filter { entity ->
                     entity.releaseDate?.let { raw -> runCatching { LocalDate.parse(raw.take(10)).isAfter(today) }.getOrDefault(false) } == true
                 }
@@ -304,7 +407,7 @@ class CineTrackRepository(
     suspend fun loadStreamingProviders(mediaType: MediaType): List<StreamingProvider> {
         if (tmdbApiKey().isBlank()) return emptyList()
         val region = effectiveProviderRegion()
-        return runCatching {
+        return cancellableResult {
             val providers = if (mediaType == MediaType.TV) {
                 services.tmdb.tvProviders(region).results
             } else {
@@ -336,7 +439,6 @@ class CineTrackRepository(
         "media",
         "media_rails",
         "user_media_state",
-        "episodes",
         "playback",
         "watch_history",
         "up_next",
@@ -370,6 +472,9 @@ class CineTrackRepository(
         val notificationEpisodesDeferred = async { preferences.notificationEpisodes.first() }
         val notificationMoviesDeferred = async { preferences.notificationMovies.first() }
         val notificationSyncDeferred = async { preferences.notificationSync.first() }
+        val quietHoursEnabledDeferred = async { preferences.quietHoursEnabled.first() }
+        val quietHoursStartDeferred = async { preferences.quietHoursStart.first() }
+        val quietHoursEndDeferred = async { preferences.quietHoursEnd.first() }
         val cardDensityDeferred = async { preferences.cardDensity.first() }
         val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
@@ -600,6 +705,9 @@ class CineTrackRepository(
             notificationEpisodes = notificationEpisodesDeferred.await(),
             notificationMovies = notificationMoviesDeferred.await(),
             notificationSync = notificationSyncDeferred.await(),
+            quietHoursEnabled = quietHoursEnabledDeferred.await(),
+            quietHoursStart = quietHoursStartDeferred.await(),
+            quietHoursEnd = quietHoursEndDeferred.await(),
             ratingSources = ratingSourcesDeferred.await(),
             contentRegions = contentRegionsDeferred.await(),
             uiAccent = uiAccentDeferred.await(),
@@ -682,6 +790,7 @@ class CineTrackRepository(
                 simklId = previous?.simklId,
                 dirty = true,
             ))
+            queueStateOperation(media, status)
             if (status == LibraryStatus.COMPLETED && previous?.watched != true) {
                 database.timelineDao().insertHistory(
                     WatchHistoryEntity(
@@ -712,6 +821,7 @@ class CineTrackRepository(
             }
             rebuildLibraryRailInTransaction()
         }
+        scheduleAutomaticBackup()
     }
 
     /**
@@ -719,14 +829,17 @@ class CineTrackRepository(
      * state dirty, so the normal synchronization pass retries it later.
      */
     suspend fun pushPendingLibraryChanges(): Result<Unit> = libraryPushMutex.withLock {
-        runCatching {
+        val pendingStates = database.stateDao().pendingStates()
+        val pendingWrites = database.syncDao().pendingWrites().filter { it.operation == "MEDIA_HISTORY_REMOVE" }
+        val operationIds = pendingStates.map { stateOperationId(it.mediaType, it.mediaId) } +
+            pendingWrites.map { writeOperationId(it.id) }
+        val result = cancellableResult {
             check(!preferences.tokenNow().isNullOrBlank()) { "Connect Simkl first" }
-            val historyRemovals = database.syncDao().pendingWrites().filter { it.operation == "MEDIA_HISTORY_REMOVE" }
-            historyRemovals.forEach { pushMediaHistoryRemoval(it) }
-            if (historyRemovals.isNotEmpty()) {
-                database.syncDao().deleteWrites(historyRemovals.map(PendingWriteEntity::id))
+            pendingWrites.forEach { pushMediaHistoryRemoval(it) }
+            if (pendingWrites.isNotEmpty()) {
+                database.syncDao().deleteWrites(pendingWrites.map(PendingWriteEntity::id))
             }
-            database.stateDao().pendingStates().forEach { state ->
+            pendingStates.forEach { state ->
                 pushLibraryState(state)
                 // Do not clear a newer selection that was made while this request
                 // was in flight.
@@ -737,16 +850,24 @@ class CineTrackRepository(
                 )
             }
         }
+        result.onSuccess {
+            if (operationIds.isNotEmpty()) database.syncDao().deleteOperations(operationIds)
+        }.onFailure { error ->
+            operationIds.forEach { database.syncDao().markOperationFailed(it, syncError(error)) }
+        }
+        result
     }
 
     /** Sends the item the user just changed before retrying unrelated writes. */
     suspend fun pushLibraryChange(type: MediaType, id: Int): Result<Unit> = libraryPushMutex.withLock {
-        runCatching {
+        val operationId = stateOperationId(type.name, id)
+        val state = database.stateDao().get(type.name, id) ?: return@withLock Result.success(Unit)
+        val historyRemovals = database.syncDao().pendingWrites().filter {
+            it.operation == "MEDIA_HISTORY_REMOVE" && it.mediaType == type.name && it.mediaId == id
+        }
+        val operationIds = listOf(operationId) + historyRemovals.map { writeOperationId(it.id) }
+        val result = cancellableResult {
             check(!preferences.tokenNow().isNullOrBlank()) { "Connect Simkl first" }
-            val state = database.stateDao().get(type.name, id) ?: return@runCatching
-            val historyRemovals = database.syncDao().pendingWrites().filter {
-                it.operation == "MEDIA_HISTORY_REMOVE" && it.mediaType == type.name && it.mediaId == id
-            }
             historyRemovals.forEach { pushMediaHistoryRemoval(it) }
             pushLibraryState(state)
             database.stateDao().markCleanIfUnchanged(state.mediaType, state.mediaId, state.updatedAt)
@@ -754,6 +875,12 @@ class CineTrackRepository(
                 database.syncDao().deleteWrites(historyRemovals.map(PendingWriteEntity::id))
             }
         }
+        result.onSuccess {
+            database.syncDao().deleteOperations(operationIds)
+        }.onFailure { error ->
+            operationIds.forEach { database.syncDao().markOperationFailed(it, syncError(error)) }
+        }
+        result
     }
 
     private suspend fun pushLibraryState(state: UserMediaStateEntity) {
@@ -801,6 +928,148 @@ class CineTrackRepository(
         services.simklSync.removeHistory(request)
     }
 
+    private suspend fun pushEpisodeWrite(write: PendingWriteEntity) {
+        val parts = write.payload.split(':', limit = 3)
+        val season = parts.getOrNull(0)?.toIntOrNull() ?: error("Invalid queued season")
+        val episode = parts.getOrNull(1)?.toIntOrNull() ?: error("Invalid queued episode")
+        val watchedAt = parts.getOrNull(2) ?: Instant.now().toString()
+        val request = SimklSyncRequest(
+            shows = listOf(
+                SimklSyncItem(
+                    ids = SimklIds(tmdb = write.mediaId.toString()),
+                    seasons = listOf(
+                        com.cinetrack.data.remote.SimklSeason(
+                            season,
+                            listOf(
+                                com.cinetrack.data.remote.SimklEpisode(
+                                    episode,
+                                    watchedAt.takeIf { write.operation == "EPISODE_WATCHED" },
+                                ),
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        )
+        if (write.operation == "EPISODE_WATCHED") services.simklSync.addHistory(request)
+        else services.simklSync.removeHistory(request)
+    }
+
+    /** Returns every durable local write, including rows created by older app versions. */
+    suspend fun loadSyncOperations(): List<SyncOperationCard> {
+        database.withTransaction {
+            val existing = database.syncDao().syncOperations().associateBy(SyncOperationEntity::operationId)
+            val media = database.mediaDao().mediaSnapshot().associateBy { "${it.mediaType}:${it.tmdbId}" }
+            val missing = buildList {
+                database.stateDao().pendingStates().forEach { state ->
+                    val id = stateOperationId(state.mediaType, state.mediaId)
+                    if (id !in existing) {
+                        add(
+                            SyncOperationEntity(
+                                operationId = id,
+                                operation = "LIBRARY_STATUS",
+                                mediaType = state.mediaType,
+                                mediaId = state.mediaId,
+                                title = media["${state.mediaType}:${state.mediaId}"]?.title ?: "${state.mediaType} #${state.mediaId}",
+                                status = SyncOperationStatus.PENDING.name,
+                                localValue = state.status,
+                                createdAt = state.updatedAt,
+                                updatedAt = state.updatedAt,
+                            ),
+                        )
+                    }
+                }
+                database.syncDao().pendingWrites().forEach { write ->
+                    val id = writeOperationId(write.id)
+                    if (id !in existing) {
+                        val detail = if (write.operation.startsWith("EPISODE_")) {
+                            write.payload.split(':').take(2).joinToString(" · ") { value -> value.padStart(2, '0') }
+                        } else write.operation
+                        add(
+                            SyncOperationEntity(
+                                operationId = id,
+                                operation = write.operation,
+                                mediaType = write.mediaType,
+                                mediaId = write.mediaId,
+                                title = media["${write.mediaType}:${write.mediaId}"]?.title ?: "${write.mediaType} #${write.mediaId}",
+                                status = SyncOperationStatus.PENDING.name,
+                                localValue = detail,
+                                createdAt = write.createdAt,
+                                updatedAt = write.createdAt,
+                                attemptCount = write.attemptCount,
+                            ),
+                        )
+                    }
+                }
+            }
+            if (missing.isNotEmpty()) database.syncDao().upsertOperations(missing)
+        }
+        return database.syncDao().syncOperations().mapNotNull { it.toDomain() }
+    }
+
+    suspend fun retrySyncOperation(operationId: String): Result<Unit> {
+        val operation = database.syncDao().syncOperation(operationId)
+            ?: return Result.failure(IllegalStateException("Sync operation no longer exists"))
+        return when (operation.operation) {
+            "LIBRARY_STATUS" -> pushLibraryChange(operation.toDomain()?.mediaType ?: MediaType.valueOf(operation.mediaType), operation.mediaId)
+            "EPISODE_WATCHED", "EPISODE_UNWATCHED", "MEDIA_HISTORY_REMOVE" -> {
+                val writeId = operationId.removePrefix("write:").toLongOrNull()
+                    ?: return Result.failure(IllegalStateException("Invalid queued operation"))
+                val write = database.syncDao().pendingWrite(writeId)
+                    ?: return Result.failure(IllegalStateException("Queued write no longer exists"))
+                val result = cancellableResult {
+                    check(!preferences.tokenNow().isNullOrBlank()) { "Connect Simkl first" }
+                    if (write.operation == "MEDIA_HISTORY_REMOVE") pushMediaHistoryRemoval(write) else pushEpisodeWrite(write)
+                }
+                result.onSuccess {
+                    database.withTransaction {
+                        database.syncDao().deleteWrite(write.id)
+                        database.syncDao().deleteOperation(operationId)
+                    }
+                }.onFailure { database.syncDao().markOperationFailed(operationId, syncError(it)) }
+                result
+            }
+            else -> Result.failure(IllegalStateException("Unsupported synchronization operation"))
+        }
+    }
+
+    suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice): Result<Unit> {
+        val conflict = database.syncDao().syncOperation(operationId)
+            ?: return Result.failure(IllegalStateException("Conflict no longer exists"))
+        if (conflict.status != SyncOperationStatus.CONFLICT.name) {
+            return Result.failure(IllegalStateException("Operation is not a conflict"))
+        }
+        if (choice == SyncConflictChoice.KEEP_LOCAL) {
+            database.syncDao().deleteOperation(operationId)
+            return Result.success(Unit)
+        }
+        val remoteStatus = conflict.remoteValue?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
+            ?: return Result.failure(IllegalStateException("Remote value is unavailable"))
+        val media = database.mediaDao().get(conflict.mediaType, conflict.mediaId)
+            ?: return Result.failure(IllegalStateException("Media is no longer available"))
+        database.withTransaction {
+            val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
+            database.stateDao().upsert(
+                UserMediaStateEntity(
+                    mediaType = conflict.mediaType,
+                    mediaId = conflict.mediaId,
+                    status = remoteStatus.name,
+                    watched = remoteStatus == LibraryStatus.COMPLETED,
+                    simklId = previous?.simklId,
+                    dirty = true,
+                ),
+            )
+            queueStateOperation(media.toDomain(), remoteStatus)
+            if (remoteStatus == LibraryStatus.NONE) database.timelineDao().deleteMediaHistory(conflict.mediaType, conflict.mediaId)
+            rebuildLibraryRailInTransaction()
+        }
+        val type = runCatching { MediaType.valueOf(conflict.mediaType) }.getOrNull()
+            ?: return Result.failure(IllegalStateException("Conflict media type is invalid"))
+        val result = pushLibraryChange(type, conflict.mediaId)
+        if (result.isSuccess) database.syncDao().deleteOperation(operationId)
+        return result
+    }
+
     suspend fun markWatched(media: MediaCard) {
         database.withTransaction {
             val previous = database.stateDao().get(media.type.name, media.id)
@@ -815,11 +1084,13 @@ class CineTrackRepository(
                     dirty = true,
                 ),
             )
+            queueStateOperation(media, LibraryStatus.COMPLETED)
             database.timelineDao().insertHistory(
                 WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = Instant.now().toString()),
             )
             rebuildLibraryRailInTransaction()
         }
+        scheduleAutomaticBackup()
     }
 
     suspend fun markEpisodeWatched(episode: EpisodeCard) {
@@ -841,11 +1112,15 @@ class CineTrackRepository(
             // is watched, but it must not reclaim the top after this transaction.
             database.stateDao().touch(MediaType.TV.name, episode.showId, System.currentTimeMillis())
             refreshLocalUpNext(episode.showId)
-            database.syncDao().queue(
+            val id = database.syncDao().queue(
                 PendingWriteEntity(operation = "EPISODE_WATCHED", mediaType = MediaType.TV.name,
                     mediaId = episode.showId, payload = "${episode.season}:${episode.number}:$watchedAt"),
             )
+            val showTitle = database.mediaDao().get(MediaType.TV.name, episode.showId)?.title ?: "TV #${episode.showId}"
+            queueWriteOperation(id, "EPISODE_WATCHED", MediaType.TV.name, episode.showId, showTitle, episode.label)
+            id
         }
+        scheduleAutomaticBackup()
         val request = SimklSyncRequest(
             shows = listOf(
                 SimklSyncItem(
@@ -859,8 +1134,13 @@ class CineTrackRepository(
                 ),
             ),
         )
-        if (!preferences.tokenNow().isNullOrBlank() && runCatching { services.simklSync.addHistory(request) }.isSuccess) {
-            database.syncDao().deleteWrite(writeId)
+        if (!preferences.tokenNow().isNullOrBlank()) {
+            cancellableResult { services.simklSync.addHistory(request) }
+                .onSuccess {
+                    database.syncDao().deleteWrite(writeId)
+                    database.syncDao().deleteOperation(writeOperationId(writeId))
+                }
+                .onFailure { database.syncDao().markOperationFailed(writeOperationId(writeId), syncError(it)) }
         }
     }
 
@@ -872,11 +1152,15 @@ class CineTrackRepository(
         val writeId = database.withTransaction {
             database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, episode.showId, episode.season, episode.number)
             refreshLocalUpNext(episode.showId)
-            database.syncDao().queue(
+            val id = database.syncDao().queue(
                 PendingWriteEntity(operation = "EPISODE_UNWATCHED", mediaType = MediaType.TV.name,
                     mediaId = episode.showId, payload = "${episode.season}:${episode.number}"),
             )
+            val showTitle = database.mediaDao().get(MediaType.TV.name, episode.showId)?.title ?: "TV #${episode.showId}"
+            queueWriteOperation(id, "EPISODE_UNWATCHED", MediaType.TV.name, episode.showId, showTitle, episode.label)
+            id
         }
+        scheduleAutomaticBackup()
         val request = SimklSyncRequest(
             shows = listOf(
                 SimklSyncItem(
@@ -890,8 +1174,13 @@ class CineTrackRepository(
                 ),
             ),
         )
-        if (!preferences.tokenNow().isNullOrBlank() && runCatching { services.simklSync.removeHistory(request) }.isSuccess) {
-            database.syncDao().deleteWrite(writeId)
+        if (!preferences.tokenNow().isNullOrBlank()) {
+            cancellableResult { services.simklSync.removeHistory(request) }
+                .onSuccess {
+                    database.syncDao().deleteWrite(writeId)
+                    database.syncDao().deleteOperation(writeOperationId(writeId))
+                }
+                .onFailure { database.syncDao().markOperationFailed(writeOperationId(writeId), syncError(it)) }
         }
     }
 
@@ -946,7 +1235,7 @@ class CineTrackRepository(
 
     suspend fun loadDetails(media: MediaCard): MediaCard {
         if (tmdbApiKey().isBlank()) return media
-        return runCatching {
+        return cancellableResult {
             val localized = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id) else services.tmdb.show(media.id, append = "aggregate_credits,recommendations,watch/providers,videos")
             val english = if (localized.overview.isBlank() || (localized.title ?: localized.name).isNullOrBlank()) {
                 runCatching {
@@ -960,6 +1249,7 @@ class CineTrackRepository(
                 overview = localized.overview.ifBlank { english?.overview.orEmpty() },
                 seasons = localized.seasons.ifEmpty { english?.seasons.orEmpty() },
             )
+            recommendationCandidatesCache[media.stableKey] = dto.recommendations?.results.orEmpty()
             castCards(dto.aggregateCredits ?: dto.credits).takeIf { it.isNotEmpty() }?.let {
                 castCache["${preferences.metadataLanguage.first()}:${media.stableKey}"] = it
             }
@@ -1017,7 +1307,7 @@ class CineTrackRepository(
         }
         database.mediaDao().get(type.name, id)?.let { return it.toDomain(state) }
         if (tmdbApiKey().isBlank()) return null
-        return runCatching {
+        return cancellableResult {
             val dto = if (type == MediaType.MOVIE) services.tmdb.movie(id) else services.tmdb.show(id)
             val entity = dto.toEntity(type)
             database.mediaDao().upsertMedia(listOf(entity))
@@ -1035,7 +1325,12 @@ class CineTrackRepository(
             // TMDB remains the independent source for the complete seasons and
             // episodes catalogue. Simkl is applied afterwards only as a date
             // overlay, so disconnecting a Simkl account never hides this section.
-            seasons.distinct().sorted().forEach { season -> loadEpisodes(detailedShow, season) }
+            val requests = Semaphore(4)
+            coroutineScope {
+                seasons.distinct().sorted().map { season ->
+                    async { requests.withPermit { loadEpisodes(detailedShow, season) } }
+                }.awaitAll()
+            }
         }
         refreshSimklSchedule(listOf(detailedShow))
         return loadCachedEpisodes(show.id)
@@ -1101,7 +1396,7 @@ class CineTrackRepository(
 
     suspend fun loadPerson(person: PersonCard): PersonCard {
         if (tmdbApiKey().isBlank()) return person
-        return runCatching {
+        return cancellableResult {
             val localized = services.tmdb.person(person.id)
             val english = if (localized.biography.isBlank()) {
                 runCatching { services.tmdb.person(person.id, language = "en-US") }.getOrNull()
@@ -1169,7 +1464,7 @@ class CineTrackRepository(
         if (tmdbApiKey().isBlank()) return emptyList()
         val key = "${preferences.metadataLanguage.first()}:${media.stableKey}"
         castCache[key]?.let { return it }
-        return runCatching {
+        return cancellableResult {
             val dto = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id) else services.tmdb.show(media.id, append = "aggregate_credits")
             castCards(dto.aggregateCredits ?: dto.credits).also { if (it.isNotEmpty()) castCache[key] = it }
         }.getOrDefault(emptyList())
@@ -1185,7 +1480,7 @@ class CineTrackRepository(
                 entity.toDomain().copy(watched = (entity.season to entity.number) in watchedNumbers)
             }
         if (tmdbApiKey().isBlank()) return cached
-        return runCatching {
+        return cancellableResult {
             val localized = services.tmdb.season(show.id, season).episodes
             val englishByNumber = if (localized.any { it.name.isBlank() || it.overview.isBlank() }) {
                 runCatching { services.tmdb.season(show.id, season, language = "en-US").episodes }
@@ -1574,7 +1869,7 @@ class CineTrackRepository(
         val watched = (season to number) in watchedEpisodeNumbers(show.id)
         val cached = database.mediaDao().episode(show.id, season, number)?.toDomain()?.copy(watched = watched)
         if (tmdbApiKey().isBlank()) return cached
-        return runCatching {
+        return cancellableResult {
             val localized = services.tmdb.episode(show.id, season, number)
             val english = if (localized.name.isBlank() || localized.overview.isBlank()) {
                 runCatching { services.tmdb.episode(show.id, season, number, language = "en-US") }.getOrNull()
@@ -1601,7 +1896,7 @@ class CineTrackRepository(
 
     suspend fun loadTrailerKey(media: MediaCard): String? {
         if (tmdbApiKey().isBlank()) return null
-        return runCatching {
+        return cancellableResult {
             val videos = if (media.type == MediaType.TV) {
                 services.tmdb.show(media.id).videos?.results.orEmpty()
             } else {
@@ -1621,7 +1916,7 @@ class CineTrackRepository(
 
     suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> {
         if (tmdbApiKey().isBlank()) return emptyList()
-        return runCatching {
+        return cancellableResult {
             val episode = services.tmdb.episode(show.id, season, number)
             (episode.credits?.cast.orEmpty() + episode.guestStars + episode.credits?.crew.orEmpty() + episode.crew).distinctBy { it.id }.map {
                 PersonCard(
@@ -1637,7 +1932,7 @@ class CineTrackRepository(
     suspend fun loadCollection(media: MediaCard): List<MediaCard> {
         val collectionId = media.collectionId ?: return emptyList()
         if (tmdbApiKey().isBlank()) return emptyList()
-        return runCatching {
+        return cancellableResult {
             services.tmdb.collection(collectionId).parts
                 .sortedBy { it.releaseDate.orEmpty() }
                 .map { it.toEntity(MediaType.MOVIE).toDomain() }
@@ -1646,11 +1941,13 @@ class CineTrackRepository(
 
     suspend fun loadRecommendations(media: MediaCard): List<MediaCard> {
         if (tmdbApiKey().isBlank()) return emptyList()
-        return runCatching {
-            val dto = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id) else services.tmdb.show(media.id)
+        return cancellableResult {
             val allowedRegions = preferences.contentRegions.first()
             val hiddenDiscovery = preferences.hiddenDiscovery.first()
-            val candidates = dto.recommendations?.results.orEmpty().take(18)
+            val candidates = (recommendationCandidatesCache[media.stableKey] ?: run {
+                val dto = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id) else services.tmdb.show(media.id)
+                dto.recommendations?.results.orEmpty().also { recommendationCandidatesCache[media.stableKey] = it }
+            }).take(18)
             val filteredCandidates = if (allowedRegions.isEmpty()) candidates else coroutineScope {
                 val requests = Semaphore(4)
                 candidates.map { candidate -> async {
@@ -1766,7 +2063,7 @@ class CineTrackRepository(
         val previousSyncState = database.syncDao().get("all")
         val previousSuccessfulSync = previousSyncState?.lastSuccessfulSync
         val previousReport = preferences.syncReportNow()
-        return runCatching {
+        return cancellableResult {
         check(!preferences.tokenNow().isNullOrBlank()) { "Connect Simkl first" }
         fun progress(running: Boolean, value: Float, stage: SyncStage, message: String? = null) =
             onProgress(SyncProgress(running, value, stage, message, previousSuccessfulSync))
@@ -1839,7 +2136,7 @@ class CineTrackRepository(
                     report = report,
                 ),
             )
-            return@runCatching SimklSyncOutcome(itemsChanged = progressChanged, report = report)
+            return@cancellableResult SimklSyncOutcome(itemsChanged = progressChanged, report = report)
         }
 
         val remote = coroutineScope {
@@ -1970,6 +2267,24 @@ class CineTrackRepository(
             .distinctBy { "${it.mediaType}:${it.tmdbId}" }
         val localMediaByKey = database.mediaDao().mediaSnapshot()
             .associateBy { "${it.mediaType}:${it.tmdbId}" }
+        val remoteStatesByKey = remoteStates.associateBy { "${it.mediaType}:${it.mediaId}" }
+        val conflictOperations = pendingLocalStates.mapNotNull { local ->
+            val remoteState = remoteStatesByKey["${local.mediaType}:${local.mediaId}"] ?: return@mapNotNull null
+            if (local.status == remoteState.status && local.watched == remoteState.watched) return@mapNotNull null
+            SyncOperationEntity(
+                operationId = "conflict:${local.mediaType}:${local.mediaId}",
+                operation = "LIBRARY_CONFLICT",
+                mediaType = local.mediaType,
+                mediaId = local.mediaId,
+                title = localMediaByKey["${local.mediaType}:${local.mediaId}"]?.title ?: "${local.mediaType} #${local.mediaId}",
+                status = SyncOperationStatus.CONFLICT.name,
+                message = "The title changed locally and on Simkl since the previous synchronization.",
+                localValue = local.status,
+                remoteValue = remoteState.status,
+                createdAt = local.updatedAt,
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
         // Commit Simkl's identifiers and list state immediately. TMDB artwork
         // enrichment used to run inside synchronization in serial batches and
         // made the apparent "local save" last minutes. Missing artwork is now
@@ -2001,25 +2316,7 @@ class CineTrackRepository(
         }
         pendingLocalStates.forEach { state -> pushLibraryState(state) }
         pendingEpisodeWrites.forEach { write ->
-            val parts = write.payload.split(':', limit = 3)
-            val season = parts.getOrNull(0)?.toIntOrNull() ?: return@forEach
-            val episode = parts.getOrNull(1)?.toIntOrNull() ?: return@forEach
-            val watchedAt = parts.getOrNull(2) ?: Instant.now().toString()
-            val request = SimklSyncRequest(
-                shows = listOf(
-                    SimklSyncItem(
-                        ids = SimklIds(tmdb = write.mediaId.toString()),
-                        seasons = listOf(
-                            com.cinetrack.data.remote.SimklSeason(
-                                season,
-                                listOf(com.cinetrack.data.remote.SimklEpisode(episode, if (write.operation == "EPISODE_WATCHED") watchedAt else null)),
-                            ),
-                        ),
-                    ),
-                ),
-            )
-            if (write.operation == "EPISODE_WATCHED") services.simklSync.addHistory(request)
-            else services.simklSync.removeHistory(request)
+            pushEpisodeWrite(write)
             pushedWriteIds += write.id
         }
         progress(true, .62f, SyncStage.HISTORY)
@@ -2155,6 +2452,10 @@ class CineTrackRepository(
                 database.stateDao().markCleanIfUnchanged(state.mediaType, state.mediaId, state.updatedAt)
             }
             pushedWriteIds.chunked(500).forEach { ids -> database.syncDao().deleteWrites(ids) }
+            val completedOperationIds = pendingLocalStates.map { stateOperationId(it.mediaType, it.mediaId) } +
+                pushedWriteIds.map(::writeOperationId)
+            completedOperationIds.chunked(500).forEach { ids -> database.syncDao().deleteOperations(ids) }
+            if (conflictOperations.isNotEmpty()) database.syncDao().upsertOperations(conflictOperations)
             database.syncDao().upsertAll(syncStates)
             // Library membership, history, playback and sync generation become
             // visible in the same commit. No observer can see the halfway state.
@@ -2162,11 +2463,10 @@ class CineTrackRepository(
         }
         preferences.markSimklChecked(committedAt)
         progress(true, .78f, SyncStage.COMMIT)
-        val remoteStateKeys = remoteStates.map { "${it.mediaType}:${it.mediaId}" }.toSet()
         val addedCount = remoteStates.count { state ->
             localStatesByKey["${state.mediaType}:${state.mediaId}"]?.status in setOf(null, LibraryStatus.NONE.name)
         }
-        val conflictCount = pendingLocalStates.count { "${it.mediaType}:${it.mediaId}" in remoteStateKeys }
+        val conflictCount = conflictOperations.size
         val fullSync = !episodeBaselineComplete || !librarySnapshotComplete || completeTvSnapshot || completeMovieSnapshot
         val report = SyncReport(
             downloaded = resolvedItems.size + importedHistory.size,
@@ -2197,7 +2497,10 @@ class CineTrackRepository(
         }
         onProgress(SyncProgress(false, 1f, SyncStage.COMPLETE, lastSuccessfulSync = committedAt, report = report))
         SimklSyncOutcome(itemsChanged = remoteChanged || pendingCount > 0 || progressChanged, report = report)
-        }.onFailure {
+        }.onFailure { error ->
+            database.syncDao().syncOperations()
+                .filter { operation -> operation.status == SyncOperationStatus.PENDING.name }
+                .forEach { operation -> database.syncDao().markOperationFailed(operation.operationId, syncError(error)) }
             val committedSync = database.syncDao().get("all")?.lastSuccessfulSync
             val databaseWasUpdated = committedSync != null && committedSync != previousSuccessfulSync
             val report = previousReport.copy(
@@ -2207,7 +2510,7 @@ class CineTrackRepository(
                 databaseUntouched = !databaseWasUpdated,
             )
             preferences.saveSyncReport(report)
-            onProgress(SyncProgress(false, 0f, SyncStage.ERROR, it.message, previousSuccessfulSync, report))
+            onProgress(SyncProgress(false, 0f, SyncStage.ERROR, error.message, previousSuccessfulSync, report))
         }
     }
 
@@ -2225,7 +2528,7 @@ class CineTrackRepository(
 
     suspend fun setIntroductionCompleted(value: Boolean) = preferences.setIntroductionCompleted(value)
 
-    suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit> = runCatching {
+    suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit> = cancellableResult {
         val candidate = value.trim()
         require(candidate.isNotBlank()) { "TMDB API credential cannot be empty" }
         NetworkFactory.create(
@@ -2239,7 +2542,7 @@ class CineTrackRepository(
         onTmdbApiKeyChanged(candidate)
     }
 
-    suspend fun verifyAndSetMdbListApiKey(value: String): Result<Unit> = runCatching {
+    suspend fun verifyAndSetMdbListApiKey(value: String): Result<Unit> = cancellableResult {
         val candidate = value.trim()
         require(candidate.isNotBlank()) { "MDBList API credential cannot be empty" }
         services.mdbList.mediaInfo(mediaType = "movie", id = 550, apiKey = candidate)
@@ -2260,6 +2563,9 @@ class CineTrackRepository(
     suspend fun setMetadataLanguage(value: String) {
         preferences.setMetadataLanguage(value)
         onMetadataLanguageChanged(value)
+        castCache.clear()
+        episodeTitleCache.clear()
+        recommendationCandidatesCache.clear()
     }
 
     suspend fun setMetadataRegion(value: String) {
@@ -2385,6 +2691,12 @@ class CineTrackRepository(
                 put("metadataTimezone", state.metadataTimezone)
                 put("backgroundSync", state.backgroundSync)
                 put("wifiOnly", state.wifiOnly)
+                put("notificationEpisodes", state.notificationEpisodes)
+                put("notificationMovies", state.notificationMovies)
+                put("notificationSync", state.notificationSync)
+                put("quietHoursEnabled", state.quietHoursEnabled)
+                put("quietHoursStart", state.quietHoursStart)
+                put("quietHoursEnd", state.quietHoursEnd)
                 put("contentRegions", state.contentRegions.sorted().joinToString(","))
                 put("ratingSources", state.ratingSources.sorted().joinToString(","))
                 put("excludeSpecials", state.excludeSpecials)
@@ -2495,10 +2807,19 @@ class CineTrackRepository(
         check(media.isNotEmpty() || history.isNotEmpty() || playback.isNotEmpty() || settings != null) {
             "The backup has no restorable records"
         }
+        fun WatchHistoryEntity.restoreKey() = listOf(
+            mediaType,
+            mediaId.toString(),
+            season?.toString().orEmpty(),
+            episodeNumber?.toString().orEmpty(),
+            watchedAt,
+        ).joinToString(":")
+        val existingHistoryKeys = database.timelineDao().historySnapshot().mapTo(mutableSetOf()) { it.restoreKey() }
+        val historyToInsert = history.distinctBy { it.restoreKey() }.filter { existingHistoryKeys.add(it.restoreKey()) }
         database.withTransaction {
             if (media.isNotEmpty()) database.mediaDao().upsertMedia(media.distinctBy { "${it.mediaType}:${it.tmdbId}" })
             if (states.isNotEmpty()) database.stateDao().upsertAll(states.distinctBy { "${it.mediaType}:${it.mediaId}" })
-            if (history.isNotEmpty()) database.timelineDao().insertHistoryItems(history)
+            if (historyToInsert.isNotEmpty()) database.timelineDao().insertHistoryItems(historyToInsert)
             if (files.containsKey("data/progress.jsonl")) {
                 database.timelineDao().clearPlayback()
                 if (playback.isNotEmpty()) database.timelineDao().upsertPlayback(playback)
@@ -2514,6 +2835,17 @@ class CineTrackRepository(
             saved["metadataTimezone"]?.jsonPrimitive?.contentOrNull?.let { setMetadataTimezone(it) }
             saved["backgroundSync"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setBackgroundSync(it) }
             saved["wifiOnly"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setWifiOnly(it) }
+            saved["notificationEpisodes"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setNotification("episodes", it) }
+            saved["notificationMovies"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setNotification("movies", it) }
+            saved["notificationSync"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setNotification("sync", it) }
+            val quietEnabled = saved["quietHoursEnabled"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()
+            if (quietEnabled != null) {
+                preferences.setQuietHours(
+                    quietEnabled,
+                    saved["quietHoursStart"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                    saved["quietHoursEnd"]?.jsonPrimitive?.contentOrNull?.toIntOrNull(),
+                )
+            }
             saved["contentRegions"]?.jsonPrimitive?.contentOrNull?.split(',')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setContentRegions(it) }
             saved["excludeSpecials"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setExcludeSpecials(it) }
@@ -2527,7 +2859,8 @@ class CineTrackRepository(
                 preferences.setRatingSource(source, source in sources)
             }
         }
-        return states.size + history.size
+        scheduleAutomaticBackup()
+        return states.size + historyToInsert.size
     }
 
     private fun String.withTrailingLine(): String = if (isBlank()) "" else trimEnd() + "\n"

@@ -22,4 +22,12 @@ class BoundedLruCacheTest {
         assertEquals("new", cache[1])
         assertEquals("other", cache[2])
     }
+    @Test fun clearRemovesEveryEntry() {
+        val cache = BoundedLruCache<Int, String>(2)
+        cache[1] = "one"
+        cache[2] = "two"
+        cache.clear()
+        assertNull(cache[1])
+        assertNull(cache[2])
+    }
 }

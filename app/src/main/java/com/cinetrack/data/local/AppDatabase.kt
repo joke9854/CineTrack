@@ -156,6 +156,26 @@ data class PendingWriteEntity(
     val attemptCount: Int = 0,
 )
 
+/** User-visible state for durable synchronization work and conflicts. */
+@Entity(
+    tableName = "sync_operations",
+    indices = [Index("status"), Index(value = ["mediaType", "mediaId"])],
+)
+data class SyncOperationEntity(
+    @PrimaryKey val operationId: String,
+    val operation: String,
+    val mediaType: String,
+    val mediaId: Int,
+    val title: String,
+    val status: String,
+    val message: String? = null,
+    val localValue: String? = null,
+    val remoteValue: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+    val attemptCount: Int = 0,
+)
+
 /**
  * One transactionally consistent view of every table used to build AppUiState.
  * Reading these tables independently allowed a sync commit to land between two
@@ -288,6 +308,13 @@ interface MediaDao {
     )
     fun observeRail(railId: String): Flow<List<MediaEntity>>
 
+    @Query(
+        """SELECT media.* FROM media
+           INNER JOIN media_rails ON media.mediaType = media_rails.mediaType AND media.tmdbId = media_rails.mediaId
+           WHERE media_rails.railId = :railId ORDER BY media_rails.position""",
+    )
+    suspend fun railMedia(railId: String): List<MediaEntity>
+
     @Query("SELECT * FROM media WHERE mediaType = :type AND tmdbId = :id LIMIT 1")
     suspend fun get(type: String, id: Int): MediaEntity?
 
@@ -391,6 +418,14 @@ interface UpNextDao {
     @Query("SELECT * FROM up_next ORDER BY showId")
     suspend fun snapshot(): List<UpNextEntity>
 
+    @Query(
+        """SELECT up_next.* FROM up_next
+           INNER JOIN user_media_state ON user_media_state.mediaType = 'TV' AND user_media_state.mediaId = up_next.showId
+           WHERE user_media_state.status NOT IN ('NONE', 'DROPPED')
+           ORDER BY user_media_state.updatedAt DESC LIMIT 1""",
+    )
+    suspend fun firstForWidget(): UpNextEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<UpNextEntity>)
 
@@ -427,11 +462,35 @@ interface SyncDao {
     @Query("SELECT * FROM pending_writes ORDER BY createdAt")
     suspend fun pendingWrites(): List<PendingWriteEntity>
 
+    @Query("SELECT * FROM pending_writes WHERE id = :id LIMIT 1")
+    suspend fun pendingWrite(id: Long): PendingWriteEntity?
+
     @Query("DELETE FROM pending_writes WHERE id = :id")
     suspend fun deleteWrite(id: Long)
 
     @Query("DELETE FROM pending_writes WHERE id IN (:ids)")
     suspend fun deleteWrites(ids: List<Long>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertOperation(operation: SyncOperationEntity)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertOperations(operations: List<SyncOperationEntity>)
+
+    @Query("SELECT * FROM sync_operations ORDER BY CASE status WHEN 'CONFLICT' THEN 0 WHEN 'FAILED' THEN 1 ELSE 2 END, updatedAt DESC")
+    suspend fun syncOperations(): List<SyncOperationEntity>
+
+    @Query("SELECT * FROM sync_operations WHERE operationId = :operationId LIMIT 1")
+    suspend fun syncOperation(operationId: String): SyncOperationEntity?
+
+    @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId")
+    suspend fun markOperationFailed(operationId: String, message: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM sync_operations WHERE operationId = :operationId")
+    suspend fun deleteOperation(operationId: String)
+
+    @Query("DELETE FROM sync_operations WHERE operationId IN (:operationIds)")
+    suspend fun deleteOperations(operationIds: List<String>)
 }
 
 @Dao
@@ -463,9 +522,10 @@ interface PeopleDao {
         UpNextEntity::class,
         SyncStateEntity::class,
         PendingWriteEntity::class,
+        SyncOperationEntity::class,
     ],
-    version = 5,
-    exportSchema = false,
+    version = 6,
+    exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun snapshotDao(): AppSnapshotDao
@@ -509,12 +569,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val migration5To6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """CREATE TABLE IF NOT EXISTS `sync_operations` (
+                       `operationId` TEXT NOT NULL,
+                       `operation` TEXT NOT NULL,
+                       `mediaType` TEXT NOT NULL,
+                       `mediaId` INTEGER NOT NULL,
+                       `title` TEXT NOT NULL,
+                       `status` TEXT NOT NULL,
+                       `message` TEXT,
+                       `localValue` TEXT,
+                       `remoteValue` TEXT,
+                       `createdAt` INTEGER NOT NULL,
+                       `updatedAt` INTEGER NOT NULL,
+                       `attemptCount` INTEGER NOT NULL,
+                       PRIMARY KEY(`operationId`))""",
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operations_status` ON `sync_operations` (`status`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operations_mediaType_mediaId` ON `sync_operations` (`mediaType`, `mediaId`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6).build().also { instance = it }
         }
     }
 }

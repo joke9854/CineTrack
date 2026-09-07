@@ -49,6 +49,7 @@ class MainActivity : AppCompatActivity() {
                 "/search" -> "search/discover"
                 "/up-next", "/progress" -> "progress"
                 "/sync" -> "sync"
+                "/sync-operations" -> "settings-detail/sync-operations"
                 "/library" -> "library"
                 else -> null
             }

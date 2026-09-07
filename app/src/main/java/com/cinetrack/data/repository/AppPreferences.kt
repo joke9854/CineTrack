@@ -11,6 +11,7 @@ import androidx.security.crypto.MasterKey
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
@@ -27,6 +28,7 @@ import java.util.UUID
 import java.io.File
 import java.io.FileOutputStream
 import java.io.FileInputStream
+import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -35,7 +37,9 @@ private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_prefer
 
 class AppPreferences(private val context: Context) {
     private val errorLogFile: File get() = File(context.filesDir, "cinetrack-error-log.txt")
-    private val securePreferences by lazy {
+    private val credentialStore by lazy { SecureCredentialStore(context) }
+    /** Read-only compatibility bridge for credentials saved before 0.76. */
+    private val legacySecurePreferences by lazy {
         val masterKey = MasterKey.Builder(context)
             .setKeyScheme(MasterKey.KeyScheme.AES256_GCM)
             .build()
@@ -46,6 +50,18 @@ class AppPreferences(private val context: Context) {
             EncryptedSharedPreferences.PrefKeyEncryptionScheme.AES256_SIV,
             EncryptedSharedPreferences.PrefValueEncryptionScheme.AES256_GCM,
         )
+    }
+    private fun secureCredential(key: String): String? {
+        credentialStore.get(key)?.let { return it }
+        val legacy = runCatching { legacySecurePreferences.getString(key, null) }.getOrNull() ?: return null
+        credentialStore.put(key, legacy)
+        runCatching { legacySecurePreferences.edit().remove(key).apply() }
+        return legacy
+    }
+
+    private fun setSecureCredential(key: String, value: String?) {
+        credentialStore.put(key, value)
+        runCatching { legacySecurePreferences.edit().remove(key).apply() }
     }
     private object Keys {
         val simklToken = stringPreferencesKey("simkl_token")
@@ -58,6 +74,9 @@ class AppPreferences(private val context: Context) {
         val notifyEpisodes = booleanPreferencesKey("notify_episodes")
         val notifyMovies = booleanPreferencesKey("notify_movies")
         val notifySync = booleanPreferencesKey("notify_sync")
+        val quietHoursEnabled = booleanPreferencesKey("quiet_hours_enabled")
+        val quietHoursStart = intPreferencesKey("quiet_hours_start")
+        val quietHoursEnd = intPreferencesKey("quiet_hours_end")
         val imdb = booleanPreferencesKey("rating_imdb")
         val tmdb = booleanPreferencesKey("rating_tmdb")
         val metacritic = booleanPreferencesKey("rating_metacritic")
@@ -81,7 +100,7 @@ class AppPreferences(private val context: Context) {
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
-        securePreferences.getString("simkl_token", null) ?: prefs[Keys.simklToken]
+        secureCredential("simkl_token") ?: prefs[Keys.simklToken]
     }
     val simklConnected: Flow<Boolean> = simklToken.map { !it.isNullOrBlank() }
     val backgroundSync: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.backgroundSync] ?: true }
@@ -111,6 +130,9 @@ class AppPreferences(private val context: Context) {
     val notificationEpisodes: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyEpisodes] ?: true }
     val notificationMovies: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyMovies] ?: true }
     val notificationSync: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifySync] ?: true }
+    val quietHoursEnabled: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnabled] ?: true }
+    val quietHoursStart: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursStart] ?: 23 }
+    val quietHoursEnd: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnd] ?: 8 }
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenUpcoming].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
@@ -121,15 +143,35 @@ class AppPreferences(private val context: Context) {
         it[Keys.introductionCompleted] ?: false
     }
 
-    suspend fun tokenNow(): String? = simklToken.first()
-    suspend fun tmdbApiKeyNow(): String = securePreferences.getString("tmdb_api_override", null)
-        ?.takeIf(String::isNotBlank)
-        ?: context.cineTrackDataStore.data.first()[Keys.tmdbApiOverride]?.takeIf(String::isNotBlank)
-        ?: BuildConfig.TMDB_API_TOKEN
-    suspend fun mdbListApiKeyNow(): String = securePreferences.getString("mdblist_api_override", null)
-        ?.takeIf(String::isNotBlank)
-        ?: context.cineTrackDataStore.data.first()[Keys.mdbListApiOverride]?.takeIf(String::isNotBlank)
-        ?: BuildConfig.MDBLIST_API_KEY
+    suspend fun tokenNow(): String? {
+        secureCredential("simkl_token")?.takeIf(String::isNotBlank)?.let { return it }
+        val legacy = context.cineTrackDataStore.data.first()[Keys.simklToken]?.takeIf(String::isNotBlank) ?: return null
+        setSecureCredential("simkl_token", legacy)
+        context.cineTrackDataStore.edit { it.remove(Keys.simklToken) }
+        return legacy
+    }
+
+    suspend fun tmdbApiKeyNow(): String {
+        secureCredential("tmdb_api_override")?.takeIf(String::isNotBlank)?.let { return it }
+        val legacy = context.cineTrackDataStore.data.first()[Keys.tmdbApiOverride]?.takeIf(String::isNotBlank)
+        if (legacy != null) {
+            setSecureCredential("tmdb_api_override", legacy)
+            context.cineTrackDataStore.edit { it.remove(Keys.tmdbApiOverride) }
+            return legacy
+        }
+        return BuildConfig.TMDB_API_TOKEN
+    }
+
+    suspend fun mdbListApiKeyNow(): String {
+        secureCredential("mdblist_api_override")?.takeIf(String::isNotBlank)?.let { return it }
+        val legacy = context.cineTrackDataStore.data.first()[Keys.mdbListApiOverride]?.takeIf(String::isNotBlank)
+        if (legacy != null) {
+            setSecureCredential("mdblist_api_override", legacy)
+            context.cineTrackDataStore.edit { it.remove(Keys.mdbListApiOverride) }
+            return legacy
+        }
+        return BuildConfig.MDBLIST_API_KEY
+    }
 
     suspend fun simklLastCheckAt(): Long? = context.cineTrackDataStore.data.first()[Keys.simklLastCheckAt]
 
@@ -160,9 +202,7 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun setToken(value: String?) {
-        securePreferences.edit().apply {
-            if (value.isNullOrBlank()) remove("simkl_token") else putString("simkl_token", value)
-        }.apply()
+        setSecureCredential("simkl_token", value)
         context.cineTrackDataStore.edit { prefs ->
             prefs.remove(Keys.simklToken)
             // A different account must always receive its own initial activity check.
@@ -193,6 +233,14 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[key] = enabled }
     }
 
+    suspend fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
+        context.cineTrackDataStore.edit { preferences ->
+            preferences[Keys.quietHoursEnabled] = enabled
+            startHour?.let { preferences[Keys.quietHoursStart] = it.coerceIn(0, 23) }
+            endHour?.let { preferences[Keys.quietHoursEnd] = it.coerceIn(0, 23) }
+        }
+    }
+
     suspend fun setRatingSource(source: String, enabled: Boolean) {
         val key = when (source.lowercase()) {
             "imdb" -> Keys.imdb
@@ -216,18 +264,14 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun setTmdbApiKey(value: String?) {
-        securePreferences.edit().apply {
-            if (value.isNullOrBlank()) remove("tmdb_api_override") else putString("tmdb_api_override", value.trim())
-        }.apply()
+        setSecureCredential("tmdb_api_override", value?.trim())
         context.cineTrackDataStore.edit { prefs ->
             prefs.remove(Keys.tmdbApiOverride)
         }
     }
 
     suspend fun setMdbListApiKey(value: String?) {
-        securePreferences.edit().apply {
-            if (value.isNullOrBlank()) remove("mdblist_api_override") else putString("mdblist_api_override", value.trim())
-        }.apply()
+        setSecureCredential("mdblist_api_override", value?.trim())
         context.cineTrackDataStore.edit { prefs ->
             prefs.remove(Keys.mdbListApiOverride)
         }
@@ -265,6 +309,16 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setNotifiedReleaseKeys(values: Set<String>) {
         context.cineTrackDataStore.edit { it[Keys.notifiedReleases] = values.toList().takeLast(200).joinToString("|") }
+    }
+
+    suspend fun markReleaseNotified(key: String): Boolean {
+        var added = false
+        context.cineTrackDataStore.edit { values ->
+            val current = values[Keys.notifiedReleases].orEmpty().split('|').filter(String::isNotBlank).toMutableSet()
+            added = current.add(key)
+            if (added) values[Keys.notifiedReleases] = current.toList().takeLast(200).joinToString("|")
+        }
+        return added
     }
 
     suspend fun setHiddenUpcoming(values: Set<String>) {
@@ -309,6 +363,10 @@ class AppPreferences(private val context: Context) {
                 }
             }
             check(temporary.length() > 0L) { "Automatic backup is empty" }
+            val previousOne = File(directory, "cinetrack-auto-backup.1.zip")
+            val previousTwo = File(directory, "cinetrack-auto-backup.2.zip")
+            if (previousOne.exists()) previousOne.copyTo(previousTwo, overwrite = true)
+            if (target.exists()) target.copyTo(previousOne, overwrite = true)
             if (target.exists()) target.delete()
             check(temporary.renameTo(target)) { "Could not publish automatic backup" }
         }.onFailure { appendErrorLog("${java.time.Instant.now()}  Automatic backup: ${it.message}") }
@@ -319,9 +377,25 @@ class AppPreferences(private val context: Context) {
         check(source.exists()) { "No automatic backup is available" }
         return linkedMapOf<String, String>().also { entries ->
             ZipInputStream(FileInputStream(source)).use { archive ->
+                var totalBytes = 0L
                 var entry = archive.nextEntry
                 while (entry != null) {
-                    if (!entry.isDirectory) entries[entry.name] = archive.readBytes().decodeToString()
+                    if (!entry.isDirectory) {
+                        check(entries.size < 32) { "Automatic backup contains too many entries" }
+                        val output = ByteArrayOutputStream()
+                        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                        var entryBytes = 0L
+                        while (true) {
+                            val read = archive.read(buffer)
+                            if (read <= 0) break
+                            entryBytes += read
+                            totalBytes += read
+                            check(entryBytes <= 32L * 1024 * 1024) { "Automatic backup entry is too large" }
+                            check(totalBytes <= 64L * 1024 * 1024) { "Automatic backup is too large" }
+                            output.write(buffer, 0, read)
+                        }
+                        entries[entry.name] = output.toByteArray().decodeToString()
+                    }
                     archive.closeEntry()
                     entry = archive.nextEntry
                 }
@@ -370,7 +444,7 @@ class AppPreferences(private val context: Context) {
             codeVerifier = verifier,
             redirectUri = BuildConfig.SIMKL_REDIRECT_URI,
         )
-        securePreferences.edit().putString("simkl_token", response.accessToken).apply()
+        setSecureCredential("simkl_token", response.accessToken)
         context.cineTrackDataStore.edit {
             it.remove(Keys.simklToken)
             it.remove(Keys.pkceVerifier)

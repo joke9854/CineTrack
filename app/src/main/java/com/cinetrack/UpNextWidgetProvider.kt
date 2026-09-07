@@ -17,7 +17,7 @@ class UpNextWidgetProvider : AppWidgetProvider() {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val repository = (context.applicationContext as CineTrackApplication).container.repository
-                val next = repository.loadCachedState().playbackTv.firstOrNull()
+                val next = repository.loadWidgetUpNext()
                 appWidgetIds.forEach { id ->
                     val views = RemoteViews(context.packageName, R.layout.up_next_widget).apply {
                         setTextViewText(R.id.widget_title, next?.media?.title ?: context.getString(R.string.up_next))

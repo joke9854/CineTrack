@@ -10,6 +10,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import com.cinetrack.CineTrackApplication
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 
 object SimklWorkScheduler {
     private const val WORK_NAME = "simkl-periodic-sync"
@@ -35,21 +36,31 @@ class SimklSyncWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
+        application.container.repository.awaitStartup()
         if (!application.container.preferences.simklConnectedValue()) return Result.success()
         if (!application.container.repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
         return application.container.repository.syncSimkl { }.fold(
             onSuccess = {
-                runCatching {
+                try {
+                    val state = application.container.repository.loadCachedState()
                     ReleaseNotifier.notifyUpcoming(
                         applicationContext,
-                        application.container.repository.loadCachedState(),
+                        state,
                         application.container.preferences,
                         application.container.repository,
                     )
+                    ReleaseNotifier.scheduleUpcoming(applicationContext, state, application.container.preferences)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Throwable) {
+                    // Release reminders are secondary to a completed data sync.
                 }
                 Result.success()
             },
-            onFailure = { if (runAttemptCount < 3) Result.retry() else Result.failure() },
+            onFailure = {
+                ReleaseNotifier.notifySyncFailure(applicationContext, application.container.preferences)
+                if (runAttemptCount < 3) Result.retry() else Result.failure()
+            },
         )
     }
 }

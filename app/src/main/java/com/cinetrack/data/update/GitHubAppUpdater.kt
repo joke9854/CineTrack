@@ -24,7 +24,7 @@ data class AppUpdateInfo(
     val notes: String,
     val releaseUrl: String,
     val apkUrl: String,
-    val checksumUrl: String?,
+    val checksumUrl: String,
     val apkSize: Long,
 )
 
@@ -103,7 +103,7 @@ object GitHubAppUpdater {
                 val checksum = release.assets.firstOrNull {
                     it.name.equals("${apk.name}.sha256", ignoreCase = true) ||
                         it.name.endsWith(".apk.sha256", ignoreCase = true)
-                }
+                } ?: return@mapNotNull null
                 val version = release.tagName.removePrefix("v")
                 AppUpdateInfo(
                     version = version,
@@ -111,7 +111,7 @@ object GitHubAppUpdater {
                     notes = release.body.orEmpty(),
                     releaseUrl = release.htmlUrl,
                     apkUrl = apk.downloadUrl,
-                    checksumUrl = checksum?.downloadUrl,
+                    checksumUrl = checksum.downloadUrl,
                     apkSize = apk.size,
                 )
             }
@@ -145,25 +145,23 @@ object GitHubAppUpdater {
             }
             connection.disconnect()
             if (expectedSize != null) check(temporary.length() == expectedSize) { "The downloaded APK is incomplete" }
-            update.checksumUrl?.let { checksumUrl ->
-                val checksumConnection = open(checksumUrl)
-                check(checksumConnection.responseCode in 200..299) { "Checksum download returned HTTP ${checksumConnection.responseCode}" }
-                val expected = checksumConnection.inputStream.bufferedReader().use { it.readText() }
-                    .trim().substringBefore(' ').lowercase()
-                checksumConnection.disconnect()
-                check(expected.matches(Regex("[a-f0-9]{64}"))) { "The release checksum is invalid" }
-                val digest = MessageDigest.getInstance("SHA-256")
-                temporary.inputStream().use { input ->
-                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        digest.update(buffer, 0, count)
-                    }
+            val checksumConnection = open(update.checksumUrl)
+            check(checksumConnection.responseCode in 200..299) { "Checksum download returned HTTP ${checksumConnection.responseCode}" }
+            val expected = checksumConnection.inputStream.bufferedReader().use { it.readText() }
+                .trim().substringBefore(' ').lowercase()
+            checksumConnection.disconnect()
+            check(expected.matches(Regex("[a-f0-9]{64}"))) { "The release checksum is invalid" }
+            val digest = MessageDigest.getInstance("SHA-256")
+            temporary.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    digest.update(buffer, 0, count)
                 }
-                val actual = digest.digest().joinToString("") { "%02x".format(it) }
-                check(actual == expected) { "The APK checksum does not match" }
             }
+            val actual = digest.digest().joinToString("") { "%02x".format(it) }
+            check(actual == expected) { "The APK checksum does not match" }
             if (target.exists()) target.delete()
             check(temporary.renameTo(target)) { "Could not prepare the downloaded APK" }
             onProgress(1f)

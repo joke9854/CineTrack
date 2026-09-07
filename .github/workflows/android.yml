@@ -21,4 +21,4 @@ jobs:
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile and test
-        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :baselineprofile:compileNonMinifiedReleaseKotlin
+        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug :baselineprofile:compileNonMinifiedReleaseKotlin

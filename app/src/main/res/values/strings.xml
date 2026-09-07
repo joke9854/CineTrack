@@ -343,6 +343,26 @@
     <string name="runtime_minutes_short">%1$d min</string>
     <string name="runtime_hours_short">%1$d h</string>
     <string name="runtime_hours_minutes_short">%1$d h %2$d min</string>
+    <string name="sync_operations">Sync operations</string>
+    <string name="sync_operations_summary">Review queued writes, failures and conflicts</string>
+    <string name="sync_operations_status">Queue status</string>
+    <string name="pending_writes">Pending writes</string>
+    <string name="failed_actions">Failed actions</string>
+    <string name="conflicts_to_resolve">Conflicts to resolve</string>
+    <string name="no_sync_operations">Everything is synchronized. New offline changes and conflicts will appear here.</string>
+    <string name="sync_library_change">Library status change</string>
+    <string name="sync_episode_watched">Episode marked watched</string>
+    <string name="sync_episode_unwatched">Episode marked unwatched</string>
+    <string name="sync_history_removed">Watch history removal</string>
+    <string name="keep_local">Keep local</string>
+    <string name="use_simkl">Use Simkl</string>
+    <string name="local_value">Local: %1$s</string>
+    <string name="remote_value">Simkl: %1$s</string>
+    <string name="try_now">Try now</string>
+    <string name="allow_notifications">Allow notifications</string>
+    <string name="quiet_hours_schedule">Quiet-hours schedule</string>
+    <string name="sync_failed_notification_title">CineTrack could not synchronize</string>
+    <string name="sync_failed_notification_text">Your changes are safe and will be retried. Open Sync operations for details.</string>
     <plurals name="season_count"><item quantity="one">%d season</item><item quantity="other">%d seasons</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episode</item><item quantity="other">%d episodes</item></plurals>
 </resources>

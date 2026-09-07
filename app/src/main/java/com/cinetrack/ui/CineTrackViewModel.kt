@@ -10,6 +10,7 @@ import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.BoundedLruCache
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.repository.SimklSyncOutcome
 import com.cinetrack.data.update.AppUpdateState
@@ -26,6 +27,8 @@ import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.SyncProgress
+import com.cinetrack.domain.SyncConflictChoice
+import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.ViewingPeopleInsights
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.FlowPreview
@@ -49,6 +52,7 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
+import java.io.ByteArrayOutputStream
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.TimeUnit
@@ -70,10 +74,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
     private val pendingEpisodeEdits = PendingEpisodeEdits()
-    private val detailCastCache = mutableMapOf<String, List<PersonCard>>()
-    private val detailMediaCache = mutableMapOf<String, MediaCard>()
-    private val detailRatingsCache = mutableMapOf<String, List<RatingScore>>()
-    private val detailEpisodeCache = mutableMapOf<Int, List<EpisodeCard>>()
+    private val detailCastCache = BoundedLruCache<String, List<PersonCard>>(32)
+    private val detailMediaCache = BoundedLruCache<String, MediaCard>(64)
+    private val detailRatingsCache = BoundedLruCache<String, List<RatingScore>>(64)
+    private val detailEpisodeCache = BoundedLruCache<Int, List<EpisodeCard>>(32)
     private val _state = MutableStateFlow(
         AppUiState(loading = true, simklConnected = repository.simklConnectedNow()),
     )
@@ -88,6 +92,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
+    private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
+    val syncOperations: StateFlow<List<SyncOperationCard>> = _syncOperations.asStateFlow()
 
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     private val searchQuery = MutableStateFlow("")
@@ -122,6 +128,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
+            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
             state
                 .map { uiState: AppUiState -> uiState.error }
                 .filterNotNull()
@@ -158,6 +165,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             // Room and DataStore are the source of truth at launch. Publish them
             // before any network work so process recreation never looks like a
             // disconnected, empty account while enrichment is running.
+            withContext(Dispatchers.IO) { repository.awaitStartup() }
             val cached = readCachedState()
             _syncProgress.value = cached.sync
             _state.value = cached
@@ -591,6 +599,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             }
         }
         _syncProgress.value = completedSync
+        _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
             // The repository does not finish the visible sync until both the
@@ -610,6 +619,32 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             )
         }
         result
+    }
+
+    fun refreshSyncOperations() {
+        viewModelScope.launch {
+            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+        }
+    }
+
+    fun retrySyncOperation(operationId: String) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.retrySyncOperation(operationId) }
+            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            result.exceptionOrNull()?.let { error -> _state.value = _state.value.copy(error = error.message) }
+        }
+    }
+
+    fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.resolveSyncConflict(operationId, choice) }
+            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            if (result.isSuccess) {
+                _state.value = readCachedState().copy(sync = _syncProgress.value)
+            } else {
+                _state.value = _state.value.copy(error = result.exceptionOrNull()?.message)
+            }
+        }
     }
 
     /**
@@ -722,6 +757,15 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
     }
 
+    fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
+        _state.value = _state.value.copy(
+            quietHoursEnabled = enabled,
+            quietHoursStart = startHour ?: _state.value.quietHoursStart,
+            quietHoursEnd = endHour ?: _state.value.quietHoursEnd,
+        )
+        viewModelScope.launch { repository.preferences.setQuietHours(enabled, startHour, endHour) }
+    }
+
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
         viewModelScope.launch {
@@ -819,6 +863,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun setMetadataLanguage(value: String) {
         _state.value = _state.value.copy(metadataLanguage = value)
         detailMediaCache.clear()
+        detailCastCache.clear()
+        detailEpisodeCache.clear()
         viewModelScope.launch { repository.setMetadataLanguage(value) }
     }
 
@@ -945,11 +991,25 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     val entries = linkedMapOf<String, String>()
                     context.contentResolver.openInputStream(uri)?.use { input ->
                         ZipInputStream(input).use { archive ->
+                            var totalBytes = 0L
                             var entry = archive.nextEntry
                             while (entry != null) {
                                 if (!entry.isDirectory) {
-                                    check(entry.size <= 10_000_000L || entry.size < 0L) { "Backup entry is too large" }
-                                    entries[entry.name] = archive.readBytes().decodeToString()
+                                    check(entries.size < 32) { "Backup contains too many entries" }
+                                    check(entry.size <= 32L * 1024 * 1024 || entry.size < 0L) { "Backup entry is too large" }
+                                    val output = ByteArrayOutputStream()
+                                    val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                                    var entryBytes = 0L
+                                    while (true) {
+                                        val read = archive.read(buffer)
+                                        if (read <= 0) break
+                                        entryBytes += read
+                                        totalBytes += read
+                                        check(entryBytes <= 32L * 1024 * 1024) { "Backup entry is too large" }
+                                        check(totalBytes <= 64L * 1024 * 1024) { "Backup is too large" }
+                                        output.write(buffer, 0, read)
+                                    }
+                                    entries[entry.name] = output.toByteArray().decodeToString()
                                 }
                                 archive.closeEntry()
                                 entry = archive.nextEntry

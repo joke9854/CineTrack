@@ -2,6 +2,9 @@
 
 package com.cinetrack.ui.screens
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -60,6 +63,7 @@ import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.Tv
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
@@ -98,6 +102,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.os.LocaleListCompat
+import androidx.core.content.ContextCompat
 import com.cinetrack.BuildConfig
 import com.cinetrack.R
 import com.cinetrack.data.update.AppUpdateState
@@ -108,6 +113,9 @@ import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.SyncProgress
+import com.cinetrack.domain.SyncConflictChoice
+import com.cinetrack.domain.SyncOperationCard
+import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -135,6 +143,7 @@ import java.util.Locale
 
 object SettingsPages {
     const val Sync = "sync"
+    const val SyncOperations = "sync-operations"
     const val Integrations = "integrations"
     const val Notifications = "notifications"
     const val Appearance = "appearance"
@@ -438,15 +447,18 @@ private data class SettingsItem(val page: String, val title: String, val subtitl
 fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (Boolean) -> Unit) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
-    val items = listOf(
-        SettingsItem(SettingsPages.Integrations, stringResource(R.string.integrations), stringResource(R.string.integrations_summary), Icons.Filled.Link),
+    val services = listOf(SettingsItem(SettingsPages.Integrations, stringResource(R.string.integrations), stringResource(R.string.integrations_summary), Icons.Filled.Link))
+    val preferences = listOf(
         SettingsItem(SettingsPages.Appearance, stringResource(R.string.appearance), stringResource(R.string.appearance_summary), Icons.Filled.Palette),
         SettingsItem(SettingsPages.Notifications, stringResource(R.string.notifications), stringResource(R.string.notifications_summary), Icons.Filled.Notifications),
         SettingsItem(SettingsPages.Language, stringResource(R.string.language), stringResource(R.string.italian), Icons.Filled.Language),
+    )
+    val dataAndDiagnostics = listOf(
+        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_operations_summary), Icons.Filled.SyncProblem),
         SettingsItem(SettingsPages.Export, stringResource(R.string.export_data), stringResource(R.string.export_data_summary), Icons.Filled.Download),
         SettingsItem(SettingsPages.Logs, stringResource(R.string.logs), stringResource(R.string.logs_summary), Icons.Filled.BugReport),
-        SettingsItem(SettingsPages.About, stringResource(R.string.about_app), stringResource(R.string.version_label, BuildConfig.VERSION_NAME), Icons.Filled.Info),
     )
+    val more = listOf(SettingsItem(SettingsPages.About, stringResource(R.string.about_app), stringResource(R.string.version_label, BuildConfig.VERSION_NAME), Icons.Filled.Info))
     AdaptiveBackground {
         LazyColumn(
             state = listState,
@@ -454,10 +466,10 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
             contentPadding = PaddingValues(bottom = 112.dp),
         ) {
             item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg)) }
-            item { SettingsGroup("SERVICES", listOf(items[0]), onPage) }
-            item { SettingsGroup("PREFERENCES", items.slice(1..3), onPage) }
-            item { SettingsGroup("DATA & DIAGNOSTICS", items.slice(4..5), onPage) }
-            item { SettingsGroup("MORE", listOf(items[6]), onPage) }
+            item { SettingsGroup("SERVICES", services, onPage) }
+            item { SettingsGroup("PREFERENCES", preferences, onPage) }
+            item { SettingsGroup("DATA & DIAGNOSTICS", dataAndDiagnostics, onPage) }
+            item { SettingsGroup("MORE", more, onPage) }
         }
     }
 }
@@ -512,6 +524,7 @@ fun SettingsDetailScreen(
     val context = LocalContext.current
     val title = when (page) {
         SettingsPages.Sync -> stringResource(R.string.synchronization)
+        SettingsPages.SyncOperations -> stringResource(R.string.sync_operations)
         SettingsPages.Integrations -> stringResource(R.string.integrations)
         SettingsPages.Notifications -> stringResource(R.string.notifications)
         SettingsPages.Appearance -> stringResource(R.string.appearance)
@@ -537,6 +550,7 @@ fun SettingsDetailScreen(
                 if (page != SettingsPages.About) SettingsDetailHero(page, title)
                 when (page) {
                     SettingsPages.Sync -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
+                    SettingsPages.SyncOperations -> SyncOperationsSettings(viewModel)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
                     SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceTmdb -> Column {
@@ -572,6 +586,7 @@ private fun SettingsDetailHero(page: String, title: String) {
     }
     val icon = when (page) {
         SettingsPages.Sync -> Icons.Filled.CloudSync
+        SettingsPages.SyncOperations -> Icons.Filled.SyncProblem
         SettingsPages.Integrations -> Icons.Filled.Link
         SettingsPages.Notifications -> Icons.Filled.Notifications
         SettingsPages.Appearance -> Icons.Filled.Palette
@@ -585,6 +600,7 @@ private fun SettingsDetailHero(page: String, title: String) {
     }
     val description = when (page) {
         SettingsPages.Sync -> stringResource(R.string.simkl_description)
+        SettingsPages.SyncOperations -> stringResource(R.string.sync_operations_summary)
         SettingsPages.Integrations -> "TMDB · MDBList · Simkl"
         SettingsPages.Notifications -> stringResource(R.string.new_episodes)
         SettingsPages.Appearance -> stringResource(R.string.appearance_summary)
@@ -681,6 +697,127 @@ private fun SyncSettings(
         if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), colors = ButtonDefaults.buttonColors(containerColor = com.cinetrack.ui.theme.GlassSubtle)) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
     }
 }
+
+@Composable
+private fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
+    val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
+    LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
+    val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }
+    val failed = operations.filter { it.status == SyncOperationStatus.FAILED }
+    val pending = operations.filter { it.status == SyncOperationStatus.PENDING }
+
+    SettingsSection(stringResource(R.string.sync_operations_status)) {
+        ValueRow(stringResource(R.string.pending_writes), pending.size.toString(), pending.isEmpty())
+        GlassDivider()
+        ValueRow(stringResource(R.string.failed_actions), failed.size.toString(), failed.isEmpty())
+        GlassDivider()
+        ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
+    }
+
+    if (operations.isEmpty()) {
+        Text(
+            stringResource(R.string.no_sync_operations),
+            color = TextSecondary,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)
+                .fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                .padding(com.cinetrack.ui.theme.Spacing.lg),
+        )
+    }
+    if (conflicts.isNotEmpty()) SyncOperationSection(stringResource(R.string.conflicts_to_resolve), conflicts, viewModel)
+    if (failed.isNotEmpty()) SyncOperationSection(stringResource(R.string.failed_actions), failed, viewModel)
+    if (pending.isNotEmpty()) SyncOperationSection(stringResource(R.string.pending_writes), pending, viewModel)
+}
+
+@Composable
+private fun SyncOperationSection(
+    title: String,
+    operations: List<SyncOperationCard>,
+    viewModel: CineTrackViewModel,
+) {
+    SettingsSection(title) {
+        operations.forEachIndexed { index, operation ->
+            SyncOperationRow(operation, viewModel)
+            if (index != operations.lastIndex) GlassDivider()
+        }
+    }
+}
+
+@Composable
+private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackViewModel) {
+    val statusColor = when (operation.status) {
+        SyncOperationStatus.CONFLICT -> StatusPaused
+        SyncOperationStatus.FAILED -> androidx.compose.material3.MaterialTheme.colorScheme.error
+        SyncOperationStatus.PENDING -> AccentLight
+    }
+    val actionLabel = when (operation.operation) {
+        "LIBRARY_STATUS", "LIBRARY_CONFLICT" -> stringResource(R.string.sync_library_change)
+        "EPISODE_WATCHED" -> stringResource(R.string.sync_episode_watched)
+        "EPISODE_UNWATCHED" -> stringResource(R.string.sync_episode_unwatched)
+        "MEDIA_HISTORY_REMOVE" -> stringResource(R.string.sync_history_removed)
+        else -> operation.operation.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+    }
+    Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(operation.title, color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                Text(actionLabel, color = statusColor, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            }
+            Text(
+                java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                    .format(java.util.Date(operation.updatedAt)),
+                color = TextMuted,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+            )
+        }
+        operation.message?.takeIf(String::isNotBlank)?.let { message ->
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Text(message, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        }
+        if (operation.status == SyncOperationStatus.CONFLICT) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.sm)) {
+                Button(
+                    onClick = { viewModel.resolveSyncConflict(operation.id, SyncConflictChoice.KEEP_LOCAL) },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                    colors = ButtonDefaults.buttonColors(containerColor = com.cinetrack.ui.theme.GlassSubtle),
+                ) { Text(stringResource(R.string.keep_local), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
+                Button(
+                    onClick = { viewModel.resolveSyncConflict(operation.id, SyncConflictChoice.USE_REMOTE) },
+                    modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                ) { Text(stringResource(R.string.use_simkl), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
+            }
+            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.local_value, syncValueLabel(operation.localValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.remote_value, syncValueLabel(operation.remoteValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            }
+        } else {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                operation.localValue?.takeIf(String::isNotBlank)?.let { value ->
+                    Text(syncValueLabel(value), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                } ?: Spacer(Modifier.weight(1f))
+                Button(
+                    onClick = { viewModel.retrySyncOperation(operation.id) },
+                    modifier = Modifier.heightIn(min = 48.dp),
+                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                ) {
+                    Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(17.dp))
+                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                    Text(if (operation.status == SyncOperationStatus.FAILED) stringResource(R.string.retry) else stringResource(R.string.try_now))
+                }
+            }
+        }
+    }
+}
+
+private fun syncValueLabel(value: String?): String = value.orEmpty()
+    .replace(':', ' ')
+    .replace('_', ' ')
+    .lowercase()
+    .replaceFirstChar { it.titlecase(Locale.getDefault()) }
 
 @Composable
 private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
@@ -876,11 +1013,39 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 @Composable
 private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     val context = LocalContext.current
+    var notificationsGranted by remember {
+        mutableStateOf(
+            Build.VERSION.SDK_INT < 33 ||
+                ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+        )
+    }
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        notificationsGranted = granted
+    }
+    if (!notificationsGranted && Build.VERSION.SDK_INT >= 33) {
+        PrimaryAction(
+            stringResource(R.string.allow_notifications),
+            Icons.Filled.Notifications,
+            Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
+        ) { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+    }
     SettingsSection(stringResource(R.string.notifications)) {
         ToggleRow(stringResource(R.string.new_episodes), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
         GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), state.notificationMovies) { viewModel.setNotification("movies", it) }
         GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), state.notificationSync) { viewModel.setNotification("sync", it) }
-        GlassDivider(); ValueRow(stringResource(R.string.quiet_hours), "23:00–08:00")
+        GlassDivider(); ToggleRow(stringResource(R.string.quiet_hours), state.quietHoursEnabled) { viewModel.setQuietHours(it) }
+    }
+    if (state.quietHoursEnabled) {
+        val quietHourOptions = listOf(22 to 7, 23 to 8, 0 to 8)
+        SettingsSection(stringResource(R.string.quiet_hours_schedule)) {
+            quietHourOptions.forEachIndexed { index, (start, end) ->
+                ChoiceRow(
+                    "%02d:00–%02d:00".format(start, end),
+                    state.quietHoursStart == start && state.quietHoursEnd == end,
+                ) { viewModel.setQuietHours(true, start, end) }
+                if (index != quietHourOptions.lastIndex) GlassDivider()
+            }
+        }
     }
     SettingsSection(stringResource(R.string.upcoming_episodes)) {
         ToggleRow(stringResource(R.string.exclude_specials), state.excludeSpecials, viewModel::setExcludeSpecials)
