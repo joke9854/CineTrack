@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -108,6 +109,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -183,7 +185,7 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.
         .clip(shape)
         // Keep chromatic gradients on the page background. Controls use a
         // neutral, low-opacity material so artwork colour can pass through.
-        .background(com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .27f))
+        .background(GlassMaterial.Content)
         .border(
             .5.dp,
             GlassEdgeBrush,
@@ -200,7 +202,7 @@ fun Modifier.glassIcon(): Modifier =
     padding(4.dp)
         .shadow(8.dp, CircleShape, clip = false)
         .clip(CircleShape)
-        .background(com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .50f))
+        .background(GlassMaterial.Control)
         .border(.55.dp, GlassEdgeBrush, CircleShape)
 
 fun Modifier.blueEdgeClickable(
@@ -246,9 +248,9 @@ fun GlassBackButton(
             Modifier
                 .size(40.dp)
                 .scale(buttonScale)
-                .shadow(9.dp, CircleShape, clip = false)
+                .shadow(8.dp, CircleShape, clip = false)
                 .clip(CircleShape)
-                .background(com.cinetrack.ui.theme.SurfacePalette.BackControl)
+                .background(GlassMaterial.Control)
                 .border(.55.dp, GlassEdgeBrush, CircleShape)
                 .clickable(
                     interactionSource = interactionSource,
@@ -701,12 +703,13 @@ fun PrimaryAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     containerColor: Color = Accent,
+    compact: Boolean = false,
     onClick: () -> Unit,
 ) {
     val clickAction = rememberUiAction(onClick)
     Row(
         modifier
-            .height(46.dp)
+            .then(if (compact) Modifier.heightIn(min = 48.dp) else Modifier.height(46.dp))
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
@@ -714,13 +717,16 @@ fun PrimaryAction(
             )
             .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .clickable(enabled = enabled, onClick = clickAction)
-            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+            .padding(horizontal = if (compact) 8.dp else com.cinetrack.ui.theme.Spacing.lg, vertical = if (compact) 8.dp else 0.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(7.dp))
-        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, modifier = if (compact) Modifier.weight(1f, fill = false) else Modifier,
+            color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.ExtraBold, maxLines = if (compact) 2 else 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -784,7 +790,7 @@ fun LiquidBottomNav(
             .height(height)
             .shadow(15.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), clip = false)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(com.cinetrack.ui.theme.SurfacePalette.NavSurface.copy(alpha = .78f)))
+            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(GlassMaterial.OverlayFallback))
             .border(.65.dp, GlassEdgeBrush, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
     ) {
@@ -838,10 +844,24 @@ fun LiquidBottomNav(
 }
 
 @Composable
+fun SharedGlassDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberFloatingGlassState()
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().clip(shape)
+            .then(if (state != null) Modifier.hazeEffect(state, style = NavGlassStyle)
+                else Modifier.background(GlassMaterial.OverlayFallback))
+            .border(.5.dp, GlassEdgeBrush, shape)) {
+            content()
+        }
+    }
+}
+
+@Composable
 fun SharedGlassSheet(
     onDismiss: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-    hazeState: HazeState? = null,
+    hazeState: HazeState? = rememberFloatingGlassState(),
     content: @Composable () -> Unit,
 ) {
     val shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet)
@@ -854,12 +874,11 @@ fun SharedGlassSheet(
         onDismissRequest = onDismiss,
         modifier = Modifier.fillMaxWidth(),
         sheetState = sheetState,
-        containerColor = if (hazeState != null) Color.Transparent else com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
+        containerColor = if (hazeState != null) Color.Transparent else GlassMaterial.OverlayFallback,
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
         shape = shape,
-        // Include the handle in the blurred content so the material covers the
-        // whole sheet. Other callers keep the original translucent layout.
+        // One blur covers the handle and sheet; nested content uses lightweight glass.
         dragHandle = if (hazeState == null) handle else null,
     ) {
         if (hazeState != null) {

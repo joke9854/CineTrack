@@ -365,4 +365,5 @@
     <string name="sync_failed_notification_text">Your changes are safe and will be retried. Open Sync operations for details.</string>
     <plurals name="season_count"><item quantity="one">%d season</item><item quantity="other">%d seasons</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episode</item><item quantity="other">%d episodes</item></plurals>
+    <string name="no_watch_providers">No streaming, rental or purchase services are currently listed for this title in your selected region.</string>
 </resources>

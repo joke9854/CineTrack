@@ -365,4 +365,5 @@
     <string name="sync_failed_notification_text">Le modifiche sono al sicuro e verranno riprovate. Apri Operazioni di sincronizzazione per i dettagli.</string>
     <plurals name="season_count"><item quantity="one">%d stagione</item><item quantity="other">%d stagioni</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episodio</item><item quantity="other">%d episodi</item></plurals>
+    <string name="no_watch_providers">Al momento non risultano servizi di streaming, noleggio o acquisto per questo titolo nella regione selezionata.</string>
 </resources>

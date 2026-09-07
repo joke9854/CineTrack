@@ -146,7 +146,7 @@ fun DiscoverScreen(
                             Spacer(Modifier.width(9.dp))
                             Text(stringResource(R.string.search_hint), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
+                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(48.dp).glassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
                         }
                     }

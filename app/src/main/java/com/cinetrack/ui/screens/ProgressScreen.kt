@@ -251,7 +251,7 @@ fun ProgressScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     PageTitle(stringResource(R.string.progress), Modifier.weight(1f))
-                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(42.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextPrimary, modifier = Modifier.size(21.dp))
                     }
                 }

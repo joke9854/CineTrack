@@ -34,7 +34,6 @@ import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -188,8 +187,9 @@ fun CineTrackApp(
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media -> navController.navigate("detail/${media.type.name}/${media.id}") }
 
     Box(Modifier.fillMaxSize().imePadding()) {
+        com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, showBottomNav) { captureModifier ->
         NavHost(
-            modifier = if (showBottomNav && navBlurEnabled) Modifier.hazeSource(navHazeState) else Modifier,
+            modifier = captureModifier,
             navController = navController,
             startDestination = Routes.Discover,
             enterTransition = {
@@ -413,6 +413,7 @@ fun CineTrackApp(
             }
         }
 
+        }
         if (showBottomNav) {
             LiquidBottomNav(
                 hazeState = if (navBlurEnabled) navHazeState else null,

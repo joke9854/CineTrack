@@ -97,7 +97,6 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -209,20 +208,20 @@ fun LibraryScreen(
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 PageTitle(stringResource(R.string.library), Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(18.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     IconButton(
                         onClick = rememberUiAction {
                             bulkMode = !bulkMode
                             if (!bulkMode) selectedKeys = emptySet()
                         },
-                        modifier = Modifier.size(40.dp).glassIcon(),
+                        modifier = Modifier.size(48.dp).glassIcon(),
                     ) {
                         Icon(Icons.Filled.PlaylistAddCheck, stringResource(R.string.bulk_edit), tint = if (bulkMode) AccentLight else TextSecondary, modifier = Modifier.size(21.dp))
                     }
-                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(40.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
-                    IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(40.dp).glassIcon()) {
+                    IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(48.dp).glassIcon()) {
                         Icon(Icons.Filled.FilterList, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
                 }
@@ -1275,7 +1274,7 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
                     showChangelog = true
                     viewModel.loadAppChangelog()
                 },
-                modifier = Modifier.size(54.dp).glassIcon(),
+                modifier = Modifier.size(48.dp).glassIcon(),
             ) {
                 Icon(Icons.Filled.History, changelogDescription, tint = AccentLight, modifier = Modifier.size(20.dp))
             }
@@ -1288,10 +1287,10 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
 
 @Composable
 private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
+    com.cinetrack.ui.components.SharedGlassDialog(onDismiss) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 620.dp)
-                .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).padding(com.cinetrack.ui.theme.Spacing.lg),
+                .padding(com.cinetrack.ui.theme.Spacing.lg),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.History, null, tint = AccentLight, modifier = Modifier.size(23.dp))

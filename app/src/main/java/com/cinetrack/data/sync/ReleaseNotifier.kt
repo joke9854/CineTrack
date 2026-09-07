@@ -123,7 +123,7 @@ object ReleaseNotifier {
         if (!preferences.markReleaseNotified(key)) return
         val deepLink = data.getString("deepLink") ?: return
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_simkl_s)
+            .setSmallIcon(R.drawable.ic_notification_cinetrack)
             .setContentTitle(data.getString("title"))
             .setContentText(data.getString("text"))
             .setAutoCancel(true)
@@ -165,7 +165,7 @@ object ReleaseNotifier {
         NotificationManagerCompat.from(context).notify(
             "sync-failure".hashCode(),
             NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_simkl_s)
+                .setSmallIcon(R.drawable.ic_notification_cinetrack)
                 .setContentTitle(context.getString(R.string.sync_failed_notification_title))
                 .setContentText(context.getString(R.string.sync_failed_notification_text))
                 .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.sync_failed_notification_text)))
@@ -209,7 +209,7 @@ object ReleaseNotifier {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_simkl_s)
+                .setSmallIcon(R.drawable.ic_notification_cinetrack)
                 .setContentTitle(event.media.title)
                 .setContentText(event.episodeLabel ?: context.getString(R.string.available_today))
                 .setAutoCancel(true)
@@ -255,7 +255,7 @@ object ReleaseNotifier {
                 manager.notify(
                     key.hashCode(),
                     NotificationCompat.Builder(context, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_simkl_s)
+                        .setSmallIcon(R.drawable.ic_notification_cinetrack)
                         .setContentTitle(media.title)
                         .setContentText(context.getString(R.string.now_available_on, provider))
                         .setAutoCancel(true)
