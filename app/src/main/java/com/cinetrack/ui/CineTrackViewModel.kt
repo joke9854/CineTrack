@@ -104,6 +104,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
     private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
+    private val _settingsProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
+    val settingsProviders = _settingsProviders.asStateFlow()
+    private val _settingsProvidersLoading = MutableStateFlow(false)
+    val settingsProvidersLoading = _settingsProvidersLoading.asStateFlow()
+    private val _settingsProvidersError = MutableStateFlow(false)
+    val settingsProvidersError = _settingsProvidersError.asStateFlow()
     private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
     private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
@@ -212,18 +218,25 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun refresh() {
-        if (!_state.value.tmdbApiConfigured) return
+        if (!_state.value.tmdbApiConfigured || !refreshMutex.tryLock()) return
+        // Acquire before launching: repeated pulls never queue another refresh.
+        _state.value = _state.value.copy(refreshing = true, error = null)
         viewModelScope.launch {
-            refreshMutex.withLock {
-                _state.value = _state.value.copy(refreshing = true, error = null)
-                val refreshed = runCatching {
-                    withContext(Dispatchers.IO) {
-                        repository.refreshDiscover()
-                        repository.refreshProgressCache()
-                    }
-                    readCachedState().copy(refreshing = false)
+            try {
+                val refreshed = withContext(Dispatchers.IO) {
+                    runDiscoverRefresh { repository.refreshDiscover() }
+                    readCachedState()
                 }
-                _state.value = refreshed.getOrElse { _state.value.copy(refreshing = false, error = it.message) }
+                _state.value = refreshed.copy(refreshing = false, sync = _syncProgress.value)
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                _state.value = _state.value.copy(error = repository.preferences.discoverTimeoutMessage())
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(error = error.message)
+            } finally {
+                _state.value = _state.value.copy(refreshing = false)
+                refreshMutex.unlock()
             }
         }
     }
@@ -254,23 +267,58 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    fun loadSettingsStreamingProviders() {
-        viewModelScope.launch {
-            val providers = withContext(Dispatchers.IO) {
-                repository.loadSettingsStreamingProviders()
-            }
-            _streamingProviders.value = providers
-            if (providers.isNotEmpty()) {
-                val availableNames = providers.map(StreamingProvider::name).toSet()
-                val retained = _state.value.preferredProviders.intersect(availableNames)
-                if (retained != _state.value.preferredProviders) setPreferredProviders(retained)
+    private var settingsProvidersJob: Job? = null
+    private val providerPreferenceMutex = kotlinx.coroutines.sync.Mutex()
+
+    fun loadSettingsStreamingProviders(region: String) {
+        settingsProvidersJob?.cancel()
+        _settingsProvidersLoading.value = true
+        _settingsProvidersError.value = false
+        _settingsProviders.value = emptyList()
+        settingsProvidersJob = viewModelScope.launch {
+            try {
+                _settingsProviders.value = withContext(Dispatchers.IO) {
+                    kotlinx.coroutines.withTimeout(30_000) { repository.loadSettingsStreamingProviders(region) }
+                }
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                _settingsProvidersError.value = true
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _settingsProvidersError.value = true
+            } finally {
+                if (kotlinx.coroutines.currentCoroutineContext().isActive) _settingsProvidersLoading.value = false
             }
         }
     }
 
     fun setPreferredProviders(values: Set<String>) {
         _state.value = _state.value.copy(preferredProviders = values)
-        viewModelScope.launch { repository.preferences.setPreferredProviders(values) }
+        detailMediaCache.clear()
+        viewModelScope.launch {
+            providerPreferenceMutex.withLock { repository.preferences.setPreferredProviders(values) }
+        }
+    }
+
+    fun togglePreferredProvider(name: String) {
+        val selected = _state.value.preferredProviders
+        setPreferredProviders(if (name in selected) selected - name else selected + name)
+    }
+
+    fun setProviderRegion(value: String) {
+        _state.value = _state.value.copy(providerRegion = value)
+        detailMediaCache.clear()
+        viewModelScope.launch {
+            providerPreferenceMutex.withLock { repository.preferences.setProviderRegion(value) }
+        }
+    }
+
+    fun setVisibleProviderTypes(values: Set<String>) {
+        _state.value = _state.value.copy(visibleProviderTypes = values)
+        detailMediaCache.clear()
+        viewModelScope.launch {
+            providerPreferenceMutex.withLock { repository.preferences.setVisibleProviderTypes(values) }
+        }
     }
 
     fun setCardDensity(value: String) {

@@ -37,7 +37,7 @@ internal fun LongPullRefreshContainer(
         refreshThreshold = 132.dp,
         refreshingOffset = 62.dp,
     )
-    Box(modifier.fillMaxSize().pullRefresh(pullState, enabled)) {
+    Box(modifier.fillMaxSize().pullRefresh(pullState, enabled && !refreshing)) {
         content()
         PullRefreshIndicator(
             refreshing = refreshing,

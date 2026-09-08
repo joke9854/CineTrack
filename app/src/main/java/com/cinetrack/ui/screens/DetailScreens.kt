@@ -675,9 +675,11 @@ private fun ProviderSection(media: MediaCard) {
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 12.dp))
         }
-        ProviderCategory(stringResource(R.string.subscription), media.subscriptionProviders.ifEmpty { media.providers }, media.providerLogos)
+        ProviderCategory(stringResource(R.string.subscription), media.subscriptionProviders, media.providerLogos)
         ProviderCategory(stringResource(R.string.rent), media.rentProviders, media.providerLogos)
         ProviderCategory(stringResource(R.string.buy), media.buyProviders, media.providerLogos)
+        ProviderCategory(stringResource(R.string.provider_free), media.freeProviders, media.providerLogos)
+        ProviderCategory(stringResource(R.string.provider_ads), media.adsProviders, media.providerLogos)
         media.providerLink?.takeIf(String::isNotBlank)?.let { link ->
             Spacer(Modifier.height(9.dp))
             Text(

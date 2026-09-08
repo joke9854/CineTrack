@@ -122,7 +122,7 @@ fun DiscoverScreen(
     val seeAll = stringResource(R.string.see_all)
     val activeHero = heroes.getOrNull(heroIndex)
     AdaptiveBackground(artworkUrl = activeHero?.backdropUrl ?: activeHero?.posterUrl) {
-        LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh) {
+        LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh, enabled = state.tmdbApiConfigured) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),

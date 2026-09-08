@@ -199,6 +199,7 @@ class CineTrackRepository(
     /** TMDB accepts one watch region. Make Discover/provider availability follow
      * the content-region filter, then fall back to metadata and device regions. */
     private suspend fun effectiveProviderRegion(): String {
+        preferences.providerRegion.first().takeUnless { it == "system" || it.isBlank() }?.let { return it.uppercase() }
         preferences.contentRegions.first().sorted().firstOrNull()?.let { return it.uppercase() }
         preferences.metadataRegion.first().takeUnless { it == "system" || it.isBlank() }?.let { return it.uppercase() }
         return Locale.getDefault().country.takeIf(String::isNotBlank)?.uppercase() ?: "US"
@@ -404,10 +405,10 @@ class CineTrackRepository(
             .filterNot { filters.hideDropped && it.status == LibraryStatus.DROPPED }
     }
 
-    suspend fun loadStreamingProviders(mediaType: MediaType): List<StreamingProvider> {
+    suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String? = null, failOnError: Boolean = false): List<StreamingProvider> {
         if (tmdbApiKey().isBlank()) return emptyList()
-        val region = effectiveProviderRegion()
-        return cancellableResult {
+        val region = selectedRegion ?: effectiveProviderRegion()
+        val result = cancellableResult {
             val providers = if (mediaType == MediaType.TV) {
                 services.tmdb.tvProviders(region).results
             } else {
@@ -422,12 +423,13 @@ class CineTrackRepository(
                         logoUrl = provider.logoPath?.let { "https://image.tmdb.org/t/p/w92$it" },
                     )
                 }
-        }.getOrDefault(emptyList())
+        }
+        return if (failOnError) result.getOrThrow() else result.getOrDefault(emptyList())
     }
 
-    suspend fun loadSettingsStreamingProviders(): List<StreamingProvider> = coroutineScope {
-        val movies = async { loadStreamingProviders(MediaType.MOVIE) }
-        val shows = async { loadStreamingProviders(MediaType.TV) }
+    suspend fun loadSettingsStreamingProviders(region: String): List<StreamingProvider> = coroutineScope {
+        val movies = async { loadStreamingProviders(MediaType.MOVIE, region, failOnError = true) }
+        val shows = async { loadStreamingProviders(MediaType.TV, region, failOnError = true) }
         (movies.await() + shows.await())
             .distinctBy(StreamingProvider::id)
             .sortedBy { it.name.lowercase(Locale.getDefault()) }
@@ -468,7 +470,9 @@ class CineTrackRepository(
         val metadataTimezoneDeferred = async { preferences.metadataTimezone.first() }
         val syncReportDeferred = async { preferences.syncReportNow() }
         val excludeSpecialsDeferred = async { preferences.excludeSpecials.first() }
+        val providerRegionDeferred = async { preferences.providerRegion.first() }
         val preferredProvidersDeferred = async { preferences.preferredProviders.first() }
+        val visibleProviderTypesDeferred = async { preferences.visibleProviderTypes.first() }
         val notificationEpisodesDeferred = async { preferences.notificationEpisodes.first() }
         val notificationMoviesDeferred = async { preferences.notificationMovies.first() }
         val notificationSyncDeferred = async { preferences.notificationSync.first() }
@@ -715,9 +719,11 @@ class CineTrackRepository(
             mdbListApiConfigured = mdbListApiKey().isNotBlank(),
             metadataLanguage = metadataLanguageDeferred.await(),
             metadataRegion = metadataRegionDeferred.await(),
+            providerRegion = providerRegionDeferred.await(),
             metadataTimezone = metadataTimezoneDeferred.await(),
             excludeSpecials = excludeSpecials,
             preferredProviders = preferredProvidersDeferred.await(),
+            visibleProviderTypes = visibleProviderTypesDeferred.await(),
             cardDensity = cardDensityDeferred.await(),
             hiddenUpcoming = hiddenUpcoming,
             hiddenDiscovery = hiddenDiscoveryDeferred.await(),
@@ -1256,6 +1262,7 @@ class CineTrackRepository(
             val providerRegion = effectiveProviderRegion()
             val providerCountry = dto.watchProviders?.results?.get(providerRegion)
             val preferredProviders = preferences.preferredProviders.first()
+            val visibleTypes = preferences.visibleProviderTypes.first()
             fun List<com.cinetrack.data.remote.TmdbProviderDto>.visibleProviders() =
                 distinctBy { it.id }
                     .let { providers ->
@@ -1266,8 +1273,10 @@ class CineTrackRepository(
                     compareByDescending<com.cinetrack.data.remote.TmdbProviderDto> { it.name in preferredProviders }
                         .thenBy { it.name.lowercase() },
                 )
+            fun visibleType(type: String, providers: List<com.cinetrack.data.remote.TmdbProviderDto>) =
+                if (type in visibleTypes) providers.visibleProviders() else emptyList()
             val providers = providerCountry
-                ?.let { it.flatrate + it.rent + it.buy }
+                ?.let { visibleType("flatrate", it.flatrate) + visibleType("rent", it.rent) + visibleType("buy", it.buy) + visibleType("free", it.free) + visibleType("ads", it.ads) }
                 .orEmpty()
                 .visibleProviders()
             dto.toEntity(media.type).toDomain().copy(
@@ -1285,9 +1294,11 @@ class CineTrackRepository(
                 providerLogos = providers.mapNotNull { provider ->
                     provider.logoPath?.let { provider.name to "https://image.tmdb.org/t/p/w92$it" }
                 }.toMap(),
-                subscriptionProviders = providerCountry?.flatrate.orEmpty().visibleProviders().map { it.name },
-                rentProviders = providerCountry?.rent.orEmpty().visibleProviders().map { it.name },
-                buyProviders = providerCountry?.buy.orEmpty().visibleProviders().map { it.name },
+                subscriptionProviders = visibleType("flatrate", providerCountry?.flatrate.orEmpty()).map { it.name },
+                rentProviders = visibleType("rent", providerCountry?.rent.orEmpty()).map { it.name },
+                buyProviders = visibleType("buy", providerCountry?.buy.orEmpty()).map { it.name },
+                freeProviders = visibleType("free", providerCountry?.free.orEmpty()).map { it.name },
+                adsProviders = visibleType("ads", providerCountry?.ads.orEmpty()).map { it.name },
                 providerLink = providerCountry?.link,
                 seasons = dto.seasons.filter { it.number > 0 }.map { season ->
                     SeasonCard(
@@ -2701,6 +2712,8 @@ class CineTrackRepository(
                 put("ratingSources", state.ratingSources.sorted().joinToString(","))
                 put("excludeSpecials", state.excludeSpecials)
                 put("preferredProviders", state.preferredProviders.sorted().joinToString("|"))
+                put("providerRegion", state.providerRegion)
+                put("visibleProviderTypes", state.visibleProviderTypes.sorted().joinToString("|"))
                 put("cardDensity", state.cardDensity)
                 put("hiddenDiscovery", state.hiddenDiscovery.sorted().joinToString("|"))
             }.toString()
@@ -2851,6 +2864,9 @@ class CineTrackRepository(
             saved["excludeSpecials"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setExcludeSpecials(it) }
             saved["preferredProviders"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setPreferredProviders(it) }
+            saved["providerRegion"]?.jsonPrimitive?.contentOrNull?.let { preferences.setProviderRegion(it) }
+            saved["visibleProviderTypes"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
+                ?.let { preferences.setVisibleProviderTypes(it) }
             saved["cardDensity"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCardDensity(it) }
             saved["hiddenDiscovery"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setHiddenDiscovery(it) }

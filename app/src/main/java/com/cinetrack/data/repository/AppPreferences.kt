@@ -36,6 +36,7 @@ import java.util.zip.ZipOutputStream
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
 
 class AppPreferences(private val context: Context) {
+    fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
     private val errorLogFile: File get() = File(context.filesDir, "cinetrack-error-log.txt")
     private val credentialStore by lazy { SecureCredentialStore(context) }
     /** Read-only compatibility bridge for credentials saved before 0.76. */
@@ -88,10 +89,12 @@ class AppPreferences(private val context: Context) {
         val mdbListApiOverride = stringPreferencesKey("mdblist_api_override")
         val metadataLanguage = stringPreferencesKey("metadata_language")
         val metadataRegion = stringPreferencesKey("metadata_region")
+        val providerRegion = stringPreferencesKey("provider_region")
         val metadataTimezone = stringPreferencesKey("metadata_timezone")
         val syncReport = stringPreferencesKey("sync_report")
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
         val preferredProviders = stringPreferencesKey("preferred_providers")
+        val visibleProviderTypes = stringPreferencesKey("visible_provider_types")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
         val hiddenUpcoming = stringPreferencesKey("hidden_upcoming")
@@ -120,9 +123,21 @@ class AppPreferences(private val context: Context) {
     }
     val uiAccent: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.uiAccent] ?: "watching" }
     val metadataLanguage: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataLanguage] ?: "system" }
+    val providerRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.providerRegion] ?: "system" }
+    suspend fun setProviderRegion(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.providerRegion] = value }
+    }
     val metadataRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataRegion] ?: "system" }
     val metadataTimezone: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataTimezone] ?: "system" }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
+    val visibleProviderTypes: Flow<Set<String>> = context.cineTrackDataStore.data.map { prefs ->
+        prefs[Keys.visibleProviderTypes]?.split('|')?.filter(String::isNotBlank)?.toSet()
+            ?: setOf("flatrate", "rent", "buy", "free", "ads")
+    }
+    suspend fun setVisibleProviderTypes(values: Set<String>) {
+        context.cineTrackDataStore.edit { it[Keys.visibleProviderTypes] = values.sorted().joinToString("|") }
+    }
+
     val preferredProviders: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.preferredProviders].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }

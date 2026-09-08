@@ -366,4 +366,36 @@
     <plurals name="season_count"><item quantity="one">%d stagione</item><item quantity="other">%d stagioni</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episodio</item><item quantity="other">%d episodi</item></plurals>
     <string name="no_watch_providers">Al momento non risultano servizi di streaming, noleggio o acquisto per questo titolo nella regione selezionata.</string>
+    <string name="settings_services">Servizi</string>
+    <string name="settings_preferences">Preferenze</string>
+    <string name="settings_data">Dati e diagnostica</string>
+    <string name="settings_more">Informazioni</string>
+    <string name="configured">Configurato</string>
+    <string name="not_configured">Da configurare</string>
+    <string name="streaming_services">Servizi streaming</string>
+    <string name="my_favorites">I miei preferiti</string>
+    <string name="all_services">Tutti i servizi</string>
+    <string name="manage_providers">Gestisci preferiti</string>
+    <string name="providers_selected_count">%1$d selezionati</string>
+    <string name="visible_offer_types">Offerte visibili</string>
+    <string name="visible_offer_types_description">Scegli quali tipi di disponibilità mostrare in Dove guardare.</string>
+    <string name="provider_free">Gratis</string>
+    <string name="provider_ads">Con pubblicità</string>
+    <string name="streaming_providers">Provider streaming</string>
+    <string name="provider_country">Paese</string>
+    <string name="change">Cambia</string>
+    <string name="search_providers">Cerca provider</string>
+    <string name="available_services">Servizi disponibili</string>
+    <string name="clear_selection">Azzera</string>
+    <string name="providers_require_tmdb">Collega TMDB in Integrazioni per caricare i servizi streaming.</string>
+    <string name="providers_load_failed">Impossibile caricare i servizi. I tuoi preferiti sono salvati.</string>
+    <string name="no_providers_in_country">Nessun servizio disponibile per questo paese.</string>
+    <string name="no_provider_matches">Nessun servizio corrispondente.</string>
+    <string name="other_saved_services">Altri preferiti salvati</string>
+    <string name="providers_preserved">Questi preferiti non sono elencati in questo paese. Tocca per rimuoverli.</string>
+    <string name="favorites_filter_help">I preferiti filtrano i provider in Scopri e Dove guardare. Senza preferiti selezionati vengono mostrati tutti i servizi.</string>
+    <string name="search_countries">Cerca paesi</string>
+    <string name="sync_needs_attention">Sincronizzazione da verificare</string>
+    <string name="discover_refresh_timeout">Scopri ha impiegato troppo tempo ad aggiornarsi. I contenuti salvati sono disponibili; trascina di nuovo per riprovare.</string>
+    <string name="sync_health_summary">%1$d in attesa · %2$d fallite · %3$d conflitti</string>
 </resources>

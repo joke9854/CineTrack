@@ -199,7 +199,7 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.
  * in the supplied screenshots.
  */
 fun Modifier.glassIcon(): Modifier =
-    padding(4.dp)
+    padding(6.dp)
         .shadow(8.dp, CircleShape, clip = false)
         .clip(CircleShape)
         .background(GlassMaterial.Control)
@@ -246,7 +246,7 @@ fun GlassBackButton(
     Box(modifier.size(48.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .scale(buttonScale)
                 .shadow(8.dp, CircleShape, clip = false)
                 .clip(CircleShape)
@@ -650,10 +650,11 @@ fun MediaStatusPopup(
         }
     }
     val popupShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
+    val popupGlass = if (rendered) rememberFloatingGlassState() else null
     DropdownMenu(
         expanded = rendered,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(226.dp).graphicsLayer {
+        modifier = Modifier.width(250.dp).graphicsLayer {
             alpha = popupAlpha
             scaleX = popupScale
             scaleY = popupScale
@@ -661,11 +662,15 @@ fun MediaStatusPopup(
             transformOrigin = TransformOrigin(.5f, 0f)
         },
         shape = popupShape,
-        containerColor = com.cinetrack.ui.theme.SurfacePalette.ModalSurface,
+        containerColor = Color.Transparent,
         tonalElevation = 0.dp,
-        shadowElevation = 18.dp,
-        border = BorderStroke(.8.dp, AccentLight.copy(alpha = .24f)),
+        shadowElevation = 8.dp,
     ) {
+        Column(Modifier.fillMaxWidth().clip(popupShape)
+            .then(if (popupGlass != null) Modifier.hazeEffect(popupGlass, style = NavGlassStyle)
+                else Modifier.background(GlassMaterial.OverlayFallback))
+            .border(.5.dp, GlassEdgeBrush, popupShape)
+            .padding(vertical = com.cinetrack.ui.theme.Spacing.xs)) {
         val choices = listOf(
             LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
             LibraryStatus.WATCHING to stringResource(R.string.in_progress),
@@ -685,6 +690,7 @@ fun MediaStatusPopup(
             )
         }
         if (onNotInterested != null) {
+            GlassDivider()
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.show_less_like_this), color = TextPrimary, fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.ThumbDown, null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
@@ -692,6 +698,7 @@ fun MediaStatusPopup(
                     onNotInterested()
                 },
             )
+        }
         }
     }
 }
@@ -732,23 +739,11 @@ fun PrimaryAction(
 
 @Composable
 fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(size * .23f))
-            .background(com.cinetrack.ui.theme.SurfacePalette.PlaybackSurface.copy(alpha = .82f))
-            .border(.7.dp, AccentLight.copy(alpha = .28f), RoundedCornerShape(size * .23f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        CircularProgressIndicator(
-            progress = { .76f },
-            modifier = Modifier.size(size * .68f),
-            color = AccentLight,
-            trackColor = com.cinetrack.ui.theme.Glass,
-            strokeWidth = size * .055f,
-        )
-        Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(size * .34f))
-    }
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(com.cinetrack.R.drawable.ic_brand_mark),
+        contentDescription = "CineTrack",
+        modifier = modifier.size(size).clip(RoundedCornerShape(size * .23f)),
+    )
 }
 
 data class BottomNavItem(

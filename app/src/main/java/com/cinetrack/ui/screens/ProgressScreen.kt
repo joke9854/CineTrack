@@ -2,6 +2,8 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.material.icons.filled.CloudSync
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
@@ -143,6 +145,8 @@ fun ProgressScreen(
     syncRunning: StateFlow<Boolean>,
     onSearch: () -> Unit,
     onSync: () -> Unit,
+    onSyncOperations: () -> Unit,
+    onSyncSettings: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onWatched: (PlaybackCard) -> Unit,
     onEpisode: (EpisodeCard) -> Unit,
@@ -265,7 +269,7 @@ fun ProgressScreen(
                         tab = selected
                     }
                 }
-                SyncCard(syncProgress, state.simklConnected, onSync)
+                SyncCard(syncProgress, state.simklConnected, onSync, onSyncOperations, onSyncSettings)
             AnimatedContent(
                 targetState = tab,
                 modifier = Modifier.fillMaxWidth().weight(1f),
@@ -357,38 +361,52 @@ fun ProgressScreen(
 }
 
 @Composable
-private fun SyncCard(syncProgress: StateFlow<SyncProgress>, connected: Boolean, onSync: () -> Unit) {
+private fun SyncCard(
+    syncProgress: StateFlow<SyncProgress>,
+    connected: Boolean,
+    onSync: () -> Unit,
+    onOperations: () -> Unit,
+    onSettings: () -> Unit,
+) {
     val sync by syncProgress.collectAsStateWithLifecycle()
-    Column(Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md)) {
+    val needsAttention = sync.stage == SyncStage.ERROR || sync.report.failedOperations > 0 || sync.report.conflicts > 0
+    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl)
+        .padding(bottom = com.cinetrack.ui.theme.Spacing.lg).fillMaxWidth()
+        .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+        .animateContentSize().padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.xs)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(42.dp), contentAlignment = Alignment.Center) {
-                SimklMark()
-                Box(Modifier.align(Alignment.TopEnd).size(9.dp).clip(CircleShape).background(if (connected) Success else TextMuted).border(2.dp, com.cinetrack.ui.theme.SurfacePalette.WarmGray, CircleShape))
-            }
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text("SIMKL", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
+            Icon(Icons.Filled.CloudSync, null, tint = if (needsAttention) MaterialTheme.colorScheme.error else AccentLight, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.md))
+            Column(Modifier.weight(1f).clickable(onClick = if (connected) onOperations else onSettings)
+                .padding(vertical = com.cinetrack.ui.theme.Spacing.sm)) {
                 Text(
-                    if (connected) relativeSyncLabel(sync.lastSuccessfulSync) else stringResource(R.string.not_connected),
-                    color = TextPrimary,
-                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    fontWeight = FontWeight.Bold,
+                    when {
+                        !connected -> stringResource(R.string.connect_simkl)
+                        sync.running -> syncStageLabel(sync.stage)
+                        needsAttention -> stringResource(R.string.sync_needs_attention)
+                        else -> relativeSyncLabel(sync.lastSuccessfulSync)
+                    },
+                    color = TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
                 )
+                if (needsAttention || sync.report.pendingLocalChanges > 0) {
+                    Text(stringResource(R.string.sync_operations), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                }
             }
-            IconButton(onClick = onSync, enabled = connected && !sync.running) {
-                Icon(Icons.Filled.Refresh, stringResource(R.string.accessibility_sync), tint = if (connected) AccentLight else TextMuted)
+            IconButton(onClick = onSync, enabled = connected && !sync.running, modifier = Modifier.size(48.dp)) {
+                Icon(Icons.Filled.Refresh, stringResource(R.string.accessibility_sync), tint = if (connected) AccentLight else TextMuted, modifier = Modifier.size(21.dp))
             }
         }
-        AnimatedVisibility(sync.running || sync.stage == SyncStage.ERROR) {
-            Column(Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md)) {
-                LinearProgressIndicator(
-                    progress = { sync.progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
-                    color = if (sync.stage == SyncStage.ERROR) MaterialTheme.colorScheme.error else AccentLight,
-                    trackColor = com.cinetrack.ui.theme.Glass,
-                )
-                Spacer(Modifier.height(7.dp))
-                Text(sync.message ?: syncStageLabel(sync.stage), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        AnimatedVisibility(sync.running || needsAttention) {
+            Column(Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.md)) {
+                if (sync.running) {
+                    LinearProgressIndicator(
+                        progress = { sync.progress.coerceIn(0f, 1f) },
+                        modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
+                        color = AccentLight, trackColor = com.cinetrack.ui.theme.Glass,
+                    )
+                    Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+                }
+                Text(sync.message ?: stringResource(R.string.sync_operations_summary), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
         }
     }
@@ -514,7 +532,7 @@ private fun ExpandablePlaybackSection(
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
-            Text(title, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, letterSpacing = .2.sp, modifier = Modifier.weight(1f).padding(bottom = com.cinetrack.ui.theme.Spacing.md))
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).padding(bottom = com.cinetrack.ui.theme.Spacing.md))
             if (showEpisodeControl) {
                 Row(
                     Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction { showOrderSheet = true })
@@ -698,6 +716,7 @@ private fun PlaybackRow(
     onEpisode: (EpisodeCard) -> Unit,
     onWatched: (PlaybackCard) -> Unit,
 ) {
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)
     var confirming by remember(item.media.stableKey) { mutableStateOf(false) }
     LaunchedEffect(confirming) {
         if (confirming) {
@@ -745,18 +764,18 @@ private fun PlaybackRow(
     val openItemAction = rememberUiAction(openItem)
     RevealOnMount("${item.media.stableKey}:${item.season}:${item.episodeNumber}") {
     Box(
-        Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md).fillMaxWidth().height(146.dp)
-            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
-            .border(if (cardPressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (cardPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
+        Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md).fillMaxWidth().height((156 * fontScale).dp)
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+            .border(if (cardPressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (cardPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
             .clickable(interactionSource = cardInteraction, indication = null, onClick = openItemAction),
     ) {
         Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(118.dp).fillMaxHeight().background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid)))) {
+            Box(Modifier.padding(com.cinetrack.ui.theme.Spacing.md).width(86.dp).fillMaxHeight().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid)))) {
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
-                if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+                if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
             }
-            Column(Modifier.weight(1f).fillMaxHeight().padding(start = com.cinetrack.ui.theme.Spacing.md, end = 0.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
-                Text(item.media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, letterSpacing = .65.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.weight(1f).fillMaxHeight().padding(start = 0.dp, end = 0.dp, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.md)) {
+                Text(item.media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
                     val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
                     listOfNotNull(numbered.takeIf(String::isNotBlank), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
@@ -774,12 +793,12 @@ private fun PlaybackRow(
                 )
                 Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
                 AnimatedProgressBar(timelineProgress, Modifier.padding(end = 14.dp))
-                Spacer(Modifier.height(15.dp))
+                Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
             }
             IconButton(
                 onClick = rememberUiAction { confirming = true },
-                modifier = Modifier.align(Alignment.Bottom).padding(end = 28.dp, bottom = com.cinetrack.ui.theme.Spacing.xl).size(35.dp).clip(CircleShape)
-                    .background(com.cinetrack.ui.theme.SurfacePalette.NeutralSlate.copy(alpha = .62f)).border(1.1.dp, Accent.copy(alpha = .86f), CircleShape),
+                enabled = !confirming,
+                modifier = Modifier.align(Alignment.Bottom).padding(end = com.cinetrack.ui.theme.Spacing.xs, bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp).glassIcon(),
             ) {
                 Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(18.dp).scale(checkScale))
             }
@@ -791,7 +810,7 @@ private fun PlaybackRow(
             exit = slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
         ) {
             Box(
-                Modifier.fillMaxSize().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Success.copy(alpha = .96f)),
+                Modifier.fillMaxSize().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Success.copy(alpha = .96f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -933,8 +952,8 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             StatisticTile(stringResource(R.string.this_month), monthly.toString(), Modifier.weight(1f))
             StatisticTile(stringResource(R.string.this_year), yearly.toString(), Modifier.weight(1f))
-            StatisticTile(stringResource(R.string.time_watched), formatWatchedDurationMinutes(watchedMinutes), Modifier.weight(1f))
         }
+        StatisticTile(stringResource(R.string.time_watched), formatWatchedDurationMinutes(watchedMinutes), Modifier.fillMaxWidth())
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
             StatisticTile(stringResource(R.string.completion_rate), "$completionRate%", Modifier.weight(1f))
             StatisticTile(stringResource(R.string.completed), completed.toString(), Modifier.weight(1f))
@@ -1031,14 +1050,14 @@ private fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) 
 @Composable
 private fun StatisticTile(label: String, value: String, modifier: Modifier = Modifier) {
     Column(modifier.glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.md), horizontalAlignment = Alignment.CenterHorizontally) {
-        val longValue = value.length > 14
         Text(
             value.ifBlank { "—" },
             color = TextPrimary,
-            fontSize = if (longValue) 11.sp else 16.sp,
-            lineHeight = if (longValue) 13.sp else 18.sp,
+            style = MaterialTheme.typography.titleSmall,
+            lineHeight = 22.sp,
             fontWeight = FontWeight.ExtraBold,
-            maxLines = if (longValue) 4 else 1,
+            maxLines = 4,
+            overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
@@ -1149,7 +1168,7 @@ private fun TimelineRow(
             }
         }
         Box(Modifier.width(68.dp).fillMaxHeight().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .5f), Info.copy(alpha = .32f))))) {
-            if (!item.media.posterUrl.isNullOrBlank()) AsyncImage(item.media.posterUrl, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
+            if (!item.media.posterUrl.isNullOrBlank()) AsyncImage(item.media.posterUrl, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {

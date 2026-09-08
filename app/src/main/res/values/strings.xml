@@ -366,4 +366,36 @@
     <plurals name="season_count"><item quantity="one">%d season</item><item quantity="other">%d seasons</item></plurals>
     <plurals name="episode_count"><item quantity="one">%d episode</item><item quantity="other">%d episodes</item></plurals>
     <string name="no_watch_providers">No streaming, rental or purchase services are currently listed for this title in your selected region.</string>
+    <string name="settings_services">Services</string>
+    <string name="settings_preferences">Preferences</string>
+    <string name="settings_data">Data and diagnostics</string>
+    <string name="settings_more">About</string>
+    <string name="configured">Configured</string>
+    <string name="not_configured">Not configured</string>
+    <string name="streaming_services">Streaming services</string>
+    <string name="my_favorites">My favorites</string>
+    <string name="all_services">All services</string>
+    <string name="manage_providers">Manage favorites</string>
+    <string name="providers_selected_count">%1$d selected</string>
+    <string name="visible_offer_types">Visible offers</string>
+    <string name="visible_offer_types_description">Choose which availability types appear in Where to watch.</string>
+    <string name="provider_free">Free</string>
+    <string name="provider_ads">With ads</string>
+    <string name="streaming_providers">Streaming providers</string>
+    <string name="provider_country">Country</string>
+    <string name="change">Change</string>
+    <string name="search_providers">Search providers</string>
+    <string name="available_services">Available services</string>
+    <string name="clear_selection">Clear</string>
+    <string name="providers_require_tmdb">Connect TMDB in Integrations to load streaming services.</string>
+    <string name="providers_load_failed">Unable to load services. Your favorites are saved.</string>
+    <string name="no_providers_in_country">No services available for this country.</string>
+    <string name="no_provider_matches">No matching services.</string>
+    <string name="other_saved_services">Other saved favorites</string>
+    <string name="providers_preserved">These favorites are not listed in this country. Tap to remove them.</string>
+    <string name="favorites_filter_help">Favorites filter Discover provider choices and Where to watch. With no favorites selected, all services are shown.</string>
+    <string name="search_countries">Search countries</string>
+    <string name="sync_needs_attention">Sync needs attention</string>
+    <string name="discover_refresh_timeout">Discover took too long to refresh. Saved content is still available; pull again to retry.</string>
+    <string name="sync_health_summary">%1$d pending · %2$d failed · %3$d conflicts</string>
 </resources>

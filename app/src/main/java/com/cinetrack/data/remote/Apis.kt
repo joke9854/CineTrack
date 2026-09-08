@@ -92,7 +92,7 @@ data class TmdbMediaDto(
 @Serializable data class TmdbCreditRoleDto(val character: String? = null, val job: String? = null)
 @Serializable data class TmdbProviderResultDto(val results: Map<String, TmdbProviderCountryDto> = emptyMap())
 @Serializable data class TmdbProviderListDto(val results: List<TmdbProviderDto> = emptyList())
-@Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList())
+@Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList(), val free: List<TmdbProviderDto> = emptyList(), val ads: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderDto(@SerialName("provider_id") val id: Int, @SerialName("provider_name") val name: String, @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbSeasonSummaryDto(
     val id: Int,

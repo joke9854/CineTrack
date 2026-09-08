@@ -141,6 +141,8 @@ import com.cinetrack.ui.theme.TextSecondary
 import java.util.Locale
 
 object SettingsPages {
+    const val Streaming = "streaming"
+    const val Providers = "providers"
     const val Sync = "sync"
     const val SyncOperations = "sync-operations"
     const val Integrations = "integrations"
@@ -446,14 +448,19 @@ private data class SettingsItem(val page: String, val title: String, val subtitl
 fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (Boolean) -> Unit) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
-    val services = listOf(SettingsItem(SettingsPages.Integrations, stringResource(R.string.integrations), stringResource(R.string.integrations_summary), Icons.Filled.Link))
+    val services = listOf(
+        SettingsItem(SettingsPages.Integrations, stringResource(R.string.integrations),
+            "TMDB · ${stringResource(if (state.tmdbApiConfigured) R.string.configured else R.string.not_configured)}  /  Simkl · ${stringResource(if (state.simklConnected) R.string.connected else R.string.not_connected)}", Icons.Filled.Link),
+        SettingsItem(SettingsPages.Streaming, stringResource(R.string.streaming_services),
+            stringResource(R.string.providers_selected_count, state.preferredProviders.size), Icons.Filled.Tv),
+    )
     val preferences = listOf(
         SettingsItem(SettingsPages.Appearance, stringResource(R.string.appearance), stringResource(R.string.appearance_summary), Icons.Filled.Palette),
         SettingsItem(SettingsPages.Notifications, stringResource(R.string.notifications), stringResource(R.string.notifications_summary), Icons.Filled.Notifications),
-        SettingsItem(SettingsPages.Language, stringResource(R.string.language), stringResource(R.string.italian), Icons.Filled.Language),
+        SettingsItem(SettingsPages.Language, stringResource(R.string.language), currentAppLanguageLabel(), Icons.Filled.Language),
     )
     val dataAndDiagnostics = listOf(
-        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_operations_summary), Icons.Filled.SyncProblem),
+        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_health_summary, state.sync.report.pendingLocalChanges, state.sync.report.failedOperations, state.sync.report.conflicts), Icons.Filled.SyncProblem),
         SettingsItem(SettingsPages.Export, stringResource(R.string.export_data), stringResource(R.string.export_data_summary), Icons.Filled.Download),
         SettingsItem(SettingsPages.Logs, stringResource(R.string.logs), stringResource(R.string.logs_summary), Icons.Filled.BugReport),
     )
@@ -465,29 +472,20 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
             contentPadding = PaddingValues(bottom = 112.dp),
         ) {
             item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg)) }
-            item { SettingsGroup("SERVICES", services, onPage) }
-            item { SettingsGroup("PREFERENCES", preferences, onPage) }
-            item { SettingsGroup("DATA & DIAGNOSTICS", dataAndDiagnostics, onPage) }
-            item { SettingsGroup("MORE", more, onPage) }
+            item { SettingsGroup(stringResource(R.string.settings_services), services, onPage) }
+            item { SettingsGroup(stringResource(R.string.settings_preferences), preferences, onPage) }
+            item { SettingsGroup(stringResource(R.string.settings_data), dataAndDiagnostics, onPage) }
+            item { SettingsGroup(stringResource(R.string.settings_more), more, onPage) }
         }
     }
 }
 
 @Composable
 private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (String) -> Unit) {
-    Column(Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md)) {
-        Text(
-            label,
-            color = TextMuted,
-
-            letterSpacing = .45.sp,
-            fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
-                shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .72f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
-            ),
-            modifier = Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.sm),
-        )
-        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) {
+    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
+        com.cinetrack.ui.components.SectionHeader(label)
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) {
             items.forEachIndexed { index, item ->
                 SettingsRow(item, onPage)
                 if (index != items.lastIndex) GlassDivider()
@@ -499,14 +497,14 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 @Composable
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val clickAction = rememberUiAction { onPage(item.page) }
-    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
             Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
         }
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-            Text(item.subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
@@ -520,8 +518,13 @@ fun SettingsDetailScreen(
     onBack: () -> Unit,
     onPage: (String) -> Unit,
 ) {
+    if (page == SettingsPages.Providers) {
+        StreamingProvidersScreen(state, viewModel, onBack)
+        return
+    }
     val context = LocalContext.current
     val title = when (page) {
+        SettingsPages.Streaming -> stringResource(R.string.streaming_services)
         SettingsPages.Sync -> stringResource(R.string.synchronization)
         SettingsPages.SyncOperations -> stringResource(R.string.sync_operations)
         SettingsPages.Integrations -> stringResource(R.string.integrations)
@@ -546,8 +549,9 @@ fun SettingsDetailScreen(
                 }
             }
             item {
-                if (page != SettingsPages.About) SettingsDetailHero(page, title)
+                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist)) SettingsDetailHero(page, title)
                 when (page) {
+                    SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
                     SettingsPages.Sync -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.SyncOperations -> SyncOperationsSettings(viewModel)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
@@ -556,7 +560,9 @@ fun SettingsDetailScreen(
                         ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
                         ContentRegionSettings(state, viewModel)
-                        PreferredProviderSettings(state, viewModel)
+                        SettingsSection(stringResource(R.string.streaming_services)) {
+                            SettingsRow(SettingsItem(SettingsPages.Streaming, stringResource(R.string.preferred_providers), stringResource(R.string.providers_selected_count, state.preferredProviders.size), Icons.Filled.Tv), onPage)
+                        }
                     }
                     SettingsPages.ServiceMdblist -> Column {
                         ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
@@ -859,12 +865,12 @@ private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel)
 @Composable
 private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(22.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
             if (selected) Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
         }
         Spacer(Modifier.width(11.dp))
-        Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         if (selected) Text(stringResource(R.string.active), color = color, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
     }
 }
@@ -1143,22 +1149,6 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
 }
 
 @Composable
-private fun PreferredProviderSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val providers by viewModel.streamingProviders.collectAsStateWithLifecycle()
-    LaunchedEffect(state.metadataRegion, state.contentRegions) { viewModel.loadSettingsStreamingProviders() }
-    SettingsSection(stringResource(R.string.preferred_providers)) {
-        providers.forEachIndexed { index, provider ->
-            ToggleRow(provider.name, provider.name in state.preferredProviders) { enabled ->
-                viewModel.setPreferredProviders(
-                    if (enabled) state.preferredProviders + provider.name else state.preferredProviders - provider.name,
-                )
-            }
-            if (index != providers.lastIndex) GlassDivider()
-        }
-    }
-}
-
-@Composable
 private fun LogsSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
     val logs by viewModel.errorLogs.collectAsStateWithLifecycle()
@@ -1355,25 +1345,24 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
 }
 
 @Composable
-private fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm)) {
-        Text(
-            title.uppercase(),
-            color = AccentLight,
-
-            fontWeight = FontWeight.ExtraBold,
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall.copy(
-                shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .78f), androidx.compose.ui.geometry.Offset(0f, 2f), 5f),
-            ),
-            modifier = Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xs, bottom = com.cinetrack.ui.theme.Spacing.sm),
-        )
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)), content = { content() })
+internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
+    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
+        com.cinetrack.ui.components.SectionHeader(title)
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) { content() }
     }
 }
 
 @Composable
+private fun currentAppLanguageLabel(): String {
+    val language = AppCompatDelegate.getApplicationLocales().toLanguageTags().substringBefore('-').substringBefore(',')
+        .ifBlank { Locale.getDefault().language }
+    return stringResource(if (language == "it") R.string.italian else R.string.english)
+}
+
+@Composable
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch, onValueChange = onChecked).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChecked).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         CompactSwitch(checked)
     }
@@ -1396,16 +1385,16 @@ private fun CompactSwitch(checked: Boolean) {
 
 @Composable
 private fun ValueRow(title: String, value: String, success: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Text(value, color = if (success) Color.White else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+        Text(value, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = if (success) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
 }
 
 @Composable
 private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -1438,7 +1427,7 @@ private fun ServiceLogo(name: String) {
 @Composable
 private fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (!description.isNullOrBlank()) {
