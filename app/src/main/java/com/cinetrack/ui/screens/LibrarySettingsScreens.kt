@@ -997,10 +997,11 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         SearchableChoiceSheet(
             stringResource(when (key) { "language" -> R.string.metadata_language; "region" -> R.string.metadata_region; else -> R.string.metadata_timezone }),
             stringResource(R.string.search), options, selected, { activeChoice = null },
-        ) { value ->
-            when (key) { "language" -> viewModel.setMetadataLanguage(value); "region" -> viewModel.setMetadataRegion(value); else -> viewModel.setMetadataTimezone(value) }
-            activeChoice = null
-        }
+            onSelected = { value ->
+                when (key) { "language" -> viewModel.setMetadataLanguage(value); "region" -> viewModel.setMetadataRegion(value); else -> viewModel.setMetadataTimezone(value) }
+                activeChoice = null
+            },
+        )
     }
 }
 
