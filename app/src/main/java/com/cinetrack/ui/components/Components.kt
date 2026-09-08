@@ -220,7 +220,7 @@ fun Modifier.blueEdgeClickable(
         .combinedClickable(
             interactionSource = interactionSource,
             indication = null,
-            role = if (selectionMode) Role.Checkbox else Role.Button,
+            role = Role.Button,
             onClick = {
                 onClick()
             },
@@ -487,7 +487,7 @@ fun MediaPoster(
         }.combinedClickable(
             interactionSource = interactionSource,
             indication = null,
-            role = Role.Button,
+            role = if (selectionMode) Role.Checkbox else Role.Button,
             onClick = {
                 onClick()
             },
