@@ -670,16 +670,16 @@ private fun ProviderSection(media: MediaCard) {
             Spacer(Modifier.width(8.dp))
             SectionHeader(stringResource(R.string.where_to_watch), Modifier.weight(1f))
         }
-        if (media.providers.isEmpty() && media.subscriptionProviders.isEmpty() && media.rentProviders.isEmpty() && media.buyProviders.isEmpty()) {
-            Text(stringResource(R.string.no_watch_providers), color = TextSecondary,
+        val offers = com.cinetrack.domain.visibleProviderOffers(media)
+        if (offers.values.all { it.isEmpty() }) {
+            Text(stringResource(if (media.providerAvailabilityExists) R.string.no_matching_watch_providers else R.string.no_watch_providers), color = TextSecondary,
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 modifier = Modifier.padding(top = 12.dp))
         }
-        ProviderCategory(stringResource(R.string.subscription), media.subscriptionProviders, media.providerLogos)
-        ProviderCategory(stringResource(R.string.rent), media.rentProviders, media.providerLogos)
-        ProviderCategory(stringResource(R.string.buy), media.buyProviders, media.providerLogos)
-        ProviderCategory(stringResource(R.string.provider_free), media.freeProviders, media.providerLogos)
-        ProviderCategory(stringResource(R.string.provider_ads), media.adsProviders, media.providerLogos)
+        listOf("flatrate" to R.string.subscription, "rent" to R.string.rent, "buy" to R.string.buy,
+            "free" to R.string.provider_free, "ads" to R.string.provider_ads).forEach { (type, label) ->
+            ProviderCategory(stringResource(label), offers[type].orEmpty(), media.providerLogos)
+        }
         media.providerLink?.takeIf(String::isNotBlank)?.let { link ->
             Spacer(Modifier.height(9.dp))
             Text(

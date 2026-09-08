@@ -398,4 +398,5 @@
     <string name="sync_needs_attention">Sync needs attention</string>
     <string name="discover_refresh_timeout">Discover took too long to refresh. Saved content is still available; pull again to retry.</string>
     <string name="sync_health_summary">%1$d pending · %2$d failed · %3$d conflicts</string>
+    <string name="no_matching_watch_providers">No offers match your selected services and offer types in this country.</string>
 </resources>

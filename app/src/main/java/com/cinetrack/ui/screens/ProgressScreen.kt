@@ -535,7 +535,7 @@ private fun ExpandablePlaybackSection(
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).padding(bottom = com.cinetrack.ui.theme.Spacing.md))
             if (showEpisodeControl) {
                 Row(
-                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction { showOrderSheet = true })
+                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).heightIn(min = 48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction { showOrderSheet = true })
                         .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -607,7 +607,7 @@ private fun ExpandablePlaybackSection(
         }
         if (orderedItems.size > 3) {
             Row(
-                Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xl).offset(y = buttonOffset).fillMaxWidth().height(40.dp)
+                Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xl).offset(y = buttonOffset).fillMaxWidth().height(48.dp)
                     .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
@@ -1174,7 +1174,7 @@ private fun TimelineRow(
         Column(Modifier.weight(1f)) {
             val typeLabel = if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             Text(if (history) "$typeLabel · ${timelineTime(item.timestamp)}" else typeLabel, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
-            Text(item.media.title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1)
+            Text(item.media.title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val episodeText = item.episodeLabel ?: item.media.year
             Text(episodeText, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }

@@ -398,4 +398,5 @@
     <string name="sync_needs_attention">Sincronizzazione da verificare</string>
     <string name="discover_refresh_timeout">Scopri ha impiegato troppo tempo ad aggiornarsi. I contenuti salvati sono disponibili; trascina di nuovo per riprovare.</string>
     <string name="sync_health_summary">%1$d in attesa · %2$d fallite · %3$d conflitti</string>
+    <string name="no_matching_watch_providers">Nessuna offerta corrisponde ai servizi e ai tipi selezionati in questo paese.</string>
 </resources>

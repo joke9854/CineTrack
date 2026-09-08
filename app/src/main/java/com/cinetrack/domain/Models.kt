@@ -37,6 +37,8 @@ data class MediaCard(
     val freeProviders: List<String> = emptyList(),
     val adsProviders: List<String> = emptyList(),
     val providerLink: String? = null,
+    val providerAvailabilityExists: Boolean = false,
+    val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
     val seasons: List<SeasonCard> = emptyList(),
     val collectionId: Int? = null,
     val libraryUpdatedAt: Long? = null,

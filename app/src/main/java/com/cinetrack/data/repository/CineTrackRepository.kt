@@ -198,12 +198,10 @@ class CineTrackRepository(
 
     /** TMDB accepts one watch region. Make Discover/provider availability follow
      * the content-region filter, then fall back to metadata and device regions. */
-    private suspend fun effectiveProviderRegion(): String {
-        preferences.providerRegion.first().takeUnless { it == "system" || it.isBlank() }?.let { return it.uppercase() }
-        preferences.contentRegions.first().sorted().firstOrNull()?.let { return it.uppercase() }
-        preferences.metadataRegion.first().takeUnless { it == "system" || it.isBlank() }?.let { return it.uppercase() }
-        return Locale.getDefault().country.takeIf(String::isNotBlank)?.uppercase() ?: "US"
-    }
+    private suspend fun effectiveProviderRegion(): String = com.cinetrack.domain.resolveProviderRegion(
+        preferences.providerRegion.first(), preferences.contentRegions.first(),
+        preferences.metadataRegion.first(), Locale.getDefault().country,
+    )
 
     private fun scheduleTime(raw: String?): Long = raw?.takeIf(String::isNotBlank)?.let { value ->
         runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
@@ -1273,10 +1271,8 @@ class CineTrackRepository(
                     compareByDescending<com.cinetrack.data.remote.TmdbProviderDto> { it.name in preferredProviders }
                         .thenBy { it.name.lowercase() },
                 )
-            fun visibleType(type: String, providers: List<com.cinetrack.data.remote.TmdbProviderDto>) =
-                if (type in visibleTypes) providers.visibleProviders() else emptyList()
             val providers = providerCountry
-                ?.let { visibleType("flatrate", it.flatrate) + visibleType("rent", it.rent) + visibleType("buy", it.buy) + visibleType("free", it.free) + visibleType("ads", it.ads) }
+                ?.let { it.flatrate + it.rent + it.buy + it.free + it.ads }
                 .orEmpty()
                 .visibleProviders()
             dto.toEntity(media.type).toDomain().copy(
@@ -1294,12 +1290,14 @@ class CineTrackRepository(
                 providerLogos = providers.mapNotNull { provider ->
                     provider.logoPath?.let { provider.name to "https://image.tmdb.org/t/p/w92$it" }
                 }.toMap(),
-                subscriptionProviders = visibleType("flatrate", providerCountry?.flatrate.orEmpty()).map { it.name },
-                rentProviders = visibleType("rent", providerCountry?.rent.orEmpty()).map { it.name },
-                buyProviders = visibleType("buy", providerCountry?.buy.orEmpty()).map { it.name },
-                freeProviders = visibleType("free", providerCountry?.free.orEmpty()).map { it.name },
-                adsProviders = visibleType("ads", providerCountry?.ads.orEmpty()).map { it.name },
+                subscriptionProviders = providerCountry?.flatrate.orEmpty().visibleProviders().map { it.name },
+                rentProviders = providerCountry?.rent.orEmpty().visibleProviders().map { it.name },
+                buyProviders = providerCountry?.buy.orEmpty().visibleProviders().map { it.name },
+                freeProviders = providerCountry?.free.orEmpty().visibleProviders().map { it.name },
+                adsProviders = providerCountry?.ads.orEmpty().visibleProviders().map { it.name },
                 providerLink = providerCountry?.link,
+                visibleProviderTypes = visibleTypes,
+                providerAvailabilityExists = providerCountry?.let { (it.flatrate + it.rent + it.buy + it.free + it.ads).isNotEmpty() } == true,
                 seasons = dto.seasons.filter { it.number > 0 }.map { season ->
                     SeasonCard(
                         number = season.number,

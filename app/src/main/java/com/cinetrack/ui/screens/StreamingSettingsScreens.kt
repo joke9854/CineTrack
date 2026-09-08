@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.cinetrack.ui.screens
 
 import androidx.compose.foundation.background
@@ -38,10 +40,9 @@ import com.cinetrack.ui.components.*
 import com.cinetrack.ui.theme.*
 import java.util.Locale
 
-internal fun providerRegion(state: AppUiState): String = state.providerRegion.takeUnless { it == "system" }
-    ?: state.contentRegions.sorted().firstOrNull()
-    ?: state.metadataRegion.takeUnless { it == "system" }
-    ?: Locale.getDefault().country.ifBlank { "US" }
+internal fun providerRegion(state: AppUiState): String = com.cinetrack.domain.resolveProviderRegion(
+    state.providerRegion, state.contentRegions, state.metadataRegion, Locale.getDefault().country,
+)
 
 @Composable
 internal fun StreamingSettings(state: AppUiState, viewModel: CineTrackViewModel, onPage: (String) -> Unit) {
