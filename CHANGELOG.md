@@ -9,4 +9,4 @@
 - Use neutral detail-page watched, trailer, and library controls while retaining green watched confirmation. Improve provider-label spacing and useful-information alignment.
 - Publish this as a regular GitHub release. Keep the testing channel tag so existing installations can discover the update.
 
-No database schema changes or new dependencies. Device-level visual checks remain necessary.
+No database schema changes or new dependencies. Debug compilation, unit tests, lint, baseline-profile compilation and database checks passed. Device-level visual checks remain necessary.
