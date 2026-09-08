@@ -241,6 +241,7 @@ fun CineTrackApp(
                 DiscoverScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
+                    loadTagline = viewModel::loadTagline,
                     onSearch = { navController.navigate("search/discover") },
                     onFilters = { navController.navigate(Routes.DiscoverFilters) },
                     onSeeAll = { navController.navigate("discover-list/$it") },

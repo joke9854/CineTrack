@@ -40,6 +40,8 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.ArrowDownward
@@ -206,25 +208,18 @@ fun LibraryScreen(
     val progressByKey = remember(state.playbackTv, state.playbackMovies) {
         (state.playbackTv + state.playbackMovies).associate { it.media.stableKey to it.progress }
     }
-    AdaptiveBackground(artworkUrl = items.firstOrNull()?.posterUrl) {
+    LaunchedEffect(type, status, bulkMode) { selectedKeys = emptySet() }
+    val backgroundMedia = state.rails[RailIds.LIBRARY].orEmpty().minByOrNull { it.stableKey }
+    AdaptiveBackground(artworkUrl = backgroundMedia?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 PageTitle(stringResource(R.string.library), Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(
-                        onClick = rememberUiAction {
-                            bulkMode = !bulkMode
-                            if (!bulkMode) selectedKeys = emptySet()
-                        },
-                        modifier = Modifier.size(48.dp).glassIcon(),
-                    ) {
-                        Icon(Icons.Filled.PlaylistAddCheck, stringResource(R.string.bulk_edit), tint = if (bulkMode) AccentLight else TextSecondary, modifier = Modifier.size(21.dp))
-                    }
                     IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).glassIcon()) {
                         Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
                     IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(48.dp).glassIcon()) {
-                        Icon(Icons.Filled.FilterList, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(21.dp))
+                        Icon(Icons.Filled.Sort, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(21.dp))
                     }
                 }
             }
@@ -235,7 +230,7 @@ fun LibraryScreen(
                 listOf(MediaType.TV, MediaType.MOVIE).forEach { item ->
                     val selected = item == type
                     Row(
-                        Modifier.weight(1f).height(40.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+                        Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
                             .clickable { type = item },
                         horizontalArrangement = Arrangement.Center,
@@ -256,7 +251,7 @@ fun LibraryScreen(
                     val selected = status == value
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }
                     Row(
-                        modifier = Modifier.glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                        modifier = Modifier.heightIn(min = 48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
                             .clickable { status = value }.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
@@ -267,22 +262,17 @@ fun LibraryScreen(
                     }
                 }
             }
-            val counts = listOf(
-                typeItems.count { it.status == LibraryStatus.WATCHING },
-                typeItems.count { it.status == LibraryStatus.PLAN_TO_WATCH },
-                typeItems.count { it.status == LibraryStatus.PAUSED },
-                typeItems.count { it.status == LibraryStatus.COMPLETED },
-                typeItems.count { it.status == LibraryStatus.DROPPED },
-            )
-            if (typeItems.isNotEmpty()) Row(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth().height(8.dp).clip(CircleShape)) {
-                val colors = listOf(
-                    libraryStatusColor(LibraryStatus.WATCHING),
-                    libraryStatusColor(LibraryStatus.PLAN_TO_WATCH),
-                    libraryStatusColor(LibraryStatus.PAUSED),
-                    libraryStatusColor(LibraryStatus.COMPLETED),
-                    libraryStatusColor(LibraryStatus.DROPPED),
-                )
-                counts.forEachIndexed { index, count -> if (count > 0) Box(Modifier.weight(count.toFloat()).fillMaxSize().background(colors[index])) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).clickable { showOrderSheet = true }, verticalAlignment = Alignment.CenterVertically) {
+                    Icon(if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
+                        stringResource(if (ascending) R.string.ascending else R.string.descending), tint = TextMuted, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(stringResource(R.string.library_sort_summary, libraryOrderLabel(order), items.size), color = TextSecondary,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                TextButton(onClick = { bulkMode = !bulkMode; selectedKeys = emptySet() }) {
+                    Text(stringResource(if (bulkMode) R.string.cancel else R.string.bulk_edit), color = TextPrimary)
+                }
             }
             if (bulkMode) {
                 PrimaryAction(
@@ -294,10 +284,12 @@ fun LibraryScreen(
             }
             if (items.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.AutoAwesome, null, tint = AccentLight, modifier = Modifier.size(40.dp))
-                        Text(stringResource(R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                        Text(stringResource(R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                        Text(stringResource(if (status != null) R.string.library_no_matches else R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        Text(stringResource(if (status != null) R.string.library_no_matches_description else R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                        if (status != null) TextButton(onClick = { status = null }) { Text(stringResource(R.string.clear_filters), color = TextPrimary) }
+                        else TextButton(onClick = onSearch) { Text(stringResource(R.string.accessibility_search), color = TextPrimary) }
                     }
                 }
             } else {
@@ -311,12 +303,12 @@ fun LibraryScreen(
                     items(items, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
                             val visibleProgress = progressByKey[media.stableKey]
-                                ?: if (media.type == MediaType.TV && media.status == LibraryStatus.WATCHING) .03f else null
                             MediaPoster(
                                 media,
                                 width = maxWidth,
                                 progress = visibleProgress,
-                                selectedBorder = AccentLight.takeIf { media.stableKey in selectedKeys },
+                                selectedBorder = AccentLight.takeIf { bulkMode && media.stableKey in selectedKeys },
+                                selectionMode = bulkMode,
                                 onStatus = if (bulkMode) null else ({ selected: LibraryStatus -> onStatus(media, selected) }),
                                 onClick = {
                                     if (bulkMode) {
@@ -384,6 +376,15 @@ private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: 
 }
 
 @Composable
+private fun libraryOrderLabel(order: LibraryOrder): String = stringResource(when (order) {
+    LibraryOrder.TITLE -> R.string.order_title
+    LibraryOrder.RATING -> R.string.order_rating
+    LibraryOrder.YEAR -> R.string.order_year
+    LibraryOrder.RECENTLY_WATCHED -> R.string.order_recently_watched
+    LibraryOrder.RECENTLY_ADDED -> R.string.order_recently_added
+})
+
+@Composable
 private fun LibraryOrderSheet(
     initialOrder: LibraryOrder,
     initialAscending: Boolean,
@@ -394,7 +395,7 @@ private fun LibraryOrderSheet(
     var ascending by remember(initialAscending) { mutableStateOf(initialAscending) }
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
-            Text(stringResource(R.string.sort_by), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Black, letterSpacing = .8.sp)
+            com.cinetrack.ui.components.SectionHeader(stringResource(R.string.sort_by))
             Spacer(Modifier.height(12.dp))
             LibraryOrder.entries.forEach { option ->
                 val active = selected == option
@@ -410,13 +411,7 @@ private fun LibraryOrderSheet(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        when (option) {
-                            LibraryOrder.TITLE -> stringResource(R.string.order_title)
-                            LibraryOrder.RATING -> stringResource(R.string.order_rating)
-                            LibraryOrder.YEAR -> stringResource(R.string.order_year)
-                            LibraryOrder.RECENTLY_WATCHED -> stringResource(R.string.order_recently_watched)
-                            LibraryOrder.RECENTLY_ADDED -> stringResource(R.string.order_recently_added)
-                        },
+                        libraryOrderLabel(option),
                         color = if (active) TextPrimary else TextSecondary,
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
@@ -981,36 +976,44 @@ private fun ApiCredentialSettings(
 
 @Composable
 private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val languages = listOf(
-        "system" to stringResource(R.string.system_default),
-        "it-IT" to "Italiano", "en-US" to "English", "fr-FR" to "Français",
-        "de-DE" to "Deutsch", "es-ES" to "Español", "ja-JP" to "日本語", "ko-KR" to "한국어",
-    )
-    val regions = listOf(
-        "system" to stringResource(R.string.system_default),
-        "IT" to "Italia", "US" to "United States", "GB" to "United Kingdom",
-        "FR" to "France", "DE" to "Deutschland", "ES" to "España", "JP" to "Japan", "KR" to "South Korea",
-    )
-    val timezones = listOf(
-        "system" to stringResource(R.string.system_default),
-        "Europe/Rome" to "Europe/Rome", "UTC" to "UTC", "America/New_York" to "America/New_York", "Asia/Tokyo" to "Asia/Tokyo",
-    )
-    SettingsSection(stringResource(R.string.metadata_language)) {
-        languages.forEachIndexed { index, (value, label) ->
-            ChoiceRow(label, state.metadataLanguage == value) { viewModel.setMetadataLanguage(value) }
-            if (index != languages.lastIndex) GlassDivider()
+    var activeChoice by rememberSaveable { mutableStateOf<String?>(null) }
+    val locale = Locale.getDefault()
+    val defaultChoice = "system" to stringResource(R.string.system_default)
+    val languages = listOf(defaultChoice) + remember(locale) {
+        Locale.getISOLanguages().map { code -> code to Locale(code).getDisplayLanguage(locale) }.sortedBy { it.second }
+    }
+    val regions = listOf(defaultChoice) + remember(locale) {
+        Locale.getISOCountries().map { code -> code to Locale("", code).getDisplayCountry(locale) }.sortedBy { it.second }
+    }
+    val timezones = listOf(defaultChoice) + remember { java.time.ZoneId.getAvailableZoneIds().sorted().map { it to it.replace('_', ' ') } }
+    val language = languages.firstOrNull { it.first == state.metadataLanguage }?.second
+        ?: Locale.forLanguageTag(state.metadataLanguage).getDisplayName(locale)
+    val region = regions.firstOrNull { it.first == state.metadataRegion }?.second ?: state.metadataRegion
+    val timezone = timezones.firstOrNull { it.first == state.metadataTimezone }?.second ?: state.metadataTimezone
+    listOf(
+        Triple("language", stringResource(R.string.metadata_language), language),
+        Triple("region", stringResource(R.string.metadata_region), region),
+        Triple("timezone", stringResource(R.string.metadata_timezone), timezone),
+    ).forEach { (key, title, value) ->
+        SettingsSection(title) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { activeChoice = key }
+                .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ChevronRight, title, tint = TextMuted)
+            }
         }
     }
-    SettingsSection(stringResource(R.string.metadata_region)) {
-        regions.forEachIndexed { index, (value, label) ->
-            ChoiceRow(label, state.metadataRegion == value) { viewModel.setMetadataRegion(value) }
-            if (index != regions.lastIndex) GlassDivider()
-        }
-    }
-    SettingsSection(stringResource(R.string.metadata_timezone)) {
-        timezones.forEachIndexed { index, (value, label) ->
-            ChoiceRow(label, state.metadataTimezone == value) { viewModel.setMetadataTimezone(value) }
-            if (index != timezones.lastIndex) GlassDivider()
+    activeChoice?.let { key ->
+        val choices = when (key) { "language" -> languages; "region" -> regions; else -> timezones }
+        val selected = when (key) { "language" -> state.metadataLanguage; "region" -> state.metadataRegion; else -> state.metadataTimezone }
+        // Preserve legacy region-specific language tags as selectable choices.
+        val options = if (choices.any { it.first == selected }) choices else listOf(selected to language) + choices
+        SearchableChoiceSheet(
+            stringResource(when (key) { "language" -> R.string.metadata_language; "region" -> R.string.metadata_region; else -> R.string.metadata_timezone }),
+            stringResource(R.string.search), options, selected, { activeChoice = null },
+        ) { value ->
+            when (key) { "language" -> viewModel.setMetadataLanguage(value); "region" -> viewModel.setMetadataRegion(value); else -> viewModel.setMetadataTimezone(value) }
+            activeChoice = null
         }
     }
 }

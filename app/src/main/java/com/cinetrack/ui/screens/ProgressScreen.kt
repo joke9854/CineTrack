@@ -370,6 +370,8 @@ private fun SyncCard(
     onSettings: () -> Unit,
 ) {
     val sync by syncProgress.collectAsStateWithLifecycle()
+    val statusInteraction = remember { MutableInteractionSource() }
+    val statusPressed by statusInteraction.collectIsPressedAsState()
     val needsAttention = sync.stage == SyncStage.ERROR || sync.report.failedOperations > 0 || sync.report.conflicts > 0
     Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl)
         .padding(bottom = com.cinetrack.ui.theme.Spacing.lg).fillMaxWidth()
@@ -378,8 +380,10 @@ private fun SyncCard(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.CloudSync, null, tint = if (needsAttention) MaterialTheme.colorScheme.error else AccentLight, modifier = Modifier.size(22.dp))
             Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.md))
-            Column(Modifier.weight(1f).clickable(onClick = if (connected) onOperations else onSettings)
-                .padding(vertical = com.cinetrack.ui.theme.Spacing.sm)) {
+            Column(Modifier.weight(1f).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+                .background(if (statusPressed) com.cinetrack.ui.theme.GlassStrong else Color.Transparent)
+                .clickable(interactionSource = statusInteraction, indication = null, onClick = if (connected) onOperations else onSettings)
+                .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.sm)) {
                 Text(
                     when {
                         !connected -> stringResource(R.string.connect_simkl)
@@ -793,13 +797,13 @@ private fun PlaybackRow(
                     maxLines = 1,
                 )
                 Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
-                AnimatedProgressBar(timelineProgress, Modifier.padding(end = 14.dp))
-                Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
+                AnimatedProgressBar(timelineProgress, Modifier.padding(end = 20.dp))
+                Spacer(Modifier.height(15.dp))
             }
             IconButton(
                 onClick = rememberUiAction { confirming = true },
                 enabled = !confirming,
-                modifier = Modifier.align(Alignment.Bottom).padding(end = com.cinetrack.ui.theme.Spacing.xs, bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp).glassIcon(),
+                modifier = Modifier.align(Alignment.Bottom).padding(end = 6.dp, bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp).glassIcon(),
             ) {
                 Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(18.dp).scale(checkScale))
             }
@@ -828,7 +832,7 @@ private fun PlaybackRow(
 private fun AnimatedProgressBar(progress: Float, modifier: Modifier = Modifier) {
     val safeProgress = progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(safeProgress, tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
-    Box(modifier.fillMaxWidth().height(6.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
+    Box(modifier.fillMaxWidth().height(10.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
         Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }
 }
@@ -1158,12 +1162,13 @@ private fun TimelineRow(
         Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md).fillMaxWidth().height(if (history) 112.dp else 120.dp)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
             .border(if (pressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (pressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-            .clickable(interactionSource = interaction, indication = null, onClick = openItemAction).padding(com.cinetrack.ui.theme.Spacing.md),
+            .clickable(interactionSource = interaction, indication = null, onClick = openItemAction)
+            .padding(start = if (history) 12.dp else 6.dp, end = 12.dp, top = 12.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (!history) {
             val date = timelineLocalDate(item.timestamp)
-            Column(Modifier.width(48.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.width(54.dp).padding(end = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(date?.dayOfMonth?.toString()?.padStart(2, '0').orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
                 Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }

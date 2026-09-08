@@ -63,6 +63,19 @@ data class SeasonCard(
 )
 
 @Immutable
+data class SeasonDetails(
+    val number: Int,
+    val title: String,
+    val overview: String,
+    val posterUrl: String?,
+    val airDate: String?,
+    val episodeCount: Int,
+    val runtimeMinutes: Int?,
+    val score: Double?,
+    val cast: List<PersonCard>,
+)
+
+@Immutable
 data class PlaybackCard(
     val media: MediaCard,
     val episodeId: Int? = null,

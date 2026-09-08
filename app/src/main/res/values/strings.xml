@@ -399,4 +399,17 @@
     <string name="discover_refresh_timeout">Discover took too long to refresh. Saved content is still available; pull again to retry.</string>
     <string name="sync_health_summary">%1$d pending · %2$d failed · %3$d conflicts</string>
     <string name="no_matching_watch_providers">No offers match your selected services and offer types in this country.</string>
+    <string name="poster_selected">Selected</string>
+    <string name="poster_not_selected">Not selected</string>
+    <string name="library_sort_summary">%1$s · %2$d titles</string>
+    <string name="library_no_matches">No titles with this status</string>
+    <string name="library_no_matches_description">Clear the status filter to see the other titles.</string>
+    <string name="clear_filters">Clear filters</string>
+    <string name="choice_no_results">No matching options</string>
+    <string name="show_season_info">Show information for season %1$d</string>
+    <string name="season_info_error">Season information could not be loaded. Check your connection and TMDB settings, then retry.</string>
+    <string name="season_no_description">No description is available for this season in the selected language.</string>
+    <string name="average_runtime">Average episode runtime</string>
+    <string name="season_cast">Season cast</string>
+    <string name="season_no_cast">No cast information is available for this season.</string>
 </resources>

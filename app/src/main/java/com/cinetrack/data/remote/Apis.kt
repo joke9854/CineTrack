@@ -37,6 +37,7 @@ data class TmdbMediaDto(
     val title: String? = null,
     val name: String? = null,
     val overview: String = "",
+    val tagline: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
@@ -103,7 +104,16 @@ data class TmdbMediaDto(
 )
 
 @Serializable
-data class TmdbSeasonDto(val id: Int, val name: String, val episodes: List<TmdbEpisodeDto> = emptyList())
+data class TmdbSeasonDto(
+    val id: Int,
+    val name: String,
+    val episodes: List<TmdbEpisodeDto> = emptyList(),
+    val overview: String = "",
+    @SerialName("air_date") val airDate: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("vote_average") val voteAverage: Double? = null,
+    @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
+)
 
 @Serializable
 data class TmdbEpisodeDto(
@@ -217,7 +227,7 @@ interface TmdbService {
     ): TmdbFindResponse
     @GET("3/movie/{id}") suspend fun movie(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
     @GET("3/tv/{id}") suspend fun show(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
-    @GET("3/tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null): TmdbSeasonDto
+    @GET("3/tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null, @Query("append_to_response") append: String? = null): TmdbSeasonDto
     @GET("3/tv/{id}/season/{season}/episode/{episode}") suspend fun episode(@Path("id") id: Int, @Path("season") season: Int, @Path("episode") episode: Int, @Query("append_to_response") append: String = "credits", @Query("language") language: String? = null): TmdbEpisodeDto
     @GET("3/person/{id}") suspend fun person(@Path("id") id: Int, @Query("language") language: String? = null): TmdbPersonDto
     @GET("3/person/{id}/movie_credits") suspend fun movieCredits(@Path("id") id: Int): TmdbMovieCreditsDto

@@ -183,19 +183,38 @@ private fun ProviderTile(provider: StreamingProvider, selected: Boolean, onToggl
 
 @Composable
 private fun ProviderCountrySheet(selected: String, onDismiss: () -> Unit, onSelected: (String) -> Unit) {
-    var query by rememberSaveable { mutableStateOf("") }
-    val countries = remember { Locale.getISOCountries().map { it to Locale("", it).getDisplayCountry(Locale.getDefault()) }.sortedBy { it.second } }
+    val locale = Locale.getDefault()
+    val countries = remember(locale) { Locale.getISOCountries().map { it to Locale("", it).getDisplayCountry(locale) }.sortedBy { it.second } }
+    SearchableChoiceSheet(stringResource(R.string.provider_country), stringResource(R.string.search_countries), countries, selected, onDismiss, onSelected)
+}
+
+@Composable
+internal fun SearchableChoiceSheet(
+    title: String,
+    searchLabel: String,
+    choices: List<Pair<String, String>>,
+    selected: String,
+    onDismiss: () -> Unit,
+    onSelected: (String) -> Unit,
+) {
+    var query by rememberSaveable(title) { mutableStateOf("") }
+    val matches = remember(choices, query) { choices.filter { (code, name) -> code.contains(query.trim(), true) || name.contains(query.trim(), true) } }
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl)) {
-            SectionHeader(stringResource(R.string.provider_country))
+            SectionHeader(title)
             OutlinedTextField(value = query, onValueChange = { query = it }, singleLine = true,
-                label = { Text(stringResource(R.string.search_countries)) }, modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.md),
-                shape = RoundedCornerShape(Radius.Medium))
+                label = { Text(searchLabel) }, modifier = Modifier.fillMaxWidth().padding(vertical = Spacing.md),
+                leadingIcon = { Icon(Icons.Filled.Search, null) }, shape = RoundedCornerShape(Radius.Medium),
+                colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
+                    focusedBorderColor = AccentLight, unfocusedBorderColor = GlassStrong))
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
-                items(countries.filter { (code, name) -> code.contains(query, true) || name.contains(query, true) }, key = { it.first }) { (code, name) ->
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable { onSelected(code) }.padding(vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                        Text("$name ($code)", color = TextPrimary, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        if (code == selected) Icon(Icons.Filled.Check, null, tint = AccentLight)
+                if (matches.isEmpty()) item { Text(stringResource(R.string.choice_no_results), color = TextSecondary, modifier = Modifier.padding(vertical = Spacing.lg)) }
+                items(matches, key = { it.first }) { (code, name) ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(Radius.Small))
+                        .clickable { onSelected(code) }.padding(vertical = Spacing.md, horizontal = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (code == "system" || code == name) name else "$name ($code)", color = TextPrimary,
+                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
+                        if (code == selected) Icon(Icons.Filled.Check, stringResource(R.string.poster_selected), tint = AccentLight)
                     }
                 }
             }

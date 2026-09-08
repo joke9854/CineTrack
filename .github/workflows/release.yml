@@ -57,7 +57,7 @@ jobs:
           if ! unzip -l "$APK" 'assets/dexopt/*'; then
             echo "No packaged profile; app-specific generation is pending a device run."
           fi
-      - name: Publish GitHub prerelease
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -68,6 +68,6 @@ jobs:
           sha256sum "CineTrack-$VERSION-universal.apk" > "CineTrack-$VERSION-universal.apk.sha256"
           gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
             --target "$GITHUB_SHA" \
-            --title "CineTrack $VERSION testing" \
+            --title "CineTrack $VERSION" \
             --notes-file CHANGELOG.md \
-            --prerelease
+            --latest

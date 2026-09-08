@@ -764,6 +764,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
     fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
 
+    suspend fun loadTagline(media: MediaCard): String? = withContext(Dispatchers.IO) { repository.loadTagline(media) }
+    suspend fun loadSeasonDetails(show: MediaCard, number: Int): Result<com.cinetrack.domain.SeasonDetails> =
+        withContext(Dispatchers.IO) { repository.loadSeasonDetails(show, number) }
     suspend fun loadDetails(media: MediaCard): MediaCard = detailMediaCache[media.stableKey]
         ?: withContext(Dispatchers.IO) { repository.loadDetails(media) }.also { detailMediaCache[media.stableKey] = it }
     suspend fun loadMedia(type: MediaType, id: Int): MediaCard? = withContext(Dispatchers.IO) { repository.loadMedia(type, id) }

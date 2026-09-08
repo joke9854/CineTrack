@@ -44,6 +44,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
@@ -103,6 +104,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -218,7 +220,7 @@ fun Modifier.blueEdgeClickable(
         .combinedClickable(
             interactionSource = interactionSource,
             indication = null,
-            role = Role.Button,
+            role = if (selectionMode) Role.Checkbox else Role.Button,
             onClick = {
                 onClick()
             },
@@ -467,6 +469,7 @@ fun MediaPoster(
     showAirDate: Boolean = false,
     progress: Float? = null,
     selectedBorder: Color? = null,
+    selectionMode: Boolean = false,
     onStatus: ((LibraryStatus) -> Unit)? = null,
     onNotInterested: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -478,7 +481,10 @@ fun MediaPoster(
     RevealOnMount(media.stableKey, modifier.width(width)) {
     Box {
     Column(
-        Modifier.semantics { role = Role.Button }.combinedClickable(
+        Modifier.semantics {
+            role = if (selectionMode) Role.Checkbox else Role.Button
+            if (selectionMode) selected = selectedBorder != null
+        }.combinedClickable(
             interactionSource = interactionSource,
             indication = null,
             role = Role.Button,
@@ -508,9 +514,7 @@ fun MediaPoster(
                 AsyncImage(
                     model = media.posterUrl,
                     contentDescription = media.title,
-                    // TMDB posters already use a 2:3 frame. FillBounds preserves the
-                    // entire artwork while also eliminating the empty bars produced by Fit.
-                    contentScale = ContentScale.FillBounds,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -522,7 +526,7 @@ fun MediaPoster(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            if (showAirDate) {
+            if (showAirDate && !selectionMode) {
                 val dateLabel = remember(media.releaseDate) { formattedAirDate(media.releaseDate) }
                 if (dateLabel.isNotBlank()) {
                     Text(
@@ -537,7 +541,12 @@ fun MediaPoster(
                     )
                 }
             }
-            if (media.watched || media.status == LibraryStatus.COMPLETED) {
+            if (selectionMode) {
+                StateBadge(if (selectedBorder != null) Accent else com.cinetrack.ui.theme.SurfacePalette.DeepOverlay,
+                    if (selectedBorder != null) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    stringResource(if (selectedBorder != null) R.string.poster_selected else R.string.poster_not_selected),
+                    Modifier.align(Alignment.TopEnd))
+            } else if (media.watched || media.status == LibraryStatus.COMPLETED) {
                 StateBadge(Success, Icons.Filled.CheckCircle, stringResource(R.string.watched), Modifier.align(Alignment.TopEnd))
             } else if (media.status != LibraryStatus.NONE) {
                 val stateIcon = when (media.status) {
@@ -549,7 +558,7 @@ fun MediaPoster(
                 }
                 StateBadge(libraryStatusColor(media.status), stateIcon, stringResource(R.string.in_library), Modifier.align(Alignment.TopEnd))
             }
-            if (progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
+            if (!selectionMode && progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
                 CircularProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp),
@@ -561,7 +570,7 @@ fun MediaPoster(
         }
         if (showTitle) {
             Spacer(Modifier.height(7.dp))
-            Text(media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }

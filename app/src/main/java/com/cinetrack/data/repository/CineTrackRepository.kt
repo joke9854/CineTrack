@@ -34,6 +34,7 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.RatingScore
+import com.cinetrack.domain.SeasonDetails
 import com.cinetrack.domain.SeasonCard
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
@@ -1235,6 +1236,44 @@ class CineTrackRepository(
                 )
             }
         }
+    }
+
+    private val taglineCache = BoundedLruCache<String, String>(64)
+    private val seasonDetailsCache = BoundedLruCache<String, SeasonDetails>(32)
+
+    /** Hero enrichment is independent of the catalogue refresh and fetches no appended resources. */
+    suspend fun loadTagline(media: MediaCard): String? {
+        if (tmdbApiKey().isBlank()) return null
+        val language = preferences.metadataLanguage.first()
+        val key = "$language:${media.stableKey}"
+        taglineCache[key]?.let { return it.takeIf(String::isNotBlank) }
+        return kotlinx.coroutines.withTimeoutOrNull(8_000) {
+            cancellableResult {
+                val dto = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id, append = "")
+                    else services.tmdb.show(media.id, append = "")
+                dto.tagline.orEmpty().also { taglineCache[key] = it }.takeIf(String::isNotBlank)
+            }.getOrNull()
+        }
+    }
+
+    suspend fun loadSeasonDetails(show: MediaCard, number: Int): Result<SeasonDetails> = cancellableResult {
+        check(tmdbApiKey().isNotBlank()) { "TMDB credential required" }
+        val key = "${preferences.metadataLanguage.first()}:${show.id}:$number"
+        seasonDetailsCache[key] ?: (kotlinx.coroutines.withTimeoutOrNull(15_000) {
+            val dto = services.tmdb.season(show.id, number, append = "aggregate_credits")
+            SeasonDetails(
+                number = number,
+                title = dto.name,
+                overview = dto.overview,
+                posterUrl = dto.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                airDate = dto.airDate,
+                episodeCount = dto.episodes.size,
+                runtimeMinutes = dto.episodes.mapNotNull { it.runtime?.takeIf { minutes -> minutes > 0 } }
+                    .takeIf { it.isNotEmpty() }?.average()?.toInt(),
+                score = dto.voteAverage?.takeIf { it > 0 },
+                cast = castCards(dto.aggregateCredits).filter { it.isCastMember },
+            ).also { seasonDetailsCache[key] = it }
+        } ?: error("Season request timed out"))
     }
 
     suspend fun loadDetails(media: MediaCard): MediaCard {

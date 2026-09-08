@@ -399,4 +399,17 @@
     <string name="discover_refresh_timeout">Scopri ha impiegato troppo tempo ad aggiornarsi. I contenuti salvati sono disponibili; trascina di nuovo per riprovare.</string>
     <string name="sync_health_summary">%1$d in attesa · %2$d fallite · %3$d conflitti</string>
     <string name="no_matching_watch_providers">Nessuna offerta corrisponde ai servizi e ai tipi selezionati in questo paese.</string>
+    <string name="poster_selected">Selezionato</string>
+    <string name="poster_not_selected">Non selezionato</string>
+    <string name="library_sort_summary">%1$s · %2$d titoli</string>
+    <string name="library_no_matches">Nessun titolo con questo stato</string>
+    <string name="library_no_matches_description">Rimuovi il filtro di stato per vedere gli altri titoli.</string>
+    <string name="clear_filters">Rimuovi filtri</string>
+    <string name="choice_no_results">Nessuna opzione corrispondente</string>
+    <string name="show_season_info">Mostra informazioni sulla stagione %1$d</string>
+    <string name="season_info_error">Impossibile caricare le informazioni della stagione. Controlla la connessione e le impostazioni TMDB, poi riprova.</string>
+    <string name="season_no_description">Nessuna descrizione disponibile per questa stagione nella lingua selezionata.</string>
+    <string name="average_runtime">Durata media episodio</string>
+    <string name="season_cast">Cast della stagione</string>
+    <string name="season_no_cast">Nessuna informazione sul cast disponibile per questa stagione.</string>
 </resources>
