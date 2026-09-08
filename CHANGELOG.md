@@ -11,4 +11,4 @@
 - Show average known regular-episode runtime in series information, falling back to TMDB runtime when episodes have no usable runtimes.
 - Publish as a regular release while retaining the installed-app testing update channel.
 
-No new dependencies or database schema changes. Build and test validation pending. Device-level visual checks remain necessary.
+No new dependencies or database schema changes. Debug compilation, unit tests, lint, baseline-profile compilation, resource checks, and database checks passed. Device-level visual checks remain necessary.
