@@ -412,4 +412,23 @@
     <string name="average_runtime">Average episode runtime</string>
     <string name="season_cast">Season cast</string>
     <string name="season_no_cast">No cast information is available for this season.</string>
+
+    <string name="content_regions_picker_hint">Search countries and select one or more regions</string>
+    <string name="hero_layout">Discover hero layout</string>
+    <string name="hero_standard">Original layout</string>
+    <string name="hero_landscape">Landscape · 16:9</string>
+    <string name="hero_balanced">Balanced · 4:3</string>
+    <string name="hero_preview_hint">Live hero preview. Cards grow when needed to keep larger text readable.</string>
+    <string name="appearance_sample_title">A new discovery</string>
+    <string name="appearance_sample_tagline">Your next story starts here.</string>
+    <string name="grid_preview">Live grid preview · Discover and Library</string>
+    <string name="poster_format">Poster proportions</string>
+    <string name="poster_classic">Classic · 2:3</string>
+    <string name="poster_compact">Compact · 3:4</string>
+    <string name="poster_tall">Tall · 9:16</string>
+    <string name="poster_size">Poster size in horizontal rows</string>
+    <string name="poster_small">Small</string>
+    <string name="poster_standard">Standard</string>
+    <string name="poster_large">Large</string>
+    <string name="poster_preview_hint">Live poster preview. Size controls horizontal rows; grid width follows card density. Proportions apply to both.</string>
 </resources>

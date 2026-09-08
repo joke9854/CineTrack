@@ -412,4 +412,23 @@
     <string name="average_runtime">Durata media episodio</string>
     <string name="season_cast">Cast della stagione</string>
     <string name="season_no_cast">Nessuna informazione sul cast disponibile per questa stagione.</string>
+
+    <string name="content_regions_picker_hint">Cerca paesi e seleziona una o più regioni</string>
+    <string name="hero_layout">Formato copertina in Scopri</string>
+    <string name="hero_standard">Formato originale</string>
+    <string name="hero_landscape">Orizzontale · 16:9</string>
+    <string name="hero_balanced">Bilanciato · 4:3</string>
+    <string name="hero_preview_hint">Anteprima della copertina. Le schede si adattano al testo ingrandito per mantenerlo leggibile.</string>
+    <string name="appearance_sample_title">Una nuova scoperta</string>
+    <string name="appearance_sample_tagline">La tua prossima storia inizia qui.</string>
+    <string name="grid_preview">Anteprima griglia · Scopri e Libreria</string>
+    <string name="poster_format">Proporzioni dei poster</string>
+    <string name="poster_classic">Classico · 2:3</string>
+    <string name="poster_compact">Compatto · 3:4</string>
+    <string name="poster_tall">Alto · 9:16</string>
+    <string name="poster_size">Dimensioni poster nelle righe orizzontali</string>
+    <string name="poster_small">Piccolo</string>
+    <string name="poster_standard">Standard</string>
+    <string name="poster_large">Grande</string>
+    <string name="poster_preview_hint">Anteprima del poster. Le dimensioni regolano le righe orizzontali; la larghezza nella griglia segue la densità. Le proporzioni si applicano a entrambe.</string>
 </resources>

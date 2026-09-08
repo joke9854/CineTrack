@@ -464,8 +464,9 @@ fun SectionHeader(
 fun MediaPoster(
     media: MediaCard,
     modifier: Modifier = Modifier,
-    width: Dp = 118.dp,
+    width: Dp = com.cinetrack.ui.theme.LocalCardAppearance.current.posterWidthDp.dp,
     showTitle: Boolean = true,
+    showYear: Boolean = true,
     showAirDate: Boolean = false,
     progress: Float? = null,
     selectedBorder: Color? = null,
@@ -501,7 +502,7 @@ fun MediaPoster(
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
+                .aspectRatio(com.cinetrack.ui.theme.LocalCardAppearance.current.posterAspectRatio)
                 .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                 .background(posterBrush(media.id))
                 .then(
@@ -571,7 +572,7 @@ fun MediaPoster(
         if (showTitle) {
             Spacer(Modifier.height(7.dp))
             Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            if (showYear && media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
     MediaStatusPopup(
@@ -614,6 +615,7 @@ fun MediaRail(
     onMedia: (MediaCard) -> Unit,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp),
     showAirDate: Boolean = false,
+    showYear: Boolean = true,
     progressByKey: Map<String, Float> = emptyMap(),
     onStatus: ((MediaCard, LibraryStatus) -> Unit)? = null,
     onNotInterested: ((MediaCard) -> Unit)? = null,
@@ -623,6 +625,7 @@ fun MediaRail(
             MediaPoster(
                 it,
                 showAirDate = showAirDate,
+                showYear = showYear,
                 progress = progressByKey[it.stableKey],
                 onStatus = onStatus?.let { callback -> { status -> callback(it, status) } },
                 onNotInterested = onNotInterested?.let { callback -> { callback(it) } },

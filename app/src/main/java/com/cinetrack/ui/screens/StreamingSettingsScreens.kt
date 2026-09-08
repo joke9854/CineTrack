@@ -196,6 +196,9 @@ internal fun SearchableChoiceSheet(
     selected: String,
     onDismiss: () -> Unit,
     onSelected: (String) -> Unit,
+    selectedValues: Set<String> = setOf(selected),
+    onApply: (() -> Unit)? = null,
+    onClear: (() -> Unit)? = null,
 ) {
     var query by rememberSaveable(title) { mutableStateOf("") }
     val matches = remember(choices, query) { choices.filter { (code, name) -> code.contains(query.trim(), true) || name.contains(query.trim(), true) } }
@@ -207,17 +210,37 @@ internal fun SearchableChoiceSheet(
                 leadingIcon = { Icon(Icons.Filled.Search, null) }, shape = RoundedCornerShape(Radius.Medium),
                 colors = OutlinedTextFieldDefaults.colors(focusedTextColor = TextPrimary, unfocusedTextColor = TextPrimary,
                     focusedBorderColor = AccentLight, unfocusedBorderColor = GlassStrong))
-            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 420.dp)) {
+            if (onClear != null) TextButton(onClick = onClear) {
+                Text(stringResource(R.string.all_regions), color = TextPrimary)
+                if (selectedValues.isEmpty()) Icon(Icons.Filled.Check, null, tint = AccentLight, modifier = Modifier.padding(start = Spacing.sm))
+            }
+            LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).heightIn(max = 420.dp)) {
                 if (matches.isEmpty()) item { Text(stringResource(R.string.choice_no_results), color = TextSecondary, modifier = Modifier.padding(vertical = Spacing.lg)) }
                 items(matches, key = { it.first }) { (code, name) ->
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(Radius.Small))
-                        .clickable { onSelected(code) }.padding(vertical = Spacing.md, horizontal = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                        .then(if (onApply != null) Modifier.toggleable(value = code in selectedValues, role = Role.Checkbox) { onSelected(code) }
+                            else Modifier.clickable { onSelected(code) }).padding(vertical = Spacing.md, horizontal = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                         Text(if (code == "system" || code == name) name else "$name ($code)", color = TextPrimary,
                             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                        if (code == selected) Icon(Icons.Filled.Check, stringResource(R.string.poster_selected), tint = AccentLight)
+                        if (code in selectedValues) Icon(Icons.Filled.Check, stringResource(R.string.poster_selected), tint = AccentLight)
                     }
                 }
             }
+            if (onApply != null) PrimaryAction(stringResource(R.string.apply), Icons.Filled.Check,
+                Modifier.fillMaxWidth().padding(vertical = Spacing.md), onClick = onApply)
         }
     }
+}
+
+@Composable
+internal fun ContentRegionsSheet(initial: Set<String>, onDismiss: () -> Unit, onApply: (Set<String>) -> Unit) {
+    val locale = Locale.getDefault()
+    val countries = remember(locale) { Locale.getISOCountries().map { it to Locale("", it).getDisplayCountry(locale) }.sortedBy { it.second } }
+    var selected by rememberSaveable(initial.sorted()) { mutableStateOf(initial.sorted()) }
+    SearchableChoiceSheet(
+        title = stringResource(R.string.content_regions), searchLabel = stringResource(R.string.search_countries),
+        choices = countries, selected = "", onDismiss = onDismiss,
+        onSelected = { code -> selected = if (code in selected) selected - code else selected + code },
+        selectedValues = selected.toSet(), onApply = { onApply(selected.toSet()) }, onClear = { selected = emptyList() },
+    )
 }

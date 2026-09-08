@@ -321,6 +321,24 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    fun setHeroLayout(value: String) {
+        val normalized = com.cinetrack.domain.CardAppearance.normalizeHero(value)
+        _state.value = _state.value.copy(heroLayout = normalized)
+        viewModelScope.launch { repository.preferences.setHeroLayout(normalized) }
+    }
+
+    fun setPosterFormat(value: String) {
+        val normalized = com.cinetrack.domain.CardAppearance.normalizeFormat(value)
+        _state.value = _state.value.copy(posterFormat = normalized)
+        viewModelScope.launch { repository.preferences.setPosterFormat(normalized) }
+    }
+
+    fun setPosterSize(value: String) {
+        val normalized = com.cinetrack.domain.CardAppearance.normalizeSize(value)
+        _state.value = _state.value.copy(posterSize = normalized)
+        viewModelScope.launch { repository.preferences.setPosterSize(normalized) }
+    }
+
     fun setCardDensity(value: String) {
         _state.value = _state.value.copy(cardDensity = value)
         viewModelScope.launch { repository.preferences.setCardDensity(value) }

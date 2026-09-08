@@ -774,7 +774,7 @@ private fun PlaybackRow(
             .border(if (cardPressed) 1.7.dp else 0.dp, Accent.copy(alpha = if (cardPressed) .9f else 0f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
             .clickable(interactionSource = cardInteraction, indication = null, onClick = openItemAction),
     ) {
-        Row(Modifier.fillMaxSize(), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxSize().padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.padding(com.cinetrack.ui.theme.Spacing.md).width(86.dp).fillMaxHeight().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid)))) {
                 val rowArtwork = item.media.posterUrl ?: item.media.backdropUrl
                 if (!rowArtwork.isNullOrBlank()) AsyncImage(rowArtwork, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

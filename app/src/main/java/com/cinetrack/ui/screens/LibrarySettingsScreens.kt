@@ -263,13 +263,7 @@ fun LibraryScreen(
                 }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).heightIn(min = 48.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).clickable { showOrderSheet = true }, verticalAlignment = Alignment.CenterVertically) {
-                    Icon(if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward,
-                        stringResource(if (ascending) R.string.ascending else R.string.descending), tint = TextMuted, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(6.dp))
-                    Text(stringResource(R.string.library_sort_summary, libraryOrderLabel(order), items.size), color = TextSecondary,
-                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                }
+                Spacer(Modifier.weight(1f))
                 TextButton(onClick = { bulkMode = !bulkMode; selectedKeys = emptySet() }) {
                     Text(stringResource(if (bulkMode) R.string.cancel else R.string.bulk_edit), color = TextPrimary)
                 }
@@ -294,7 +288,7 @@ fun LibraryScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(when (state.cardDensity) { "compact" -> 4; "large" -> 2; else -> 3 }),
+                    columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                     state = gridState,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -306,6 +300,7 @@ fun LibraryScreen(
                             MediaPoster(
                                 media,
                                 width = maxWidth,
+                                showYear = false,
                                 progress = visibleProgress,
                                 selectedBorder = AccentLight.takeIf { bulkMode && media.stableKey in selectedKeys },
                                 selectionMode = bulkMode,
@@ -845,16 +840,7 @@ private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel)
             if (index != choices.lastIndex) GlassDivider()
         }
     }
-    SettingsSection(stringResource(R.string.card_density)) {
-        listOf(
-            Triple("compact", stringResource(R.string.compact), stringResource(R.string.density_compact_description)),
-            Triple("standard", stringResource(R.string.standard), stringResource(R.string.density_standard_description)),
-            Triple("large", stringResource(R.string.large), stringResource(R.string.density_large_description)),
-        ).forEachIndexed { index, (value, label, description) ->
-            ChoiceRow(label, state.cardDensity == value, description) { viewModel.setCardDensity(value) }
-            if (index != 2) GlassDivider()
-        }
-    }
+    CardAppearanceSettings(state, viewModel)
 }
 
 @Composable
@@ -1119,21 +1105,25 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 
 @Composable
 private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val choices = listOf(
-        "IT" to "Italia", "US" to "United States", "GB" to "United Kingdom",
-        "CA" to "Canada", "AU" to "Australia", "FR" to "France",
-        "DE" to "Deutschland", "ES" to "España", "JP" to "Japan", "KR" to "South Korea",
-    )
+    var showRegions by remember { mutableStateOf(false) }
+    val locale = java.util.Locale.getDefault()
+    val summary = if (state.contentRegions.isEmpty()) stringResource(R.string.all_regions) else
+        state.contentRegions.sorted().joinToString(", ") { java.util.Locale("", it).getDisplayCountry(locale) }
     SettingsSection(stringResource(R.string.content_regions)) {
-        ChoiceRow(stringResource(R.string.all_regions), state.contentRegions.isEmpty()) {
-            viewModel.setContentRegions(emptySet())
-        }
-        choices.forEach { (code, label) ->
-            GlassDivider()
-            ToggleRow("$label · $code", code in state.contentRegions) { checked ->
-                viewModel.setContentRegions(if (checked) state.contentRegions + code else state.contentRegions - code)
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { showRegions = true }
+            .padding(com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(summary, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(stringResource(R.string.content_regions_picker_hint), color = TextMuted,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
+            Icon(Icons.Filled.ChevronRight, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
+    }
+    if (showRegions) ContentRegionsSheet(state.contentRegions, { showRegions = false }) {
+        viewModel.setContentRegions(it)
+        showRegions = false
     }
     Text(
         stringResource(R.string.content_regions_scope),
@@ -1428,7 +1418,7 @@ private fun ServiceLogo(name: String) {
 }
 
 @Composable
-private fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
+internal fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {

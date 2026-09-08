@@ -188,6 +188,9 @@ fun CineTrackApp(
 
     Box(Modifier.fillMaxSize().imePadding()) {
         com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, showBottomNav) { captureModifier ->
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize),
+        ) {
         NavHost(
             modifier = captureModifier,
             navController = navController,
@@ -414,6 +417,7 @@ fun CineTrackApp(
                     onPage = { navController.navigate("settings-detail/$it") },
                 )
             }
+        }
         }
 
         }

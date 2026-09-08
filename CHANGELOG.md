@@ -1,12 +1,14 @@
-# CineTrack 0.79
+# CineTrack 0.80
 
-- Unify Discover and Library poster cards with normal-case, two-line titles, consistent badge placement, proportional artwork, and explicit bulk-selection checkmarks.
-- Refine Discover with a larger search field, readable two-line hero titles, actual TMDB taglines, accurate library-status icons, a steadier background, and matching three-column See all grids. Pause automatic carousel advancement during interaction or an open status menu.
-- Simplify Library controls, unify pill selectors, show the active sort and title count, move bulk editing beside the sort summary, and distinguish empty filtered results. Remove placeholder watching progress and the redundant status-distribution strip.
-- Align thicker, shorter Progress bars with watched controls, balance their edge spacing, reduce Calendar date insets, and replace the rectangular sync-status press effect with a rounded glass highlight.
-- Give TMDB language, country, and time-zone preferences searchable selection sheets matching the streaming-country picker.
-- Add season information sheets with TMDB description, rating, release date, episode count, average episode runtime, and season-specific cast. Load on demand with caching, bounded requests, retry and empty states.
-- Use neutral detail-page watched, trailer, and library controls while retaining green watched confirmation. Improve provider-label spacing and useful-information alignment.
-- Publish this as a regular GitHub release. Keep the testing channel tag so existing installations can discover the update.
+- Apply the nine remaining requests in the annotated improvements document.
+- Remove the Library sort/count summary and dates beneath Discover and Library poster titles.
+- Balance Progress watched-button and poster edge spacing, and place season information beside the watched control.
+- Match the Discover hero library action to neutral detail controls, retaining green completion.
+- Replace Content regions with a searchable country sheet supporting multiple selections, All regions, and Apply.
+- Add original, 16:9 landscape, and 4:3 hero layouts with a live preview and larger-text accommodation.
+- Add poster proportions and horizontal-row sizes with live previews, plus a density preview shared by Library and Discover grids.
+- Save appearance choices across restarts and include them in settings backups.
+- Show average known regular-episode runtime in series information, falling back to TMDB runtime when episodes have no usable runtimes.
+- Publish as a regular release while retaining the installed-app testing update channel.
 
-No database schema changes or new dependencies. Debug compilation, unit tests, lint, baseline-profile compilation and database checks passed. Device-level visual checks remain necessary.
+No new dependencies or database schema changes. Build and test validation pending. Device-level visual checks remain necessary.

@@ -95,6 +95,9 @@ class AppPreferences(private val context: Context) {
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
         val preferredProviders = stringPreferencesKey("preferred_providers")
         val visibleProviderTypes = stringPreferencesKey("visible_provider_types")
+        val heroLayout = stringPreferencesKey("hero_layout")
+        val posterFormat = stringPreferencesKey("poster_format")
+        val posterSize = stringPreferencesKey("poster_size")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
         val hiddenUpcoming = stringPreferencesKey("hidden_upcoming")
@@ -141,6 +144,9 @@ class AppPreferences(private val context: Context) {
     val preferredProviders: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.preferredProviders].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
+    val heroLayout: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeHero(it[Keys.heroLayout] ?: "standard") }
+    val posterFormat: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeFormat(it[Keys.posterFormat] ?: "classic") }
+    val posterSize: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard") }
     val cardDensity: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.cardDensity] ?: "standard" }
     val notificationEpisodes: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyEpisodes] ?: true }
     val notificationMovies: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyMovies] ?: true }
@@ -313,6 +319,18 @@ class AppPreferences(private val context: Context) {
             if (values.isEmpty()) prefs.remove(Keys.preferredProviders)
             else prefs[Keys.preferredProviders] = values.sorted().joinToString("|")
         }
+    }
+
+    suspend fun setHeroLayout(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.heroLayout] = com.cinetrack.domain.CardAppearance.normalizeHero(value) }
+    }
+
+    suspend fun setPosterFormat(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.posterFormat] = com.cinetrack.domain.CardAppearance.normalizeFormat(value) }
+    }
+
+    suspend fun setPosterSize(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.posterSize] = com.cinetrack.domain.CardAppearance.normalizeSize(value) }
     }
 
     suspend fun setCardDensity(value: String) {

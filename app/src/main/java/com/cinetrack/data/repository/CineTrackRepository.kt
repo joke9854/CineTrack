@@ -478,6 +478,9 @@ class CineTrackRepository(
         val quietHoursEnabledDeferred = async { preferences.quietHoursEnabled.first() }
         val quietHoursStartDeferred = async { preferences.quietHoursStart.first() }
         val quietHoursEndDeferred = async { preferences.quietHoursEnd.first() }
+        val heroLayoutDeferred = async { preferences.heroLayout.first() }
+        val posterFormatDeferred = async { preferences.posterFormat.first() }
+        val posterSizeDeferred = async { preferences.posterSize.first() }
         val cardDensityDeferred = async { preferences.cardDensity.first() }
         val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
@@ -723,6 +726,9 @@ class CineTrackRepository(
             excludeSpecials = excludeSpecials,
             preferredProviders = preferredProvidersDeferred.await(),
             visibleProviderTypes = visibleProviderTypesDeferred.await(),
+            heroLayout = heroLayoutDeferred.await(),
+            posterFormat = posterFormatDeferred.await(),
+            posterSize = posterSizeDeferred.await(),
             cardDensity = cardDensityDeferred.await(),
             hiddenUpcoming = hiddenUpcoming,
             hiddenDiscovery = hiddenDiscoveryDeferred.await(),
@@ -2751,6 +2757,9 @@ class CineTrackRepository(
                 put("preferredProviders", state.preferredProviders.sorted().joinToString("|"))
                 put("providerRegion", state.providerRegion)
                 put("visibleProviderTypes", state.visibleProviderTypes.sorted().joinToString("|"))
+                put("heroLayout", state.heroLayout)
+                put("posterFormat", state.posterFormat)
+                put("posterSize", state.posterSize)
                 put("cardDensity", state.cardDensity)
                 put("hiddenDiscovery", state.hiddenDiscovery.sorted().joinToString("|"))
             }.toString()
@@ -2904,6 +2913,9 @@ class CineTrackRepository(
             saved["providerRegion"]?.jsonPrimitive?.contentOrNull?.let { preferences.setProviderRegion(it) }
             saved["visibleProviderTypes"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setVisibleProviderTypes(it) }
+            saved["heroLayout"]?.jsonPrimitive?.contentOrNull?.let { preferences.setHeroLayout(it) }
+            saved["posterFormat"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterFormat(it) }
+            saved["posterSize"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterSize(it) }
             saved["cardDensity"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCardDensity(it) }
             saved["hiddenDiscovery"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setHiddenDiscovery(it) }

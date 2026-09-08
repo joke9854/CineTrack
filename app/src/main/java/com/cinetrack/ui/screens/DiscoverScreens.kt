@@ -218,7 +218,7 @@ private fun LazyListScope.railSection(
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
     item { SectionHeader(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md), seeAll, { onSeeAll(railId) }) }
-    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
+    item { MediaRail(items, onMedia, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item { Spacer(Modifier.height(4.dp)) }
 }
 
@@ -280,33 +280,45 @@ private fun HeroCarousel(
 }
 
 @Composable
-private fun HeroCard(
+internal fun HeroCard(
     media: MediaCard,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
     loadTagline: suspend (MediaCard) -> String?,
     metadataLanguage: String,
+    preview: Boolean = false,
+    previewTagline: String? = null,
     onInteraction: (Boolean) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
     var tagline by remember(media.stableKey, metadataLanguage) { mutableStateOf<String?>(null) }
-    LaunchedEffect(media.stableKey, metadataLanguage) { tagline = loadTagline(media) }
+    LaunchedEffect(media.stableKey, metadataLanguage, preview, previewTagline) {
+        tagline = if (preview) previewTagline else loadTagline(media)
+    }
     LaunchedEffect(pressed, statusPopup) { onInteraction(pressed || statusPopup) }
     DisposableEffect(Unit) { onDispose { onInteraction(false) } }
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)
-    val titleSize = if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
+    val appearance = com.cinetrack.ui.theme.LocalCardAppearance.current
+    val compact = appearance.heroLayout == "landscape"
+    val titleSize = if (compact) 20.sp else if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val cardHeight = appearance.heroAspectRatio?.let { ratio ->
+        // Preserve the selected ratio unless larger accessibility text needs more room.
+        (maxWidth / ratio).coerceAtLeast(((if (compact) 180 else 270) * fontScale).dp)
+    } ?: (310 * fontScale).dp
     Box(
         Modifier
             .fillMaxWidth()
-            .height((310 * fontScale).dp)
+            .height(cardHeight)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.SeaSurface, com.cinetrack.ui.theme.SurfacePalette.PosterShadow)))
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) com.cinetrack.ui.theme.Accent else Color.Transparent, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .combinedClickable(
+                enabled = !preview,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
@@ -322,28 +334,33 @@ private fun HeroCard(
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .76f), Color.Black.copy(alpha = .34f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
-        Column(Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.xl)) {
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (compact) 12.dp else com.cinetrack.ui.theme.Spacing.xl)) {
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
-            Text(metadata, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
+            Text(metadata, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
             Text(media.title, color = TextPrimary, fontSize = titleSize, lineHeight = titleSize * 1.12f, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
-            media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs)) }
+            if (!compact) media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs)) }
             tagline?.takeIf(String::isNotBlank)?.let {
                 Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
             }
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(if (compact) 6.dp else 14.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (compact) {
+                    Text(media.score?.let { "★  %.1f".format(it) }.orEmpty(), color = TextPrimary,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f), maxLines = 1)
+                }
                 Row(
-                    Modifier.height(46.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-                        .background(if (media.status != com.cinetrack.domain.LibraryStatus.NONE) libraryStatusColor(media.status).copy(alpha = .12f) else Color.Transparent)
-                        .clickable(onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                    Modifier.height(48.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                        .background(if (media.status == com.cinetrack.domain.LibraryStatus.COMPLETED) com.cinetrack.ui.theme.Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl)
+                        .clickable(enabled = !preview, onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
                         if (media.status == com.cinetrack.domain.LibraryStatus.NONE) Icons.Filled.Add else libraryStatusIcon(media.status),
                         null,
-                        tint = if (media.status == com.cinetrack.domain.LibraryStatus.NONE) TextPrimary else libraryStatusColor(media.status),
+                        tint = TextPrimary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(7.dp))
@@ -357,7 +374,9 @@ private fun HeroCard(
                             else -> R.string.in_library
                         }),
                         color = Color.White,
-                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        style = if (compact) androidx.compose.material3.MaterialTheme.typography.bodySmall else androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.ExtraBold,
                     )
                 }
@@ -371,6 +390,7 @@ private fun HeroCard(
             onNotInterested = { onNotInterested(media); statusPopup = false },
         )
     }
+}
 }
 
 @Composable
@@ -397,7 +417,7 @@ fun DiscoverListScreen(
                 PageTitle(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.md))
             }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
+                columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -407,6 +427,7 @@ fun DiscoverListScreen(
                         MediaPoster(
                             media,
                             width = maxWidth,
+                            showYear = false,
                             onStatus = { onStatus(media, it) },
                             onNotInterested = { onNotInterested(media) },
                             onClick = { onMedia(media) },

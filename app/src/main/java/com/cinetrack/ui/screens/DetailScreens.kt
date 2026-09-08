@@ -346,7 +346,7 @@ fun DetailScreen(
             }
             item(key = "detail_information") {
                 DetailSectionSurface {
-                    UsefulInfoSection(detail)
+                    UsefulInfoSection(detail, detailEpisodes)
                 }
             }
             if (moreLikeThis.isNotEmpty()) {
@@ -797,7 +797,7 @@ private fun EpisodesSection(
                             Text(summary?.title ?: stringResource(R.string.season_number, seasonNumber), color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                             Text(stringResource(R.string.season_progress, watched, summary?.episodeCount ?: seasonEpisodes.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
                             Box(Modifier.size(48.dp).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction { onSeasonInfo(seasonNumber) })
                                 .padding(10.dp).clip(CircleShape).border(.8.dp, Info.copy(alpha = .75f), CircleShape), contentAlignment = Alignment.Center) {
                                 Icon(Icons.Filled.Info, stringResource(R.string.show_season_info, seasonNumber), tint = TextSecondary, modifier = Modifier.size(14.dp))
@@ -1126,7 +1126,10 @@ private fun tmdbStatusLabel(status: String): String = when (status.lowercase()) 
 }
 
 @Composable
-private fun UsefulInfoSection(media: MediaCard) {
+private fun UsefulInfoSection(media: MediaCard, episodes: List<com.cinetrack.domain.EpisodeCard>) {
+    val runtime = remember(media.id, media.runtimeMinutes, episodes) {
+        if (media.type == MediaType.TV) com.cinetrack.domain.averageEpisodeRuntime(media.id, episodes, media.runtimeMinutes) else media.runtimeMinutes
+    }
     Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass().padding(com.cinetrack.ui.theme.Spacing.md)) {
         SectionHeader(stringResource(R.string.useful_information))
         Spacer(Modifier.height(12.dp))
@@ -1141,7 +1144,7 @@ private fun UsefulInfoSection(media: MediaCard) {
         }
         Spacer(Modifier.height(12.dp))
         Row(Modifier.fillMaxWidth()) {
-            InfoCell(Icons.Filled.Schedule, stringResource(R.string.runtime), formatDurationMinutes(media.runtimeMinutes), Modifier.weight(1f))
+            InfoCell(Icons.Filled.Schedule, stringResource(if (media.type == MediaType.TV) R.string.average_runtime else R.string.runtime), formatDurationMinutes(runtime), Modifier.weight(1f))
             InfoCell(Icons.Filled.Star, stringResource(R.string.rating), media.score?.let { "%.1f / 10".format(it) }.orEmpty(), Modifier.weight(1f))
         }
         if (media.type == MediaType.TV && media.seasons.isNotEmpty()) {
