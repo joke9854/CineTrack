@@ -339,6 +339,39 @@ class CineTrackRepository(
         }
     }
 
+    /** Browse on demand without enlarging refresh rails or overwriting detailed cached metadata. */
+    suspend fun loadDiscoverPage(railId: String, page: Int): com.cinetrack.domain.DiscoverPage = coroutineScope {
+        check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
+        require(page in 1..500)
+        val regions = preferences.contentRegions.first()
+        val origins = regions.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("|")
+        val hidden = preferences.hiddenDiscovery.first()
+        val today = localToday()
+        val responses: List<Pair<MediaType, com.cinetrack.data.remote.TmdbPage>> = when (railId) {
+            RailIds.TRENDING_TV -> listOf(MediaType.TV to services.tmdb.trendingTv(page))
+            RailIds.TRENDING_MOVIES -> listOf(MediaType.MOVIE to services.tmdb.trendingMovies(page))
+            RailIds.POPULAR_TV -> listOf(MediaType.TV to services.tmdb.discoverTv(origins, page = page))
+            RailIds.POPULAR_MOVIES -> listOf(MediaType.MOVIE to services.tmdb.discoverMovies(origins, page = page))
+            RailIds.UPCOMING -> {
+                val movies = async { services.tmdb.discoverMovies(origins, dateFrom = today.plusDays(1).toString(), page = page) }
+                val tv = async { services.tmdb.upcomingTv(today.plusDays(1).toString(), originCountries = origins, page = page) }
+                listOf(MediaType.MOVIE to movies.await(), MediaType.TV to tv.await())
+            }
+            else -> error("Unknown Discover list")
+        }
+        val states = database.stateDao().observeAll().first().associateBy { "${it.mediaType}:${it.mediaId}" }
+        val cards = responses.flatMap { (type, response) ->
+            response.results.filter { dto ->
+                regions.isEmpty() || dto.originCountries.any(regions::contains) ||
+                    (railId != RailIds.TRENDING_TV && railId != RailIds.TRENDING_MOVIES && dto.originCountries.isEmpty())
+            }.map { it.toEntity(type) }.map { it.toDomain(states["${it.mediaType}:${it.tmdbId}"]) }
+        }.distinctBy(MediaCard::stableKey).filterNot { it.stableKey in hidden }
+            .filter { railId != RailIds.UPCOMING || it.releaseDate?.let { raw ->
+                runCatching { LocalDate.parse(raw.take(10)).isAfter(today) }.getOrDefault(false)
+            } == true }
+        com.cinetrack.domain.DiscoverPage(cards, page < 500 && responses.any { page < it.second.totalPages })
+    }
+
     suspend fun discoverMovies(filters: DiscoverMovieFilters): List<MediaCard> = coroutineScope {
         check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
         val allowedRegions = preferences.contentRegions.first()
@@ -2062,7 +2095,6 @@ class CineTrackRepository(
             "imdb" to "IMDb",
             "metacritic" to "Metacritic",
             "tomatoes" to "R.Tomatoes",
-            "letterboxd" to "Letterboxd",
         )
         val enabledDisplayNames = displayNames.filterKeys(enabledSources::contains)
         val base = enabledDisplayNames.map { (source, label) ->
@@ -2920,7 +2952,7 @@ class CineTrackRepository(
             saved["hiddenDiscovery"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setHiddenDiscovery(it) }
             val sources = saved["ratingSources"]?.jsonPrimitive?.contentOrNull?.split(',')?.filter(String::isNotBlank)?.toSet()
-            if (sources != null) listOf("imdb", "tmdb", "metacritic", "tomatoes", "letterboxd").forEach { source ->
+            if (sources != null) listOf("imdb", "tmdb", "metacritic", "tomatoes").forEach { source ->
                 preferences.setRatingSource(source, source in sources)
             }
         }

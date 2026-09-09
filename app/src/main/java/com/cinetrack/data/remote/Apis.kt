@@ -23,7 +23,11 @@ import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 @Serializable
-data class TmdbPage(val page: Int = 1, val results: List<TmdbMediaDto> = emptyList())
+data class TmdbPage(
+    val page: Int = 1,
+    val results: List<TmdbMediaDto> = emptyList(),
+    @SerialName("total_pages") val totalPages: Int = 1,
+)
 
 @Serializable
 data class TmdbFindResponse(

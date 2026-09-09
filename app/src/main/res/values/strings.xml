@@ -431,4 +431,16 @@
     <string name="poster_standard">Standard</string>
     <string name="poster_large">Large</string>
     <string name="poster_preview_hint">Live poster preview. Size controls horizontal rows; grid width follows card density. Proportions apply to both.</string>
+    <string name="hero_original_short">Original</string>
+    <string name="hero_layout_hint">Choose a shape. The preview updates immediately.</string>
+    <string name="appearance_posters">Poster cards</string>
+    <string name="appearance_rows">Rows</string>
+    <string name="appearance_grid">Grid</string>
+    <string name="appearance_row_size">Poster size</string>
+    <string name="appearance_columns">Columns</string>
+    <string name="appearance_rows_hint">Size applies to horizontal rows. Proportions also apply to grids.</string>
+    <string name="appearance_grid_hint">Columns apply to Library and Discover lists. Proportions also apply to rows.</string>
+    <string name="discover_more_failed">Could not load more titles. Your current list is still available.</string>
+    <string name="discover_load_more">Load more titles</string>
+    <string name="discover_list_end">You have reached the end of this list.</string>
 </resources>

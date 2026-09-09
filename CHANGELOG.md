@@ -1,14 +1,11 @@
-# CineTrack 0.80
+# CineTrack 0.81 test build
 
-- Apply the nine remaining requests in the annotated improvements document.
-- Remove the Library sort/count summary and dates beneath Discover and Library poster titles.
-- Balance Progress watched-button and poster edge spacing, and place season information beside the watched control.
-- Match the Discover hero library action to neutral detail controls, retaining green completion.
-- Replace Content regions with a searchable country sheet supporting multiple selections, All regions, and Apply.
-- Add original, 16:9 landscape, and 4:3 hero layouts with a live preview and larger-text accommodation.
-- Add poster proportions and horizontal-row sizes with live previews, plus a density preview shared by Library and Discover grids.
-- Save appearance choices across restarts and include them in settings backups.
-- Show average known regular-episode runtime in series information, falling back to TMDB runtime when episodes have no usable runtimes.
-- Publish as a regular release while retaining the installed-app testing update channel.
+- Apply real, 16 dp backdrop blur to the Discover hero action and movie, series, and episode detail primary actions, using the popup material and retaining green watched confirmation.
+- Restore animated Discover background colors that follow the current hero.
+- Organize Appearance into compact Accent color, Hero, and Poster groups. Place previews beside their controls, with separate row and grid options.
+- Load additional Discover pages on demand from View all, beyond the cached rows. Preserve loaded titles on failures, offer Retry and Load more, and retain country filters, hidden items, and watched state.
+- Remove Letterboxd from MDBList rating preferences and ignore older saved selections.
+- Export English and Italian translation resources, including plural forms and placeholders.
+- Build a downloadable debug APK for testing. No release is published by this change.
 
-No new dependencies or database schema changes. Debug compilation, unit tests, lint, baseline-profile compilation, resource checks, and database checks passed. Device-level visual checks remain necessary.
+Validation pending. Device-level visual verification remains necessary.

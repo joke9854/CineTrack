@@ -263,6 +263,8 @@ fun DetailScreen(
                                 modifier = Modifier.weight(1f),
                                 containerColor = if (completed) Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl,
                                 compact = true,
+                                liveGlass = true,
+                                hazeState = detailGlassState,
                             ) {
                                 val target = if (completed) {
                                     if (detail.type == MediaType.TV) LibraryStatus.WATCHING else LibraryStatus.PLAN_TO_WATCH
@@ -1472,6 +1474,8 @@ fun EpisodeDetailScreen(
                             Icons.Filled.Check,
                             Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter),
                             containerColor = if (watched) Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl,
+                            liveGlass = true,
+                            hazeState = detailGlassState,
                         ) {
                             val newWatched = !watched
                             watched = newWatched

@@ -723,18 +723,21 @@ fun PrimaryAction(
     enabled: Boolean = true,
     containerColor: Color = Accent,
     compact: Boolean = false,
+    liveGlass: Boolean = false,
+    hazeState: HazeState? = null,
     onClick: () -> Unit,
 ) {
     val clickAction = rememberUiAction(onClick)
     Row(
         modifier
             .then(if (compact) Modifier.heightIn(min = 48.dp) else Modifier.height(46.dp))
+            .then(if (liveGlass) Modifier.liveActionGlass(hazeState, containerColor == Success) else Modifier
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
                 else SolidColor(com.cinetrack.ui.theme.GlassSubtle),
             )
-            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)))
             .clickable(enabled = enabled, onClick = clickAction)
             .padding(horizontal = if (compact) 8.dp else com.cinetrack.ui.theme.Spacing.lg, vertical = if (compact) 8.dp else 0.dp),
         horizontalArrangement = Arrangement.Center,

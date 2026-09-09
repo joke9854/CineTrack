@@ -97,6 +97,13 @@ import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
+import dev.chrisbanes.haze.hazeSource
+import com.cinetrack.ui.components.liveActionGlass
+import com.cinetrack.ui.components.rememberDetailGlassState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.CircularProgressIndicator
 import kotlinx.coroutines.delay
 
 @Composable
@@ -127,7 +134,7 @@ fun DiscoverScreen(
     val popularMoviesTitle = stringResource(R.string.popular_movies)
     val upcomingTitle = stringResource(R.string.upcoming)
     val seeAll = stringResource(R.string.see_all)
-    val backgroundHero = heroes.firstOrNull()
+    val backgroundHero = heroes.getOrNull(heroIndex) ?: heroes.firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundHero?.backdropUrl ?: backgroundHero?.posterUrl) {
         LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh, enabled = state.tmdbApiConfigured) {
             LazyColumn(
@@ -301,6 +308,7 @@ internal fun HeroCard(
     LaunchedEffect(pressed, statusPopup) { onInteraction(pressed || statusPopup) }
     DisposableEffect(Unit) { onDispose { onInteraction(false) } }
     val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val heroGlassState = rememberDetailGlassState()
     val appearance = com.cinetrack.ui.theme.LocalCardAppearance.current
     val compact = appearance.heroLayout == "landscape"
     val titleSize = if (compact) 20.sp else if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
@@ -329,11 +337,13 @@ internal fun HeroCard(
                 },
             ),
     ) {
+        Box(Modifier.matchParentSize().then(if (heroGlassState != null) Modifier.hazeSource(heroGlassState) else Modifier)) {
         if (!media.backdropUrl.isNullOrBlank()) {
             AsyncImage(media.backdropUrl, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .76f), Color.Black.copy(alpha = .34f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
+        }
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (compact) 12.dp else com.cinetrack.ui.theme.Spacing.xl)) {
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
@@ -352,8 +362,7 @@ internal fun HeroCard(
                         modifier = Modifier.weight(1f), maxLines = 1)
                 }
                 Row(
-                    Modifier.height(48.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-                        .background(if (media.status == com.cinetrack.domain.LibraryStatus.COMPLETED) com.cinetrack.ui.theme.Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl)
+                    Modifier.height(48.dp).liveActionGlass(heroGlassState, media.watched || media.status == com.cinetrack.domain.LibraryStatus.COMPLETED)
                         .clickable(enabled = !preview, onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -396,6 +405,7 @@ internal fun HeroCard(
 @Composable
 fun DiscoverListScreen(
     railId: String,
+    viewModel: com.cinetrack.ui.CineTrackViewModel,
     state: AppUiState,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -409,7 +419,16 @@ fun DiscoverListScreen(
         RailIds.POPULAR_MOVIES -> stringResource(R.string.popular_movies)
         else -> stringResource(R.string.upcoming)
     }
-    val backgroundItem = state.rails[railId].orEmpty().firstOrNull()
+    val browseStates by viewModel.discoverBrowse.collectAsStateWithLifecycle()
+    val browseKey = com.cinetrack.domain.discoverBrowseKey(railId, state)
+    val browse = browseStates[browseKey]
+    val localMedia = remember(state.allMedia) { state.allMedia.associateBy(MediaCard::stableKey) }
+    val items = (browse?.items ?: state.rails[railId].orEmpty())
+        .filterNot { it.stableKey in state.hiddenDiscovery }
+        .map { media -> localMedia[media.stableKey]?.let { media.copy(status = it.status, watched = it.watched) } ?: media }
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(browseKey) { if (browseStates[browseKey] == null) viewModel.loadDiscoverMore(railId) }
+    val backgroundItem = items.firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
@@ -417,12 +436,13 @@ fun DiscoverListScreen(
                 PageTitle(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.md))
             }
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(state.rails[railId].orEmpty(), key = MediaCard::stableKey) { media ->
+                items(items, key = MediaCard::stableKey) { media ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         MediaPoster(
                             media,
@@ -432,6 +452,19 @@ fun DiscoverListScreen(
                             onNotInterested = { onNotInterested(media) },
                             onClick = { onMedia(media) },
                         )
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        when {
+                            browse == null || browse.loading -> CircularProgressIndicator(color = com.cinetrack.ui.theme.Accent, modifier = Modifier.size(28.dp))
+                            browse.failed -> {
+                                Text(stringResource(R.string.discover_more_failed), color = TextSecondary)
+                                androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.retry)) }
+                            }
+                            browse.hasMore -> androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.discover_load_more)) }
+                            else -> Text(stringResource(if (items.isEmpty()) R.string.choice_no_results else R.string.discover_list_end), color = TextSecondary)
+                        }
                     }
                 }
             }

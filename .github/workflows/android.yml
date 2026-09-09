@@ -21,4 +21,11 @@ jobs:
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
       - name: Compile and test
-        run: ./gradlew :app:compileDebugKotlin :app:testDebugUnitTest :app:lintDebug :baselineprofile:compileNonMinifiedReleaseKotlin
+        run: ./gradlew :app:assembleDebug :app:testDebugUnitTest :app:lintDebug :baselineprofile:compileNonMinifiedReleaseKotlin
+      - name: Upload test APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineTrack-test-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14

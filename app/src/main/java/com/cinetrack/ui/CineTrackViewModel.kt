@@ -30,6 +30,7 @@ import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.ViewingPeopleInsights
+import com.cinetrack.domain.appendPage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.flow.debounce
@@ -94,6 +95,51 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
     private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
     val syncOperations: StateFlow<List<SyncOperationCard>> = _syncOperations.asStateFlow()
+
+    private val _discoverBrowse = MutableStateFlow<Map<String, com.cinetrack.domain.DiscoverBrowseState>>(emptyMap())
+    val discoverBrowse = _discoverBrowse.asStateFlow()
+    private var browseGeneration = 0
+
+    fun loadDiscoverMore(railId: String) {
+        val key = com.cinetrack.domain.discoverBrowseKey(railId, _state.value)
+        val existing = _discoverBrowse.value[key] ?: com.cinetrack.domain.DiscoverBrowseState(items = _state.value.rails[railId].orEmpty())
+        if (existing.loading || !existing.hasMore) return
+        val generation = browseGeneration
+        fun publish(value: com.cinetrack.domain.DiscoverBrowseState) {
+            if (generation != browseGeneration) return
+            // Retain navigation state, with a small bound across countries/languages.
+            val latest = _discoverBrowse.value[key]?.items.orEmpty().associateBy(MediaCard::stableKey)
+            val reconciled = value.copy(items = value.items.map { item ->
+                latest[item.stableKey]?.let { item.copy(status = it.status, watched = it.watched) } ?: item
+            })
+            _discoverBrowse.value = (_discoverBrowse.value - key + (key to reconciled)).entries.toList().takeLast(8).associate { it.toPair() }
+        }
+        publish(existing.copy(loading = true, failed = false))
+        viewModelScope.launch {
+            var current = existing.copy(loading = true, failed = false)
+            try {
+                kotlinx.coroutines.withTimeout(30_000) {
+                    var scanned = 0
+                    val targetCount = existing.items.size + 20
+                    // Skip cached duplicates and sparse filtered pages, but bound each user action.
+                    while (current.hasMore && current.items.size < targetCount && scanned < 6) {
+                        val page = withContext(Dispatchers.IO) { repository.loadDiscoverPage(railId, current.nextPage) }
+                        current = current.appendPage(page, railId == com.cinetrack.domain.RailIds.UPCOMING)
+                        publish(current)
+                        scanned++
+                    }
+                }
+            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
+                current = current.copy(failed = true)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                current = current.copy(failed = true)
+            } finally {
+                publish(current.copy(loading = false))
+            }
+        }
+    }
 
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     private val searchQuery = MutableStateFlow("")
@@ -219,6 +265,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     fun refresh() {
         if (!_state.value.tmdbApiConfigured || !refreshMutex.tryLock()) return
+        browseGeneration++
+        _discoverBrowse.value = emptyMap()
         // Acquire before launching: repeated pulls never queue another refresh.
         _state.value = _state.value.copy(refreshing = true, error = null)
         viewModelScope.launch {
@@ -405,6 +453,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             withContext(Dispatchers.IO) { repository.setLibraryStatus(media, status) }
             val refreshed = readCachedState().copy(sync = syncState)
             _state.value = refreshed
+            _discoverBrowse.value = _discoverBrowse.value.mapValues { (_, browse) ->
+                browse.copy(items = browse.items.map { if (it.stableKey == media.stableKey) it.copy(status = status, watched = status == LibraryStatus.COMPLETED) else it })
+            }
             val pushError = if (repository.simklConnectedNow()) withContext(Dispatchers.IO) {
                 repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
             } else null

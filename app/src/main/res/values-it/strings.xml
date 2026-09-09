@@ -431,4 +431,16 @@
     <string name="poster_standard">Standard</string>
     <string name="poster_large">Grande</string>
     <string name="poster_preview_hint">Anteprima del poster. Le dimensioni regolano le righe orizzontali; la larghezza nella griglia segue la densità. Le proporzioni si applicano a entrambe.</string>
+    <string name="hero_original_short">Originale</string>
+    <string name="hero_layout_hint">Scegli un formato. L’anteprima si aggiorna subito.</string>
+    <string name="appearance_posters">Schede dei poster</string>
+    <string name="appearance_rows">Righe</string>
+    <string name="appearance_grid">Griglia</string>
+    <string name="appearance_row_size">Dimensioni poster</string>
+    <string name="appearance_columns">Colonne</string>
+    <string name="appearance_rows_hint">Le dimensioni si applicano alle righe orizzontali. Le proporzioni valgono anche per le griglie.</string>
+    <string name="appearance_grid_hint">Le colonne si applicano a Libreria e agli elenchi di Scopri. Le proporzioni valgono anche per le righe.</string>
+    <string name="discover_more_failed">Impossibile caricare altri titoli. L’elenco attuale resta disponibile.</string>
+    <string name="discover_load_more">Carica altri titoli</string>
+    <string name="discover_list_end">Hai raggiunto la fine dell’elenco.</string>
 </resources>

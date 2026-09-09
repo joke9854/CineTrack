@@ -308,6 +308,7 @@ fun CineTrackApp(
             ) { entry ->
                 DiscoverListScreen(
                     railId = entry.arguments?.getString("railId").orEmpty(),
+                    viewModel = viewModel,
                     state = state,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,

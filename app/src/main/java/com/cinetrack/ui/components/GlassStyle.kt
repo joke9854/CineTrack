@@ -8,6 +8,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import dev.chrisbanes.haze.hazeEffect
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.platform.LocalContext
 import dev.chrisbanes.haze.HazeState
@@ -82,4 +87,21 @@ internal fun rememberDetailGlassState(): HazeState? {
         val manager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
         if (android.os.Build.VERSION.SDK_INT >= 31 && !manager.isLowRamDevice) HazeState() else null
     }
+}
+
+/** The popup material, clipped to an action. Capture only the separate artwork/backdrop. */
+@Composable
+internal fun Modifier.liveActionGlass(state: HazeState?, completed: Boolean = false): Modifier {
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val style = if (!completed) NavGlassStyle else HazeStyle(
+        backgroundColor = Background0,
+        tint = HazeTint(com.cinetrack.ui.theme.Success.copy(alpha = .45f)),
+        blurRadius = 16.dp,
+        noiseFactor = .03f,
+        fallbackTint = HazeTint(com.cinetrack.ui.theme.Success.copy(alpha = .82f)),
+    )
+    return clip(shape)
+        .then(if (state != null) Modifier.hazeEffect(state, style = style)
+            else Modifier.background(if (completed) com.cinetrack.ui.theme.Success.copy(alpha = .82f) else GlassMaterial.OverlayFallback))
+        .border(.7.dp, GlassEdgeBrush, shape)
 }

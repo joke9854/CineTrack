@@ -827,19 +827,6 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 
 @Composable
 private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val choices = listOf(
-        Triple("watching", stringResource(R.string.color_blue), StatusWatching),
-        Triple("planned", stringResource(R.string.color_gold), StatusPlanned),
-        Triple("paused", stringResource(R.string.color_orange), StatusPaused),
-        Triple("completed", stringResource(R.string.color_green), Success),
-        Triple("dropped", stringResource(R.string.color_red), StatusDropped),
-    )
-    SettingsSection(stringResource(R.string.main_ui_color)) {
-        choices.forEachIndexed { index, (key, label, color) ->
-            AccentChoiceRow(label, color, state.uiAccent == key) { viewModel.setUiAccent(key) }
-            if (index != choices.lastIndex) GlassDivider()
-        }
-    }
     CardAppearanceSettings(state, viewModel)
 }
 
@@ -1091,7 +1078,7 @@ private fun LanguageSettings(viewModel: CineTrackViewModel) {
 
 @Composable
 private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    val labels = listOf("IMDb", "TMDB", "Metacritic", "Rotten Tomatoes", "Letterboxd")
+    val labels = listOf("IMDb", "TMDB", "Metacritic", "Rotten Tomatoes")
     fun sourceKey(label: String) = when (label) {
         "Rotten Tomatoes" -> "tomatoes"
         else -> label.lowercase()

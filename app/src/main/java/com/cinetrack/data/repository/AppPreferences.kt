@@ -82,7 +82,6 @@ class AppPreferences(private val context: Context) {
         val tmdb = booleanPreferencesKey("rating_tmdb")
         val metacritic = booleanPreferencesKey("rating_metacritic")
         val rottenTomatoes = booleanPreferencesKey("rating_rotten_tomatoes")
-        val letterboxd = booleanPreferencesKey("rating_letterboxd")
         val contentRegions = stringPreferencesKey("content_regions")
         val uiAccent = stringPreferencesKey("ui_accent")
         val tmdbApiOverride = stringPreferencesKey("tmdb_api_override")
@@ -118,7 +117,6 @@ class AppPreferences(private val context: Context) {
             if (prefs[Keys.tmdb] ?: true) add("tmdb")
             if (prefs[Keys.metacritic] ?: true) add("metacritic")
             if (prefs[Keys.rottenTomatoes] ?: true) add("tomatoes")
-            if (prefs[Keys.letterboxd] ?: false) add("letterboxd")
         }
     }
     val contentRegions: Flow<Set<String>> = context.cineTrackDataStore.data.map { prefs ->
@@ -268,7 +266,7 @@ class AppPreferences(private val context: Context) {
             "tmdb" -> Keys.tmdb
             "metacritic" -> Keys.metacritic
             "rotten tomatoes", "tomatoes" -> Keys.rottenTomatoes
-            else -> Keys.letterboxd
+            else -> return
         }
         context.cineTrackDataStore.edit { it[key] = enabled }
     }
