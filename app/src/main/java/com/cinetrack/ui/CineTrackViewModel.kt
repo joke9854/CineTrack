@@ -30,6 +30,7 @@ import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.ViewingPeopleInsights
+import com.cinetrack.domain.hasExplicitReleaseTime
 import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.domain.appendPage
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -1187,6 +1188,9 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun exportCalendar(context: Context) {
         viewModelScope.launch {
             runCatching {
+                val timezone = _state.value.metadataTimezone
+                val releaseZone = if (timezone == "system") ZoneId.systemDefault()
+                else runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.systemDefault())
                 val file = withContext(Dispatchers.IO) {
                     val directory = File(context.cacheDir, "exports").apply { mkdirs() }
                     File(directory, "cinetrack-calendar.ics").apply {
@@ -1201,7 +1205,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                                     .replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
                                 appendLine("BEGIN:VEVENT")
                                 appendLine("UID:$uid")
-                                appendLine("DTSTART;VALUE=DATE:$day")
+                                val releaseAt = releaseDateTime(item.timestamp, releaseZone)
+                                if (releaseAt != null && hasExplicitReleaseTime(item.timestamp)) {
+                                    val utcTimestamp = java.time.format.DateTimeFormatter
+                                        .ofPattern("yyyyMMdd'T'HHmmss'Z'")
+                                        .withZone(java.time.ZoneOffset.UTC)
+                                        .format(releaseAt.toInstant())
+                                    appendLine("DTSTART:$utcTimestamp")
+                                } else {
+                                    appendLine("DTSTART;VALUE=DATE:$day")
+                                }
                                 appendLine("SUMMARY:$summary")
                                 appendLine("END:VEVENT")
                             }

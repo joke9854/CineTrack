@@ -120,6 +120,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.cinetrack.R
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.Background0
