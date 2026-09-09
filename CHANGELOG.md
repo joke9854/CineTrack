@@ -1,4 +1,4 @@
-# CineTrack 0.81 test build
+# CineTrack 0.81
 
 - Apply real, 16 dp backdrop blur to the Discover hero action and movie, series, and episode detail primary actions, using the popup material and retaining green watched confirmation.
 - Restore animated Discover background colors that follow the current hero.
@@ -6,6 +6,6 @@
 - Load additional Discover pages on demand from View all, beyond the cached rows. Preserve loaded titles on failures, offer Retry and Load more, and retain country filters, hidden items, and watched state.
 - Remove Letterboxd from MDBList rating preferences and ignore older saved selections.
 - Export English and Italian translation resources, including plural forms and placeholders.
-- Build a downloadable debug APK for testing. No release is published by this change.
+- Build a downloadable test APK and publish a signed, regular GitHub release marked Latest.
 
-Validation pending. Device-level visual verification remains necessary.
+Debug APK build, unit tests, lint, baseline-profile compilation, resource checks, and database checks passed. Device-level visual verification remains necessary.
