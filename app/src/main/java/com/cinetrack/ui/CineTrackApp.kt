@@ -122,6 +122,7 @@ fun CineTrackApp(
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -297,7 +298,11 @@ fun CineTrackApp(
                     results = searchResults,
                     sourceItems = scopedItems,
                     remoteSearch = scope == "discover",
+                    history = searchHistory,
                     onQuery = viewModel::search,
+                    onSubmitQuery = viewModel::rememberSearchQuery,
+                    onRemoveHistory = viewModel::removeSearchHistory,
+                    onLeave = viewModel::clearSearch,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                 )

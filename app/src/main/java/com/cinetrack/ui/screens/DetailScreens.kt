@@ -177,6 +177,7 @@ fun DetailScreen(
     var trailerAttempt by remember(media.stableKey) { mutableStateOf(0) }
     var selectedSeason by remember(media.stableKey) { mutableStateOf<Int?>(null) }
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
+    var returnToSeason by remember(media.stableKey) { mutableStateOf<Int?>(null) }
     var showFullCast by remember(media.stableKey) { mutableStateOf(false) }
     var pendingPreviousEpisodes by remember(media.stableKey) {
         mutableStateOf<Pair<EpisodeCard, List<EpisodeCard>>?>(null)
@@ -258,7 +259,11 @@ fun DetailScreen(
                             TrailerActionButton { trailerSheet = true }
                             val completed = detail.status == LibraryStatus.COMPLETED || detail.watched
                             PrimaryAction(
-                                text = stringResource(if (completed) R.string.watched else R.string.mark_watched),
+                                text = stringResource(
+                                    if (!completed) R.string.mark_watched
+                                    else if (detail.type == MediaType.MOVIE) R.string.watched_movie
+                                    else R.string.watched_tv,
+                                ),
                                 icon = Icons.Filled.Check,
                                 modifier = Modifier.weight(1f),
                                 containerColor = if (completed) Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl,
@@ -392,12 +397,25 @@ fun DetailScreen(
     }
     selectedSeason?.let { number ->
         SeasonInfoSheet(detail, number, viewModel, onDismiss = { selectedSeason = null }) { person ->
+            returnToSeason = number
             selectedSeason = null
             selectedPerson = person
         }
     }
     selectedPerson?.let { person ->
-        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+        ActorSheet(
+            person,
+            viewModel,
+            onDismiss = {
+                selectedPerson = null
+                selectedSeason = returnToSeason
+                returnToSeason = null
+            },
+            onMedia = { selected ->
+                returnToSeason = null
+                onMedia(selected)
+            },
+        )
     }
     if (showFullCast) {
         FullCastSheet(detailPeople, onDismiss = { showFullCast = false }) { person ->
@@ -678,7 +696,10 @@ private fun ProviderSection(media: MediaCard) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.PlayArrow, null, tint = AccentLight, modifier = Modifier.size(24.dp))
             Spacer(Modifier.width(8.dp))
-            SectionHeader(stringResource(R.string.where_to_watch), Modifier.weight(1f))
+            SectionHeader(
+                stringResource(if (media.type == MediaType.MOVIE) R.string.where_to_watch_movie else R.string.where_to_watch_tv),
+                Modifier.weight(1f),
+            )
         }
         val offers = com.cinetrack.domain.visibleProviderOffers(media)
         if (offers.values.all { it.isEmpty() }) {
@@ -950,41 +971,44 @@ private fun SeasonInfoSheet(
         loading = false
     }
     SharedGlassSheet(onDismiss) {
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 600.dp),
-            contentPadding = PaddingValues(start = DetailLayout.Gutter, end = DetailLayout.Gutter, bottom = 24.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item {
+        Column(
+            Modifier.fillMaxWidth().fillMaxHeight(.72f)
+                .padding(horizontal = DetailLayout.Gutter)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            Column {
                 SectionHeader(details?.title?.takeIf(String::isNotBlank) ?: stringResource(R.string.season_number, number))
                 Text(show.title, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
             }
-            if (loading) item {
+            if (loading) {
                 Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
                     androidx.compose.material3.CircularProgressIndicator(color = AccentLight)
                 }
             }
-            if (failed) item {
-                Text(stringResource(R.string.season_info_error), color = TextSecondary)
-                androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.retry), color = TextPrimary) }
+            if (failed) {
+                Column {
+                    Text(stringResource(R.string.season_info_error), color = TextSecondary)
+                    androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.retry), color = TextPrimary) }
+                }
             }
             details?.let { season ->
-                item {
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        season.posterUrl?.let { url ->
-                            AsyncImage(url, season.title, Modifier.width(80.dp).height(120.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)), contentScale = ContentScale.Crop)
-                        }
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            InfoCell(Icons.Filled.Star, "TMDB", season.score?.let { "%.1f / 10".format(it) } ?: "—")
-                            InfoCell(Icons.Filled.CalendarMonth, stringResource(R.string.release_date), formatFullDate(season.airDate), maxLines = 2)
-                        }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    season.posterUrl?.let { url ->
+                        AsyncImage(url, season.title, Modifier.width(80.dp).height(120.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)), contentScale = ContentScale.Crop)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        InfoCell(Icons.Filled.Star, "TMDB", season.score?.let { "%.1f / 10".format(it) } ?: "—")
+                        InfoCell(Icons.Filled.CalendarMonth, stringResource(R.string.release_date), formatFullDate(season.airDate), maxLines = 2)
                     }
                 }
-                item {
+                Column {
                     SectionHeader(stringResource(R.string.overview))
                     Spacer(Modifier.height(8.dp))
                     Text(season.overview.ifBlank { stringResource(R.string.season_no_description) }, color = TextSecondary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                 }
-                item {
+                Column {
                     SectionHeader(stringResource(R.string.useful_information))
                     Spacer(Modifier.height(12.dp))
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -992,9 +1016,9 @@ private fun SeasonInfoSheet(
                         InfoCell(Icons.Filled.Schedule, stringResource(R.string.average_runtime), formatDurationMinutes(season.runtimeMinutes), Modifier.weight(1f), maxLines = 2)
                     }
                 }
-                item { SectionHeader(stringResource(R.string.season_cast)) }
-                if (season.cast.isEmpty()) item { Text(stringResource(R.string.season_no_cast), color = TextSecondary) }
-                else item {
+                SectionHeader(stringResource(R.string.season_cast))
+                if (season.cast.isEmpty()) Text(stringResource(R.string.season_no_cast), color = TextSecondary)
+                else {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(season.cast, key = PersonCard::id) { CastPersonCard(it, onPerson) }
                     }
@@ -1303,7 +1327,7 @@ private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDism
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     details.movieCredits.forEach { movie ->
                         Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
-                            .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)) { onDismiss(); onMedia(movie) }.padding(com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                            .blueEdgeClickable(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)) { onMedia(movie); onDismiss() }.padding(com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.width(42.dp).height(60.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f))) {
                                 if (!movie.posterUrl.isNullOrBlank()) AsyncImage(movie.posterUrl, movie.title, Modifier.fillMaxSize(), contentScale = ContentScale.FillBounds)
                             }
@@ -1456,7 +1480,7 @@ fun EpisodeDetailScreen(
                             .padding(top = com.cinetrack.ui.theme.Spacing.xxxl, bottom = 72.dp),
                         verticalArrangement = Arrangement.spacedBy(24.dp),
                     ) {
-                        Column(Modifier.padding(horizontal = DetailLayout.HeadingInset)) {
+                        Column(Modifier.padding(horizontal = DetailLayout.Gutter)) {
                             Text(show?.title.orEmpty().uppercase(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, letterSpacing = .7.sp, fontWeight = FontWeight.ExtraBold)
                             Text(displayedEpisode.title, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text("${displayedEpisode.label} · ${formatDurationMinutes(displayedEpisode.runtimeMinutes)}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
@@ -1470,7 +1494,7 @@ fun EpisodeDetailScreen(
                         }
                         GlassTextSection(stringResource(R.string.overview), displayedEpisode.overview)
                         PrimaryAction(
-                            if (watched) stringResource(R.string.watched) else stringResource(R.string.mark_watched),
+                            if (watched) stringResource(R.string.watched_tv) else stringResource(R.string.mark_watched),
                             Icons.Filled.Check,
                             Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter),
                             containerColor = if (watched) Success else com.cinetrack.ui.theme.SurfacePalette.NeutralControl,
@@ -1487,7 +1511,7 @@ fun EpisodeDetailScreen(
                             Spacer(Modifier.height(12.dp))
                             Row {
                                 InfoCell(Icons.Filled.CalendarMonth, stringResource(R.string.release_date), formatFullDate(displayedEpisode.airDate), Modifier.weight(1f))
-                                InfoCell(Icons.Filled.Visibility, stringResource(R.string.status), if (watched) stringResource(R.string.watched) else stringResource(R.string.not_watched), Modifier.weight(1f))
+                                InfoCell(Icons.Filled.Visibility, stringResource(R.string.status), if (watched) stringResource(R.string.watched_tv) else stringResource(R.string.not_watched), Modifier.weight(1f))
                             }
                             Spacer(Modifier.height(12.dp))
                             Row {

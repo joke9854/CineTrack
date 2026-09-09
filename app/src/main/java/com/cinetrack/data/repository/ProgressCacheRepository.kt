@@ -4,13 +4,13 @@ import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.EpisodeEntity
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import java.time.LocalDate
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -31,7 +31,8 @@ internal class ProgressCacheRepository(
         cachedEpisodes: List<EpisodeCard>? = null,
         onItemProcessed: ((processed: Int, total: Int) -> Unit)? = null,
     ): Map<String, EpisodeCard> {
-        val today = localToday()
+        val releaseZone = localZone()
+        val releaseNow = java.time.Instant.now()
         val excludeSpecials = preferences.excludeSpecials.first()
         val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toEpisodeCard() })
             .groupBy(EpisodeCard::showId)
@@ -55,9 +56,7 @@ internal class ProgressCacheRepository(
                                 val candidates = source.asSequence()
                                     .filter { !excludeSpecials || it.season > 0 }
                                     .filter { episode ->
-                                        episode.airDate?.take(10)?.let { raw ->
-                                            runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                                        } == true
+                                        releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
                                     }
                                     .filterNot { Triple(show.id, it.season, it.number) in watched }
                                     .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
@@ -97,11 +96,10 @@ internal class ProgressCacheRepository(
         return loaded.toMap(linkedMapOf())
     }
 
-    private suspend fun localToday(): LocalDate {
+    private suspend fun localZone(): ZoneId {
         val configured = preferences.metadataTimezone.first()
-        val zone = if (configured == "system") ZoneId.systemDefault()
+        return if (configured == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(configured) }.getOrDefault(ZoneId.systemDefault())
-        return LocalDate.now(zone)
     }
 }
 

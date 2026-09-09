@@ -44,6 +44,7 @@ import com.cinetrack.domain.SyncReport
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.TimelineCard
+import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -190,12 +191,13 @@ class CineTrackRepository(
 
     private fun syncError(error: Throwable): String =
         error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
-    private suspend fun localToday(): LocalDate {
+    private suspend fun localZone(): ZoneId {
         val configured = preferences.metadataTimezone.first()
-        val zone = if (configured == "system") ZoneId.systemDefault()
+        return if (configured == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(configured) }.getOrDefault(ZoneId.systemDefault())
-        return LocalDate.now(zone)
     }
+
+    private suspend fun localToday(): LocalDate = LocalDate.now(localZone())
 
     /** TMDB accepts one watch region. Make Discover/provider availability follow
      * the content-region filter, then fall back to metadata and device regions. */
@@ -205,10 +207,7 @@ class CineTrackRepository(
     )
 
     private fun scheduleTime(raw: String?): Long = raw?.takeIf(String::isNotBlank)?.let { value ->
-        runCatching { Instant.parse(value).toEpochMilli() }.getOrNull()
-            ?: runCatching {
-                LocalDate.parse(value.take(10)).atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            }.getOrNull()
+        releaseDateTime(value, ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
     } ?: 0L
 
     private fun playbackRecency(item: PlaybackCard): Long = maxOf(
@@ -596,7 +595,11 @@ class CineTrackRepository(
                 episodeNumber = item.episodeNumber,
             )
         }
-        val today = localToday()
+        val configuredTimezone = metadataTimezoneDeferred.await()
+        val releaseZone = if (configuredTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(configuredTimezone) }.getOrDefault(ZoneId.systemDefault())
+        val releaseNow = Instant.now()
+        val today = LocalDate.now(releaseZone)
         // Calendar is strictly a tracked-content surface. Build it from the
         // Simkl-backed Library rail so TMDB content-region preferences can never
         // hide an imported or locally tracked release.
@@ -635,9 +638,11 @@ class CineTrackRepository(
             )
         }
         val calendar = (movieCalendar + episodeCalendar)
-            .distinctBy { "${it.media.stableKey}:${it.season ?: -1}:${it.episodeNumber ?: -1}:${it.timestamp.take(10)}" }
+            .distinctBy { "${it.media.stableKey}:${it.season ?: -1}:${it.episodeNumber ?: -1}" }
             .sortedWith(
-                compareBy<TimelineCard> { it.timestamp.take(10) }
+                compareBy<TimelineCard> {
+                    releaseDateTime(it.timestamp, releaseZone)?.toInstant() ?: Instant.MAX
+                }
                     .thenBy { it.media.title.lowercase() }
                     .thenBy { it.season ?: -1 }
                     .thenBy { it.episodeNumber ?: -1 },
@@ -682,9 +687,7 @@ class CineTrackRepository(
                     val candidates = cachedEpisodes.asSequence()
                         .filter { it.showId == show.id && (!excludeSpecials || it.season > 0) }
                         .filter { episode ->
-                            episode.airDate?.take(10)?.let { raw ->
-                                runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                            } == true
+                            releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
                         }
                         .filterNot { Triple(show.id, it.season, it.number) in watchedNumbers }
                         .sortedWith(compareBy(EpisodeEntity::season, EpisodeEntity::number))
@@ -1234,7 +1237,8 @@ class CineTrackRepository(
      * database invalidation observer has to wait for Simkl or a full cache pass.
      */
     private suspend fun refreshLocalUpNext(showId: Int) {
-        val today = localToday()
+        val releaseZone = localZone()
+        val releaseNow = Instant.now()
         val excludeSpecials = preferences.excludeSpecials.first()
         val watched = watchedEpisodeNumbers(showId)
         val lastWatched = watched.asSequence()
@@ -1244,9 +1248,7 @@ class CineTrackRepository(
             .map { it.toDomain() }
             .filter { !excludeSpecials || it.season > 0 }
             .filter { episode ->
-                episode.airDate?.take(10)?.let { raw ->
-                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                } == true
+                releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
             }
             .filterNot { (it.season to it.number) in watched }
             .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
@@ -1972,7 +1974,9 @@ class CineTrackRepository(
                     number = it.number,
                     title = it.name,
                     overview = it.overview,
-                    airDate = it.airDate,
+                    // Simkl's calendar can supply a precise timestamp while TMDB
+                    // exposes only a date. Opening an episode must not downgrade it.
+                    airDate = cached?.airDate ?: it.airDate,
                     stillUrl = it.stillPath?.let { path -> "https://image.tmdb.org/t/p/w1280$path" },
                     runtimeMinutes = it.runtime,
                     watched = watched,

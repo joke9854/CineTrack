@@ -30,6 +30,7 @@ import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.ViewingPeopleInsights
+import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.domain.appendPage
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.FlowPreview
@@ -144,6 +145,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     private val searchQuery = MutableStateFlow("")
     val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
+    val searchHistory: StateFlow<List<String>> = repository.preferences.searchHistory
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val _discoverFilterResults = MutableStateFlow<List<MediaCard>>(emptyList())
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
     private val _discoverFiltersLoading = MutableStateFlow(false)
@@ -292,6 +295,20 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun search(query: String) {
         searchQuery.value = query.trim()
         if (query.isBlank()) _searchResults.value = emptyList()
+    }
+
+    fun rememberSearchQuery(query: String) {
+        val normalized = query.trim()
+        if (normalized.isNotBlank()) viewModelScope.launch { repository.preferences.addSearchHistory(normalized) }
+    }
+
+    fun removeSearchHistory(query: String) {
+        viewModelScope.launch { repository.preferences.removeSearchHistory(query) }
+    }
+
+    fun clearSearch() {
+        searchQuery.value = ""
+        _searchResults.value = emptyList()
     }
 
     fun applyDiscoverFilters(filters: DiscoverMovieFilters) {
@@ -447,6 +464,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
+    fun restoreHiddenUpcomingEpisode(episode: EpisodeCard) {
+        val hidden = _state.value.hiddenUpcoming - episode.scheduleKey
+        _state.value = _state.value.copy(hiddenUpcoming = hidden)
+        viewModelScope.launch {
+            repository.preferences.setHiddenUpcoming(hidden)
+            val cached = readCachedState()
+            _state.value = cached.copy(sync = _syncProgress.value)
+        }
+    }
+
     fun setStatus(media: MediaCard, status: LibraryStatus) {
         viewModelScope.launch {
             val syncState = _syncProgress.value
@@ -541,7 +568,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         val current = _state.value
         val zone = if (current.metadataTimezone == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(current.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
-        val today = LocalDate.now(zone)
+        val releaseNow = java.time.Instant.now()
         val updatedEpisodes = current.episodes.map { episode ->
             if (
                 episode.showId == watchedEpisode.showId &&
@@ -558,9 +585,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     (it.season == watchedEpisode.season && it.number > watchedEpisode.number)
             }
             .filter { candidate ->
-                candidate.airDate?.take(10)?.let { raw ->
-                    runCatching { !LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-                } == true
+                releaseDateTime(candidate.airDate, zone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
             }
             .minWithOrNull(compareBy(EpisodeCard::season, EpisodeCard::number))
         val advancedCard = next?.let { candidate ->

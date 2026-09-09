@@ -548,7 +548,12 @@ fun MediaPoster(
                     stringResource(if (selectedBorder != null) R.string.poster_selected else R.string.poster_not_selected),
                     Modifier.align(Alignment.TopEnd))
             } else if (media.watched || media.status == LibraryStatus.COMPLETED) {
-                StateBadge(Success, Icons.Filled.CheckCircle, stringResource(R.string.watched), Modifier.align(Alignment.TopEnd))
+                StateBadge(
+                    Success,
+                    Icons.Filled.CheckCircle,
+                    stringResource(if (media.type == MediaType.MOVIE) R.string.watched_movie else R.string.watched_tv),
+                    Modifier.align(Alignment.TopEnd),
+                )
             } else if (media.status != LibraryStatus.NONE) {
                 val stateIcon = when (media.status) {
                     LibraryStatus.WATCHING -> Icons.Filled.Visibility
@@ -946,7 +951,7 @@ fun LibraryStatusSheet(
                                 LibraryStatus.PLAN_TO_WATCH -> "Save for later"
                                 LibraryStatus.WATCHING -> "Keep it in your progress"
                                 LibraryStatus.PAUSED -> stringResource(R.string.paused_description)
-                                LibraryStatus.COMPLETED -> stringResource(R.string.watched)
+                                LibraryStatus.COMPLETED -> stringResource(if (media.type == MediaType.MOVIE) R.string.watched_movie else R.string.watched_tv)
                                 LibraryStatus.DROPPED -> "Hide from upcoming items"
                                 else -> ""
                             },

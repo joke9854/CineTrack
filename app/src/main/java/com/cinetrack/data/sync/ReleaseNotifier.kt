@@ -30,6 +30,7 @@ import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
+import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineScope
@@ -76,16 +77,16 @@ object ReleaseNotifier {
         val notified = preferences.notifiedReleaseKeys()
         state.calendar.asSequence()
             .mapNotNull { event ->
-                val day = runCatching { LocalDate.parse(event.timestamp.take(10)) }.getOrNull() ?: return@mapNotNull null
+                val releaseAt = releaseDateTime(event.timestamp, zone) ?: return@mapNotNull null
+                val day = releaseAt.toLocalDate()
                 if (day.isBefore(now.toLocalDate()) || day.isAfter(now.toLocalDate().plusDays(90))) return@mapNotNull null
                 val key = "${event.media.stableKey}:${event.season ?: 0}:${event.episodeNumber ?: 0}:$day"
                 if (key in notified) return@mapNotNull null
-                Triple(event, day, key)
+                Triple(event, releaseAt, key)
             }
             .distinctBy { it.third }
             .take(100)
-            .forEach { (event, day, key) ->
-                val releaseAt = day.atTime(9, 0).atZone(zone)
+            .forEach { (event, releaseAt, key) ->
                 val delay = Duration.between(now, releaseAt).toMillis().coerceAtLeast(0L)
                 val deepLink = if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
                     "cinetrack://episode/${event.media.id}/${event.season}/${event.episodeNumber}"
@@ -96,7 +97,7 @@ object ReleaseNotifier {
                         workDataOf(
                             "key" to key,
                             "title" to event.media.title,
-                            "text" to (event.episodeLabel ?: context.getString(R.string.available_today)),
+                            "text" to releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel),
                             "deepLink" to deepLink,
                             "mediaType" to event.media.type.name,
                             "mediaId" to event.media.id,
@@ -193,10 +194,15 @@ object ReleaseNotifier {
         val configuredTimezone = preferences.metadataTimezone.first()
         val releaseZone = if (configuredTimezone == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(configuredTimezone) }.getOrDefault(ZoneId.systemDefault())
-        val today = LocalDate.now(releaseZone).toString()
+        val now = ZonedDateTime.now(releaseZone)
+        val today = now.toLocalDate().toString()
         val notified = preferences.notifiedReleaseKeys().toMutableSet()
         val manager = NotificationManagerCompat.from(context)
-        state.calendar.filter { it.timestamp.take(10) == today }.forEach { event ->
+        state.calendar.filter { event ->
+            releaseDateTime(event.timestamp, releaseZone)?.let { releaseAt ->
+                releaseAt.toLocalDate() == now.toLocalDate() && !releaseAt.isAfter(now)
+            } == true
+        }.forEach { event ->
             if (event.media.type == MediaType.TV && !preferences.notificationEpisodes.first()) return@forEach
             if (event.media.type == MediaType.MOVIE && !preferences.notificationMovies.first()) return@forEach
             val key = "${event.media.stableKey}:${event.season ?: 0}:${event.episodeNumber ?: 0}:$today"
@@ -211,7 +217,7 @@ object ReleaseNotifier {
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_cinetrack)
                 .setContentTitle(event.media.title)
-                .setContentText(event.episodeLabel ?: context.getString(R.string.available_today))
+                .setContentText(releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel))
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
@@ -267,6 +273,13 @@ object ReleaseNotifier {
         preferences.setNotifiedReleaseKeys(notified)
     }
 }
+
+private fun releaseNotificationText(context: Context, season: Int?, episode: Int?, fallback: String?): String =
+    if (season != null && season >= 0 && episode != null && episode > 0) {
+        context.getString(R.string.episode_available_notification, season, episode)
+    } else {
+        fallback ?: context.getString(R.string.available_today)
+    }
 
 internal fun isQuietHour(hour: Int, start: Int, end: Int): Boolean =
     if (start == end) true else if (start < end) hour in start until end else hour >= start || hour < end

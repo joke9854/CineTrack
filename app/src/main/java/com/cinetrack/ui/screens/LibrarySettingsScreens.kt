@@ -91,7 +91,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -232,7 +234,12 @@ fun LibraryScreen(
                     Row(
                         Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
-                            .clickable { type = item },
+                            .clickable {
+                                if (selected) {
+                                    gridState.requestScrollToItem(0)
+                                    onCompactNav(false)
+                                } else type = item
+                            },
                         horizontalArrangement = Arrangement.Center,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -253,7 +260,12 @@ fun LibraryScreen(
                     Row(
                         modifier = Modifier.heightIn(min = 48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
                             .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
-                            .clickable { status = value }.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
+                            .clickable {
+                                if (selected) {
+                                    gridState.requestScrollToItem(0)
+                                    onCompactNav(false)
+                                } else status = value
+                            }.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
@@ -995,6 +1007,11 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 @Composable
 private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     val context = LocalContext.current
+    val hiddenEpisodes = remember(state.episodes, state.hiddenUpcoming) {
+        state.episodes.filter { it.scheduleKey in state.hiddenUpcoming }
+            .distinctBy { it.scheduleKey }
+            .sortedBy { it.airDate }
+    }
     var notificationsGranted by remember {
         mutableStateOf(
             Build.VERSION.SDK_INT < 33 ||
@@ -1041,6 +1058,26 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
         )
     }
     if (state.hiddenUpcoming.isNotEmpty()) {
+        if (hiddenEpisodes.isNotEmpty()) {
+            SettingsSection(stringResource(R.string.hidden_upcoming)) {
+                hiddenEpisodes.forEachIndexed { index, episode ->
+                    val showTitle = state.allMedia.firstOrNull { it.type == MediaType.TV && it.id == episode.showId }?.title.orEmpty()
+                    Row(
+                        Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text(showTitle.ifBlank { episode.title }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                            Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        IconButton(onClick = { viewModel.restoreHiddenUpcomingEpisode(episode) }) {
+                            Icon(Icons.Filled.Visibility, stringResource(R.string.restore_upcoming_episode, episode.title), tint = AccentLight)
+                        }
+                    }
+                    if (index != hiddenEpisodes.lastIndex) GlassDivider()
+                }
+            }
+        }
         PrimaryAction(
             stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size),
             Icons.Filled.Refresh,
@@ -1122,7 +1159,7 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
     )
     if (state.hiddenDiscovery.isNotEmpty()) {
         PrimaryAction(
-            stringResource(R.string.restore_hidden_recommendations, state.hiddenDiscovery.size),
+            pluralStringResource(R.plurals.restore_hidden_recommendations, state.hiddenDiscovery.size, state.hiddenDiscovery.size),
             Icons.Filled.Refresh,
             Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm),
         ) { viewModel.restoreHiddenDiscovery() }
@@ -1210,9 +1247,9 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
         Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(16.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ServiceLogo("TMDB")
-            ServiceLogo("MDBList")
-            ServiceLogo("Simkl")
+            ServiceLogo("TMDB", "https://www.themoviedb.org/")
+            ServiceLogo("MDBList", "https://mdblist.com/")
+            ServiceLogo("Simkl", "https://simkl.com/")
         }
         Spacer(Modifier.height(9.dp))
         Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
@@ -1386,7 +1423,8 @@ private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onC
 }
 
 @Composable
-private fun ServiceLogo(name: String) {
+private fun ServiceLogo(name: String, siteUrl: String? = null) {
+    val uriHandler = LocalUriHandler.current
     val (logo, background, logoSize) = when (name.lowercase()) {
         "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
         "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
@@ -1394,7 +1432,11 @@ private fun ServiceLogo(name: String) {
     }
     Box(
         Modifier.size(38.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(background)
-            .border(.65.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
+            .border(.65.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+            .then(
+                if (siteUrl != null) Modifier.clickable(onClick = rememberUiAction { runCatching { uriHandler.openUri(siteUrl) } })
+                else Modifier,
+            ),
         contentAlignment = Alignment.Center,
     ) {
         Image(

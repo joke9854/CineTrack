@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -40,6 +41,8 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Settings
@@ -477,7 +480,11 @@ fun SearchScreen(
     results: List<MediaCard>,
     sourceItems: List<MediaCard> = emptyList(),
     remoteSearch: Boolean = true,
+    history: List<String> = emptyList(),
     onQuery: (String) -> Unit,
+    onSubmitQuery: (String) -> Unit,
+    onRemoveHistory: (String) -> Unit,
+    onLeave: () -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
 ) {
@@ -485,13 +492,15 @@ fun SearchScreen(
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val visibleResults = remember(query, results, sourceItems, remoteSearch) {
-        if (remoteSearch) results else sourceItems.filter { it.title.contains(query, ignoreCase = true) }
+        if (query.isBlank()) emptyList()
+        else if (remoteSearch) results else sourceItems.filter { it.title.contains(query, ignoreCase = true) }
     }
     val backgroundItem = visibleResults.firstOrNull()
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
         keyboard?.show()
     }
+    DisposableEffect(Unit) { onDispose(onLeave) }
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
@@ -511,10 +520,44 @@ fun SearchScreen(
                         unfocusedContainerColor = com.cinetrack.ui.theme.GlassFaint,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { if (remoteSearch) onQuery(query) }),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        onSubmitQuery(query)
+                        keyboard?.hide()
+                    }),
                 )
             }
-            if (query.isNotBlank() && visibleResults.isEmpty()) {
+            if (query.isBlank() && history.isNotEmpty()) {
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item { SectionHeader(stringResource(R.string.search_history)) }
+                    items(history, key = { it.lowercase() }) { previousQuery ->
+                        Row(
+                            Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                                .clickable {
+                                    query = previousQuery
+                                    if (remoteSearch) onQuery(previousQuery)
+                                }
+                                .padding(start = com.cinetrack.ui.theme.Spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.History, null, tint = TextMuted, modifier = Modifier.size(19.dp))
+                            Text(
+                                previousQuery,
+                                color = TextPrimary,
+                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f).padding(horizontal = com.cinetrack.ui.theme.Spacing.md),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            IconButton(onClick = { onRemoveHistory(previousQuery) }) {
+                                Icon(Icons.Filled.Close, stringResource(R.string.remove_search_history, previousQuery), tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            } else if (query.isNotBlank() && visibleResults.isEmpty()) {
                 Text(stringResource(R.string.loading), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl))
             } else {
                 LazyVerticalGrid(
@@ -525,7 +568,10 @@ fun SearchScreen(
                 ) {
                     items(visibleResults, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            MediaPoster(media, width = maxWidth, onClick = { onMedia(media) })
+                            MediaPoster(media, width = maxWidth, onClick = {
+                                onSubmitQuery(query)
+                                onMedia(media)
+                            })
                         }
                     }
                 }

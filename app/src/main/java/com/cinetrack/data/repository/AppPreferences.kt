@@ -34,6 +34,7 @@ import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
 
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
+private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
 
 class AppPreferences(private val context: Context) {
     fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
@@ -101,6 +102,7 @@ class AppPreferences(private val context: Context) {
         val notifiedReleases = stringPreferencesKey("notified_releases")
         val hiddenUpcoming = stringPreferencesKey("hidden_upcoming")
         val hiddenDiscovery = stringPreferencesKey("hidden_discovery")
+        val searchHistory = stringPreferencesKey("search_history")
         val introductionCompleted = booleanPreferencesKey("introduction_completed")
     }
 
@@ -157,6 +159,9 @@ class AppPreferences(private val context: Context) {
     }
     val hiddenDiscovery: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenDiscovery].orEmpty().split('|').filter(String::isNotBlank).toSet()
+    }
+    val searchHistory: Flow<List<String>> = context.cineTrackDataStore.data.map { prefs ->
+        prefs[Keys.searchHistory].orEmpty().split(SEARCH_HISTORY_SEPARATOR).filter(String::isNotBlank)
     }
     val introductionCompleted: Flow<Boolean> = context.cineTrackDataStore.data.map {
         it[Keys.introductionCompleted] ?: false
@@ -356,6 +361,25 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { prefs ->
             if (values.isEmpty()) prefs.remove(Keys.hiddenUpcoming)
             else prefs[Keys.hiddenUpcoming] = values.joinToString("|")
+        }
+    }
+
+    suspend fun addSearchHistory(query: String) {
+        val normalized = query.trim().replace(SEARCH_HISTORY_SEPARATOR, " ").replace(Regex("\\s+"), " ")
+        if (normalized.isBlank()) return
+        context.cineTrackDataStore.edit { prefs ->
+            val current = prefs[Keys.searchHistory].orEmpty().split(SEARCH_HISTORY_SEPARATOR).filter(String::isNotBlank)
+            val updated = listOf(normalized) + current.filterNot { it.equals(normalized, ignoreCase = true) }
+            prefs[Keys.searchHistory] = updated.take(10).joinToString(SEARCH_HISTORY_SEPARATOR)
+        }
+    }
+
+    suspend fun removeSearchHistory(query: String) {
+        context.cineTrackDataStore.edit { prefs ->
+            val updated = prefs[Keys.searchHistory].orEmpty().split(SEARCH_HISTORY_SEPARATOR)
+                .filter { it.isNotBlank() && !it.equals(query, ignoreCase = true) }
+            if (updated.isEmpty()) prefs.remove(Keys.searchHistory)
+            else prefs[Keys.searchHistory] = updated.joinToString(SEARCH_HISTORY_SEPARATOR)
         }
     }
 

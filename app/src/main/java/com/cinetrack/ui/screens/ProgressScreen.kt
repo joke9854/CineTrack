@@ -63,7 +63,7 @@ import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Insights
-import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
@@ -104,11 +104,14 @@ import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.TimelineCard
+import com.cinetrack.domain.releaseDateTime
+import com.cinetrack.domain.hasExplicitReleaseTime
 import com.cinetrack.domain.ViewingPeopleInsights
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.MediaRail
@@ -117,6 +120,7 @@ import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.RevealOnMount
 import com.cinetrack.ui.components.SectionHeader
 import com.cinetrack.ui.components.SharedGlassSheet
+import com.cinetrack.ui.components.SharedGlassDialog
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
 import com.cinetrack.ui.components.rememberUiAction
@@ -175,12 +179,12 @@ fun ProgressScreen(
     val artwork = state.playbackTv.firstOrNull()?.media?.posterUrl
         ?: state.playbackMovies.firstOrNull()?.media?.posterUrl
         ?: state.episodes.firstOrNull()?.stillUrl
-    val today = remember(state.metadataTimezone) {
-        val zone = if (state.metadataTimezone == "system") ZoneId.systemDefault()
+    val releaseZone = remember(state.metadataTimezone) {
+        if (state.metadataTimezone == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(state.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
-        LocalDate.now(zone)
     }
-    val upcomingEpisodes = remember(state.episodes, state.rails, state.playbackTv, state.excludeSpecials, state.hiddenUpcoming, today) {
+    val releaseNow = java.time.Instant.now()
+    val upcomingEpisodes = remember(state.episodes, state.rails, state.playbackTv, state.excludeSpecials, state.hiddenUpcoming, releaseZone, releaseNow) {
         val trackedShowIds = (
             state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
                 .filter {
@@ -196,26 +200,20 @@ fun ProgressScreen(
             .filter { !state.excludeSpecials || it.season > 0 }
             .filter { it.scheduleKey !in state.hiddenUpcoming }
             .filter { episode ->
-                episode.airDate?.take(10)?.let { raw ->
-                    runCatching { !LocalDate.parse(raw).isBefore(today) }.getOrDefault(false)
-                } == true
+                releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.isAfter(releaseNow) == true
             }
             .distinctBy { "${it.showId}:${it.season}:${it.number}" }
             .sortedWith(
-                compareBy<com.cinetrack.domain.EpisodeCard> { it.airDate ?: "9999-99-99" }
+                compareBy<com.cinetrack.domain.EpisodeCard> {
+                    releaseDateTime(it.airDate, releaseZone)?.toInstant() ?: java.time.Instant.MAX
+                }
                     .thenBy(com.cinetrack.domain.EpisodeCard::showId)
                     .thenBy(com.cinetrack.domain.EpisodeCard::season)
                     .thenBy(com.cinetrack.domain.EpisodeCard::number),
             )
             .toList()
     }
-    val comingSoon = remember(upcomingEpisodes, today) {
-        upcomingEpisodes.filter { episode ->
-            episode.airDate?.take(10)?.let { raw ->
-                runCatching { LocalDate.parse(raw).isAfter(today) }.getOrDefault(false)
-            } == true
-        }
-    }
+    val comingSoon = upcomingEpisodes
     val libraryItems = remember(state.rails) {
         state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
     }
@@ -820,7 +818,12 @@ private fun PlaybackRow(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(34.dp))
-                    Text(stringResource(R.string.watched), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold)
+                    Text(
+                        stringResource(if (item.media.type == MediaType.MOVIE) R.string.watched_movie else R.string.watched_tv),
+                        color = Color.White,
+                        style = androidx.compose.material3.MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                    )
                 }
             }
         }
@@ -855,11 +858,12 @@ private fun UpcomingEpisodesRail(
     onEpisode: (EpisodeCard) -> Unit,
     onHide: (EpisodeCard) -> Unit,
 ) {
+    var pendingHide by remember { mutableStateOf<EpisodeCard?>(null) }
     Column(Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.lg)) {
         SectionHeader(title, Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl))
         Spacer(Modifier.height(13.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            items(episodes.distinctBy(EpisodeCard::id), key = EpisodeCard::id) { episode ->
+            items(episodes.distinctBy(EpisodeCard::scheduleKey), key = EpisodeCard::scheduleKey) { episode ->
                 val showTitle = shows.firstOrNull { it.id == episode.showId && it.type == com.cinetrack.domain.MediaType.TV }?.title.orEmpty()
                 val interaction = remember(episode.showId, episode.season, episode.number) { MutableInteractionSource() }
                 val pressed by interaction.collectIsPressedAsState()
@@ -869,7 +873,7 @@ private fun UpcomingEpisodesRail(
                         interactionSource = interaction,
                         indication = null,
                         onClick = openEpisodeAction,
-                        onLongClick = { onHide(episode) },
+                        onLongClick = { pendingHide = episode },
                     ),
                 ) {
                     Box(Modifier.fillMaxWidth().height(132.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .65f), Info.copy(alpha = .28f))))
@@ -877,12 +881,34 @@ private fun UpcomingEpisodesRail(
                         if (!episode.stillUrl.isNullOrBlank()) AsyncImage(episode.stillUrl, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .74f)))))
                         Text(shortAirDate(episode.airDate), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs))
-                        Box(Modifier.align(Alignment.TopEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(24.dp).clip(CircleShape).background(com.cinetrack.ui.theme.SurfacePalette.DeepOverlay), contentAlignment = Alignment.Center) {
-                            Icon(Icons.Filled.NotificationsNone, null, tint = Color.White, modifier = Modifier.size(13.dp))
-                        }
+                        IconButton(
+                            onClick = { pendingHide = episode },
+                            modifier = Modifier.align(Alignment.TopEnd).padding(com.cinetrack.ui.theme.Spacing.xs).size(36.dp).glassIcon(),
+                        ) { Icon(Icons.Filled.VisibilityOff, stringResource(R.string.hide_upcoming_episode), tint = Color.White, modifier = Modifier.size(16.dp)) }
                         Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.md))
                     }
                     Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm))
+                }
+            }
+        }
+    }
+    pendingHide?.let { episode ->
+        SharedGlassDialog(onDismiss = { pendingHide = null }) {
+            Column(Modifier.padding(com.cinetrack.ui.theme.Spacing.lg)) {
+                Text(stringResource(R.string.hide_upcoming_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+                Spacer(Modifier.height(7.dp))
+                Text(stringResource(R.string.hide_upcoming_message, episode.label.replace(" · ", " "), episode.title), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                Spacer(Modifier.height(16.dp))
+                PrimaryAction(
+                    stringResource(R.string.hide_upcoming_episode),
+                    Icons.Filled.VisibilityOff,
+                    Modifier.fillMaxWidth(),
+                ) {
+                    onHide(episode)
+                    pendingHide = null
+                }
+                androidx.compose.material3.TextButton(onClick = { pendingHide = null }, modifier = Modifier.align(Alignment.End)) {
+                    Text(stringResource(R.string.cancel), color = TextPrimary)
                 }
             }
         }
@@ -1147,7 +1173,7 @@ private fun TimelineRow(
                     number = number,
                     title = item.episodeLabel?.substringAfter(" · ", "").orEmpty(),
                     overview = "",
-                    airDate = item.timestamp.take(10),
+                    airDate = item.timestamp,
                 ),
             )
         } else {
@@ -1179,7 +1205,9 @@ private fun TimelineRow(
         Spacer(Modifier.width(11.dp))
         Column(Modifier.weight(1f)) {
             val typeLabel = if (item.media.type == com.cinetrack.domain.MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
-            Text(if (history) "$typeLabel · ${timelineTime(item.timestamp)}" else typeLabel, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+            val time = timelineTime(item.timestamp)
+            val timingLabel = if (history || hasExplicitReleaseTime(item.timestamp)) listOf(typeLabel, time).filter(String::isNotBlank).joinToString(" · ") else typeLabel
+            Text(timingLabel, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             Text(item.media.title, color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val episodeText = item.episodeLabel ?: item.media.year
             Text(episodeText, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1189,13 +1217,11 @@ private fun TimelineRow(
     }
 }
 
-private fun timelineLocalDate(raw: String): LocalDate? = runCatching {
-    Instant.parse(raw).atZone(ZoneId.systemDefault()).toLocalDate()
-}.getOrElse { runCatching { LocalDate.parse(raw.take(10)) }.getOrNull() }
+private fun timelineLocalDate(raw: String): LocalDate? =
+    releaseDateTime(raw, ZoneId.systemDefault())?.toLocalDate()
 
-private fun timelineTime(raw: String): String = runCatching {
-    Instant.parse(raw).atZone(ZoneId.systemDefault()).format(com.cinetrack.ui.UiDateFormatters.current.time)
-}.getOrDefault("")
+private fun timelineTime(raw: String): String =
+    releaseDateTime(raw, ZoneId.systemDefault())?.format(com.cinetrack.ui.UiDateFormatters.current.time).orEmpty()
 
 private fun historyDayLabel(date: LocalDate): String = date.format(com.cinetrack.ui.UiDateFormatters.current.date)
 
