@@ -47,6 +47,12 @@
     <string name="sync_stage_calendar">Updating calendar</string>
     <string name="sync_stage_commit">Saving locally</string>
     <string name="sync_stage_processing">Processing local data</string>
+    <string name="sync_connected_not_yet">Connected · not synced yet</string>
+    <string name="synced_just_now">Synced just now</string>
+    <plurals name="synced_minutes_ago"><item quantity="one">Synced %d min ago</item><item quantity="other">Synced %d min ago</item></plurals>
+    <plurals name="synced_hours_ago"><item quantity="one">Synced %d h ago</item><item quantity="other">Synced %d h ago</item></plurals>
+    <plurals name="synced_days_ago"><item quantity="one">Synced %d day ago</item><item quantity="other">Synced %d days ago</item></plurals>
+    <string name="sync_progress_detail">CineTrack is downloading and applying your changes.</string>
     <string name="continue_watching">Continue watching</string>
     <string name="tv_shows">TV shows</string>
     <string name="movies">Movies</string>

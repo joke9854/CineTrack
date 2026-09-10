@@ -125,8 +125,7 @@ object ReleaseNotifier {
         val deepLink = data.getString("deepLink") ?: return
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_cinetrack)
-            .setContentTitle(data.getString("title"))
-            .setContentText(data.getString("text"))
+            .setStableTextLayout(data.getString("title").orEmpty(), data.getString("text").orEmpty())
             .setAutoCancel(true)
             .setContentIntent(
                 PendingIntent.getActivity(
@@ -167,9 +166,10 @@ object ReleaseNotifier {
             "sync-failure".hashCode(),
             NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_cinetrack)
-                .setContentTitle(context.getString(R.string.sync_failed_notification_title))
-                .setContentText(context.getString(R.string.sync_failed_notification_text))
-                .setStyle(NotificationCompat.BigTextStyle().bigText(context.getString(R.string.sync_failed_notification_text)))
+                .setStableTextLayout(
+                    context.getString(R.string.sync_failed_notification_title),
+                    context.getString(R.string.sync_failed_notification_text),
+                )
                 .setAutoCancel(true)
                 .setContentIntent(
                     PendingIntent.getActivity(
@@ -216,8 +216,10 @@ object ReleaseNotifier {
             )
             val builder = NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_notification_cinetrack)
-                .setContentTitle(event.media.title)
-                .setContentText(releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel))
+                .setStableTextLayout(
+                    event.media.title,
+                    releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel),
+                )
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
@@ -262,8 +264,7 @@ object ReleaseNotifier {
                     key.hashCode(),
                     NotificationCompat.Builder(context, CHANNEL_ID)
                         .setSmallIcon(R.drawable.ic_notification_cinetrack)
-                        .setContentTitle(media.title)
-                        .setContentText(context.getString(R.string.now_available_on, provider))
+                        .setStableTextLayout(media.title, context.getString(R.string.now_available_on, provider))
                         .setAutoCancel(true)
                         .setContentIntent(contentIntent)
                         .build(),
@@ -273,6 +274,15 @@ object ReleaseNotifier {
         preferences.setNotifiedReleaseKeys(notified)
     }
 }
+
+private fun NotificationCompat.Builder.setStableTextLayout(title: String, text: String): NotificationCompat.Builder =
+    setContentTitle(title)
+        .setContentText(text)
+        .setStyle(
+            NotificationCompat.BigTextStyle()
+                .setBigContentTitle(title)
+                .bigText(text),
+        )
 
 private fun releaseNotificationText(context: Context, season: Int?, episode: Int?, fallback: String?): String =
     if (season != null && season >= 0 && episode != null && episode > 0) {

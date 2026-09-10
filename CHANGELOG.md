@@ -1,3 +1,11 @@
+# CineTrack 0.84
+
+- Give the Coming Soon hide action a compact 26 dp rounded-square glass background while preserving its 16 dp icon and a comfortable touch target.
+- Keep notification titles and message bodies in the same hierarchy across scheduled, immediate, provider, and synchronization notifications.
+- Fully localize the synchronization card's relative status in Italian, including never-synced, just-now, minutes, hours, and days states.
+
+Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
+
 # CineTrack 0.83
 
 - Show the exact watched date and time beneath an episode description when its info panel is expanded.

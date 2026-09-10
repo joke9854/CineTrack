@@ -47,6 +47,12 @@
     <string name="sync_stage_calendar">Aggiornamento calendario</string>
     <string name="sync_stage_commit">Salvataggio locale</string>
     <string name="sync_stage_processing">Elaborazione dati locali</string>
+    <string name="sync_connected_not_yet">Collegato · non ancora sincronizzato</string>
+    <string name="synced_just_now">Sincronizzato adesso</string>
+    <plurals name="synced_minutes_ago"><item quantity="one">Sincronizzato %d min fa</item><item quantity="other">Sincronizzato %d min fa</item></plurals>
+    <plurals name="synced_hours_ago"><item quantity="one">Sincronizzato %d ora fa</item><item quantity="other">Sincronizzato %d ore fa</item></plurals>
+    <plurals name="synced_days_ago"><item quantity="one">Sincronizzato %d giorno fa</item><item quantity="other">Sincronizzato %d giorni fa</item></plurals>
+    <string name="sync_progress_detail">CineTrack sta scaricando e applicando le modifiche.</string>
     <string name="continue_watching">Continua a guardare</string>
     <string name="tv_shows">Serie TV</string>
     <string name="movies">Film</string>

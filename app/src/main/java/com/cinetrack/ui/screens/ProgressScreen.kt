@@ -94,6 +94,7 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -409,7 +410,12 @@ private fun SyncCard(
                     )
                     Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
                 }
-                Text(sync.message ?: stringResource(R.string.sync_operations_summary), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (sync.running) stringResource(R.string.sync_progress_detail)
+                    else stringResource(R.string.sync_operations_summary),
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                )
             }
         }
     }
@@ -883,8 +889,20 @@ private fun UpcomingEpisodesRail(
                         Text(shortAirDate(episode.airDate), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs))
                         IconButton(
                             onClick = { pendingHide = episode },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(com.cinetrack.ui.theme.Spacing.xs).size(30.dp).glassIcon(),
-                        ) { Icon(Icons.Filled.VisibilityOff, stringResource(R.string.hide_upcoming_episode), tint = Color.White, modifier = Modifier.size(16.dp)) }
+                            modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(40.dp),
+                        ) {
+                            Box(
+                                Modifier.size(26.dp).glass(RoundedCornerShape(8.dp)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    Icons.Filled.VisibilityOff,
+                                    stringResource(R.string.hide_upcoming_episode),
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                        }
                         Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.md))
                     }
                     Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm))
@@ -1229,13 +1247,14 @@ private fun shortAirDate(raw: String?): String = runCatching {
     LocalDate.parse(raw?.take(10)).format(com.cinetrack.ui.UiDateFormatters.current.weekdayDate).uppercase(Locale.getDefault())
 }.getOrDefault("")
 
+@Composable
 private fun relativeSyncLabel(lastSync: Long?): String {
-    if (lastSync == null) return "Connected · not synced yet"
+    if (lastSync == null) return stringResource(R.string.sync_connected_not_yet)
     val elapsed = ((System.currentTimeMillis() - lastSync).coerceAtLeast(0L) / 1_000L)
     return when {
-        elapsed < 60 -> "Synced just now"
-        elapsed < 3_600 -> "Synced ${elapsed / 60} min ago"
-        elapsed < 86_400 -> "Synced ${elapsed / 3_600} h ago"
-        else -> "Synced ${elapsed / 86_400} d ago"
+        elapsed < 60 -> stringResource(R.string.synced_just_now)
+        elapsed < 3_600 -> (elapsed / 60).toInt().let { pluralStringResource(R.plurals.synced_minutes_ago, it, it) }
+        elapsed < 86_400 -> (elapsed / 3_600).toInt().let { pluralStringResource(R.plurals.synced_hours_ago, it, it) }
+        else -> (elapsed / 86_400).toInt().let { pluralStringResource(R.plurals.synced_days_ago, it, it) }
     }
 }
