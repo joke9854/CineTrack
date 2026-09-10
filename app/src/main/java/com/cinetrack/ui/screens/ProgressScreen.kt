@@ -883,7 +883,7 @@ private fun UpcomingEpisodesRail(
                         Text(shortAirDate(episode.airDate), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 10.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs))
                         IconButton(
                             onClick = { pendingHide = episode },
-                            modifier = Modifier.align(Alignment.TopEnd).padding(com.cinetrack.ui.theme.Spacing.xs).size(36.dp).glassIcon(),
+                            modifier = Modifier.align(Alignment.TopEnd).padding(com.cinetrack.ui.theme.Spacing.xs).size(30.dp).glassIcon(),
                         ) { Icon(Icons.Filled.VisibilityOff, stringResource(R.string.hide_upcoming_episode), tint = Color.White, modifier = Modifier.size(16.dp)) }
                         Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.md))
                     }

@@ -825,6 +825,27 @@ class CineTrackRepository(
             .map { it.toDomain(states["${it.mediaType}:${it.tmdbId}"]) }
     }
 
+    suspend fun searchPeople(query: String): List<PersonCard> {
+        if (query.isBlank() || tmdbApiKey().isBlank()) return emptyList()
+        return runCatching {
+            services.tmdb.search(query).results.asSequence()
+                .filter { it.mediaType == "person" && !it.name.isNullOrBlank() }
+                .map { person ->
+                    PersonCard(
+                        id = person.id,
+                        name = person.name.orEmpty(),
+                        role = person.knownForDepartment.orEmpty(),
+                        profileUrl = person.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
+                    )
+                }
+                .distinctBy(PersonCard::id)
+                .toList()
+        }.getOrElse { error ->
+            if (error is kotlinx.coroutines.CancellationException) throw error
+            emptyList()
+        }
+    }
+
     suspend fun setLibraryStatus(media: MediaCard, status: LibraryStatus) {
         database.withTransaction {
             val previous = database.stateDao().get(media.type.name, media.id)

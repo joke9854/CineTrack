@@ -43,6 +43,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Settings
@@ -60,6 +62,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,6 +84,7 @@ import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.RailIds
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -478,36 +482,51 @@ fun DiscoverListScreen(
 @Composable
 fun SearchScreen(
     results: List<MediaCard>,
+    peopleResults: List<PersonCard>,
+    mediaSearchLoading: Boolean,
+    peopleSearchLoading: Boolean,
     sourceItems: List<MediaCard> = emptyList(),
     remoteSearch: Boolean = true,
     history: List<String> = emptyList(),
     onQuery: (String) -> Unit,
+    onPeopleQuery: (String) -> Unit,
     onSubmitQuery: (String) -> Unit,
     onRemoveHistory: (String) -> Unit,
     onLeave: () -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
+    onPerson: (PersonCard) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf("media") }
+    val peopleSelected = remoteSearch && category == "people"
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val visibleResults = remember(query, results, sourceItems, remoteSearch) {
         if (query.isBlank()) emptyList()
         else if (remoteSearch) results else sourceItems.filter { it.title.contains(query, ignoreCase = true) }
     }
-    val backgroundItem = visibleResults.firstOrNull()
+    val visiblePeople = if (query.isBlank()) emptyList() else peopleResults
+    val activeSearchLoading = if (peopleSelected) peopleSearchLoading else mediaSearchLoading
+    val backgroundArtwork = if (peopleSelected) visiblePeople.firstOrNull()?.profileUrl
+        else visibleResults.firstOrNull()?.let { it.backdropUrl ?: it.posterUrl }
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
         keyboard?.show()
     }
     DisposableEffect(Unit) { onDispose(onLeave) }
-    AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
+    AdaptiveBackground(artworkUrl = backgroundArtwork) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it; if (remoteSearch) onQuery(it) },
+                    onValueChange = {
+                        query = it
+                        if (remoteSearch) {
+                            if (peopleSelected) onPeopleQuery(it) else onQuery(it)
+                        }
+                    },
                     modifier = Modifier.weight(1f).focusRequester(focusRequester),
                     placeholder = { Text(stringResource(R.string.search_hint)) },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
@@ -521,10 +540,38 @@ fun SearchScreen(
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
+                        if (remoteSearch) {
+                            if (peopleSelected) onPeopleQuery(query) else onQuery(query)
+                        }
                         onSubmitQuery(query)
                         keyboard?.hide()
                     }),
                 )
+            }
+            if (remoteSearch) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    SearchCategoryPill(
+                        text = stringResource(R.string.movies_tv),
+                        icon = Icons.Filled.Movie,
+                        selected = !peopleSelected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        category = "media"
+                        if (query.isNotBlank()) onQuery(query)
+                    }
+                    SearchCategoryPill(
+                        text = stringResource(R.string.people),
+                        icon = Icons.Filled.Person,
+                        selected = peopleSelected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        category = "people"
+                        if (query.isNotBlank()) onPeopleQuery(query)
+                    }
+                }
             }
             if (query.isBlank() && history.isNotEmpty()) {
                 LazyColumn(
@@ -537,7 +584,9 @@ fun SearchScreen(
                             Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                                 .clickable {
                                     query = previousQuery
-                                    if (remoteSearch) onQuery(previousQuery)
+                                    if (remoteSearch) {
+                                        if (peopleSelected) onPeopleQuery(previousQuery) else onQuery(previousQuery)
+                                    }
                                 }
                                 .padding(start = com.cinetrack.ui.theme.Spacing.md),
                             verticalAlignment = Alignment.CenterVertically,
@@ -557,8 +606,34 @@ fun SearchScreen(
                         }
                     }
                 }
-            } else if (query.isNotBlank() && visibleResults.isEmpty()) {
-                Text(stringResource(R.string.loading), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl))
+            } else if (query.isNotBlank() && (if (peopleSelected) visiblePeople.isEmpty() else visibleResults.isEmpty())) {
+                Text(
+                    stringResource(if (activeSearchLoading) R.string.loading else R.string.no_search_results),
+                    color = TextMuted,
+                    modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl),
+                )
+            } else if (peopleSelected) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    items(visiblePeople, key = PersonCard::id) { person ->
+                        val localizedPerson = person.copy(
+                            role = when (person.role.lowercase()) {
+                                "acting" -> stringResource(R.string.actor)
+                                "directing" -> stringResource(R.string.director)
+                                else -> stringResource(R.string.person)
+                            },
+                        )
+                        PersonSearchCard(localizedPerson) {
+                            onSubmitQuery(query)
+                            keyboard?.hide()
+                            onPerson(localizedPerson)
+                        }
+                    }
+                }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
@@ -576,6 +651,52 @@ fun SearchScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SearchCategoryPill(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier.height(44.dp)
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .background(if (selected) com.cinetrack.ui.theme.Accent.copy(alpha = .25f) else Color.Transparent)
+            .clickable(onClick = rememberUiAction(onClick))
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, tint = if (selected) AccentLight else TextMuted, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(text, color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun PersonSearchCard(person: PersonCard, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)
+    Column(
+        Modifier.fillMaxWidth().glass(shape).clickable(onClick = rememberUiAction(onClick)),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(.82f).background(com.cinetrack.ui.theme.GlassBare),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!person.profileUrl.isNullOrBlank()) {
+                AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else {
+                Icon(Icons.Filled.Person, null, tint = TextMuted, modifier = Modifier.size(42.dp))
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.sm)) {
+            Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(person.role.ifBlank { stringResource(R.string.people) }, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

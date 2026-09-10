@@ -9,6 +9,12 @@
     <string name="search_hint">Film, serie TV e persone</string>
     <string name="search_history">Cronologia delle ricerche</string>
     <string name="remove_search_history">Rimuovi %1$s dalla cronologia delle ricerche</string>
+    <string name="movies_tv">Film e serie TV</string>
+    <string name="people">Persone</string>
+    <string name="person">Persona</string>
+    <string name="actor">Attore</string>
+    <string name="director">Regista</string>
+    <string name="no_search_results">Nessun risultato trovato</string>
     <string name="filters">Filtri</string>
     <string name="details">Dettagli</string>
     <string name="no_catalog_data">Nessun dato del catalogo. Aggiungi una chiave API TMDB personale nelle Impostazioni e aggiorna.</string>
@@ -28,6 +34,7 @@
     <string name="watched">Visto</string>
     <string name="watched_movie">Visto</string>
     <string name="watched_tv">Vista</string>
+    <string name="watched_on">Visto il %1$s</string>
     <string name="not_watched">Non visto</string>
     <string name="mark_watched">Segna come visto</string>
     <string name="synced_with_simkl">Sincronizzato con Simkl</string>

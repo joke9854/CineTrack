@@ -9,6 +9,12 @@
     <string name="search_hint">Movies, TV shows and people</string>
     <string name="search_history">Search history</string>
     <string name="remove_search_history">Remove %1$s from search history</string>
+    <string name="movies_tv">Movies &amp; TV</string>
+    <string name="people">People</string>
+    <string name="person">Person</string>
+    <string name="actor">Actor</string>
+    <string name="director">Director</string>
+    <string name="no_search_results">No results found</string>
     <string name="filters">Filters</string>
     <string name="details">Details</string>
     <string name="no_catalog_data">No catalog data yet. Add a personal TMDB credential in Settings, then refresh.</string>
@@ -28,6 +34,7 @@
     <string name="watched">Watched</string>
     <string name="watched_movie">Watched</string>
     <string name="watched_tv">Watched</string>
+    <string name="watched_on">Watched on %1$s</string>
     <string name="not_watched">Not watched</string>
     <string name="mark_watched">Mark as watched</string>
     <string name="synced_with_simkl">Synced with Simkl</string>

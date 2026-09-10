@@ -146,6 +146,13 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     private val _searchResults = MutableStateFlow<List<MediaCard>>(emptyList())
     private val searchQuery = MutableStateFlow("")
     val searchResults: StateFlow<List<MediaCard>> = _searchResults.asStateFlow()
+    private val _searchLoading = MutableStateFlow(false)
+    val searchLoading: StateFlow<Boolean> = _searchLoading.asStateFlow()
+    private val _personSearchResults = MutableStateFlow<List<PersonCard>>(emptyList())
+    private val personSearchQuery = MutableStateFlow("")
+    val personSearchResults: StateFlow<List<PersonCard>> = _personSearchResults.asStateFlow()
+    private val _personSearchLoading = MutableStateFlow(false)
+    val personSearchLoading: StateFlow<Boolean> = _personSearchLoading.asStateFlow()
     val searchHistory: StateFlow<List<String>> = repository.preferences.searchHistory
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
     private val _discoverFilterResults = MutableStateFlow<List<MediaCard>>(emptyList())
@@ -172,9 +179,33 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             searchQuery.debounce { if (it.isBlank()) 0L else 300L }
                 .distinctUntilChanged()
                 .collectLatest { query ->
-                    val results = withContext(Dispatchers.IO) { repository.search(query) }
-                    // A newer keystroke may still be inside its debounce window.
-                    if (searchQuery.value == query) _searchResults.value = results
+                    if (query.isBlank()) {
+                        _searchResults.value = emptyList()
+                        _searchLoading.value = false
+                    } else {
+                        val results = withContext(Dispatchers.IO) { repository.search(query) }
+                        // A newer keystroke may still be inside its debounce window.
+                        if (searchQuery.value == query) {
+                            _searchResults.value = results
+                            _searchLoading.value = false
+                        }
+                    }
+                }
+        }
+        viewModelScope.launch {
+            personSearchQuery.debounce { if (it.isBlank()) 0L else 300L }
+                .distinctUntilChanged()
+                .collectLatest { query ->
+                    if (query.isBlank()) {
+                        _personSearchResults.value = emptyList()
+                        _personSearchLoading.value = false
+                    } else {
+                        val results = withContext(Dispatchers.IO) { repository.searchPeople(query) }
+                        if (personSearchQuery.value == query) {
+                            _personSearchResults.value = results
+                            _personSearchLoading.value = false
+                        }
+                    }
                 }
         }
     }
@@ -294,8 +325,21 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     fun search(query: String) {
-        searchQuery.value = query.trim()
-        if (query.isBlank()) _searchResults.value = emptyList()
+        val normalized = query.trim()
+        if (searchQuery.value != normalized) {
+            _searchResults.value = emptyList()
+            _searchLoading.value = normalized.isNotBlank()
+            searchQuery.value = normalized
+        } else if (normalized.isBlank()) _searchLoading.value = false
+    }
+
+    fun searchPeople(query: String) {
+        val normalized = query.trim()
+        if (personSearchQuery.value != normalized) {
+            _personSearchResults.value = emptyList()
+            _personSearchLoading.value = normalized.isNotBlank()
+            personSearchQuery.value = normalized
+        } else if (normalized.isBlank()) _personSearchLoading.value = false
     }
 
     fun rememberSearchQuery(query: String) {
@@ -310,6 +354,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun clearSearch() {
         searchQuery.value = ""
         _searchResults.value = emptyList()
+        _searchLoading.value = false
+        personSearchQuery.value = ""
+        _personSearchResults.value = emptyList()
+        _personSearchLoading.value = false
     }
 
     fun applyDiscoverFilters(filters: DiscoverMovieFilters) {

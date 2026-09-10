@@ -95,6 +95,7 @@ import coil.compose.AsyncImage
 import com.cinetrack.R
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.latestEpisodeWatchTimes
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PersonCard
@@ -300,6 +301,7 @@ fun DetailScreen(
                             EpisodesSection(
                                 detail,
                                 detailEpisodes,
+                                history,
                                 onEpisode,
                                 onSeasonInfo = { selectedSeason = it },
                                 initialSeason = initialSeason,
@@ -750,6 +752,7 @@ private fun ProviderCategory(label: String, providers: List<String>, logos: Map<
 private fun EpisodesSection(
     media: MediaCard,
     episodes: List<EpisodeCard>,
+    history: List<TimelineCard>,
     onEpisode: (EpisodeCard) -> Unit,
     initialSeason: Int?,
     initialEpisode: Int?,
@@ -758,6 +761,7 @@ private fun EpisodesSection(
     onSeasonInfo: (Int) -> Unit,
 ) {
     val grouped = episodes.groupBy(EpisodeCard::season).toSortedMap()
+    val watchedAtByEpisode = remember(history) { latestEpisodeWatchTimes(history) }
     val watchingSeason = remember(media.status, episodes) {
         if (media.status != LibraryStatus.WATCHING) null
         else {
@@ -838,6 +842,7 @@ private fun EpisodesSection(
                         Column(Modifier.padding(com.cinetrack.ui.theme.Spacing.sm), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             seasonEpisodes.forEach { episode ->
                                 val infoVisible = expandedInfo == (episode.season to episode.number)
+                                val watchedAt = watchedAtByEpisode[episode.season to episode.number]
                                 val returnTarget = episode.season == initialSeason && episode.number == initialEpisode
                                 val infoAction = rememberUiAction {
                                     expandedInfo = if (infoVisible) null else episode.season to episode.number
@@ -870,7 +875,22 @@ private fun EpisodesSection(
                                     }
                                 }
                                 AnimatedVisibility(infoVisible) {
-                                    Text(episode.overview.ifBlank { stringResource(R.string.overview) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp, modifier = Modifier.padding(start = 75.dp, end = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.sm))
+                                    Column(Modifier.padding(start = 75.dp, end = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.sm)) {
+                                        Text(episode.overview.ifBlank { stringResource(R.string.overview) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp)
+                                        if (episode.watched && !watchedAt.isNullOrBlank()) {
+                                            Spacer(Modifier.height(8.dp))
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Filled.CalendarMonth, null, tint = AccentLight, modifier = Modifier.size(14.dp))
+                                                Spacer(Modifier.width(6.dp))
+                                                Text(
+                                                    stringResource(R.string.watched_on, formatFullDate(watchedAt)),
+                                                    color = TextMuted,
+                                                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                                                    fontWeight = FontWeight.SemiBold,
+                                                )
+                                            }
+                                        }
+                                    }
                                 }
                                 }
                             }
@@ -1275,7 +1295,7 @@ private fun InfoCell(
 }
 
 @Composable
-private fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit) {
+internal fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit) {
     var details by remember(person.id) { mutableStateOf(person) }
     var biographyExpanded by remember(person.id) { mutableStateOf(false) }
     var biographyOverflowing by remember(person.id) { mutableStateOf(false) }

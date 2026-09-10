@@ -79,6 +79,7 @@ import com.cinetrack.ui.screens.LibraryScreen
 import com.cinetrack.ui.screens.IntroductionScreen
 import com.cinetrack.ui.screens.ProgressScreen
 import com.cinetrack.ui.screens.SearchScreen
+import com.cinetrack.ui.screens.ActorSheet
 import com.cinetrack.ui.screens.SettingsDetailScreen
 import com.cinetrack.ui.screens.SettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,6 +123,9 @@ fun CineTrackApp(
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val searchLoading by viewModel.searchLoading.collectAsStateWithLifecycle()
+    val personSearchResults by viewModel.personSearchResults.collectAsStateWithLifecycle()
+    val personSearchLoading by viewModel.personSearchLoading.collectAsStateWithLifecycle()
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
@@ -289,6 +293,7 @@ fun CineTrackApp(
                 arguments = listOf(navArgument("scope") { type = NavType.StringType }),
             ) { entry ->
                 val scope = entry.arguments?.getString("scope").orEmpty()
+                var selectedSearchPerson by remember { mutableStateOf<com.cinetrack.domain.PersonCard?>(null) }
                 val scopedItems = when (scope) {
                     "progress" -> state.playbackTv.map { it.media } + state.playbackMovies.map { it.media } + state.history.map { it.media } + state.calendar.map { it.media }
                     "library" -> state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
@@ -296,16 +301,32 @@ fun CineTrackApp(
                 }.distinctBy(com.cinetrack.domain.MediaCard::stableKey)
                 SearchScreen(
                     results = searchResults,
+                    peopleResults = personSearchResults,
+                    mediaSearchLoading = searchLoading,
+                    peopleSearchLoading = personSearchLoading,
                     sourceItems = scopedItems,
                     remoteSearch = scope == "discover",
                     history = searchHistory,
                     onQuery = viewModel::search,
+                    onPeopleQuery = viewModel::searchPeople,
                     onSubmitQuery = viewModel::rememberSearchQuery,
                     onRemoveHistory = viewModel::removeSearchHistory,
                     onLeave = viewModel::clearSearch,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
+                    onPerson = { selectedSearchPerson = it },
                 )
+                selectedSearchPerson?.let { person ->
+                    ActorSheet(
+                        person = person,
+                        viewModel = viewModel,
+                        onDismiss = { selectedSearchPerson = null },
+                        onMedia = { media ->
+                            selectedSearchPerson = null
+                            openMedia(media)
+                        },
+                    )
+                }
             }
             composable(
                 Routes.DiscoverList,
