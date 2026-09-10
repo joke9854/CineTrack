@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,6 +44,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bookmark
@@ -102,12 +104,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import coil.imageLoader
 import coil.request.ImageRequest
@@ -116,6 +120,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.cinetrack.R
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.Background0
@@ -138,6 +143,7 @@ import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 
@@ -182,7 +188,7 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.
         .clip(shape)
         // Keep chromatic gradients on the page background. Controls use a
         // neutral, low-opacity material so artwork colour can pass through.
-        .background(com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .27f))
+        .background(GlassMaterial.Content)
         .border(
             .5.dp,
             GlassEdgeBrush,
@@ -196,10 +202,10 @@ fun Modifier.glass(shape: RoundedCornerShape = RoundedCornerShape(com.cinetrack.
  * in the supplied screenshots.
  */
 fun Modifier.glassIcon(): Modifier =
-    padding(4.dp)
+    padding(6.dp)
         .shadow(8.dp, CircleShape, clip = false)
         .clip(CircleShape)
-        .background(com.cinetrack.ui.theme.SurfacePalette.IconSurface.copy(alpha = .50f))
+        .background(GlassMaterial.Control)
         .border(.55.dp, GlassEdgeBrush, CircleShape)
 
 fun Modifier.blueEdgeClickable(
@@ -243,11 +249,11 @@ fun GlassBackButton(
     Box(modifier.size(48.dp), contentAlignment = Alignment.Center) {
         Box(
             Modifier
-                .size(40.dp)
+                .size(36.dp)
                 .scale(buttonScale)
-                .shadow(9.dp, CircleShape, clip = false)
+                .shadow(8.dp, CircleShape, clip = false)
                 .clip(CircleShape)
-                .background(com.cinetrack.ui.theme.SurfacePalette.BackControl)
+                .background(GlassMaterial.Control)
                 .border(.55.dp, GlassEdgeBrush, CircleShape)
                 .clickable(
                     interactionSource = interactionSource,
@@ -308,6 +314,9 @@ fun AdaptiveBackground(
     artworkUrl: String? = null,
     glow: Color? = null,
     secondaryGlow: Color? = null,
+    hazeState: HazeState? = null,
+    blurBackdrop: Boolean = false,
+    modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val context = LocalContext.current
@@ -326,8 +335,7 @@ fun AdaptiveBackground(
     val primary by animateColorAsState(primaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptivePrimary")
     val secondary by animateColorAsState(secondaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveSecondary")
     val base by animateColorAsState(baseTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveBase")
-    Box(
-        Modifier
+    val backgroundModifier = Modifier
             .fillMaxSize()
             .background(base)
             .drawBehind {
@@ -346,9 +354,21 @@ fun AdaptiveBackground(
                     ),
                 )
                 drawRect(Brush.verticalGradient(listOf(Color.Transparent, Background0.copy(alpha = .16f))))
-            },
-        content = content,
-    )
+            }
+    if (hazeState == null) {
+        Box(modifier.then(backgroundModifier), content = content)
+    } else {
+        Box(modifier.fillMaxSize()) {
+            // Capture only the backdrop, never the foreground sheet or its text.
+            // Sibling source/effect layers avoid recursive blur and stay viewport-sized.
+            Box(Modifier.matchParentSize().hazeSource(hazeState).then(backgroundModifier))
+            if (blurBackdrop) {
+                Box(Modifier.matchParentSize().hazeEffect(hazeState,
+                    style = DetailBackdropStyle))
+            }
+            content()
+        }
+    }
 }
 
 private suspend fun extractArtworkColors(context: android.content.Context, url: String): Pair<Color, Color>? = withContext(Dispatchers.IO) {
@@ -445,11 +465,13 @@ fun SectionHeader(
 fun MediaPoster(
     media: MediaCard,
     modifier: Modifier = Modifier,
-    width: Dp = 118.dp,
+    width: Dp = com.cinetrack.ui.theme.LocalCardAppearance.current.posterWidthDp.dp,
     showTitle: Boolean = true,
+    showYear: Boolean = true,
     showAirDate: Boolean = false,
     progress: Float? = null,
     selectedBorder: Color? = null,
+    selectionMode: Boolean = false,
     onStatus: ((LibraryStatus) -> Unit)? = null,
     onNotInterested: (() -> Unit)? = null,
     onClick: () -> Unit,
@@ -461,10 +483,13 @@ fun MediaPoster(
     RevealOnMount(media.stableKey, modifier.width(width)) {
     Box {
     Column(
-        Modifier.semantics { role = Role.Button }.combinedClickable(
+        Modifier.semantics {
+            role = if (selectionMode) Role.Checkbox else Role.Button
+            if (selectionMode) selected = selectedBorder != null
+        }.combinedClickable(
             interactionSource = interactionSource,
             indication = null,
-            role = Role.Button,
+            role = if (selectionMode) Role.Checkbox else Role.Button,
             onClick = {
                 onClick()
             },
@@ -478,7 +503,7 @@ fun MediaPoster(
         Box(
             Modifier
                 .fillMaxWidth()
-                .aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
+                .aspectRatio(com.cinetrack.ui.theme.LocalCardAppearance.current.posterAspectRatio)
                 .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
                 .background(posterBrush(media.id))
                 .then(
@@ -491,9 +516,7 @@ fun MediaPoster(
                 AsyncImage(
                     model = media.posterUrl,
                     contentDescription = media.title,
-                    // TMDB posters already use a 2:3 frame. FillBounds preserves the
-                    // entire artwork while also eliminating the empty bars produced by Fit.
-                    contentScale = ContentScale.FillBounds,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -505,7 +528,7 @@ fun MediaPoster(
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
-            if (showAirDate) {
+            if (showAirDate && !selectionMode) {
                 val dateLabel = remember(media.releaseDate) { formattedAirDate(media.releaseDate) }
                 if (dateLabel.isNotBlank()) {
                     Text(
@@ -520,8 +543,18 @@ fun MediaPoster(
                     )
                 }
             }
-            if (media.watched || media.status == LibraryStatus.COMPLETED) {
-                StateBadge(Success, Icons.Filled.CheckCircle, stringResource(R.string.watched), Modifier.align(Alignment.TopEnd))
+            if (selectionMode) {
+                StateBadge(if (selectedBorder != null) Accent else com.cinetrack.ui.theme.SurfacePalette.DeepOverlay,
+                    if (selectedBorder != null) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    stringResource(if (selectedBorder != null) R.string.poster_selected else R.string.poster_not_selected),
+                    Modifier.align(Alignment.TopEnd))
+            } else if (media.watched || media.status == LibraryStatus.COMPLETED) {
+                StateBadge(
+                    Success,
+                    Icons.Filled.CheckCircle,
+                    stringResource(if (media.type == MediaType.MOVIE) R.string.watched_movie else R.string.watched_tv),
+                    Modifier.align(Alignment.TopEnd),
+                )
             } else if (media.status != LibraryStatus.NONE) {
                 val stateIcon = when (media.status) {
                     LibraryStatus.WATCHING -> Icons.Filled.Visibility
@@ -532,7 +565,7 @@ fun MediaPoster(
                 }
                 StateBadge(libraryStatusColor(media.status), stateIcon, stringResource(R.string.in_library), Modifier.align(Alignment.TopEnd))
             }
-            if (progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
+            if (!selectionMode && progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
                 CircularProgressIndicator(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.align(Alignment.BottomEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp),
@@ -544,8 +577,8 @@ fun MediaPoster(
         }
         if (showTitle) {
             Spacer(Modifier.height(7.dp))
-            Text(media.title.uppercase(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if (media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            if (showYear && media.year.isNotBlank()) Text(media.year, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
     MediaStatusPopup(
@@ -588,6 +621,7 @@ fun MediaRail(
     onMedia: (MediaCard) -> Unit,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp),
     showAirDate: Boolean = false,
+    showYear: Boolean = true,
     progressByKey: Map<String, Float> = emptyMap(),
     onStatus: ((MediaCard, LibraryStatus) -> Unit)? = null,
     onNotInterested: ((MediaCard) -> Unit)? = null,
@@ -597,6 +631,7 @@ fun MediaRail(
             MediaPoster(
                 it,
                 showAirDate = showAirDate,
+                showYear = showYear,
                 progress = progressByKey[it.stableKey],
                 onStatus = onStatus?.let { callback -> { status -> callback(it, status) } },
                 onNotInterested = onNotInterested?.let { callback -> { callback(it) } },
@@ -633,10 +668,11 @@ fun MediaStatusPopup(
         }
     }
     val popupShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
+    val popupGlass = if (rendered) rememberFloatingGlassState() else null
     DropdownMenu(
         expanded = rendered,
         onDismissRequest = onDismiss,
-        modifier = Modifier.width(226.dp).graphicsLayer {
+        modifier = Modifier.width(250.dp).graphicsLayer {
             alpha = popupAlpha
             scaleX = popupScale
             scaleY = popupScale
@@ -644,11 +680,15 @@ fun MediaStatusPopup(
             transformOrigin = TransformOrigin(.5f, 0f)
         },
         shape = popupShape,
-        containerColor = com.cinetrack.ui.theme.SurfacePalette.ModalSurface,
+        containerColor = Color.Transparent,
         tonalElevation = 0.dp,
-        shadowElevation = 18.dp,
-        border = BorderStroke(.8.dp, AccentLight.copy(alpha = .24f)),
+        shadowElevation = 8.dp,
     ) {
+        Column(Modifier.fillMaxWidth().clip(popupShape)
+            .then(if (popupGlass != null) Modifier.hazeEffect(popupGlass, style = NavGlassStyle)
+                else Modifier.background(GlassMaterial.OverlayFallback))
+            .border(.5.dp, GlassEdgeBrush, popupShape)
+            .padding(vertical = com.cinetrack.ui.theme.Spacing.xs)) {
         val choices = listOf(
             LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
             LibraryStatus.WATCHING to stringResource(R.string.in_progress),
@@ -668,6 +708,7 @@ fun MediaStatusPopup(
             )
         }
         if (onNotInterested != null) {
+            GlassDivider()
             DropdownMenuItem(
                 text = { Text(stringResource(R.string.show_less_like_this), color = TextPrimary, fontWeight = FontWeight.Bold) },
                 leadingIcon = { Icon(Icons.Filled.ThumbDown, null, tint = TextMuted, modifier = Modifier.size(18.dp)) },
@@ -675,6 +716,7 @@ fun MediaStatusPopup(
                     onNotInterested()
                 },
             )
+        }
         }
     }
 }
@@ -686,48 +728,43 @@ fun PrimaryAction(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     containerColor: Color = Accent,
+    compact: Boolean = false,
+    liveGlass: Boolean = false,
+    hazeState: HazeState? = null,
     onClick: () -> Unit,
 ) {
     val clickAction = rememberUiAction(onClick)
     Row(
         modifier
-            .height(46.dp)
+            .then(if (compact) Modifier.heightIn(min = 48.dp) else Modifier.height(46.dp))
+            .then(if (liveGlass) Modifier.liveActionGlass(hazeState, containerColor == Success) else Modifier
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .background(
                 if (enabled) SolidColor(containerColor.copy(alpha = .82f))
                 else SolidColor(com.cinetrack.ui.theme.GlassSubtle),
             )
-            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else com.cinetrack.ui.theme.SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)))
             .clickable(enabled = enabled, onClick = clickAction)
-            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+            .padding(horizontal = if (compact) 8.dp else com.cinetrack.ui.theme.Spacing.lg, vertical = if (compact) 8.dp else 0.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(7.dp))
-        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+        Text(text, modifier = if (compact) Modifier.weight(1f, fill = false) else Modifier,
+            color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.ExtraBold, maxLines = if (compact) 2 else 1,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 fun BrandMark(size: Dp = 84.dp, modifier: Modifier = Modifier) {
-    Box(
-        modifier
-            .size(size)
-            .clip(RoundedCornerShape(size * .23f))
-            .background(com.cinetrack.ui.theme.SurfacePalette.PlaybackSurface.copy(alpha = .82f))
-            .border(.7.dp, AccentLight.copy(alpha = .28f), RoundedCornerShape(size * .23f)),
-        contentAlignment = Alignment.Center,
-    ) {
-        CircularProgressIndicator(
-            progress = { .76f },
-            modifier = Modifier.size(size * .68f),
-            color = AccentLight,
-            trackColor = com.cinetrack.ui.theme.Glass,
-            strokeWidth = size * .055f,
-        )
-        Icon(Icons.Filled.PlayArrow, null, tint = Color.White, modifier = Modifier.size(size * .34f))
-    }
+    androidx.compose.foundation.Image(
+        painter = androidx.compose.ui.res.painterResource(com.cinetrack.R.drawable.ic_brand_mark),
+        contentDescription = "CineTrack",
+        modifier = modifier.size(size).clip(RoundedCornerShape(size * .23f)),
+    )
 }
 
 data class BottomNavItem(
@@ -769,7 +806,7 @@ fun LiquidBottomNav(
             .height(height)
             .shadow(15.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), clip = false)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(com.cinetrack.ui.theme.SurfacePalette.NavSurface.copy(alpha = .78f)))
+            .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(GlassMaterial.OverlayFallback))
             .border(.65.dp, GlassEdgeBrush, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
             .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
     ) {
@@ -823,30 +860,53 @@ fun LiquidBottomNav(
 }
 
 @Composable
+fun SharedGlassDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
+    val state = rememberFloatingGlassState()
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)
+    Dialog(onDismissRequest = onDismiss) {
+        Column(Modifier.fillMaxWidth().clip(shape)
+            .then(if (state != null) Modifier.hazeEffect(state, style = NavGlassStyle)
+                else Modifier.background(GlassMaterial.OverlayFallback))
+            .border(.5.dp, GlassEdgeBrush, shape)) {
+            content()
+        }
+    }
+}
+
+@Composable
 fun SharedGlassSheet(
     onDismiss: () -> Unit,
     sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+    hazeState: HazeState? = rememberFloatingGlassState(),
     content: @Composable () -> Unit,
 ) {
+    val shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet)
+    val handle: @Composable () -> Unit = {
+        Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
+            Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
+        }
+    }
     ModalBottomSheet(
         onDismissRequest = onDismiss,
-        // Padding the ModalBottomSheet itself also pads/clips its popup window on
-        // some One UI builds. Keep the window full-width; sheet content supplies
-        // its own safe horizontal inset.
         modifier = Modifier.fillMaxWidth(),
         sheetState = sheetState,
-        containerColor = com.cinetrack.ui.theme.SurfacePalette.InkSurface.copy(alpha = .90f),
+        containerColor = if (hazeState != null) Color.Transparent else GlassMaterial.OverlayFallback,
         contentColor = TextPrimary,
         scrimColor = Color.Black.copy(alpha = .62f),
-        shape = RoundedCornerShape(topStart = com.cinetrack.ui.theme.Radius.Sheet, topEnd = com.cinetrack.ui.theme.Radius.Sheet),
-        dragHandle = {
-            Box(Modifier.fillMaxWidth().padding(vertical = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
-                Box(Modifier.width(42.dp).height(5.dp).clip(CircleShape).background(com.cinetrack.ui.theme.GlassDisabled))
-            }
-        },
+        shape = shape,
+        // One blur covers the handle and sheet; nested content uses lightweight glass.
+        dragHandle = if (hazeState == null) handle else null,
     ) {
-        content()
-        Spacer(Modifier.height(30.dp))
+        if (hazeState != null) {
+            Column(Modifier.fillMaxWidth().clip(shape).hazeEffect(hazeState, style = NavGlassStyle)) {
+                handle()
+                content()
+                Spacer(Modifier.height(30.dp))
+            }
+        } else {
+            content()
+            Spacer(Modifier.height(30.dp))
+        }
     }
 }
 
@@ -892,7 +952,7 @@ fun LibraryStatusSheet(
                                 LibraryStatus.PLAN_TO_WATCH -> "Save for later"
                                 LibraryStatus.WATCHING -> "Keep it in your progress"
                                 LibraryStatus.PAUSED -> stringResource(R.string.paused_description)
-                                LibraryStatus.COMPLETED -> stringResource(R.string.watched)
+                                LibraryStatus.COMPLETED -> stringResource(if (media.type == MediaType.MOVIE) R.string.watched_movie else R.string.watched_tv)
                                 LibraryStatus.DROPPED -> "Hide from upcoming items"
                                 else -> ""
                             },

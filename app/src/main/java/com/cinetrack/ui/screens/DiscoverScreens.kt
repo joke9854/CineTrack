@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -40,6 +41,10 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.WarningAmber
 import androidx.compose.material.icons.filled.Settings
@@ -48,11 +53,16 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +84,7 @@ import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.RailIds
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -84,6 +95,8 @@ import com.cinetrack.ui.components.MediaStatusPopup
 import com.cinetrack.ui.components.PageTitle
 import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.SectionHeader
+import com.cinetrack.ui.components.libraryStatusIcon
+import com.cinetrack.ui.components.libraryStatusColor
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
 import com.cinetrack.ui.components.rememberUiAction
@@ -91,12 +104,20 @@ import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
+import dev.chrisbanes.haze.hazeSource
+import com.cinetrack.ui.components.liveActionGlass
+import com.cinetrack.ui.components.rememberDetailGlassState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.material3.CircularProgressIndicator
 import kotlinx.coroutines.delay
 
 @Composable
 fun DiscoverScreen(
     state: AppUiState,
     onRefresh: () -> Unit,
+    loadTagline: suspend (MediaCard) -> String?,
     onSearch: () -> Unit,
     onFilters: () -> Unit,
     onSeeAll: (String) -> Unit,
@@ -116,11 +137,13 @@ fun DiscoverScreen(
     var heroIndex by remember { mutableStateOf(0) }
     val trendingTvTitle = stringResource(R.string.trending_tv)
     val trendingMoviesTitle = stringResource(R.string.trending_movies)
+    val popularTvTitle = stringResource(R.string.popular_tv)
+    val popularMoviesTitle = stringResource(R.string.popular_movies)
     val upcomingTitle = stringResource(R.string.upcoming)
     val seeAll = stringResource(R.string.see_all)
-    val activeHero = heroes.getOrNull(heroIndex)
-    AdaptiveBackground(artworkUrl = activeHero?.backdropUrl ?: activeHero?.posterUrl) {
-        LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh) {
+    val backgroundHero = heroes.getOrNull(heroIndex) ?: heroes.firstOrNull()
+    AdaptiveBackground(artworkUrl = backgroundHero?.backdropUrl ?: backgroundHero?.posterUrl) {
+        LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh, enabled = state.tmdbApiConfigured) {
             LazyColumn(
                 state = listState,
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -137,14 +160,14 @@ fun DiscoverScreen(
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.weight(1f).height(38.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                            Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(17.dp))
+                            Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
-                            Text(stringResource(R.string.search_hint), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(stringResource(R.string.search_hint), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(46.dp).glassIcon()) {
+                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(48.dp).glassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
                         }
                     }
@@ -177,7 +200,7 @@ fun DiscoverScreen(
                         )
                     }
                 }
-                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested) }
+                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested, loadTagline, state.metadataLanguage) }
                 if (state.allMedia.isEmpty() && !state.loading) item {
                     Text(
                         state.error ?: stringResource(R.string.no_catalog_data),
@@ -188,6 +211,8 @@ fun DiscoverScreen(
                 }
                 railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
                 railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(popularTvTitle, seeAll, RailIds.POPULAR_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                railSection(popularMoviesTitle, seeAll, RailIds.POPULAR_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
                 railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
             }
         }
@@ -207,7 +232,7 @@ private fun LazyListScope.railSection(
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
     item { SectionHeader(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.md), seeAll, { onSeeAll(railId) }) }
-    item { MediaRail(items, onMedia, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
+    item { MediaRail(items, onMedia, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item { Spacer(Modifier.height(4.dp)) }
 }
 
@@ -219,23 +244,41 @@ private fun HeroCarousel(
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
+    loadTagline: suspend (MediaCard) -> String?,
+    metadataLanguage: String,
 ) {
     val pagerState = rememberPagerState(initialPage = selectedPage, pageCount = { items.size })
     LaunchedEffect(pagerState.currentPage) { onPage(pagerState.currentPage) }
-    LaunchedEffect(items.size) {
-        if (items.size > 1) while (true) {
-            delay(5_000)
-            pagerState.animateScrollToPage((pagerState.currentPage + 1) % items.size)
+    val dragging by pagerState.interactionSource.collectIsDraggedAsState()
+    var interactingCards by remember { mutableStateOf(emptySet<String>()) }
+    var touching by remember { mutableStateOf(false) }
+    val motionEnabled = remember { android.os.Build.VERSION.SDK_INT < 26 || android.animation.ValueAnimator.areAnimatorsEnabled() }
+    LaunchedEffect(items.map { it.stableKey }, dragging, interactingCards, touching) {
+        if (items.size > 1 && motionEnabled && !dragging && interactingCards.isEmpty() && !touching) {
+            while (true) {
+                delay(5_000)
+                pagerState.animateScrollToPage((pagerState.currentPage + 1) % items.size)
+            }
         }
     }
     Column(Modifier.padding(top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs)) {
         HorizontalPager(
             state = pagerState,
+            modifier = Modifier.pointerInput(Unit) {
+                try {
+                    awaitPointerEventScope {
+                        while (true) touching = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+                    }
+                } finally { touching = false }
+            },
             contentPadding = PaddingValues(horizontal = 20.dp),
             pageSpacing = 10.dp,
             key = { items[it].stableKey },
         ) { page ->
-            HeroCard(items[page], onMedia, onStatus, onNotInterested)
+            HeroCard(items[page], onMedia, onStatus, onNotInterested, loadTagline, metadataLanguage) {
+                val key = items[page].stableKey
+                interactingCards = if (it) interactingCards + key else interactingCards - key
+            }
         }
         Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.Center) {
             items.indices.forEach { page ->
@@ -251,24 +294,46 @@ private fun HeroCarousel(
 }
 
 @Composable
-private fun HeroCard(
+internal fun HeroCard(
     media: MediaCard,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     onNotInterested: (MediaCard) -> Unit,
+    loadTagline: suspend (MediaCard) -> String?,
+    metadataLanguage: String,
+    preview: Boolean = false,
+    previewTagline: String? = null,
+    onInteraction: (Boolean) -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
+    var tagline by remember(media.stableKey, metadataLanguage) { mutableStateOf<String?>(null) }
+    LaunchedEffect(media.stableKey, metadataLanguage, preview, previewTagline) {
+        tagline = if (preview) previewTagline else loadTagline(media)
+    }
+    LaunchedEffect(pressed, statusPopup) { onInteraction(pressed || statusPopup) }
+    DisposableEffect(Unit) { onDispose { onInteraction(false) } }
+    val fontScale = androidx.compose.ui.platform.LocalDensity.current.fontScale.coerceAtLeast(1f)
+    val heroGlassState = rememberDetailGlassState()
+    val appearance = com.cinetrack.ui.theme.LocalCardAppearance.current
+    val compact = appearance.heroLayout == "landscape"
+    val titleSize = if (compact) 20.sp else if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+    val cardHeight = appearance.heroAspectRatio?.let { ratio ->
+        // Preserve the selected ratio unless larger accessibility text needs more room.
+        (maxWidth / ratio).coerceAtLeast(((if (compact) 180 else 270) * fontScale).dp)
+    } ?: (310 * fontScale).dp
     Box(
         Modifier
             .fillMaxWidth()
-            .height(250.dp)
+            .height(cardHeight)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.SeaSurface, com.cinetrack.ui.theme.SurfacePalette.PosterShadow)))
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) com.cinetrack.ui.theme.Accent else Color.Transparent, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .combinedClickable(
+                enabled = !preview,
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
@@ -279,40 +344,55 @@ private fun HeroCard(
                 },
             ),
     ) {
+        Box(Modifier.matchParentSize().then(if (heroGlassState != null) Modifier.hazeSource(heroGlassState) else Modifier)) {
         if (!media.backdropUrl.isNullOrBlank()) {
             AsyncImage(media.backdropUrl, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .76f), Color.Black.copy(alpha = .34f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
-        Column(Modifier.align(Alignment.BottomStart).padding(com.cinetrack.ui.theme.Spacing.xl)) {
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (compact) 12.dp else com.cinetrack.ui.theme.Spacing.xl)) {
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
-            Text(metadata, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
-            Text(media.title.uppercase(), color = Color.White, fontSize = 38.sp, lineHeight = 40.sp, letterSpacing = .8.sp, fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
-            media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs)) }
-            media.overview.takeIf(String::isNotBlank)?.let {
-                Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            Text(metadata, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
+            Text(media.title, color = TextPrimary, fontSize = titleSize, lineHeight = titleSize * 1.12f, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            if (!compact) media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs)) }
+            tagline?.takeIf(String::isNotBlank)?.let {
+                Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
             }
-            Spacer(Modifier.height(14.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            Spacer(Modifier.height(if (compact) 6.dp else 14.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (compact) {
+                    Text(media.score?.let { "★  %.1f".format(it) }.orEmpty(), color = TextPrimary,
+                        style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f), maxLines = 1)
+                }
                 Row(
-                    Modifier.height(46.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-                        .background(if (media.status != com.cinetrack.domain.LibraryStatus.NONE) com.cinetrack.ui.theme.Success.copy(alpha = .12f) else Color.Transparent)
-                        .clickable(onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                    Modifier.height(48.dp).liveActionGlass(heroGlassState, media.watched || media.status == com.cinetrack.domain.LibraryStatus.COMPLETED)
+                        .clickable(enabled = !preview, onClick = rememberUiAction { statusPopup = true }).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) Icons.Filled.Add else Icons.Filled.Check,
+                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) Icons.Filled.Add else libraryStatusIcon(media.status),
                         null,
-                        tint = if (media.status == com.cinetrack.domain.LibraryStatus.NONE) Color.White else com.cinetrack.ui.theme.Success,
+                        tint = TextPrimary,
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) stringResource(R.string.add_to_library) else stringResource(R.string.in_library),
+                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) stringResource(R.string.add_to_library) else stringResource(when (media.status) {
+                            com.cinetrack.domain.LibraryStatus.WATCHING -> R.string.in_progress
+                            com.cinetrack.domain.LibraryStatus.PLAN_TO_WATCH -> R.string.plan_to_watch
+                            com.cinetrack.domain.LibraryStatus.PAUSED -> R.string.paused
+                            com.cinetrack.domain.LibraryStatus.COMPLETED -> R.string.completed
+                            com.cinetrack.domain.LibraryStatus.DROPPED -> R.string.dropped
+                            else -> R.string.in_library
+                        }),
                         color = Color.White,
-                        style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        style = if (compact) androidx.compose.material3.MaterialTheme.typography.bodySmall else androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                         fontWeight = FontWeight.ExtraBold,
                     )
                 }
@@ -327,10 +407,12 @@ private fun HeroCard(
         )
     }
 }
+}
 
 @Composable
 fun DiscoverListScreen(
     railId: String,
+    viewModel: com.cinetrack.ui.CineTrackViewModel,
     state: AppUiState,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -340,9 +422,20 @@ fun DiscoverListScreen(
     val title = when (railId) {
         RailIds.TRENDING_TV -> stringResource(R.string.trending_tv)
         RailIds.TRENDING_MOVIES -> stringResource(R.string.trending_movies)
+        RailIds.POPULAR_TV -> stringResource(R.string.popular_tv)
+        RailIds.POPULAR_MOVIES -> stringResource(R.string.popular_movies)
         else -> stringResource(R.string.upcoming)
     }
-    val backgroundItem = state.rails[railId].orEmpty().firstOrNull()
+    val browseStates by viewModel.discoverBrowse.collectAsStateWithLifecycle()
+    val browseKey = com.cinetrack.domain.discoverBrowseKey(railId, state)
+    val browse = browseStates[browseKey]
+    val localMedia = remember(state.allMedia) { state.allMedia.associateBy(MediaCard::stableKey) }
+    val items = (browse?.items ?: state.rails[railId].orEmpty())
+        .filterNot { it.stableKey in state.hiddenDiscovery }
+        .map { media -> localMedia[media.stableKey]?.let { media.copy(status = it.status, watched = it.watched) } ?: media }
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(browseKey) { if (browseStates[browseKey] == null) viewModel.loadDiscoverMore(railId) }
+    val backgroundItem = items.firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
@@ -350,20 +443,35 @@ fun DiscoverListScreen(
                 PageTitle(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.md))
             }
             LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 112.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                state = gridState,
+                columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                items(state.rails[railId].orEmpty(), key = MediaCard::stableKey) { media ->
+                items(items, key = MediaCard::stableKey) { media ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         MediaPoster(
                             media,
                             width = maxWidth,
+                            showYear = false,
                             onStatus = { onStatus(media, it) },
                             onNotInterested = { onNotInterested(media) },
                             onClick = { onMedia(media) },
                         )
+                    }
+                }
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        when {
+                            browse == null || browse.loading -> CircularProgressIndicator(color = com.cinetrack.ui.theme.Accent, modifier = Modifier.size(28.dp))
+                            browse.failed -> {
+                                Text(stringResource(R.string.discover_more_failed), color = TextSecondary)
+                                androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.retry)) }
+                            }
+                            browse.hasMore -> androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.discover_load_more)) }
+                            else -> Text(stringResource(if (items.isEmpty()) R.string.choice_no_results else R.string.discover_list_end), color = TextSecondary)
+                        }
                     }
                 }
             }
@@ -374,30 +482,51 @@ fun DiscoverListScreen(
 @Composable
 fun SearchScreen(
     results: List<MediaCard>,
+    peopleResults: List<PersonCard>,
+    mediaSearchLoading: Boolean,
+    peopleSearchLoading: Boolean,
     sourceItems: List<MediaCard> = emptyList(),
     remoteSearch: Boolean = true,
+    history: List<String> = emptyList(),
     onQuery: (String) -> Unit,
+    onPeopleQuery: (String) -> Unit,
+    onSubmitQuery: (String) -> Unit,
+    onRemoveHistory: (String) -> Unit,
+    onLeave: () -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
+    onPerson: (PersonCard) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf("media") }
+    val peopleSelected = remoteSearch && category == "people"
     val focusRequester = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val visibleResults = remember(query, results, sourceItems, remoteSearch) {
-        if (remoteSearch) results else sourceItems.filter { it.title.contains(query, ignoreCase = true) }
+        if (query.isBlank()) emptyList()
+        else if (remoteSearch) results else sourceItems.filter { it.title.contains(query, ignoreCase = true) }
     }
-    val backgroundItem = visibleResults.firstOrNull()
+    val visiblePeople = if (query.isBlank()) emptyList() else peopleResults
+    val activeSearchLoading = if (peopleSelected) peopleSearchLoading else mediaSearchLoading
+    val backgroundArtwork = if (peopleSelected) visiblePeople.firstOrNull()?.profileUrl
+        else visibleResults.firstOrNull()?.let { it.backdropUrl ?: it.posterUrl }
     LaunchedEffect(Unit) {
         focusRequester.requestFocus()
         keyboard?.show()
     }
-    AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
+    DisposableEffect(Unit) { onDispose(onLeave) }
+    AdaptiveBackground(artworkUrl = backgroundArtwork) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it; if (remoteSearch) onQuery(it) },
+                    onValueChange = {
+                        query = it
+                        if (remoteSearch) {
+                            if (peopleSelected) onPeopleQuery(it) else onQuery(it)
+                        }
+                    },
                     modifier = Modifier.weight(1f).focusRequester(focusRequester),
                     placeholder = { Text(stringResource(R.string.search_hint)) },
                     leadingIcon = { Icon(Icons.Filled.Search, null) },
@@ -410,11 +539,101 @@ fun SearchScreen(
                         unfocusedContainerColor = com.cinetrack.ui.theme.GlassFaint,
                     ),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { if (remoteSearch) onQuery(query) }),
+                    keyboardActions = KeyboardActions(onSearch = {
+                        if (remoteSearch) {
+                            if (peopleSelected) onPeopleQuery(query) else onQuery(query)
+                        }
+                        onSubmitQuery(query)
+                        keyboard?.hide()
+                    }),
                 )
             }
-            if (query.isNotBlank() && visibleResults.isEmpty()) {
-                Text(stringResource(R.string.loading), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl))
+            if (remoteSearch) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    SearchCategoryPill(
+                        text = stringResource(R.string.movies_tv),
+                        icon = Icons.Filled.Movie,
+                        selected = !peopleSelected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        category = "media"
+                        if (query.isNotBlank()) onQuery(query)
+                    }
+                    SearchCategoryPill(
+                        text = stringResource(R.string.people),
+                        icon = Icons.Filled.Person,
+                        selected = peopleSelected,
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        category = "people"
+                        if (query.isNotBlank()) onPeopleQuery(query)
+                    }
+                }
+            }
+            if (query.isBlank() && history.isNotEmpty()) {
+                LazyColumn(
+                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    item { SectionHeader(stringResource(R.string.search_history)) }
+                    items(history, key = { it.lowercase() }) { previousQuery ->
+                        Row(
+                            Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                                .clickable {
+                                    query = previousQuery
+                                    if (remoteSearch) {
+                                        if (peopleSelected) onPeopleQuery(previousQuery) else onQuery(previousQuery)
+                                    }
+                                }
+                                .padding(start = com.cinetrack.ui.theme.Spacing.md),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(Icons.Filled.History, null, tint = TextMuted, modifier = Modifier.size(19.dp))
+                            Text(
+                                previousQuery,
+                                color = TextPrimary,
+                                style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                                modifier = Modifier.weight(1f).padding(horizontal = com.cinetrack.ui.theme.Spacing.md),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            IconButton(onClick = { onRemoveHistory(previousQuery) }) {
+                                Icon(Icons.Filled.Close, stringResource(R.string.remove_search_history, previousQuery), tint = TextSecondary, modifier = Modifier.size(18.dp))
+                            }
+                        }
+                    }
+                }
+            } else if (query.isNotBlank() && (if (peopleSelected) visiblePeople.isEmpty() else visibleResults.isEmpty())) {
+                Text(
+                    stringResource(if (activeSearchLoading) R.string.loading else R.string.no_search_results),
+                    color = TextMuted,
+                    modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.xxl),
+                )
+            } else if (peopleSelected) {
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                ) {
+                    items(visiblePeople, key = PersonCard::id) { person ->
+                        val localizedPerson = person.copy(
+                            role = when (person.role.lowercase()) {
+                                "acting" -> stringResource(R.string.actor)
+                                "directing" -> stringResource(R.string.director)
+                                else -> stringResource(R.string.person)
+                            },
+                        )
+                        PersonSearchCard(localizedPerson) {
+                            onSubmitQuery(query)
+                            keyboard?.hide()
+                            onPerson(localizedPerson)
+                        }
+                    }
+                }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(3),
@@ -424,11 +643,60 @@ fun SearchScreen(
                 ) {
                     items(visibleResults, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            MediaPoster(media, width = maxWidth, onClick = { onMedia(media) })
+                            MediaPoster(media, width = maxWidth, onClick = {
+                                onSubmitQuery(query)
+                                onMedia(media)
+                            })
                         }
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SearchCategoryPill(
+    text: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier.height(44.dp)
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .background(if (selected) com.cinetrack.ui.theme.Accent.copy(alpha = .25f) else Color.Transparent)
+            .clickable(onClick = rememberUiAction(onClick))
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(icon, null, tint = if (selected) AccentLight else TextMuted, modifier = Modifier.size(17.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(text, color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+    }
+}
+
+@Composable
+private fun PersonSearchCard(person: PersonCard, onClick: () -> Unit) {
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)
+    Column(
+        Modifier.fillMaxWidth().glass(shape).clickable(onClick = rememberUiAction(onClick)),
+    ) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(.82f).background(com.cinetrack.ui.theme.GlassBare),
+            contentAlignment = Alignment.Center,
+        ) {
+            if (!person.profileUrl.isNullOrBlank()) {
+                AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            } else {
+                Icon(Icons.Filled.Person, null, tint = TextMuted, modifier = Modifier.size(42.dp))
+            }
+        }
+        Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.sm)) {
+            Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(person.role.ifBlank { stringResource(R.string.people) }, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }

@@ -34,7 +34,11 @@ data class MediaCard(
     val subscriptionProviders: List<String> = emptyList(),
     val rentProviders: List<String> = emptyList(),
     val buyProviders: List<String> = emptyList(),
+    val freeProviders: List<String> = emptyList(),
+    val adsProviders: List<String> = emptyList(),
     val providerLink: String? = null,
+    val providerAvailabilityExists: Boolean = false,
+    val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
     val seasons: List<SeasonCard> = emptyList(),
     val collectionId: Int? = null,
     val libraryUpdatedAt: Long? = null,
@@ -56,6 +60,19 @@ data class SeasonCard(
     val title: String,
     val episodeCount: Int,
     val posterUrl: String? = null,
+)
+
+@Immutable
+data class SeasonDetails(
+    val number: Int,
+    val title: String,
+    val overview: String,
+    val posterUrl: String?,
+    val airDate: String?,
+    val episodeCount: Int,
+    val runtimeMinutes: Int?,
+    val score: Double?,
+    val cast: List<PersonCard>,
 )
 
 @Immutable
@@ -106,6 +123,8 @@ data class PersonCard(
     val birthday: String? = null,
     val placeOfBirth: String? = null,
     val movieCredits: List<MediaCard> = emptyList(),
+    val isCastMember: Boolean = false,
+    val isDirector: Boolean = false,
 ) {
     fun age(on: LocalDate = LocalDate.now()): Int? = runCatching {
         birthday?.let { Period.between(LocalDate.parse(it), on).years }
@@ -175,6 +194,26 @@ data class ViewingPeopleInsights(
     val loading: Boolean = false,
 )
 
+enum class SyncOperationStatus { PENDING, FAILED, CONFLICT }
+
+enum class SyncConflictChoice { KEEP_LOCAL, USE_REMOTE }
+
+@Immutable
+data class SyncOperationCard(
+    val id: String,
+    val operation: String,
+    val mediaType: MediaType,
+    val mediaId: Int,
+    val title: String,
+    val status: SyncOperationStatus,
+    val message: String? = null,
+    val localValue: String? = null,
+    val remoteValue: String? = null,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val attemptCount: Int = 0,
+)
+
 @Immutable
 data class AppUiState(
     val loading: Boolean = true,
@@ -194,6 +233,9 @@ data class AppUiState(
     val notificationEpisodes: Boolean = true,
     val notificationMovies: Boolean = true,
     val notificationSync: Boolean = true,
+    val quietHoursEnabled: Boolean = true,
+    val quietHoursStart: Int = 23,
+    val quietHoursEnd: Int = 8,
     val ratingSources: Set<String> = setOf("imdb", "tmdb", "metacritic", "tomatoes"),
     val contentRegions: Set<String> = emptySet(),
     val uiAccent: String = "watching",
@@ -201,9 +243,14 @@ data class AppUiState(
     val mdbListApiConfigured: Boolean = false,
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
+    val providerRegion: String = "system",
     val metadataTimezone: String = "system",
     val excludeSpecials: Boolean = true,
     val preferredProviders: Set<String> = emptySet(),
+    val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
+    val heroLayout: String = "standard",
+    val posterFormat: String = "classic",
+    val posterSize: String = "standard",
     val cardDensity: String = "standard",
     val hiddenUpcoming: Set<String> = emptySet(),
     val hiddenDiscovery: Set<String> = emptySet(),
@@ -242,6 +289,8 @@ data class DiscoverMovieFilters(
 object RailIds {
     const val TRENDING_TV = "trending-tv"
     const val TRENDING_MOVIES = "trending-movies"
+    const val POPULAR_MOVIES = "popular-movies"
+    const val POPULAR_TV = "popular-tv"
     const val UPCOMING = "upcoming"
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"

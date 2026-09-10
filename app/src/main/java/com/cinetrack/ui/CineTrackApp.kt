@@ -34,7 +34,6 @@ import androidx.compose.material.icons.outlined.QueryStats
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeSource
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -63,6 +62,7 @@ import androidx.navigation.navArgument
 import com.cinetrack.CineTrackApplication
 import com.cinetrack.SimklAuthCallback
 import com.cinetrack.R
+import com.cinetrack.data.sync.ReleaseNotifier
 import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.components.BottomNavItem
 import com.cinetrack.ui.components.BrandMark
@@ -79,10 +79,13 @@ import com.cinetrack.ui.screens.LibraryScreen
 import com.cinetrack.ui.screens.IntroductionScreen
 import com.cinetrack.ui.screens.ProgressScreen
 import com.cinetrack.ui.screens.SearchScreen
+import com.cinetrack.ui.screens.ActorSheet
 import com.cinetrack.ui.screens.SettingsDetailScreen
 import com.cinetrack.ui.screens.SettingsScreen
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 private object Routes {
     const val Discover = "discover"
@@ -120,6 +123,10 @@ fun CineTrackApp(
     val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val searchLoading by viewModel.searchLoading.collectAsStateWithLifecycle()
+    val personSearchResults by viewModel.personSearchResults.collectAsStateWithLifecycle()
+    val personSearchLoading by viewModel.personSearchLoading.collectAsStateWithLifecycle()
+    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -133,6 +140,14 @@ fun CineTrackApp(
     val requestedRoute by navigationRequest.collectAsStateWithLifecycle()
 
     SideEffect { applyUiAccent(state.uiAccent) }
+
+    LaunchedEffect(state.calendar, state.notificationEpisodes, state.notificationMovies, state.metadataTimezone) {
+        if (state.calendar.isNotEmpty()) {
+            withContext(Dispatchers.IO) {
+                ReleaseNotifier.scheduleUpcoming(context, state, application.container.preferences)
+            }
+        }
+    }
 
     LaunchedEffect(route) { compactNav = false }
     LaunchedEffect(Unit) {
@@ -177,8 +192,12 @@ fun CineTrackApp(
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media -> navController.navigate("detail/${media.type.name}/${media.id}") }
 
     Box(Modifier.fillMaxSize().imePadding()) {
+        com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, showBottomNav) { captureModifier ->
+        androidx.compose.runtime.CompositionLocalProvider(
+            com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize),
+        ) {
         NavHost(
-            modifier = if (showBottomNav && navBlurEnabled) Modifier.hazeSource(navHazeState) else Modifier,
+            modifier = captureModifier,
             navController = navController,
             startDestination = Routes.Discover,
             enterTransition = {
@@ -230,6 +249,7 @@ fun CineTrackApp(
                 DiscoverScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
+                    loadTagline = viewModel::loadTagline,
                     onSearch = { navController.navigate("search/discover") },
                     onFilters = { navController.navigate(Routes.DiscoverFilters) },
                     onSeeAll = { navController.navigate("discover-list/$it") },
@@ -247,6 +267,8 @@ fun CineTrackApp(
                     syncRunning = viewModel.syncRunning,
                     onSearch = { navController.navigate("search/progress") },
                     onSync = viewModel::sync,
+                    onSyncOperations = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.SyncOperations}") },
+                    onSyncSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceSimkl}") },
                     onMedia = openMedia,
                     onWatched = viewModel::markPlaybackWatched,
                     onEpisode = { episode -> navController.navigate("episode/${episode.showId}/${episode.season}/${episode.number}") },
@@ -271,6 +293,7 @@ fun CineTrackApp(
                 arguments = listOf(navArgument("scope") { type = NavType.StringType }),
             ) { entry ->
                 val scope = entry.arguments?.getString("scope").orEmpty()
+                var selectedSearchPerson by remember { mutableStateOf<com.cinetrack.domain.PersonCard?>(null) }
                 val scopedItems = when (scope) {
                     "progress" -> state.playbackTv.map { it.media } + state.playbackMovies.map { it.media } + state.history.map { it.media } + state.calendar.map { it.media }
                     "library" -> state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty()
@@ -278,12 +301,32 @@ fun CineTrackApp(
                 }.distinctBy(com.cinetrack.domain.MediaCard::stableKey)
                 SearchScreen(
                     results = searchResults,
+                    peopleResults = personSearchResults,
+                    mediaSearchLoading = searchLoading,
+                    peopleSearchLoading = personSearchLoading,
                     sourceItems = scopedItems,
                     remoteSearch = scope == "discover",
+                    history = searchHistory,
                     onQuery = viewModel::search,
+                    onPeopleQuery = viewModel::searchPeople,
+                    onSubmitQuery = viewModel::rememberSearchQuery,
+                    onRemoveHistory = viewModel::removeSearchHistory,
+                    onLeave = viewModel::clearSearch,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
+                    onPerson = { selectedSearchPerson = it },
                 )
+                selectedSearchPerson?.let { person ->
+                    ActorSheet(
+                        person = person,
+                        viewModel = viewModel,
+                        onDismiss = { selectedSearchPerson = null },
+                        onMedia = { media ->
+                            selectedSearchPerson = null
+                            openMedia(media)
+                        },
+                    )
+                }
             }
             composable(
                 Routes.DiscoverList,
@@ -291,6 +334,7 @@ fun CineTrackApp(
             ) { entry ->
                 DiscoverListScreen(
                     railId = entry.arguments?.getString("railId").orEmpty(),
+                    viewModel = viewModel,
                     state = state,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
@@ -303,7 +347,7 @@ fun CineTrackApp(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
                     providers = streamingProviders,
-                    regionKey = "${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}:${state.preferredProviders.sorted().joinToString(",")}",
+                    regionKey = "${state.providerRegion}:${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}:${state.preferredProviders.sorted().joinToString(",")}",
                     onApply = viewModel::applyDiscoverFilters,
                     onLoadProviders = viewModel::loadStreamingProviders,
                     onBack = { navController.popBackStack() },
@@ -401,7 +445,9 @@ fun CineTrackApp(
                 )
             }
         }
+        }
 
+        }
         if (showBottomNav) {
             LiquidBottomNav(
                 hazeState = if (navBlurEnabled) navHazeState else null,

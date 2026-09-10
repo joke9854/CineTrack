@@ -1,14 +1,17 @@
-# CineTrack 0.70 testing
+# CineTrack 0.84
 
-- Search waits briefly while you type and cancels superseded requests, preventing older results from replacing a newer query.
-- Returning to CineTrack checks whether synchronization is due, preserving the existing eight-hour interval and avoiding overlapping foreground syncs.
-- API requests handle temporary rate limits with one bounded retry, respecting Retry-After.
-- Episode-title and image caches have explicit limits; date formatting reuses locale-aware formatters. Episode history titles still load individually.
-- Shared typography, corner, color, spacing and animation tokens make the interface more consistent. Poster layouts use a common 2:3 ratio.
-- Episode and season controls have larger touch areas. Settings switches announce their on/off state, and additional action labels and Italian translations improve accessibility.
-- Layout-shaped loading placeholders replace several spinners and respect disabled system animations. Explicit app-triggered tap vibrations are removed consistently; visual feedback remains.
-- Bottom navigation gains live background blur on supported Android 12+ devices, with a translucent fallback elsewhere and refined neutral glass borders.
-- Personal TMDB and MDBList keys are configured only in Settings and are no longer embedded by local or GitHub builds. Existing saved keys are retained. The SIMKL application client ID remains included.
-- Release builds now shrink unused resources and verify the signed APK before publishing it with its SHA-256 checksum.
+- Give the Coming Soon hide action a compact 26 dp rounded-square glass background while preserving its 16 dp icon and a comfortable touch target.
+- Keep notification titles and message bodies in the same hierarchy across scheduled, immediate, provider, and synchronization notifications.
+- Fully localize the synchronization card's relative status in Italian, including never-synced, just-now, minutes, hours, and days states.
 
-Baseline Profile tooling and app journeys are configured. Generating the app-specific profile and measuring startup/scrolling performance still require a connected device. Navigation blur also needs on-device visual and scrolling checks before extending it to other surfaces.
+Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
+
+# CineTrack 0.83
+
+- Show the exact watched date and time beneath an episode description when its info panel is expanded.
+- Reduce the Coming Soon hide-control container from 36 dp to 30 dp while keeping its icon unchanged.
+- Add cohesive Movies & TV and People pills to Discover search.
+- Search TMDB people with profile cards and open results in the existing actor detail popup, including their credits.
+- Clear stale results while switching queries and show a proper empty state after searches complete.
+
+Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.

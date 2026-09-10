@@ -23,7 +23,11 @@ import java.util.TimeZone
 import java.util.concurrent.TimeUnit
 
 @Serializable
-data class TmdbPage(val page: Int = 1, val results: List<TmdbMediaDto> = emptyList())
+data class TmdbPage(
+    val page: Int = 1,
+    val results: List<TmdbMediaDto> = emptyList(),
+    @SerialName("total_pages") val totalPages: Int = 1,
+)
 
 @Serializable
 data class TmdbFindResponse(
@@ -37,7 +41,9 @@ data class TmdbMediaDto(
     val title: String? = null,
     val name: String? = null,
     val overview: String = "",
+    val tagline: String? = null,
     @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("profile_path") val profilePath: String? = null,
     @SerialName("backdrop_path") val backdropPath: String? = null,
     @SerialName("release_date") val releaseDate: String? = null,
     @SerialName("first_air_date") val firstAirDate: String? = null,
@@ -46,6 +52,7 @@ data class TmdbMediaDto(
     @SerialName("origin_country") val originCountries: List<String> = emptyList(),
     @SerialName("original_language") val originalLanguage: String? = null,
     @SerialName("media_type") val mediaType: String? = null,
+    @SerialName("known_for_department") val knownForDepartment: String? = null,
     val runtime: Int? = null,
     val status: String? = null,
     val budget: Long? = null,
@@ -57,11 +64,13 @@ data class TmdbMediaDto(
     val genres: List<TmdbGenreDto> = emptyList(),
     @SerialName("belongs_to_collection") val collection: TmdbCollectionRefDto? = null,
     val credits: TmdbCreditsDto? = null,
+    @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
     val recommendations: TmdbPage? = null,
     val videos: TmdbVideoResultsDto? = null,
     @SerialName("next_episode_to_air") val nextEpisodeToAir: TmdbEpisodeDto? = null,
     @SerialName("watch/providers") val watchProviders: TmdbProviderResultDto? = null,
     val seasons: List<TmdbSeasonSummaryDto> = emptyList(),
+    val popularity: Double? = null,
 )
 
 @Serializable data class TmdbVideoResultsDto(val results: List<TmdbVideoDto> = emptyList())
@@ -83,11 +92,14 @@ data class TmdbMediaDto(
     val name: String,
     val character: String? = null,
     val job: String? = null,
+    val roles: List<TmdbCreditRoleDto> = emptyList(),
+    val jobs: List<TmdbCreditRoleDto> = emptyList(),
     @SerialName("profile_path") val profilePath: String? = null,
 )
+@Serializable data class TmdbCreditRoleDto(val character: String? = null, val job: String? = null)
 @Serializable data class TmdbProviderResultDto(val results: Map<String, TmdbProviderCountryDto> = emptyMap())
 @Serializable data class TmdbProviderListDto(val results: List<TmdbProviderDto> = emptyList())
-@Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList())
+@Serializable data class TmdbProviderCountryDto(val link: String? = null, val flatrate: List<TmdbProviderDto> = emptyList(), val rent: List<TmdbProviderDto> = emptyList(), val buy: List<TmdbProviderDto> = emptyList(), val free: List<TmdbProviderDto> = emptyList(), val ads: List<TmdbProviderDto> = emptyList())
 @Serializable data class TmdbProviderDto(@SerialName("provider_id") val id: Int, @SerialName("provider_name") val name: String, @SerialName("logo_path") val logoPath: String? = null)
 @Serializable data class TmdbSeasonSummaryDto(
     val id: Int,
@@ -98,7 +110,16 @@ data class TmdbMediaDto(
 )
 
 @Serializable
-data class TmdbSeasonDto(val id: Int, val name: String, val episodes: List<TmdbEpisodeDto> = emptyList())
+data class TmdbSeasonDto(
+    val id: Int,
+    val name: String,
+    val episodes: List<TmdbEpisodeDto> = emptyList(),
+    val overview: String = "",
+    @SerialName("air_date") val airDate: String? = null,
+    @SerialName("poster_path") val posterPath: String? = null,
+    @SerialName("vote_average") val voteAverage: Double? = null,
+    @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
+)
 
 @Serializable
 data class TmdbEpisodeDto(
@@ -112,6 +133,7 @@ data class TmdbEpisodeDto(
     @SerialName("episode_number") val number: Int,
     @SerialName("guest_stars") val guestStars: List<TmdbPersonCreditDto> = emptyList(),
     val crew: List<TmdbPersonCreditDto> = emptyList(),
+    val credits: TmdbCreditsDto? = null,
 )
 
 @Serializable
@@ -157,7 +179,6 @@ data class TmdbCombinedCreditDto(
 interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
-    @GET("3/movie/upcoming") suspend fun upcomingMovies(@Query("page") page: Int = 1): TmdbPage
     @GET("3/watch/providers/movie")
     suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/watch/providers/tv")
@@ -199,9 +220,10 @@ interface TmdbService {
     @GET("3/discover/tv")
     suspend fun upcomingTv(
         @Query("first_air_date.gte") dateFrom: String,
-        @Query("sort_by") sortBy: String = "first_air_date.asc",
+        @Query("sort_by") sortBy: String = "popularity.desc",
         @Query("include_null_first_air_dates") includeUndated: Boolean = false,
         @Query("with_origin_country") originCountries: String? = null,
+        @Query("vote_count.gte") minimumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/search/multi") suspend fun search(@Query("query") query: String, @Query("page") page: Int = 1): TmdbPage
@@ -211,7 +233,7 @@ interface TmdbService {
     ): TmdbFindResponse
     @GET("3/movie/{id}") suspend fun movie(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
     @GET("3/tv/{id}") suspend fun show(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
-    @GET("3/tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null): TmdbSeasonDto
+    @GET("3/tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null, @Query("append_to_response") append: String? = null): TmdbSeasonDto
     @GET("3/tv/{id}/season/{season}/episode/{episode}") suspend fun episode(@Path("id") id: Int, @Path("season") season: Int, @Path("episode") episode: Int, @Query("append_to_response") append: String = "credits", @Query("language") language: String? = null): TmdbEpisodeDto
     @GET("3/person/{id}") suspend fun person(@Path("id") id: Int, @Query("language") language: String? = null): TmdbPersonDto
     @GET("3/person/{id}/movie_credits") suspend fun movieCredits(@Path("id") id: Int): TmdbMovieCreditsDto
@@ -359,6 +381,8 @@ object NetworkFactory {
         metadataTimezone: () -> String,
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
+            redactHeader("Authorization")
+            redactQueryParams("api_key")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         val common = OkHttpClient.Builder()

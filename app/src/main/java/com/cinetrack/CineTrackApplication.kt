@@ -18,7 +18,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicReference
 
 class CineTrackApplication : Application(), ImageLoaderFactory {
@@ -28,7 +28,7 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
 
     override fun onCreate() {
         super.onCreate()
-        container = AppContainer(this)
+        container = AppContainer(this, applicationScope)
         ReleaseNotifier.createChannel(this)
         applicationScope.launch {
             SimklWorkScheduler.update(
@@ -55,32 +55,15 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
         .build()
 }
 
-class AppContainer(application: Application) {
+class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val preferences = AppPreferences(application)
-    private val startupPreferences = runBlocking {
-        coroutineScope {
-            val token = async(Dispatchers.IO) { preferences.tokenNow() }
-            val tmdbApiKey = async(Dispatchers.IO) { preferences.tmdbApiKeyNow() }
-            val mdbListApiKey = async(Dispatchers.IO) { preferences.mdbListApiKeyNow() }
-            val metadataLanguage = async(Dispatchers.IO) { preferences.metadataLanguage.first() }
-            val metadataRegion = async(Dispatchers.IO) { preferences.metadataRegion.first() }
-            val metadataTimezone = async(Dispatchers.IO) { preferences.metadataTimezone.first() }
-            StartupPreferences(
-                token = token.await(),
-                tmdbApiKey = tmdbApiKey.await(),
-                mdbListApiKey = mdbListApiKey.await(),
-                metadataLanguage = metadataLanguage.await(),
-                metadataRegion = metadataRegion.await(),
-                metadataTimezone = metadataTimezone.await(),
-            )
-        }
-    }
-    private val token = AtomicReference(startupPreferences.token)
-    private val tmdbApiKey = AtomicReference(startupPreferences.tmdbApiKey)
-    private val mdbListApiKey = AtomicReference(startupPreferences.mdbListApiKey)
-    private val metadataLanguage = AtomicReference(startupPreferences.metadataLanguage)
-    private val metadataRegion = AtomicReference(startupPreferences.metadataRegion)
-    private val metadataTimezone = AtomicReference(startupPreferences.metadataTimezone)
+    private val startupReady = CompletableDeferred<Unit>()
+    private val token = AtomicReference<String?>(null)
+    private val tmdbApiKey = AtomicReference(BuildConfig.TMDB_API_TOKEN)
+    private val mdbListApiKey = AtomicReference(BuildConfig.MDBLIST_API_KEY)
+    private val metadataLanguage = AtomicReference("system")
+    private val metadataRegion = AtomicReference("system")
+    private val metadataTimezone = AtomicReference("system")
     private val database = AppDatabase.create(application)
     private val services = NetworkFactory.create(
         token = token::get,
@@ -93,6 +76,7 @@ class AppContainer(application: Application) {
         database = database,
         services = services,
         preferences = preferences,
+        awaitStartupReady = startupReady::await,
         onTokenChanged = token::set,
         currentToken = token::get,
         onTmdbApiKeyChanged = tmdbApiKey::set,
@@ -103,6 +87,37 @@ class AppContainer(application: Application) {
         onMetadataRegionChanged = metadataRegion::set,
         onMetadataTimezoneChanged = metadataTimezone::set,
     )
+
+    init {
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                coroutineScope {
+                    val token = async { preferences.tokenNow() }
+                    val tmdbApiKey = async { preferences.tmdbApiKeyNow() }
+                    val mdbListApiKey = async { preferences.mdbListApiKeyNow() }
+                    val metadataLanguage = async { preferences.metadataLanguage.first() }
+                    val metadataRegion = async { preferences.metadataRegion.first() }
+                    val metadataTimezone = async { preferences.metadataTimezone.first() }
+                    StartupPreferences(
+                        token = token.await(),
+                        tmdbApiKey = tmdbApiKey.await(),
+                        mdbListApiKey = mdbListApiKey.await(),
+                        metadataLanguage = metadataLanguage.await(),
+                        metadataRegion = metadataRegion.await(),
+                        metadataTimezone = metadataTimezone.await(),
+                    )
+                }
+            }.onSuccess { startup ->
+                token.set(startup.token)
+                tmdbApiKey.set(startup.tmdbApiKey)
+                mdbListApiKey.set(startup.mdbListApiKey)
+                metadataLanguage.set(startup.metadataLanguage)
+                metadataRegion.set(startup.metadataRegion)
+                metadataTimezone.set(startup.metadataTimezone)
+                startupReady.complete(Unit)
+            }.onFailure { startupReady.completeExceptionally(it) }
+        }
+    }
 }
 
 private data class StartupPreferences(

@@ -20,8 +20,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import com.cinetrack.R
+import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
+import java.time.ZoneId
 
 @Composable
 internal fun LongPullRefreshContainer(
@@ -37,7 +39,7 @@ internal fun LongPullRefreshContainer(
         refreshThreshold = 132.dp,
         refreshingOffset = 62.dp,
     )
-    Box(modifier.fillMaxSize().pullRefresh(pullState, enabled)) {
+    Box(modifier.fillMaxSize().pullRefresh(pullState, enabled && !refreshing)) {
         content()
         PullRefreshIndicator(
             refreshing = refreshing,
@@ -52,9 +54,10 @@ internal fun LongPullRefreshContainer(
 
 internal fun formatFullDate(raw: String?): String {
     if (raw.isNullOrBlank()) return ""
-    return runCatching {
-        LocalDate.parse(raw.take(10)).format(com.cinetrack.ui.UiDateFormatters.current.date)
-    }.getOrDefault(raw)
+    val parsed = releaseDateTime(raw, ZoneId.systemDefault()) ?: return raw
+    val date = parsed.toLocalDate().format(com.cinetrack.ui.UiDateFormatters.current.date)
+    val hasReleaseTime = Regex("[T ]\\d{2}:\\d{2}").containsMatchIn(raw)
+    return if (hasReleaseTime) "$date · ${parsed.format(com.cinetrack.ui.UiDateFormatters.current.time)}" else date
 }
 
 /** Formats long runtimes as hours instead of leaving values such as "97 min". */

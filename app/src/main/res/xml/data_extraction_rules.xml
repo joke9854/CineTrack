@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="sharedpref" path="cinetrack_secure_credentials.xml" />
+        <exclude domain="sharedpref" path="cinetrack_secure_credentials_v2.xml" />
+        <exclude domain="file" path="backups/" />
+        <exclude domain="file" path="cinetrack-error-log.txt" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="sharedpref" path="cinetrack_secure_credentials.xml" />
+        <exclude domain="sharedpref" path="cinetrack_secure_credentials_v2.xml" />
+        <exclude domain="file" path="backups/" />
+        <exclude domain="file" path="cinetrack-error-log.txt" />
+    </device-transfer>
+</data-extraction-rules>
