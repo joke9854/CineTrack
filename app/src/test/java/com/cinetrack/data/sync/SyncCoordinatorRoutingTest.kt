@@ -185,7 +185,13 @@ private class PersistedQueue(vararg initial: SyncOperation) : SyncOperationRepos
     override suspend fun completeReady(operations: List<SyncOperation>) {
         val ready = operations.filter { operation ->
             rows.filter { it.operationId == operation.id && it.operationVersion == operation.sourceVersion && it.required }
-                .all { it.status == DeliveryStatus.ACKNOWLEDGED }
+                .all {
+                    it.status in setOf(
+                        DeliveryStatus.ACKNOWLEDGED,
+                        DeliveryStatus.SKIPPED_UNSUPPORTED,
+                        DeliveryStatus.CANCELLED_PROVIDER_REMOVED,
+                    )
+                }
         }
         values.removeAll(ready.toSet())
     }
