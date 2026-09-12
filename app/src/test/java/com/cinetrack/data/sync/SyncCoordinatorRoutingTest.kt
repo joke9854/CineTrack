@@ -141,6 +141,12 @@ private class PersistedQueue(vararg initial: SyncOperation) : SyncOperationRepos
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> =
         values.filter { operationIds == null || it.id in operationIds }
 
+    override suspend fun complete(operations: List<SyncOperation>) {
+        values.removeAll(operations.toSet())
+    }
+
+    override suspend fun fail(operations: List<SyncOperation>, error: Throwable) = Unit
+
     override suspend fun cards(): List<SyncOperationCard> = emptyList()
 
     override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
@@ -185,4 +191,3 @@ private fun MutableList<SyncOperationDelivery>.replaceStatus(
     }
     if (index >= 0) this[index] = this[index].copy(status = status)
 }
-
