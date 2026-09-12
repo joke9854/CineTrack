@@ -60,6 +60,25 @@ class SyncCoordinatorRoutingTest {
     }
 
     @Test
+    fun `role swap preserves persisted provider targets`() = runTest {
+        val operation = operation()
+        val queue = PersistedQueue(operation).apply {
+            rows += delivery(TrackingProviderId.SIMKL, TrackingRole.MAIN)
+            rows += delivery(TrackingProviderId.FLOPPY, TrackingRole.SECONDARY)
+        }
+        val simkl = RecordingProvider(TrackingProviderId.SIMKL)
+        val floppy = RecordingProvider(TrackingProviderId.FLOPPY)
+        val registry = MutableRoutingRegistry(simkl, floppy).apply {
+            current = TrackingConfiguration(TrackingProviderId.FLOPPY, TrackingProviderId.SIMKL)
+        }
+
+        assertTrue(SyncCoordinator(registry, queue).pushPending().isSuccess)
+
+        assertEquals(setOf(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY), queue.rows.map { it.providerId }.toSet())
+        assertEquals(setOf(TrackingRole.MAIN, TrackingRole.SECONDARY), queue.rows.map { it.roleAtEnqueue }.toSet())
+    }
+
+    @Test
     fun `removed provider is cancelled and re-adding it does not revive the operation`() = runTest {
         val operation = operation()
         val queue = PersistedQueue(operation).apply {
@@ -191,3 +210,4 @@ private fun MutableList<SyncOperationDelivery>.replaceStatus(
     }
     if (index >= 0) this[index] = this[index].copy(status = status)
 }
+
