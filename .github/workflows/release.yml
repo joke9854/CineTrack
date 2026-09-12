@@ -66,8 +66,18 @@ jobs:
           APK="app/build/outputs/apk/release/app-release.apk"
           cp "$APK" "CineTrack-$VERSION-universal.apk"
           sha256sum "CineTrack-$VERSION-universal.apk" > "CineTrack-$VERSION-universal.apk.sha256"
-          gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
-            --target "$GITHUB_SHA" \
-            --title "CineTrack $VERSION" \
-            --notes-file CHANGELOG.md \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "CineTrack $VERSION beta" \
+              --notes-file CHANGELOG.md \
+              --latest
+            gh release upload "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" --clobber
+          else
+            gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
+              --target "$GITHUB_SHA" \
+              --title "CineTrack $VERSION beta" \
+              --notes-file CHANGELOG.md \
+              --latest
+          fi
+
