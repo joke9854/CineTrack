@@ -14,6 +14,8 @@ import com.cinetrack.domain.SyncOperationStatus
 import kotlinx.coroutines.flow.first
 
 interface SyncOperationRepository {
+    /** Production Room queues enforce the exact-generation delivery invariant. */
+    val requiresPersistedDeliveryRows: Boolean get() = false
     suspend fun pending(operationIds: Set<String>? = null): List<SyncOperation>
     suspend fun enqueue(operations: List<SyncOperation>) {}
     suspend fun cards(): List<SyncOperationCard>
@@ -33,6 +35,9 @@ interface SyncOperationRepository {
 
     /** Binds pre-delivery operations to one startup MAIN provider exactly once. */
     suspend fun backfillLegacyDeliveries() {}
+
+    /** Terminates pending deliveries when a provider is explicitly removed. */
+    suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider removed") {}
 }
 
 /**
@@ -41,11 +46,13 @@ interface SyncOperationRepository {
  */
 class RoomSyncOperationRepository(
     private val database: AppDatabase,
-    private val preferences: AppPreferences? = null,
+    private val preferences: AppPreferences,
 ) : SyncOperationRepository {
+    override val requiresPersistedDeliveryRows: Boolean = true
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
         backfillLegacyDeliveries()
-        materializeLegacyOperations()
+        ensureLegacyOperationsMaterialized()
+        repairDeliveryRows()
         repairBlankTitles()
         val writes = database.syncDao().pendingWrites().associateBy { "write:${it.id}" }
         val entities = database.syncDao().syncOperations().asSequence()
@@ -63,7 +70,8 @@ class RoomSyncOperationRepository(
 
     override suspend fun cards(): List<SyncOperationCard> {
         backfillLegacyDeliveries()
-        materializeLegacyOperations()
+        ensureLegacyOperationsMaterialized()
+        repairDeliveryRows()
         repairBlankTitles()
         val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
         val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).map(SyncOperationDeliveryEntity::toDomain)
@@ -100,8 +108,8 @@ class RoomSyncOperationRepository(
         }
         database.withTransaction {
             database.syncDao().upsertOperations(entities)
-            val main = preferences?.mainTrackingProvider?.first()
-            val secondary = preferences?.secondaryTrackingProvider?.first()
+            val main = preferences.mainTrackingProvider.first()
+            val secondary = preferences.secondaryTrackingProvider.first()
             val now = System.currentTimeMillis()
             ensureDeliveries(operations, buildList {
                 main?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
@@ -163,9 +171,9 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun backfillLegacyDeliveries() {
-        val main = preferences?.mainTrackingProvider?.first() ?: return
+        val main = preferences.mainTrackingProvider.first() ?: return
         if (database.syncDao().get(LEGACY_DELIVERY_BACKFILL_AREA) != null) return
-        materializeLegacyOperations()
+        ensureLegacyOperationsMaterialized()
         database.withTransaction {
             if (database.syncDao().get(LEGACY_DELIVERY_BACKFILL_AREA) != null) return@withTransaction
             val operations = database.syncDao().syncOperations().filter { operation ->
@@ -248,9 +256,35 @@ class RoomSyncOperationRepository(
         val deliveries = deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
         val ready = operations.filter { operation ->
             val rows = deliveries.filter { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
-            rows.isEmpty() || rows.filter(SyncOperationDelivery::required).all { it.status == DeliveryStatus.ACKNOWLEDGED || it.status == DeliveryStatus.SKIPPED_UNSUPPORTED }
+            rows.isNotEmpty() && rows.filter(SyncOperationDelivery::required).all {
+                it.status == DeliveryStatus.ACKNOWLEDGED ||
+                    it.status == DeliveryStatus.SKIPPED_UNSUPPORTED ||
+                    it.status == DeliveryStatus.CANCELLED_PROVIDER_REMOVED
+            }
         }
         complete(ready)
+    }
+
+    override suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String) {
+        database.withTransaction {
+            database.syncDao().cancelOutstandingDeliveries(provider.name, reason)
+        }
+        // A removed provider must not leave the logical operation blocked. The
+        // remaining delivery rows still decide whether it is ready to clean up.
+        val candidates = pending()
+        if (candidates.isNotEmpty()) completeReady(candidates)
+    }
+
+    /** Removes 0.89 orphan rows and stale generations without retargeting modern work. */
+    private suspend fun repairDeliveryRows() {
+        val operations = database.syncDao().syncOperations().associateBy(SyncOperationEntity::operationId)
+        database.syncDao().allDeliveries().forEach { row ->
+            val operation = operations[row.operationId]
+            val expected = operation?.let { database.syncDao().pendingWrite(row.operationId.removePrefix("write:").toLongOrNull() ?: -1L)?.createdAt ?: it.createdAt }
+            if (operation == null || expected != row.operationVersion) {
+                database.syncDao().deleteDelivery(row.operationId, row.operationVersion, row.providerId)
+            }
+        }
     }
 
     private suspend fun materializeLegacyOperations() {
@@ -284,6 +318,18 @@ class RoomSyncOperationRepository(
         }
     }
 
+    private suspend fun ensureLegacyOperationsMaterialized() {
+        if (database.syncDao().get(LEGACY_OPERATION_MATERIALIZATION_AREA) != null) return
+        materializeLegacyOperations()
+        database.syncDao().upsert(
+            SyncStateEntity(
+                area = LEGACY_OPERATION_MATERIALIZATION_AREA,
+                remoteTimestamp = "complete",
+                lastSuccessfulSync = System.currentTimeMillis(),
+            ),
+        )
+    }
+
     private suspend fun repairBlankTitles() {
         val operations = database.syncDao().syncOperations()
         operations.forEach { operation ->
@@ -314,6 +360,7 @@ class RoomSyncOperationRepository(
 }
 
 private const val LEGACY_DELIVERY_BACKFILL_AREA = "sync_delivery_backfill_089"
+private const val LEGACY_OPERATION_MATERIALIZATION_AREA = "sync_operation_materialization_096"
 
 private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
     operationId = operationId,

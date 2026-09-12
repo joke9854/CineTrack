@@ -20,6 +20,7 @@ import com.cinetrack.data.sync.DefaultTrackingProviderRegistry
 import com.cinetrack.data.sync.RoomSyncOperationRepository
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.TrackingConfigurationService
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
@@ -78,7 +79,7 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
 
 class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val preferences = AppPreferences(application)
-    val settingsRepository = SettingsRepository(preferences)
+    lateinit var settingsRepository: SettingsRepository
     private val startupReady = CompletableDeferred<Unit>()
     private val token = AtomicReference<String?>(null)
     private val tmdbApiKey = AtomicReference(BuildConfig.TMDB_API_TOKEN)
@@ -95,6 +96,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataTimezone = metadataTimezone::get,
     )
     private val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
+    val trackingConfigurationService = TrackingConfigurationService(preferences, syncOperationRepository)
     val trackingProviderRegistry: TrackingProviderRegistry
     val syncCoordinator: SyncCoordinator
     val repository: CineTrackRepository
@@ -105,14 +107,13 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val watchProviderRepository: WatchProviderRepository
 
     init {
-        val repositoryRef = AtomicReference<CineTrackRepository?>(null)
+        settingsRepository = SettingsRepository(preferences, syncOperationRepository)
+        lateinit var facade: CineTrackRepository
+        val simklSyncEngine = SimklSyncEngine()
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
-            syncEngine = SimklSyncEngine { operations, onProgress ->
-                repositoryRef.get()?.syncSimklProvider(operations, onProgress)?.getOrThrow()
-                    ?: error("Simkl sync engine is not initialized")
-            },
+            syncEngine = simklSyncEngine,
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, FloppyTrackingProvider()),
@@ -121,9 +122,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
         val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, {
-            repositoryRef.get()?.scheduleAutomaticBackup()
+            facade.scheduleAutomaticBackup()
         }, trackingProviderRegistry)
-        val facade = CineTrackRepository(
+        facade = CineTrackRepository(
             database = database,
             services = services,
             preferences = preferences,
@@ -142,8 +143,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
+            trackingProviderRegistry = trackingProviderRegistry,
         )
-        repositoryRef.set(facade)
+        simklSyncEngine.bind { operations, onProgress -> facade.syncSimklProvider(operations, onProgress).getOrThrow() }
         repository = facade
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))
@@ -153,6 +155,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
 
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
+                trackingConfigurationService.repair()
                 coroutineScope {
                     val token = async { preferences.tokenNow() }
                     val tmdbApiKey = async { preferences.tmdbApiKeyNow() }

@@ -32,7 +32,14 @@ enum class SyncOperationType {
 }
 
 /** Per-provider delivery state for one logical CineTrack mutation. */
-enum class DeliveryStatus { PENDING, ACKNOWLEDGED, FAILED, SKIPPED_UNSUPPORTED }
+enum class DeliveryStatus {
+    PENDING,
+    ACKNOWLEDGED,
+    FAILED,
+    SKIPPED_UNSUPPORTED,
+    /** Terminal when a configured provider is explicitly removed. */
+    CANCELLED_PROVIDER_REMOVED,
+}
 
 enum class TrackingRole { MAIN, SECONDARY }
 
@@ -57,6 +64,7 @@ enum class TrackingCapability {
     PULL_EPISODE_HISTORY,
     PUSH_EPISODE_HISTORY,
     REMOVE_REMOTE_STATE,
+    PUSH_RATING,
     TIMESTAMPS,
     FULL_HISTORY,
 }
@@ -88,19 +96,20 @@ data class TrackingCapabilities(
         TrackingCapability.PULL_EPISODE_HISTORY,
         TrackingCapability.PUSH_EPISODE_HISTORY,
         TrackingCapability.REMOVE_REMOTE_STATE,
+        TrackingCapability.PUSH_RATING,
         TrackingCapability.TIMESTAMPS,
         TrackingCapability.FULL_HISTORY,
     ),
 ) {
     fun supports(capability: TrackingCapability): Boolean = capability in supported
     fun supports(operation: SyncOperation): Boolean = when (operation.type) {
-        SyncOperationType.LIBRARY_STATUS -> supportsLibrary
-        SyncOperationType.MOVIE_WATCHED,
-        SyncOperationType.MOVIE_UNWATCHED,
-        SyncOperationType.EPISODE_WATCHED,
-        SyncOperationType.EPISODE_UNWATCHED,
-        SyncOperationType.MEDIA_HISTORY_REMOVE -> supportsWatchHistory
-        SyncOperationType.SET_RATING -> supportsRatings
+        SyncOperationType.LIBRARY_STATUS -> supportsLibrary && supports(TrackingCapability.PUSH_LIBRARY)
+        SyncOperationType.MOVIE_WATCHED -> supportsWatchHistory && supports(TrackingCapability.PUSH_MOVIE_HISTORY)
+        SyncOperationType.MOVIE_UNWATCHED -> supportsWatchHistory && supports(TrackingCapability.REMOVE_REMOTE_STATE)
+        SyncOperationType.EPISODE_WATCHED -> supportsWatchHistory && supports(TrackingCapability.PUSH_EPISODE_HISTORY)
+        SyncOperationType.EPISODE_UNWATCHED -> supportsWatchHistory && supports(TrackingCapability.REMOVE_REMOTE_STATE)
+        SyncOperationType.MEDIA_HISTORY_REMOVE -> supportsWatchHistory && supports(TrackingCapability.REMOVE_REMOTE_STATE)
+        SyncOperationType.SET_RATING -> supportsRatings && supports(TrackingCapability.PUSH_RATING)
     } && when (operation.mediaType) {
         MediaType.MOVIE -> supportsMovies
         MediaType.TV -> supportsShows

@@ -527,6 +527,15 @@ interface SyncDao {
 
     @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
     suspend fun deleteDeliveries(operationIds: List<String>)
+
+    @Query("SELECT * FROM sync_operation_deliveries")
+    suspend fun allDeliveries(): List<SyncOperationDeliveryEntity>
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId")
+    suspend fun deleteDelivery(operationId: String, operationVersion: Long, providerId: String)
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_REMOVED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun cancelOutstandingDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
 }
 
 @Dao
@@ -577,7 +586,7 @@ abstract class AppDatabase : RoomDatabase() {
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
-        private val migration3To4 = object : Migration(3, 4) {
+        val migration3To4 = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     """CREATE TABLE IF NOT EXISTS `up_next` (
@@ -598,7 +607,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration4To5 = object : Migration(4, 5) {
+        val migration4To5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_watch_history_watchedAt` ON `watch_history` (`watchedAt`)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_updatedAt` ON `playback` (`updatedAt`)")
@@ -606,7 +615,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration5To6 = object : Migration(5, 6) {
+        val migration5To6 = object : Migration(5, 6) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     """CREATE TABLE IF NOT EXISTS `sync_operations` (
@@ -629,20 +638,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration6To7 = object : Migration(6, 7) {
+        val migration6To7 = object : Migration(6, 7) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sync_operations ADD COLUMN providerId TEXT NOT NULL DEFAULT 'SIMKL'")
             }
         }
 
-        private val migration7To8 = object : Migration(7, 8) {
+        val migration7To8 = object : Migration(7, 8) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sync_operations ADD COLUMN season INTEGER")
                 database.execSQL("ALTER TABLE sync_operations ADD COLUMN episode INTEGER")
             }
         }
 
-        private val migration8To9 = object : Migration(8, 9) {
+        val migration8To9 = object : Migration(8, 9) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries` (
                     `operationId` TEXT NOT NULL,
@@ -661,7 +670,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration9To10 = object : Migration(9, 10) {
+        val migration9To10 = object : Migration(9, 10) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries_new` (
                     `operationId` TEXT NOT NULL,
@@ -678,7 +687,7 @@ abstract class AppDatabase : RoomDatabase() {
                 database.execSQL("""INSERT OR IGNORE INTO `sync_operation_deliveries_new`
                     (`operationId`,`operationVersion`,`providerId`,`status`,`required`,`roleAtEnqueue`,`attemptCount`,`lastError`,`createdAt`,`updatedAt`)
                     SELECT d.`operationId`, COALESCE(o.`createdAt`, 0), d.`providerId`, d.`status`, d.`required`, d.`roleAtEnqueue`, d.`attemptCount`, d.`lastError`, d.`createdAt`, d.`updatedAt`
-                    FROM `sync_operation_deliveries` d LEFT JOIN `sync_operations` o ON o.`operationId` = d.`operationId`""")
+                    FROM `sync_operation_deliveries` d INNER JOIN `sync_operations` o ON o.`operationId` = d.`operationId`""")
                 database.execSQL("DROP TABLE IF EXISTS `sync_operation_deliveries`")
                 database.execSQL("ALTER TABLE `sync_operation_deliveries_new` RENAME TO `sync_operation_deliveries`")
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_providerId_status` ON `sync_operation_deliveries` (`providerId`, `status`)")

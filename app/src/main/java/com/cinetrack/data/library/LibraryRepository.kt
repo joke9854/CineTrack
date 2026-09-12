@@ -12,8 +12,7 @@ import com.cinetrack.data.local.toEntity
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
-import com.cinetrack.data.sync.TrackingRole
-import com.cinetrack.data.sync.DeliveryStatus
+import com.cinetrack.data.sync.DurableTrackingQueue
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.domain.EpisodeCard
@@ -45,8 +44,9 @@ class RoomLibraryRepository(
     private val preferences: AppPreferences,
     private val syncCoordinator: SyncCoordinator,
     private val onLocalStateChanged: () -> Unit,
-    private val providerRegistry: TrackingProviderRegistry? = null,
+    private val providerRegistry: TrackingProviderRegistry,
 ) : LibraryRepository {
+    private val durableQueue = DurableTrackingQueue(providerRegistry)
     override fun observeLocalChanges(): Flow<Set<String>> = database.invalidationTracker.createFlow(
         "media",
         "media_rails",
@@ -82,7 +82,7 @@ class RoomLibraryRepository(
                 database.timelineDao().deleteMediaHistory(media.type.name, media.id)
             } else if (previous?.watched == true && status != LibraryStatus.COMPLETED) {
                 database.timelineDao().deleteMediaHistory(media.type.name, media.id)
-                database.syncDao().queue(
+                val writeId = database.syncDao().queue(
                     PendingWriteEntity(
                         operation = "MEDIA_HISTORY_REMOVE",
                         mediaType = media.type.name,
@@ -90,10 +90,22 @@ class RoomLibraryRepository(
                         payload = previous.simklId?.toString().orEmpty(),
                     ),
                 )
+                queueWriteOperation(
+                    writeId = writeId,
+                    operation = "MEDIA_HISTORY_REMOVE",
+                    mediaType = media.type,
+                    mediaId = media.id,
+                    title = media.title,
+                    value = "MEDIA_HISTORY_REMOVE",
+                    payload = previous.simklId?.toString().orEmpty(),
+                )
             }
             rebuildLibraryRail()
         }
         onLocalStateChanged()
+        if (syncCoordinator.isMainProviderConnected()) {
+            syncCoordinator.pushPending(setOf("state:${media.type.name}:${media.id}"))
+        }
     }
 
     override suspend fun markWatched(media: MediaCard) {
@@ -117,6 +129,9 @@ class RoomLibraryRepository(
             rebuildLibraryRail()
         }
         onLocalStateChanged()
+        if (syncCoordinator.isMainProviderConnected()) {
+            syncCoordinator.pushPending(setOf("state:${media.type.name}:${media.id}"))
+        }
     }
 
     override suspend fun markEpisodeWatched(episode: EpisodeCard) {
@@ -240,36 +255,54 @@ class RoomLibraryRepository(
         payload: String? = null,
     ) {
         val operation = SyncOperation(operationId, type, mediaType, mediaId, "", value, payload, operationVersion)
-        val registry = providerRegistry ?: return
-        val config = registry.configuration()
-        val rows = buildList {
-            config.mainProvider?.let { provider ->
-                add(com.cinetrack.data.local.SyncOperationDeliveryEntity(operationId = operationId, operationVersion = operationVersion, providerId = provider.name, status = DeliveryStatus.PENDING.name, required = true, roleAtEnqueue = TrackingRole.MAIN.name, createdAt = operationVersion, updatedAt = operationVersion))
-            }
-            config.secondaryProvider?.let { providerId ->
-                val provider = registry.getProvider(providerId)
-                val supported = provider?.capabilities?.supports(operation) == true
-                add(com.cinetrack.data.local.SyncOperationDeliveryEntity(operationId = operationId, operationVersion = operationVersion, providerId = providerId.name, status = if (supported) DeliveryStatus.PENDING.name else DeliveryStatus.SKIPPED_UNSUPPORTED.name, required = supported, roleAtEnqueue = TrackingRole.SECONDARY.name, createdAt = operationVersion, updatedAt = operationVersion))
-            }
+        val rows = durableQueue.snapshot(operation).map { delivery ->
+            com.cinetrack.data.local.SyncOperationDeliveryEntity(
+                operationId = delivery.operationId,
+                operationVersion = delivery.operationVersion,
+                providerId = delivery.providerId.name,
+                status = delivery.status.name,
+                required = delivery.required,
+                roleAtEnqueue = delivery.roleAtEnqueue.name,
+                attemptCount = delivery.attemptCount,
+                lastError = delivery.lastError,
+                createdAt = delivery.createdAt,
+                updatedAt = delivery.updatedAt,
+            )
         }
         if (rows.isNotEmpty()) database.syncDao().upsertDeliveries(rows)
     }
 
     private suspend fun queueWriteOperation(writeId: Long, operation: String, episode: EpisodeCard, value: String) {
         val title = database.mediaDao().get(MediaType.TV.name, episode.showId)?.title ?: "TV #${episode.showId}"
+        queueWriteOperation(writeId, operation, MediaType.TV, episode.showId, title, value, "${episode.season}:${episode.number}")
+    }
+
+    private suspend fun queueWriteOperation(
+        writeId: Long,
+        operation: String,
+        mediaType: MediaType,
+        mediaId: Int,
+        title: String,
+        value: String,
+        payload: String,
+    ) {
+        val sourceVersion = database.syncDao().pendingWrite(writeId)?.createdAt ?: System.currentTimeMillis()
         database.syncDao().upsertOperation(
             SyncOperationEntity(
                 operationId = "write:$writeId",
                 operation = operation,
-                mediaType = MediaType.TV.name,
-                mediaId = episode.showId,
+                mediaType = mediaType.name,
+                mediaId = mediaId,
                 title = title,
                 status = SyncOperationStatus.PENDING.name,
                 localValue = value,
+                createdAt = sourceVersion,
+                updatedAt = sourceVersion,
+                season = payload.episodePart(0),
+                episode = payload.episodePart(1),
             ),
         )
-        val sourceVersion = database.syncDao().pendingWrite(writeId)?.createdAt ?: System.currentTimeMillis()
-        snapshotDeliveries("write:$writeId", sourceVersion, SyncOperationType.valueOf(operation), MediaType.TV, episode.showId, value, "${episode.season}:${episode.number}")
+        snapshotDeliveries("write:$writeId", sourceVersion, SyncOperationType.valueOf(operation), mediaType, mediaId, value, payload)
     }
 
     private suspend fun refreshLocalUpNext(showId: Int) {

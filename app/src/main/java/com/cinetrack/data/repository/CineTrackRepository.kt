@@ -29,6 +29,8 @@ import com.cinetrack.data.schedule.ReleaseScheduleRepository
 import com.cinetrack.data.sync.ProviderSyncOutcome
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.SyncOperationRepository
+import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.data.sync.MediaIds
@@ -39,7 +41,6 @@ import com.cinetrack.data.sync.TrackedMovieState
 import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackedEpisodeState
 import com.cinetrack.data.sync.LocalMutation
-import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.SyncConflict
 import com.cinetrack.data.sync.ConflictField
 import com.cinetrack.domain.AppUiState
@@ -58,6 +59,7 @@ import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.SyncOperationStatus
+import com.cinetrack.domain.TrackingProviderState
 import com.cinetrack.domain.SyncReport
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.StreamingProvider
@@ -131,6 +133,7 @@ class CineTrackRepository(
     private val releaseScheduleRepository: ReleaseScheduleRepository,
     private val libraryRepository: LibraryRepository,
     private val syncReconciler: SyncReconciler = SyncReconciler(),
+    private val trackingProviderRegistry: TrackingProviderRegistry? = null,
 ) {
     suspend fun awaitStartup() {
         awaitStartupReady()
@@ -711,6 +714,7 @@ class CineTrackRepository(
         val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
         val introductionCompletedDeferred = async { preferences.introductionCompleted.first() }
+        val providerStatesDeferred = async { buildTrackingProviderStates() }
 
         val snapshot = snapshotDeferred.await()
         val states = snapshot.states.associateBy { "${it.mediaType}:${it.mediaId}" }
@@ -936,6 +940,7 @@ class CineTrackRepository(
                 report = syncReportDeferred.await(),
             ),
             simklConnected = simklConnectedNow(),
+            trackingProviders = providerStatesDeferred.await(),
             backgroundSync = backgroundSyncDeferred.await(),
             wifiOnly = wifiOnlyDeferred.await(),
             notificationEpisodes = notificationEpisodesDeferred.await(),
@@ -965,6 +970,32 @@ class CineTrackRepository(
             introductionCompleted = introductionCompletedDeferred.await(),
             loading = false,
         )
+    }
+
+    private suspend fun buildTrackingProviderStates(): List<TrackingProviderState> {
+        val registry = trackingProviderRegistry ?: return emptyList()
+        val configuration = registry.configuration()
+        return TrackingProviderId.entries.map { id ->
+            val provider = registry.getProvider(id)
+            val authenticated = provider?.let { runCatching { it.isAuthenticated() }.getOrDefault(false) } == true
+            val role = when (id) {
+                configuration.mainProvider -> "MAIN"
+                configuration.secondaryProvider -> "SECONDARY"
+                else -> "NONE"
+            }
+            TrackingProviderState(
+                providerId = id.name,
+                role = role,
+                configured = id == configuration.mainProvider || id == configuration.secondaryProvider,
+                authenticated = authenticated,
+                connectionStatus = when {
+                    provider == null -> "UNAVAILABLE"
+                    authenticated -> "CONNECTED"
+                    else -> "DISCONNECTED"
+                },
+                lastSuccessfulSync = preferences.trackingLastCheckAt(id),
+            )
+        }
     }
 
     suspend fun search(query: String): List<MediaCard> {

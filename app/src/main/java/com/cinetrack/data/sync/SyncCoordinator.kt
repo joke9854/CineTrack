@@ -23,7 +23,12 @@ class SyncCoordinator(
         val main = registry.getProvider(mainId)
             ?: throw IllegalStateException("The MAIN tracking provider is unavailable")
         requireAuthenticated(main)
-        if (!main.capabilities.supportsTwoWaySync) {
+        val requiredMainPull = setOf(
+            TrackingCapability.PULL_LIBRARY,
+            TrackingCapability.PULL_MOVIE_HISTORY,
+            TrackingCapability.PULL_EPISODE_HISTORY,
+        )
+        if (!main.capabilities.supportsTwoWaySync || !requiredMainPull.all(main.capabilities::supports)) {
             throw TrackingSyncError.ProviderUnavailable(main.id, IllegalStateException("MAIN provider cannot reconcile snapshots yet"))
         }
 
@@ -32,8 +37,7 @@ class SyncCoordinator(
         var attemptedMain = emptyList<SyncOperation>()
         try {
             val secondary = configuration.secondaryProvider?.let(registry::getProvider)
-            val targets = buildTargets(pending, main, secondary, configuration)
-            operations.ensureDeliveries(pending, targets)
+            prepareDeliveryRows(pending, main, secondary, configuration)
 
             val mainPending = pendingFor(pending, main.id)
             val mainUnsupported = mainPending.firstOrNull { !main.capabilities.supports(it) }
@@ -90,7 +94,7 @@ class SyncCoordinator(
         val secondary = configuration.secondaryProvider?.let(registry::getProvider)
         val targets = listOfNotNull(main, secondary).distinctBy(TrackingProvider::id)
         if (targets.isEmpty()) throw IllegalStateException("No tracking provider is configured")
-        operations.ensureDeliveries(pending, buildTargets(pending, main, secondary, configuration))
+        prepareDeliveryRows(pending, main, secondary, configuration)
         var secondaryFailure: Throwable? = null
         targets.forEach { provider ->
             val providerPending = pendingFor(pending, provider.id)
@@ -154,25 +158,47 @@ class SyncCoordinator(
     private suspend fun pendingFor(all: List<SyncOperation>, provider: TrackingProviderId): List<SyncOperation> {
         val ids = all.mapTo(linkedSetOf(), SyncOperation::id)
         val rows = operations.deliveries(ids)
-        if (rows.isEmpty()) return all
+        if (rows.isEmpty()) return if (operations.requiresPersistedDeliveryRows) emptyList() else all
         val byId = rows.filter { it.providerId == provider }.associateBy { "${it.operationId}:${it.operationVersion}" }
-        return all.filter { byId["${it.id}:${it.sourceVersion}"]?.status in setOf(null, DeliveryStatus.PENDING, DeliveryStatus.FAILED) }
+        return all.filter { byId["${it.id}:${it.sourceVersion}"]?.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED) }
     }
 
-    private fun buildTargets(
-        operations: List<SyncOperation>,
+    /** Modern operations must already have an immutable target snapshot. */
+    private suspend fun requireCurrentDeliveryRows(operations: List<SyncOperation>) {
+        if (operations.isEmpty() || !this@SyncCoordinator.operations.requiresPersistedDeliveryRows) return
+        val rows = this@SyncCoordinator.operations.deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
+        val missing = operations.filter { operation ->
+            rows.none { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
+        }
+        if (missing.isNotEmpty()) {
+            throw IllegalStateException("Sync queue invariant violated: missing delivery target for ${missing.joinToString { it.id }}")
+        }
+    }
+
+    private suspend fun prepareDeliveryRows(
+        pending: List<SyncOperation>,
         main: TrackingProvider?,
         secondary: TrackingProvider?,
         configuration: TrackingConfiguration,
+    ) {
+        if (operations.requiresPersistedDeliveryRows) {
+            requireCurrentDeliveryRows(pending)
+        } else {
+            // Compatibility for lightweight legacy/test repositories. The Room
+            // implementation above never derives normal production targets.
+            operations.ensureDeliveries(pending, buildTargets(pending, main, secondary))
+        }
+    }
+
+    private fun buildTargets(
+        pending: List<SyncOperation>,
+        main: TrackingProvider?,
+        secondary: TrackingProvider?,
     ): List<SyncOperationDelivery> = buildList {
         val now = System.currentTimeMillis()
-        operations.forEach { operation ->
-            main?.let {
-                add(SyncOperationDelivery(operationId = operation.id, operationVersion = operation.sourceVersion, providerId = it.id, required = true, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now))
-            }
-            secondary?.let {
-                add(SyncOperationDelivery(operationId = operation.id, operationVersion = operation.sourceVersion, providerId = it.id, required = it.capabilities.supports(operation), roleAtEnqueue = TrackingRole.SECONDARY, status = if (it.capabilities.supports(operation)) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now))
-            }
+        pending.forEach { operation ->
+            main?.let { add(SyncOperationDelivery(operation.id, operation.sourceVersion, it.id, createdAt = now, updatedAt = now)) }
+            secondary?.let { add(SyncOperationDelivery(operation.id, operation.sourceVersion, it.id, required = it.capabilities.supports(operation), roleAtEnqueue = TrackingRole.SECONDARY, status = if (it.capabilities.supports(operation)) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now)) }
         }
     }
 

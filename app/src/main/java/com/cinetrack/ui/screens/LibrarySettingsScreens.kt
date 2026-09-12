@@ -118,6 +118,7 @@ import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
+import com.cinetrack.domain.SyncDeliveryCard
 import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
@@ -792,6 +793,10 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
             Text(message, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         }
+        if (operation.deliveries.size > 1 || operation.status == SyncOperationStatus.PARTIAL) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            operation.deliveries.forEach { delivery -> SyncDeliveryRow(delivery) }
+        }
         if (operation.status == SyncOperationStatus.CONFLICT) {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.sm)) {
@@ -828,6 +833,28 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun SyncDeliveryRow(delivery: SyncDeliveryCard) {
+    val provider = delivery.providerId.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+    val label = when (delivery.status) {
+        "ACKNOWLEDGED" -> stringResource(R.string.sync_delivery_synced)
+        "FAILED" -> stringResource(R.string.sync_delivery_retry)
+        "PENDING" -> stringResource(R.string.sync_delivery_pending)
+        "SKIPPED_UNSUPPORTED" -> stringResource(R.string.sync_delivery_skipped)
+        "CANCELLED_PROVIDER_REMOVED" -> stringResource(R.string.sync_delivery_cancelled)
+        else -> stringResource(R.string.sync_delivery_pending)
+    }
+    val color = when (delivery.status) {
+        "ACKNOWLEDGED" -> Success
+        "FAILED" -> androidx.compose.material3.MaterialTheme.colorScheme.error
+        else -> TextSecondary
+    }
+    Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(provider, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        Text(label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
     }
 }
 

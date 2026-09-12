@@ -547,17 +547,11 @@ class CineTrackViewModel(
             _discoverBrowse.value = _discoverBrowse.value.mapValues { (_, browse) ->
                 browse.copy(items = browse.items.map { if (it.stableKey == media.stableKey) it.copy(status = status, watched = status == LibraryStatus.COMPLETED) else it })
             }
-            val pushError = if (syncCoordinator.isMainProviderConnected()) withContext(Dispatchers.IO) {
-                repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
-            } else null
             // The Simkl request starts immediately after the local commit. TMDB
             // metadata enrichment is independent and must never delay that push.
             scheduleProgressCacheRefresh(
                 ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
             )
-            if (pushError != null) {
-                _state.value = _state.value.copy(error = pushError.message)
-            }
         }
     }
 
@@ -571,12 +565,6 @@ class CineTrackViewModel(
                 playbackTv = current.playbackTv.filterNot { it.media.stableKey == media.stableKey },
                 playbackMovies = current.playbackMovies.filterNot { it.media.stableKey == media.stableKey },
             )
-            if (syncCoordinator.isMainProviderConnected()) {
-                val pushError = withContext(Dispatchers.IO) {
-                    repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
-                }
-                if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
-            }
             scheduleProgressCacheRefresh(
                 ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
             )
@@ -613,12 +601,6 @@ class CineTrackViewModel(
                 _state.value = _state.value.copy(
                     playbackMovies = _state.value.playbackMovies.filterNot { it.media.stableKey == playback.media.stableKey },
                 )
-                if (syncCoordinator.isMainProviderConnected()) {
-                    val pushError = withContext(Dispatchers.IO) {
-                        repository.pushLibraryChange(playback.media.type, playback.media.id).exceptionOrNull()
-                    }
-                    if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
-                }
             }
         }
     }

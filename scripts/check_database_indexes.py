@@ -1,15 +1,18 @@
-"""Run the production index and durable sync-operation migration checks."""
+"""Run lightweight checks for the current Room schema and migration chain."""
 from pathlib import Path
 import re
 import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
-migration = source.split("object : Migration(4, 5) {", 1)[1].split("private val migration5To6", 1)[0]
+assert "version = 10" in source, "Room database version must be 10"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10"):
+    assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
+migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
 assert len(statements) == 3, "Expected the three production index statements"
 assert all(sql.startswith("CREATE INDEX IF NOT EXISTS ") for sql in statements)
 
-migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("private val migration6To7", 1)[0]
+migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("val migration6To7", 1)[0]
 table_match = re.search(r'database\.execSQL\(\s*"""(CREATE TABLE.*?)""",?\s*\)', migration_6, re.S)
 assert table_match, "Expected the production sync_operations table statement"
 sync_table_statement = " ".join(table_match.group(1).split())
@@ -95,5 +98,18 @@ for key, index in (("history", "index_watch_history_watchedAt"), ("playback", "i
 assert "SELECT * FROM media WHERE title LIKE '%' || :query || '%' ORDER BY score DESC LIMIT 60" in source
 sync_columns = [row[1] for row in db.execute("PRAGMA table_info('sync_operations')")]
 assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "title", "status", "message", "localValue", "remoteValue", "createdAt", "updatedAt", "attemptCount"]
-print("PASS: 6,000 rows preserved; database indexes and durable sync-operation migration verified.")
+
+# Validate the current Room entities independently of the historical 5->6
+# fixture above. This catches drift in the generation-aware delivery schema.
+assert 'primaryKeys = ["operationId", "operationVersion", "providerId"]' in source
+for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "attemptCount", "lastError", "createdAt", "updatedAt"):
+    assert re.search(rf"val {column}\s*:", source), f"Missing delivery column {column}"
+for index in (
+    "index_sync_operation_deliveries_providerId_status",
+    "index_sync_operation_deliveries_operationId",
+    "index_sync_operation_deliveries_status",
+):
+    assert index in source, f"Missing delivery index {index}"
+assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
+print("PASS: data preserved; current sync tables, delivery indexes, and 5/6/7/8/9->10 migration chain verified.")
 

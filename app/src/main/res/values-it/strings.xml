@@ -253,6 +253,11 @@
     <string name="create_export">Crea esportazione</string>
     <string name="version_label">Versione %1$s · Android</string>
     <string name="retry">Riprova</string>
+    <string name="sync_delivery_synced">Sincronizzato</string>
+    <string name="sync_delivery_retry">Richiede un nuovo tentativo</string>
+    <string name="sync_delivery_pending">In attesa</string>
+    <string name="sync_delivery_skipped">Non supportato</string>
+    <string name="sync_delivery_cancelled">Provider rimosso</string>
     <string name="loading">Caricamento…</string>
     <string name="error_generic">Qualcosa è andato storto. I dati in cache restano disponibili.</string>
     <string name="api_key_missing">Configura il valore API in local.properties.</string>

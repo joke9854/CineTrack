@@ -1,3 +1,9 @@
+# CineTrack 0.97 beta
+
+- Hardened generation-aware delivery routing: missing rows are never inferred as pending, role switches preserve targets, and removed providers are cancelled terminally.
+- Made all local library/history mutations snapshot provider deliveries atomically and moved immediate dispatch ownership into the local mutation layer.
+- Added granular capability checks, provider-neutral tracking state, delivery outcome UI, orphan repair, migration-chain coverage, and current-schema CI validation.
+
 # CineTrack 0.96 beta
 
 - Re-evaluate all persisted provider deliveries after a full-sync retry so an operation completes when only a previously failed secondary delivery remains.

@@ -17,7 +17,7 @@ The focused repositories now define the dependency direction used by the UI:
 
 `TrackingSnapshot`, `MediaIds`, `LocalTrackingSnapshot`, `SyncReconciler`, `ReconciliationResult`, `LocalMutation`, and `SyncConflict` are provider-neutral. The reconciler performs no I/O and evaluates a three-way baseline (previous remote, current local, current MAIN snapshot). A local value is authoritative only when a field-specific durable operation matches its current value and source version; arbitrary dirty or stale rows do not protect a field. MAIN-only remote changes are applied locally without outbound writes, while true concurrent edits become conflicts.
 
-Only the configured MAIN provider may pull and reconcile. SECONDARY is dispatched through `push` only. Every logical `SyncOperation` can have independent provider delivery rows, so acknowledgements and failures are retried per provider. Existing delivery targets retain the role captured at enqueue; role changes affect new operations only. Simkl DTOs and request mapping are contained in `SimklTrackingProvider`, with the proven full-import path isolated behind `SimklSyncEngine` until its Room commit logic is fully migrated.
+Only the configured MAIN provider may pull and reconcile. SECONDARY is dispatched through `push` only. Every logical `SyncOperation` can have independent provider delivery rows, so acknowledgements and failures are retried per provider. Existing delivery rows are the routing authority: a missing row is never treated as pending, and a role switch preserves the provider set while changing only pull/push direction. Explicit provider removal transitions pending/failed rows to `CANCELLED_PROVIDER_REMOVED`; re-adding the provider never resurrects old work. Simkl DTOs and request mapping are contained in `SimklTrackingProvider`, with the proven full-import path isolated behind `SimklSyncEngine` until its Room commit logic is fully migrated.
 
 ```text
 Local mutation
@@ -32,8 +32,8 @@ Logical SyncOperation
 Each logical operation carries a stable media/logical identity plus an exact
 `sourceVersion` generation. Delivery rows persist the target provider,
 `roleAtEnqueue`, operation generation, status, attempt count, and last error.
-`ACKNOWLEDGED` and `SKIPPED_UNSUPPORTED` are terminal for that generation;
-role switches never rewrite existing rows, and a newer local state generation
+`ACKNOWLEDGED`, `SKIPPED_UNSUPPORTED`, and `CANCELLED_PROVIDER_REMOVED` are
+terminal for that generation; role switches never rewrite existing rows, and a newer local state generation
 supersedes the old state operation and its deliveries.
 
 Installations upgraded from the pre-delivery schema receive one idempotent

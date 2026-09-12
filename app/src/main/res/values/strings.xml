@@ -253,6 +253,11 @@
     <string name="create_export">Create export</string>
     <string name="version_label">Version %1$s · Android</string>
     <string name="retry">Retry</string>
+    <string name="sync_delivery_synced">Synced</string>
+    <string name="sync_delivery_retry">Retry required</string>
+    <string name="sync_delivery_pending">Pending</string>
+    <string name="sync_delivery_skipped">Not supported</string>
+    <string name="sync_delivery_cancelled">Provider removed</string>
     <string name="loading">Loading…</string>
     <string name="error_generic">Something went wrong. Cached content remains available.</string>
     <string name="api_key_missing">Configure the API value in local.properties.</string>
