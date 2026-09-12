@@ -554,8 +554,8 @@ fun SettingsDetailScreen(
                 if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist)) SettingsDetailHero(page, title)
                 when (page) {
                     SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
-                    SettingsPages.Sync -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
-                    SettingsPages.SyncOperations -> SyncOperationsSettings(viewModel)
+                    SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
+                    SettingsPages.SyncOperations -> SyncOperationsScreen(viewModel)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
                     SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceTmdb -> Column {
@@ -633,7 +633,7 @@ private fun SettingsDetailHero(page: String, title: String) {
 }
 
 @Composable
-private fun SyncSettingsHost(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
+internal fun SyncSettingsHost(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
     val sync by viewModel.syncProgress.collectAsStateWithLifecycle()
     SyncSettings(state, sync, viewModel, onConnect)
 }
@@ -706,7 +706,7 @@ private fun SyncSettings(
 }
 
 @Composable
-private fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
+internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
     val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }

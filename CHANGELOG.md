@@ -1,3 +1,9 @@
+# CineTrack 0.95 beta
+
+- Route tracking settings and synchronization operations through dedicated screen entry points so future provider controls can grow without expanding the monolithic settings surface.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.94 beta
 
 - Keep full-sync acknowledgements scoped to the MAIN deliveries actually attempted, so a retry after a partial secondary failure never replays an already acknowledged MAIN write.
