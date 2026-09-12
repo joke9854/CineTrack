@@ -125,7 +125,7 @@ class SyncReconciler(
     }
 
     private fun isCurrent(operation: SyncOperation, updatedAt: Instant?): Boolean {
-        val current = updatedAt?.toEpochMilli() ?: return true
+        val current = updatedAt?.toEpochMilli() ?: return false
         return operation.sourceVersion == current
     }
 }

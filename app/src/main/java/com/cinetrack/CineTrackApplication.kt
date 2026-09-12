@@ -105,12 +105,13 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val watchProviderRepository: WatchProviderRepository
 
     init {
-        lateinit var facade: CineTrackRepository
+        val repositoryRef = AtomicReference<CineTrackRepository?>(null)
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
             syncEngine = SimklSyncEngine { operations, onProgress ->
-                facade.syncSimklProvider(operations, onProgress).getOrThrow()
+                repositoryRef.get()?.syncSimklProvider(operations, onProgress)?.getOrThrow()
+                    ?: error("Simkl sync engine is not initialized")
             },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
@@ -119,10 +120,10 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         )
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
-        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator) {
-            facade.scheduleAutomaticBackup()
+        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, trackingProviderRegistry) {
+            repositoryRef.get()?.scheduleAutomaticBackup()
         }
-        facade = CineTrackRepository(
+        val facade = CineTrackRepository(
             database = database,
             services = services,
             preferences = preferences,
@@ -142,6 +143,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
         )
+        repositoryRef.set(facade)
         repository = facade
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))

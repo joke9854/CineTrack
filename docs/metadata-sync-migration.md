@@ -29,3 +29,10 @@ Logical SyncOperation
       +-- Floppy delivery (when configured and supported)
 ```
 
+Each logical operation carries a stable media/logical identity plus an exact
+`sourceVersion` generation. Delivery rows persist the target provider,
+`roleAtEnqueue`, operation generation, status, attempt count, and last error.
+`ACKNOWLEDGED` and `SKIPPED_UNSUPPORTED` are terminal for that generation;
+role switches never rewrite existing rows, and a newer local state generation
+supersedes the old state operation and its deliveries.
+

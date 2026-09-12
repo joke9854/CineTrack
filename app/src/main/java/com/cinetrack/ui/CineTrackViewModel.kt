@@ -698,7 +698,7 @@ class CineTrackViewModel(
             }
         }
         viewModelScope.launch {
-            episodes.forEach { libraryRepository.setEpisodeWatched(it, watched) }
+            libraryRepository.setEpisodesWatched(episodes, watched)
             refreshCachedState(refreshProgress = true, promoteShowId = episodes.firstOrNull()?.showId.takeIf { watched })
         }
     }
@@ -713,7 +713,7 @@ class CineTrackViewModel(
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                changed.forEach { libraryRepository.setEpisodeWatched(it, watched) }
+                libraryRepository.setEpisodesWatched(changed, watched)
             }
             refreshCachedState(refreshProgress = true, promoteShowId = changed.firstOrNull()?.showId.takeIf { watched })
         }

@@ -305,6 +305,9 @@ class AppPreferences(private val context: Context) {
             prefs.remove(Keys.simklToken)
             // A different account must always receive its own initial activity check.
             prefs.remove(Keys.simklLastCheckAt)
+            prefs.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
+            prefs.remove(syncBaselineKey(TrackingProviderId.SIMKL))
+            prefs.remove(Keys.syncBaseline)
         }
     }
 
@@ -579,6 +582,9 @@ class AppPreferences(private val context: Context) {
             it.remove(Keys.pkceVerifier)
             it.remove(Keys.pkceState)
             it.remove(Keys.simklLastCheckAt)
+            it.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
+            it.remove(syncBaselineKey(TrackingProviderId.SIMKL))
+            it.remove(Keys.syncBaseline)
         }
         Unit
     }.recoverCatching { cause ->

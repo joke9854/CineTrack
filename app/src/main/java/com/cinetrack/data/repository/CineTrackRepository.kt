@@ -162,6 +162,7 @@ class CineTrackRepository(
 
     private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
         val updatedAt = database.stateDao().get(media.type.name, media.id)?.updatedAt ?: System.currentTimeMillis()
+        database.syncDao().deleteDeliveries(listOf(stateOperationId(media.type.name, media.id)))
         database.syncDao().upsertOperation(
             SyncOperationEntity(
                 operationId = stateOperationId(media.type.name, media.id),
@@ -185,7 +186,8 @@ class CineTrackRepository(
      * rows are materialized as one canonical state:* operation.
      */
     private suspend fun repairSyncQueue() {
-        val baseline = preferences.syncBaselineNow(TrackingProviderId.SIMKL)
+        val mainProvider = preferences.mainTrackingProvider.first()
+        val baseline = mainProvider?.let { preferences.syncBaselineNow(it) }
         database.withTransaction {
             val states = database.stateDao().stateSnapshot()
             val operations = database.syncDao().syncOperations()
@@ -223,8 +225,12 @@ class CineTrackRepository(
                     )
                 }
             }
-            if (deletes.isNotEmpty()) database.syncDao().deleteOperations(deletes.distinct())
-            database.syncDao().upsert(SyncStateEntity("sync_queue_repair_087", null, System.currentTimeMillis()))
+            if (deletes.isNotEmpty()) {
+                val ids = deletes.distinct()
+                database.syncDao().deleteOperations(ids)
+                database.syncDao().deleteDeliveries(ids)
+            }
+            database.syncDao().upsert(SyncStateEntity("sync_queue_repair_087", mainProvider?.name, System.currentTimeMillis()))
         }
     }
 
@@ -663,8 +669,8 @@ class CineTrackRepository(
     suspend fun isMainTrackingSyncDue(maxAgeMillis: Long): Boolean {
         val provider = preferences.mainTrackingProvider.first() ?: return false
         val lastCheck = preferences.trackingLastCheckAt(provider)
-            ?: database.syncDao().get("all")?.lastSuccessfulSync
-            ?: return true
+            ?: (if (provider == TrackingProviderId.SIMKL) database.syncDao().get("all")?.lastSuccessfulSync else null)
+        if (lastCheck == null) return true
         return System.currentTimeMillis() - lastCheck >= maxAgeMillis
     }
 

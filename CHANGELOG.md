@@ -1,3 +1,12 @@
+# CineTrack 0.90 beta
+
+- Make provider deliveries generation-aware so a completed acknowledgement cannot suppress a later edit.
+- Delete delivery rows transactionally with completed or superseded operations and guard terminal state transitions.
+- Freeze provider targets at mutation time, batch episode writes into one dispatch, and invalidate Simkl sync state on account changes.
+- Use the configured MAIN provider for queue repair and cadence decisions, including Floppy’s first-sync behavior.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.89 beta
 
 - Add provider-specific delivery state so Simkl and future Floppy deliveries acknowledge and retry independently.

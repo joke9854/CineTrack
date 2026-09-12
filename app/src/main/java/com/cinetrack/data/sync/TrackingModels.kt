@@ -38,6 +38,7 @@ enum class TrackingRole { MAIN, SECONDARY }
 
 data class SyncOperationDelivery(
     val operationId: String,
+    val operationVersion: Long,
     val providerId: TrackingProviderId,
     val status: DeliveryStatus = DeliveryStatus.PENDING,
     val required: Boolean = true,

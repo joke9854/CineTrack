@@ -181,11 +181,12 @@ data class SyncOperationEntity(
 
 @Entity(
     tableName = "sync_operation_deliveries",
-    primaryKeys = ["operationId", "providerId"],
+    primaryKeys = ["operationId", "operationVersion", "providerId"],
     indices = [Index("providerId", "status"), Index("operationId"), Index("status")],
 )
 data class SyncOperationDeliveryEntity(
     val operationId: String,
+    val operationVersion: Long,
     val providerId: String,
     val status: String,
     val required: Boolean,
@@ -518,11 +519,11 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
     suspend fun deliveries(operationIds: List<String>): List<SyncOperationDeliveryEntity>
 
-    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId = :operationId AND providerId = :providerId LIMIT 1")
-    suspend fun delivery(operationId: String, providerId: String): SyncOperationDeliveryEntity?
+    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId LIMIT 1")
+    suspend fun delivery(operationId: String, operationVersion: Long, providerId: String): SyncOperationDeliveryEntity?
 
-    @Query("UPDATE sync_operation_deliveries SET status = :status, attemptCount = attemptCount + 1, lastError = :lastError, updatedAt = :updatedAt WHERE operationId IN (:operationIds) AND providerId = :providerId")
-    suspend fun updateDelivery(providerId: String, operationIds: List<String>, status: String, lastError: String?, updatedAt: Long = System.currentTimeMillis())
+    @Query("UPDATE sync_operation_deliveries SET status = :status, attemptCount = attemptCount + 1, lastError = :lastError, updatedAt = :updatedAt WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun updateDelivery(providerId: String, operationId: String, operationVersion: Long, status: String, lastError: String?, updatedAt: Long = System.currentTimeMillis())
 
     @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
     suspend fun deleteDeliveries(operationIds: List<String>)
@@ -560,7 +561,7 @@ interface PeopleDao {
         SyncOperationEntity::class,
         SyncOperationDeliveryEntity::class,
     ],
-    version = 9,
+    version = 10,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -660,12 +661,38 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val migration9To10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries_new` (
+                    `operationId` TEXT NOT NULL,
+                    `operationVersion` INTEGER NOT NULL,
+                    `providerId` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `required` INTEGER NOT NULL,
+                    `roleAtEnqueue` TEXT NOT NULL,
+                    `attemptCount` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`operationId`, `operationVersion`, `providerId`))""")
+                database.execSQL("""INSERT OR IGNORE INTO `sync_operation_deliveries_new`
+                    (`operationId`,`operationVersion`,`providerId`,`status`,`required`,`roleAtEnqueue`,`attemptCount`,`lastError`,`createdAt`,`updatedAt`)
+                    SELECT d.`operationId`, COALESCE(o.`createdAt`, 0), d.`providerId`, d.`status`, d.`required`, d.`roleAtEnqueue`, d.`attemptCount`, d.`lastError`, d.`createdAt`, d.`updatedAt`
+                    FROM `sync_operation_deliveries` d LEFT JOIN `sync_operations` o ON o.`operationId` = d.`operationId`""")
+                database.execSQL("DROP TABLE IF EXISTS `sync_operation_deliveries`")
+                database.execSQL("ALTER TABLE `sync_operation_deliveries_new` RENAME TO `sync_operation_deliveries`")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_providerId_status` ON `sync_operation_deliveries` (`providerId`, `status`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_operationId` ON `sync_operation_deliveries` (`operationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_status` ON `sync_operation_deliveries` (`status`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10).build().also { instance = it }
         }
     }
 }

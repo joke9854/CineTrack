@@ -25,6 +25,9 @@ interface SyncOperationRepository {
     suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {}
     suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {}
     suspend fun skipUnsupported(provider: TrackingProviderId, operationIds: Set<String>) {}
+    suspend fun acknowledge(provider: TrackingProviderId, operations: List<SyncOperation>) = acknowledge(provider, operations.mapTo(linkedSetOf(), SyncOperation::id))
+    suspend fun failDelivery(provider: TrackingProviderId, operations: List<SyncOperation>, error: Throwable) = failDelivery(provider, operations.mapTo(linkedSetOf(), SyncOperation::id), error)
+    suspend fun skipUnsupported(provider: TrackingProviderId, operations: List<SyncOperation>) = skipUnsupported(provider, operations.mapTo(linkedSetOf(), SyncOperation::id))
     suspend fun completeReady(operations: List<SyncOperation>) = complete(operations)
 }
 
@@ -90,8 +93,8 @@ class RoomSyncOperationRepository(
         val secondary = preferences?.secondaryTrackingProvider?.first()
         val now = System.currentTimeMillis()
         ensureDeliveries(operations, buildList {
-            main?.let { provider -> operations.forEach { add(SyncOperationDelivery(it.id, provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
-            secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(it.id, provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
+            main?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
+            secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
         })
     }
 
@@ -113,7 +116,9 @@ class RoomSyncOperationRepository(
                 if (operation.id.startsWith("write:")) operation.id.removePrefix("write:").toLongOrNull()
                     ?.let { database.syncDao().deleteWrite(it) }
             }
-            database.syncDao().deleteOperations(operations.map(SyncOperation::id))
+            val ids = operations.map(SyncOperation::id)
+            database.syncDao().deleteOperations(ids)
+            database.syncDao().deleteDeliveries(ids)
         }
     }
 
@@ -125,9 +130,9 @@ class RoomSyncOperationRepository(
     override suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {
         if (operations.isEmpty() || targets.isEmpty()) return
         val ids = operations.mapTo(linkedSetOf(), SyncOperation::id)
-        val existing = database.syncDao().deliveries(ids.toList()).map { "${it.operationId}:${it.providerId}" }.toSet()
+        val existing = database.syncDao().deliveries(ids.toList()).map { "${it.operationId}:${it.operationVersion}:${it.providerId}" }.toSet()
         val now = System.currentTimeMillis()
-        val missing = targets.filter { it.operationId in ids && "${it.operationId}:${it.providerId.name}" !in existing }
+        val missing = targets.filter { it.operationId in ids && "${it.operationId}:${it.operationVersion}:${it.providerId.name}" !in existing }
             .map { it.toEntity(now) }
         if (missing.isNotEmpty()) database.syncDao().upsertDeliveries(missing)
     }
@@ -136,22 +141,40 @@ class RoomSyncOperationRepository(
         if (operationIds.isEmpty()) emptyList() else database.syncDao().deliveries(operationIds.toList()).map(SyncOperationDeliveryEntity::toDomain)
 
     override suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {
-        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.ACKNOWLEDGED.name, null)
+        operationIds.forEach { id -> database.syncDao().deliveries(listOf(id)).filter { it.providerId == provider.name }.forEach { row ->
+            database.syncDao().updateDelivery(provider.name, id, row.operationVersion, DeliveryStatus.ACKNOWLEDGED.name, null)
+        } }
+    }
+
+    override suspend fun acknowledge(provider: TrackingProviderId, operations: List<SyncOperation>) {
+        operations.forEach { operation -> database.syncDao().updateDelivery(provider.name, operation.id, operation.sourceVersion, DeliveryStatus.ACKNOWLEDGED.name, null) }
     }
 
     override suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {
-        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.FAILED.name, error.message)
+        operationIds.forEach { id -> database.syncDao().deliveries(listOf(id)).filter { it.providerId == provider.name }.forEach { row ->
+            database.syncDao().updateDelivery(provider.name, id, row.operationVersion, DeliveryStatus.FAILED.name, error.message)
+        } }
+    }
+
+    override suspend fun failDelivery(provider: TrackingProviderId, operations: List<SyncOperation>, error: Throwable) {
+        operations.forEach { operation -> database.syncDao().updateDelivery(provider.name, operation.id, operation.sourceVersion, DeliveryStatus.FAILED.name, error.message) }
     }
 
     override suspend fun skipUnsupported(provider: TrackingProviderId, operationIds: Set<String>) {
-        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.SKIPPED_UNSUPPORTED.name, null)
+        operationIds.forEach { id -> database.syncDao().deliveries(listOf(id)).filter { it.providerId == provider.name }.forEach { row ->
+            database.syncDao().updateDelivery(provider.name, id, row.operationVersion, DeliveryStatus.SKIPPED_UNSUPPORTED.name, null)
+        } }
+    }
+
+    override suspend fun skipUnsupported(provider: TrackingProviderId, operations: List<SyncOperation>) {
+        operations.forEach { operation -> database.syncDao().updateDelivery(provider.name, operation.id, operation.sourceVersion, DeliveryStatus.SKIPPED_UNSUPPORTED.name, null) }
     }
 
     override suspend fun completeReady(operations: List<SyncOperation>) {
         if (operations.isEmpty()) return
         val deliveries = deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
         val ready = operations.filter { operation ->
-            val rows = deliveries.filter { it.operationId == operation.id }
+            val rows = deliveries.filter { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
             rows.isEmpty() || rows.filter(SyncOperationDelivery::required).all { it.status == DeliveryStatus.ACKNOWLEDGED || it.status == DeliveryStatus.SKIPPED_UNSUPPORTED }
         }
         complete(ready)
@@ -219,6 +242,7 @@ class RoomSyncOperationRepository(
 
 private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
     operationId = operationId,
+    operationVersion = operationVersion,
     providerId = providerId.name,
     status = status.name,
     required = required,
@@ -231,6 +255,7 @@ private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEnt
 
 private fun SyncOperationDeliveryEntity.toDomain() = SyncOperationDelivery(
     operationId = operationId,
+    operationVersion = operationVersion,
     providerId = runCatching { TrackingProviderId.valueOf(providerId) }.getOrDefault(TrackingProviderId.SIMKL),
     status = runCatching { DeliveryStatus.valueOf(status) }.getOrDefault(DeliveryStatus.PENDING),
     required = required,
