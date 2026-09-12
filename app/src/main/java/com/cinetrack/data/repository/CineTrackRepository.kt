@@ -2118,7 +2118,7 @@ class CineTrackRepository(
     }
 
     override suspend fun syncSimklProvider(
-        operations: List<SyncOperation> = emptyList(),
+        operations: List<SyncOperation>,
         onProgress: (SyncProgress) -> Unit,
     ): Result<ProviderSyncOutcome> {
         val previousSyncState = database.syncDao().get("all")
