@@ -357,8 +357,8 @@ class CineTrackRepository(
         mediaType: String,
         mediaId: Int,
         operationNames: Set<String>,
-        season: Int? = null,
-        episode: Int? = null,
+        season: Int?,
+        episode: Int?,
     ) {
         val operations = database.syncDao().syncOperations().filter { operation ->
             operation.mediaType == mediaType && operation.mediaId == mediaId &&
@@ -1644,8 +1644,8 @@ class CineTrackRepository(
      * Nothing returned by the network is exposed directly to Compose.
      */
     override suspend fun refreshProgressCache(
-        request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
-        onProgress: ((Float) -> Unit)? = null,
+        request: ProgressRefreshRequest,
+        onProgress: ((Float) -> Unit)?,
     ): Boolean = progressCacheMutex.withLock {
         onProgress?.invoke(.82f)
         val snapshot = database.progressSnapshotDao().snapshot()
