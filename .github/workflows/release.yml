@@ -12,7 +12,13 @@ permissions:
 
 jobs:
   release:
-    if: (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') && !contains(github.event.head_commit.message, '[skip release]')
+    # Publishing is opt-in. Every push still gets the Android validation
+    # workflow, but only an explicit [release] commit (or manual dispatch)
+    # reaches the signed build and GitHub Release steps.
+    if: >-
+      (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') &&
+      (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) &&
+      !contains(github.event.head_commit.message, '[skip release]')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
