@@ -4,16 +4,26 @@ import com.cinetrack.data.sync.ProviderSyncOutcome
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.domain.SyncProgress
 
+/** Focused orchestration contract; provider transport never depends on the UI façade. */
+fun interface SimklSyncOrchestrator {
+    suspend fun syncSimklProvider(
+        operations: List<SyncOperation>,
+        onProgress: (SyncProgress) -> Unit,
+    ): Result<ProviderSyncOutcome>
+}
+
 /** Dedicated boundary for the proven Simkl full-sync algorithm during migration. */
 class SimklSyncEngine(
-    private var implementation: (suspend (List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome)? = null,
+    private var orchestrator: SimklSyncOrchestrator? = null,
 ) {
-    fun bind(implementation: suspend (List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome) {
-        check(this.implementation == null) { "Simkl sync engine is already bound" }
-        this.implementation = implementation
+    fun bind(orchestrator: SimklSyncOrchestrator) {
+        check(this.orchestrator == null) { "Simkl sync engine is already bound" }
+        this.orchestrator = orchestrator
     }
 
     suspend fun sync(operations: List<SyncOperation>, onProgress: (SyncProgress) -> Unit): ProviderSyncOutcome =
-        (implementation ?: error("Simkl sync engine is not initialized"))(operations, onProgress)
+        (orchestrator ?: error("Simkl sync engine is not initialized"))
+            .syncSimklProvider(operations, onProgress)
+            .getOrThrow()
 }
 

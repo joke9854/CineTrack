@@ -145,7 +145,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
         )
-        simklSyncEngine.bind { operations, onProgress -> facade.syncSimklProvider(operations, onProgress).getOrThrow() }
+        simklSyncEngine.bind(facade)
         repository = facade
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))

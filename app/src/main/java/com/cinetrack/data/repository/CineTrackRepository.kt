@@ -30,6 +30,7 @@ import com.cinetrack.data.sync.ProviderSyncOutcome
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.SyncOperationRepository
 import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.simkl.SimklSyncOrchestrator
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
@@ -134,7 +135,7 @@ class CineTrackRepository(
     private val libraryRepository: LibraryRepository,
     private val syncReconciler: SyncReconciler = SyncReconciler(),
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
-) {
+) : SimklSyncOrchestrator {
     suspend fun awaitStartup() {
         awaitStartupReady()
         // Queue repair is idempotent and also runs defensively before every
@@ -2116,7 +2117,7 @@ class CineTrackRepository(
         }
     }
 
-    internal suspend fun syncSimklProvider(
+    override suspend fun syncSimklProvider(
         operations: List<SyncOperation> = emptyList(),
         onProgress: (SyncProgress) -> Unit,
     ): Result<ProviderSyncOutcome> {
