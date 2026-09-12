@@ -5,6 +5,7 @@ import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.PendingWriteEntity
 import com.cinetrack.data.local.SyncOperationEntity
 import com.cinetrack.data.local.SyncOperationDeliveryEntity
+import com.cinetrack.data.local.SyncStateEntity
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.SyncOperationCard
@@ -29,6 +30,9 @@ interface SyncOperationRepository {
     suspend fun failDelivery(provider: TrackingProviderId, operations: List<SyncOperation>, error: Throwable) = failDelivery(provider, operations.mapTo(linkedSetOf(), SyncOperation::id), error)
     suspend fun skipUnsupported(provider: TrackingProviderId, operations: List<SyncOperation>) = skipUnsupported(provider, operations.mapTo(linkedSetOf(), SyncOperation::id))
     suspend fun completeReady(operations: List<SyncOperation>) = complete(operations)
+
+    /** Binds pre-delivery operations to one startup MAIN provider exactly once. */
+    suspend fun backfillLegacyDeliveries() {}
 }
 
 /**
@@ -40,6 +44,7 @@ class RoomSyncOperationRepository(
     private val preferences: AppPreferences? = null,
 ) : SyncOperationRepository {
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
+        backfillLegacyDeliveries()
         materializeLegacyOperations()
         repairBlankTitles()
         val writes = database.syncDao().pendingWrites().associateBy { "write:${it.id}" }
@@ -57,14 +62,19 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun cards(): List<SyncOperationCard> {
+        backfillLegacyDeliveries()
         materializeLegacyOperations()
         repairBlankTitles()
         val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
         val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).map(SyncOperationDeliveryEntity::toDomain)
         return cards.map { card ->
-            card.copy(deliveries = deliveryRows.filter { it.operationId == card.id }.map {
-                SyncDeliveryCard(it.providerId.name, it.status.name, it.required, it.attemptCount, it.lastError)
-            })
+            val deliveries = deliveryRows.filter { it.operationId == card.id }
+            card.copy(
+                status = card.status.aggregateWith(deliveries),
+                deliveries = deliveries.map {
+                    SyncDeliveryCard(it.providerId.name, it.status.name, it.required, it.attemptCount, it.lastError)
+                },
+            )
         }
     }
 
@@ -88,14 +98,16 @@ class RoomSyncOperationRepository(
                 episode = operation.payload?.episodePart(1),
             )
         }
-        database.syncDao().upsertOperations(entities)
-        val main = preferences?.mainTrackingProvider?.first()
-        val secondary = preferences?.secondaryTrackingProvider?.first()
-        val now = System.currentTimeMillis()
-        ensureDeliveries(operations, buildList {
-            main?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
-            secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
-        })
+        database.withTransaction {
+            database.syncDao().upsertOperations(entities)
+            val main = preferences?.mainTrackingProvider?.first()
+            val secondary = preferences?.secondaryTrackingProvider?.first()
+            val now = System.currentTimeMillis()
+            ensureDeliveries(operations, buildList {
+                main?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
+                secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
+            })
+        }
     }
 
     override suspend fun complete(operations: List<SyncOperation>) {
@@ -130,11 +142,72 @@ class RoomSyncOperationRepository(
     override suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {
         if (operations.isEmpty() || targets.isEmpty()) return
         val ids = operations.mapTo(linkedSetOf(), SyncOperation::id)
-        val existing = database.syncDao().deliveries(ids.toList()).map { "${it.operationId}:${it.operationVersion}:${it.providerId}" }.toSet()
+        val existingRows = database.syncDao().deliveries(ids.toList())
+        val existing = existingRows.map { "${it.operationId}:${it.operationVersion}:${it.providerId}" }.toSet()
+        val staleIds = operations.filter { operation ->
+            existingRows.any { it.operationId == operation.id } &&
+                existingRows.none { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
+        }.mapTo(linkedSetOf(), SyncOperation::id)
+        if (staleIds.isNotEmpty()) database.syncDao().deleteDeliveries(staleIds.toList())
+        val currentRows = existingRows.filterNot { it.operationId in staleIds }
+        val hasGeneration = operations.associate { it.id to it.sourceVersion }
         val now = System.currentTimeMillis()
-        val missing = targets.filter { it.operationId in ids && "${it.operationId}:${it.operationVersion}:${it.providerId.name}" !in existing }
+        val missing = targets.filter { target ->
+            target.operationId in ids &&
+                hasGeneration[target.operationId] == target.operationVersion &&
+                currentRows.none { it.operationId == target.operationId && it.operationVersion == target.operationVersion } &&
+                "${target.operationId}:${target.operationVersion}:${target.providerId.name}" !in existing
+        }
             .map { it.toEntity(now) }
         if (missing.isNotEmpty()) database.syncDao().upsertDeliveries(missing)
+    }
+
+    override suspend fun backfillLegacyDeliveries() {
+        val main = preferences?.mainTrackingProvider?.first() ?: return
+        if (database.syncDao().get(LEGACY_DELIVERY_BACKFILL_AREA) != null) return
+        materializeLegacyOperations()
+        database.withTransaction {
+            if (database.syncDao().get(LEGACY_DELIVERY_BACKFILL_AREA) != null) return@withTransaction
+            val operations = database.syncDao().syncOperations().filter { operation ->
+                operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                    !operation.operationId.startsWith("reconcile:")
+            }
+            val writes = database.syncDao().pendingWrites().associateBy { "write:${it.id}" }
+            val existing = if (operations.isEmpty()) emptyList() else database.syncDao().deliveries(operations.map(SyncOperationEntity::operationId))
+            val rows = mutableListOf<SyncOperationDeliveryEntity>()
+            val updatedOperations = mutableListOf<SyncOperationEntity>()
+            operations.forEach { operation ->
+                val sourceVersion = writes[operation.operationId]?.createdAt ?: operation.createdAt
+                val generationRows = existing.filter { it.operationId == operation.operationId && it.operationVersion == sourceVersion }
+                if (generationRows.isEmpty()) {
+                    // Rows from a prior reused logical key belong to an obsolete
+                    // generation and must not be carried into this backfill.
+                    if (existing.any { it.operationId == operation.operationId }) {
+                        database.syncDao().deleteDeliveries(listOf(operation.operationId))
+                    }
+                    rows += SyncOperationDeliveryEntity(
+                        operationId = operation.operationId,
+                        operationVersion = sourceVersion,
+                        providerId = main.name,
+                        status = DeliveryStatus.PENDING.name,
+                        required = true,
+                        roleAtEnqueue = TrackingRole.MAIN.name,
+                        createdAt = sourceVersion,
+                        updatedAt = System.currentTimeMillis(),
+                    )
+                    updatedOperations += operation.copy(providerId = main.name)
+                }
+            }
+            if (rows.isNotEmpty()) database.syncDao().upsertDeliveries(rows)
+            if (updatedOperations.isNotEmpty()) database.syncDao().upsertOperations(updatedOperations)
+            database.syncDao().upsert(
+                SyncStateEntity(
+                    area = LEGACY_DELIVERY_BACKFILL_AREA,
+                    remoteTimestamp = main.name,
+                    lastSuccessfulSync = System.currentTimeMillis(),
+                ),
+            )
+        }
     }
 
     override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
@@ -240,6 +313,8 @@ class RoomSyncOperationRepository(
     }
 }
 
+private const val LEGACY_DELIVERY_BACKFILL_AREA = "sync_delivery_backfill_089"
+
 private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
     operationId = operationId,
     operationVersion = operationVersion,
@@ -318,5 +393,13 @@ private fun SyncOperationEntity.toCard(): SyncOperationCard? {
         attemptCount = attemptCount,
         providerId = providerId,
     )
+}
+
+private fun SyncOperationStatus.aggregateWith(deliveries: List<SyncOperationDelivery>): SyncOperationStatus {
+    if (this == SyncOperationStatus.CONFLICT) return this
+    val required = deliveries.filter(SyncOperationDelivery::required)
+    val hasFailed = required.any { it.status == DeliveryStatus.FAILED }
+    val hasAcknowledged = required.any { it.status == DeliveryStatus.ACKNOWLEDGED }
+    return if (hasFailed && hasAcknowledged) SyncOperationStatus.PARTIAL else this
 }
 

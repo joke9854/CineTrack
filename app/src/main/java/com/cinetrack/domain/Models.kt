@@ -194,7 +194,7 @@ data class ViewingPeopleInsights(
     val loading: Boolean = false,
 )
 
-enum class SyncOperationStatus { PENDING, FAILED, CONFLICT }
+enum class SyncOperationStatus { PENDING, FAILED, PARTIAL, CONFLICT }
 
 enum class SyncConflictChoice { KEEP_LOCAL, USE_REMOTE }
 

@@ -1,3 +1,10 @@
+# CineTrack 0.93 beta
+
+- Preserve immutable provider target snapshots across role switches, add idempotent legacy delivery backfill, and surface partial provider delivery status.
+- Mark unsupported MAIN operations explicitly failed while keeping delivery state transitions generation-safe.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.92 beta
 
 - Preserve the existing local-library constructor contract while retaining provider-target snapshots for new mutations.

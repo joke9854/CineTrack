@@ -38,8 +38,11 @@ class SyncCoordinator(
             val mainPending = pendingFor(pending, main.id)
             val mainUnsupported = mainPending.firstOrNull { !main.capabilities.supports(it) }
             if (mainUnsupported != null) {
-                operations.failDelivery(main.id, mainPending.filter { it.id == mainUnsupported.id }, TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type))
-                throw TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type)
+                val error = TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type)
+                val unsupported = mainPending.filter { it.id == mainUnsupported.id }
+                operations.failDelivery(main.id, unsupported, error)
+                operations.fail(unsupported, error)
+                throw error
             }
 
             // Direction is structural: SECONDARY has no pull/sync call anywhere here.

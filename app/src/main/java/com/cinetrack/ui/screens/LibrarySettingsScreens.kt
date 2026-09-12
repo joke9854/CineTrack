@@ -710,7 +710,7 @@ private fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
     val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }
-    val failed = operations.filter { it.status == SyncOperationStatus.FAILED }
+    val failed = operations.filter { it.status in setOf(SyncOperationStatus.FAILED, SyncOperationStatus.PARTIAL) }
     val pending = operations.filter { it.status == SyncOperationStatus.PENDING }
 
     SettingsSection(stringResource(R.string.sync_operations_status)) {
@@ -755,6 +755,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
     val statusColor = when (operation.status) {
         SyncOperationStatus.CONFLICT -> StatusPaused
         SyncOperationStatus.FAILED -> androidx.compose.material3.MaterialTheme.colorScheme.error
+        SyncOperationStatus.PARTIAL -> androidx.compose.material3.MaterialTheme.colorScheme.error
         SyncOperationStatus.PENDING -> AccentLight
     }
     val providerName = operation.providerId.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }

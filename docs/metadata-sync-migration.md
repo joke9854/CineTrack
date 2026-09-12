@@ -36,3 +36,10 @@ Each logical operation carries a stable media/logical identity plus an exact
 role switches never rewrite existing rows, and a newer local state generation
 supersedes the old state operation and its deliveries.
 
+Installations upgraded from the pre-delivery schema receive one idempotent
+startup backfill: each genuine pending or failed legacy operation is bound to
+the configured MAIN provider and marked as repaired. Missing MAIN targets are
+never inferred again after that snapshot. When required deliveries disagree,
+the operation card reports a partial/attention state while retaining the
+provider rows as the source of truth for retry.
+

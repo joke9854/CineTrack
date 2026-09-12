@@ -186,6 +186,9 @@ class CineTrackRepository(
      * rows are materialized as one canonical state:* operation.
      */
     private suspend fun repairSyncQueue() {
+        // Materialize pre-0.89 operations once against the configured MAIN
+        // provider before any role changes can be observed by the coordinator.
+        syncOperationRepository.backfillLegacyDeliveries()
         val mainProvider = preferences.mainTrackingProvider.first()
         val baseline = mainProvider?.let { preferences.syncBaselineNow(it) }
         database.withTransaction {
