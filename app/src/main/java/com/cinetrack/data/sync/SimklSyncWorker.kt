@@ -12,7 +12,7 @@ import com.cinetrack.CineTrackApplication
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
 
-object SimklWorkScheduler {
+object TrackingWorkScheduler {
     private const val WORK_NAME = "simkl-periodic-sync"
 
     fun update(context: Context, enabled: Boolean, wifiOnly: Boolean) {
@@ -22,7 +22,7 @@ object SimklWorkScheduler {
             return
         }
         val networkType = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
-        val request = PeriodicWorkRequestBuilder<SimklSyncWorker>(9, TimeUnit.HOURS)
+        val request = PeriodicWorkRequestBuilder<TrackingSyncWorker>(9, TimeUnit.HOURS)
             .setInitialDelay(9, TimeUnit.HOURS)
             .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
             .build()
@@ -30,16 +30,23 @@ object SimklWorkScheduler {
     }
 }
 
-class SimklSyncWorker(
+/** Keeps old callers/source compatibility while scheduling the generic worker path. */
+@Deprecated("Use TrackingWorkScheduler")
+object SimklWorkScheduler {
+    fun update(context: Context, enabled: Boolean, wifiOnly: Boolean) =
+        TrackingWorkScheduler.update(context, enabled, wifiOnly)
+}
+
+open class TrackingSyncWorker(
     appContext: Context,
     params: WorkerParameters,
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
-        if (!application.container.preferences.simklConnectedValue()) return Result.success()
+        if (!application.container.syncCoordinator.isMainProviderConnected()) return Result.success()
         if (!application.container.repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
-        return application.container.repository.syncSimkl { }.fold(
+        return application.container.syncCoordinator.sync { }.fold(
             onSuccess = {
                 try {
                     val state = application.container.repository.loadCachedState()
@@ -65,5 +72,10 @@ class SimklSyncWorker(
     }
 }
 
-private suspend fun com.cinetrack.data.repository.AppPreferences.simklConnectedValue(): Boolean =
-    !tokenNow().isNullOrBlank()
+/** Keeps the pre-refactor worker name available to existing manifests and callers. */
+@Deprecated("Use TrackingSyncWorker")
+class SimklSyncWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : TrackingSyncWorker(appContext, params)
+
