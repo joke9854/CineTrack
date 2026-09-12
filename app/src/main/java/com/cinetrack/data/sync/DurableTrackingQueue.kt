@@ -1,13 +1,19 @@
 package com.cinetrack.data.sync
 
 import kotlinx.coroutines.sync.Mutex
-import kotlinx.coroutines.sync.withLock
 
 /** Serializes configuration changes with local mutation target snapshots. */
 class TrackingRoutingMutex {
     private val mutex = Mutex()
 
-    suspend fun <T> withLock(block: suspend () -> T): T = mutex.withLock(action = block)
+    suspend fun <T> withLock(block: suspend () -> T): T {
+        mutex.lock()
+        return try {
+            block()
+        } finally {
+            mutex.unlock()
+        }
+    }
 }
 
 /**
