@@ -24,7 +24,10 @@ class SyncReconcilerTest {
         val localState = movie(LibraryStatus.COMPLETED, true, Instant.parse("2025-01-02T00:00:00Z"))
         val remoteState = movie(LibraryStatus.WATCHING, false, Instant.parse("2025-01-01T00:00:00Z"))
         val result = reconciler.reconcile(local(TrackingSnapshot(movies = listOf(localState))), TrackingSnapshot(movies = listOf(remoteState)), provider)
-        assertEquals(SyncOperationType.LIBRARY_STATUS, result.remoteOperations.single().type)
+        assertEquals(
+            setOf(SyncOperationType.LIBRARY_STATUS, SyncOperationType.MOVIE_WATCHED),
+            result.remoteOperations.map { it.type }.toSet(),
+        )
         assertTrue(result.localMutations.isEmpty())
     }
 
@@ -58,12 +61,12 @@ class SyncReconcilerTest {
         val localState = movie(LibraryStatus.WATCHING, true, null)
         val remoteState = movie(LibraryStatus.COMPLETED, false, null)
         val result = reconciler.reconcile(local(TrackingSnapshot(movies = listOf(localState))), TrackingSnapshot(movies = listOf(remoteState)), provider)
-        assertEquals(1, result.conflicts.size)
+        assertEquals(2, result.conflicts.size)
     }
 
     @Test fun `identity uses stable external ids rather than title`() {
-        val localState = TrackedMovieState(MediaIds(imdb = "tt123"), LibraryStatus.WATCHING, false, updatedAt = Instant.parse("2025-01-01T00:00:00Z"))
-        val remoteState = TrackedMovieState(MediaIds(imdb = "tt123"), LibraryStatus.COMPLETED, false, updatedAt = Instant.parse("2025-01-02T00:00:00Z"))
+        val localState = TrackedMovieState(MediaIds(tmdb = 99, imdb = "tt123"), LibraryStatus.WATCHING, false, updatedAt = Instant.parse("2025-01-01T00:00:00Z"))
+        val remoteState = TrackedMovieState(MediaIds(tmdb = 99, imdb = "tt123"), LibraryStatus.COMPLETED, false, updatedAt = Instant.parse("2025-01-02T00:00:00Z"))
         val result = reconciler.reconcile(local(TrackingSnapshot(movies = listOf(localState))), TrackingSnapshot(movies = listOf(remoteState)), provider)
         assertEquals(1, result.localMutations.size)
     }
