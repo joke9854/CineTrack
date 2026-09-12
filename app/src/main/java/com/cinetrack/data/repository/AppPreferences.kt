@@ -16,7 +16,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.remote.SimklAuthService
-import com.cinetrack.data.sync.SimklWorkScheduler
+import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.domain.SyncReport
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -104,12 +105,25 @@ class AppPreferences(private val context: Context) {
         val hiddenDiscovery = stringPreferencesKey("hidden_discovery")
         val searchHistory = stringPreferencesKey("search_history")
         val introductionCompleted = booleanPreferencesKey("introduction_completed")
+        val mainTrackingProvider = stringPreferencesKey("main_tracking_provider")
+        val secondaryTrackingProvider = stringPreferencesKey("secondary_tracking_provider")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
         secureCredential("simkl_token") ?: prefs[Keys.simklToken]
     }
     val simklConnected: Flow<Boolean> = simklToken.map { !it.isNullOrBlank() }
+    val mainTrackingProvider: Flow<TrackingProviderId?> = context.cineTrackDataStore.data.map { prefs ->
+        when (val stored = prefs[Keys.mainTrackingProvider]) {
+            null -> TrackingProviderId.SIMKL
+            "NONE" -> null
+            else -> runCatching { TrackingProviderId.valueOf(stored) }.getOrNull()
+        }
+    }
+    val secondaryTrackingProvider: Flow<TrackingProviderId?> = context.cineTrackDataStore.data.map { prefs ->
+        prefs[Keys.secondaryTrackingProvider]
+            ?.let { runCatching { TrackingProviderId.valueOf(it) }.getOrNull() }
+    }
     val backgroundSync: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.backgroundSync] ?: true }
     val wifiOnly: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.wifiOnly] ?: false }
     val language: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.language] ?: "system" }
@@ -225,6 +239,15 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.simklLastCheckAt] = at }
     }
 
+    suspend fun setTrackingProviders(main: TrackingProviderId?, secondary: TrackingProviderId?) {
+        require(main == null || main != secondary) { "The same tracking provider cannot be both MAIN and SECONDARY" }
+        context.cineTrackDataStore.edit { prefs ->
+            prefs[Keys.mainTrackingProvider] = main?.name ?: "NONE"
+            if (secondary == null) prefs.remove(Keys.secondaryTrackingProvider)
+            else prefs[Keys.secondaryTrackingProvider] = secondary.name
+        }
+    }
+
     suspend fun setToken(value: String?) {
         setSecureCredential("simkl_token", value)
         context.cineTrackDataStore.edit { prefs ->
@@ -236,12 +259,12 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setBackgroundSync(enabled: Boolean) {
         context.cineTrackDataStore.edit { it[Keys.backgroundSync] = enabled }
-        SimklWorkScheduler.update(context, enabled = enabled, wifiOnly = wifiOnly.first())
+        TrackingWorkScheduler.update(context, enabled = enabled, wifiOnly = wifiOnly.first())
     }
 
     suspend fun setWifiOnly(enabled: Boolean) {
         context.cineTrackDataStore.edit { it[Keys.wifiOnly] = enabled }
-        SimklWorkScheduler.update(context, enabled = backgroundSync.first(), wifiOnly = enabled)
+        TrackingWorkScheduler.update(context, enabled = backgroundSync.first(), wifiOnly = enabled)
     }
     suspend fun setLanguage(value: String) {
         context.cineTrackDataStore.edit { it[Keys.language] = value }
@@ -515,3 +538,4 @@ class AppPreferences(private val context: Context) {
         throw cause
     }
 }
+
