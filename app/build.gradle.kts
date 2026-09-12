@@ -87,6 +87,13 @@ android {
     }
 
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+
+    // MigrationTestHelper loads exported Room schemas from the instrumentation
+    // APK's assets. Keep the historical schemas alongside the generated ones
+    // and package them for every connectedDebugAndroidTest run.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 ksp {
