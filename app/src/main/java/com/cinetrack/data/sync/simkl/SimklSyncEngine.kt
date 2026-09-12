@@ -1,5 +1,6 @@
 package com.cinetrack.data.sync.simkl
 
+import androidx.room.withTransaction
 import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.EpisodeEntity
 import com.cinetrack.data.local.MediaEntity
@@ -19,13 +20,13 @@ import java.time.LocalDate
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
 
-internal data class ResolvedSimklItem(
+data class ResolvedSimklItem(
     val item: SimklLibraryItem,
     val type: MediaType,
     val tmdbId: Int,
 )
 
-internal interface SimklSyncHost {
+interface SimklSyncHost {
     val database: AppDatabase
     val services: ApiServices
     val preferences: AppPreferences
