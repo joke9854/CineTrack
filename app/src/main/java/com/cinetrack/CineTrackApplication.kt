@@ -105,9 +105,13 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
 
     init {
         lateinit var facade: CineTrackRepository
-        val simkl = SimklTrackingProvider(services, preferences) { onProgress ->
-            facade.syncSimklProvider(onProgress).getOrThrow()
-        }
+        val simkl = SimklTrackingProvider(
+            services = services,
+            preferences = preferences,
+            legacyBidirectionalSync = { onProgress ->
+                facade.syncSimklProvider(onProgress).getOrThrow()
+            },
+        )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, FloppyTrackingProvider()),
             settingsRepository = settingsRepository,
