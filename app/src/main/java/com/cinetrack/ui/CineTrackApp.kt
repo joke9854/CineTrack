@@ -120,7 +120,17 @@ fun CineTrackApp(
         android.os.Build.VERSION.SDK_INT >= 31 &&
             !(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
     }
-    val viewModel: CineTrackViewModel = viewModel(factory = CineTrackViewModel.Factory(application.container.repository))
+    val viewModel: CineTrackViewModel = viewModel(
+        factory = CineTrackViewModel.Factory(
+            application.container.repository,
+            application.container.libraryRepository,
+            application.container.mediaRepository,
+            application.container.discoveryRepository,
+            application.container.peopleRepository,
+            application.container.watchProviderRepository,
+            application.container.syncCoordinator,
+        ),
+    )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val searchLoading by viewModel.searchLoading.collectAsStateWithLifecycle()
@@ -517,3 +527,4 @@ fun CineTrackApp(
         }
     }
 }
+
