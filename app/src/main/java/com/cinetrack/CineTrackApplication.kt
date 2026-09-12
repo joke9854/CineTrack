@@ -111,9 +111,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     init {
         settingsRepository = SettingsRepository(preferences, trackingConfigurationService)
         val simklSyncEngine by lazy {
-            SimklSyncEngine { operations, onProgress ->
-                repository.syncSimklProvider(operations, onProgress)
-            }
+            SimklSyncEngine { repository }
         }
         val simkl = SimklTrackingProvider(
             services = services,
@@ -156,7 +154,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingProviderRegistry = trackingProviderRegistry,
         )
         libraryRepository = localLibrary
-        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))
+        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))
         discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
         peopleRepository = DefaultPeopleRepository(mediaRepository)
         watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)
