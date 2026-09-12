@@ -1,3 +1,9 @@
+# CineTrack 0.96 beta
+
+- Re-evaluate all persisted provider deliveries after a full-sync retry so an operation completes when only a previously failed secondary delivery remains.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.95 beta
 
 - Route tracking settings and synchronization operations through dedicated screen entry points so future provider controls can grow without expanding the monolithic settings surface.

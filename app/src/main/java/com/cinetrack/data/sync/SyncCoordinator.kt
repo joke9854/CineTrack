@@ -69,6 +69,10 @@ class SyncCoordinator(
             // generations that are already ACKNOWLEDGED (for example after a
             // partial SECONDARY failure) must not be required in this response.
             acknowledge(mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
+            // A retry may have had only SECONDARY work left after MAIN was
+            // acknowledged by an earlier attempt. Re-evaluate the complete
+            // operation against every persisted delivery, not just this pass.
+            operations.completeReady(pending)
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
