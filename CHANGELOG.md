@@ -1,3 +1,10 @@
+# CineTrack 0.88 beta
+
+- Preserve the coupled movie-watched change when a local mark-watched action is represented by the legacy completed library operation.
+- Keep ordinary library-status edits field-specific so they do not suppress unrelated MAIN watch-history changes.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.87 beta
 
 - Repair remote-only MAIN changes so Simkl updates are adopted locally without restoring stale CineTrack values.

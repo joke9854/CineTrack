@@ -98,9 +98,18 @@ class SyncReconciler(
         val mediaId = state.ids.tmdb?.toInt() ?: return false
         return local.pendingOperations.any { operation ->
             operation.mediaType == MediaType.MOVIE && operation.mediaId == mediaId &&
-                operation.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED) &&
-                (operation.type == SyncOperationType.MOVIE_WATCHED) == state.watched &&
-                isCurrent(operation, state.updatedAt)
+                when {
+                    operation.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED) ->
+                        (operation.type == SyncOperationType.MOVIE_WATCHED) == state.watched && isCurrent(operation, state.updatedAt)
+                    // The legacy local-first API couples COMPLETED with the
+                    // movie watched field in one state: operation. Recognize
+                    // that exact value only; ordinary library changes do not
+                    // protect independent remote watch-history changes.
+                    operation.type == SyncOperationType.LIBRARY_STATUS &&
+                        state.libraryState == LibraryStatus.COMPLETED && state.watched ->
+                        operation.value == LibraryStatus.COMPLETED.name && isCurrent(operation, state.updatedAt)
+                    else -> false
+                }
         }
     }
 

@@ -249,7 +249,7 @@ class CineTrackRepository(
             val status = state.status.fromCineTrackStatus()
             if (state.mediaType == MediaType.MOVIE.name) {
                 val index = movies.indexOfFirst { it.ids.tmdb?.toInt() == state.mediaId }
-                if (index >= 0) movies = movies.toMutableList().also { it[index] = it[index].copy(libraryState = status) }
+                if (index >= 0) movies = movies.toMutableList().also { it[index] = it[index].copy(libraryState = status, watched = state.watched) }
             } else if (state.mediaType == MediaType.TV.name) {
                 val index = shows.indexOfFirst { it.ids.tmdb?.toInt() == state.mediaId }
                 if (index >= 0) shows = shows.toMutableList().also { it[index] = it[index].copy(libraryState = status) }

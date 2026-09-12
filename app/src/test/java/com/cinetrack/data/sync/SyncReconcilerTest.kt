@@ -77,7 +77,7 @@ class SyncReconcilerTest {
         )
         val result = reconciler.reconcile(local, TrackingSnapshot(movies = listOf(remoteState)), provider)
         assertTrue(result.remoteOperations.isEmpty())
-        assertTrue(result.localMutations.any { it is LocalMutation.SetWatched && !it.watched })
+        assertTrue(result.localMutations.isEmpty())
     }
 
     @Test fun `remote newer state becomes remote-origin local mutation`() {
@@ -170,6 +170,24 @@ class SyncReconcilerTest {
             provider,
         )
         assertTrue(result.localMutations.any { it is LocalMutation.SetWatched && it.watched })
+    }
+
+    @Test fun `completed library intent protects its coupled watched change`() {
+        val at = Instant.parse("2025-01-02T00:00:00Z")
+        val baseline = movie(LibraryStatus.WATCHING, false, at)
+        val localState = movie(LibraryStatus.COMPLETED, true, at)
+        val result = reconciler.reconcile(
+            LocalTrackingSnapshot(
+                state = TrackingSnapshot(movies = listOf(localState)),
+                baseline = TrackingSnapshot(movies = listOf(baseline)),
+                dirtyMediaKeys = setOf("MOVIE:42"),
+                pendingOperations = listOf(SyncOperation("state:MOVIE:42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = at.toEpochMilli())),
+            ),
+            TrackingSnapshot(movies = listOf(baseline)),
+            provider,
+        )
+        assertTrue(result.localMutations.isEmpty())
+        assertTrue(result.remoteOperations.isEmpty())
     }
 
     @Test fun `missing timestamps are deterministic conflicts`() {
