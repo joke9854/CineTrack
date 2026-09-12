@@ -1,3 +1,9 @@
+# CineTrack 0.91 beta
+
+- Clear legacy Simkl sync state when disconnecting or switching accounts so a new account syncs immediately without affecting local library data.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.90 beta
 
 - Make provider deliveries generation-aware so a completed acknowledgement cannot suppress a later edit.

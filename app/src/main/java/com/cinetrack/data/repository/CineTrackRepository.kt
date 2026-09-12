@@ -2727,11 +2727,13 @@ class CineTrackRepository(
 
     suspend fun completeLogin(code: String, state: String?): Result<Unit> =
         preferences.completeSimklLogin(code, state, services.simklAuth).onSuccess {
+            database.syncDao().delete("all")
             onTokenChanged(preferences.tokenNow())
         }
 
     suspend fun disconnectSimkl() {
         preferences.setToken(null)
+        database.syncDao().delete("all")
         onTokenChanged(null)
     }
 
