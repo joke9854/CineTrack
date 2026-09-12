@@ -1,3 +1,12 @@
+# CineTrack 0.85 beta
+
+- Introduce provider-neutral tracking snapshots and deterministic reconciliation for library, movie, and episode history.
+- Protect pending local changes while synchronizing and surface explicit conflicts for review.
+- Add focused discovery, people, watch-provider, and media data-source boundaries while keeping the legacy facade as a compatibility bridge.
+- Expand Simkl synchronization to pull complete history and reconcile watched movie state alongside library and episode state.
+
+Verification is pending in the release environment; local verification is currently blocked by Android SDK permissions.
+
 # CineTrack 0.84
 
 - Give the Coming Soon hide action a compact 26 dp rounded-square glass background while preserving its 16 dp icon and a comfortable touch target.
@@ -15,3 +24,4 @@ Debug and release APK builds, unit tests, lint, baseline-profile compilation, re
 - Clear stale results while switching queries and show a proper empty state after searches complete.
 
 Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
+
