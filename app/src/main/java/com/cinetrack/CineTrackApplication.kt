@@ -110,12 +110,15 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
 
     init {
         settingsRepository = SettingsRepository(preferences, trackingConfigurationService)
-        lateinit var facade: CineTrackRepository
-        val simklSyncEngine = SimklSyncEngine()
+        val simklSyncEngine by lazy {
+            SimklSyncEngine { operations, onProgress ->
+                repository.syncSimklProvider(operations, onProgress)
+            }
+        }
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
-            syncEngine = simklSyncEngine,
+            syncEngine = { simklSyncEngine },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, FloppyTrackingProvider()),
@@ -123,10 +126,15 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         )
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
-        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, {
-            facade.scheduleAutomaticBackup()
-        }, trackingProviderRegistry, trackingRoutingMutex)
-        facade = CineTrackRepository(
+        val localLibrary = RoomLibraryRepository(
+            database,
+            preferences,
+            syncCoordinator,
+            { repository.scheduleAutomaticBackup() },
+            trackingProviderRegistry,
+            trackingRoutingMutex,
+        )
+        repository = CineTrackRepository(
             database = database,
             services = services,
             preferences = preferences,
@@ -147,8 +155,6 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
         )
-        simklSyncEngine.bind(facade)
-        repository = facade
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))
         discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
