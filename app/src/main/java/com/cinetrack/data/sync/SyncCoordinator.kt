@@ -43,7 +43,7 @@ class SyncCoordinator(
             }
 
             val outcome = main.syncBidirectionally(pending, onProgress)
-            operations.complete(pending)
+            acknowledge(pending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
@@ -88,6 +88,18 @@ class SyncCoordinator(
         check(completed.containsAll(pending.map(SyncOperation::id))) {
             "${provider.id.name} did not acknowledge every synchronization operation"
         }
+    }
+
+    private suspend fun acknowledge(
+        pending: List<SyncOperation>,
+        acknowledgedIds: Set<String>,
+        deferredIds: Set<String>,
+    ) {
+        val pendingIds = pending.mapTo(linkedSetOf(), SyncOperation::id)
+        check((acknowledgedIds + deferredIds).containsAll(pendingIds)) {
+            "MAIN provider did not acknowledge every synchronization operation"
+        }
+        operations.complete(pending.filter { it.id in acknowledgedIds })
     }
 
     private suspend fun requireAuthenticated(provider: TrackingProvider) {

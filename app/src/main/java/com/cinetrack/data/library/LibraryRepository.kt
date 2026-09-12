@@ -162,6 +162,7 @@ class RoomLibraryRepository(
     }
 
     private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
+        val updatedAt = database.stateDao().get(media.type.name, media.id)?.updatedAt ?: System.currentTimeMillis()
         database.syncDao().upsertOperation(
             SyncOperationEntity(
                 operationId = "state:${media.type.name}:${media.id}",
@@ -171,6 +172,8 @@ class RoomLibraryRepository(
                 title = media.title,
                 status = SyncOperationStatus.PENDING.name,
                 localValue = status.name,
+                createdAt = updatedAt,
+                updatedAt = updatedAt,
             ),
         )
     }

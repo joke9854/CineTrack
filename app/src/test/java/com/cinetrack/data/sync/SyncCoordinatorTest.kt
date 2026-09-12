@@ -197,7 +197,10 @@ private class FakeProvider(
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
         bidirectionalSyncs++
-        return ProviderSyncOutcome(itemsChanged = false)
+        return ProviderSyncOutcome(
+            itemsChanged = false,
+            acknowledgedOperationIds = operations.mapTo(linkedSetOf(), SyncOperation::id),
+        )
     }
 
     override suspend fun testConnection(): ConnectionResult = ConnectionResult.Connected

@@ -245,8 +245,13 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.simklLastCheckAt] = at }
     }
 
-    suspend fun syncBaselineNow(): TrackingSnapshot? {
-        val raw = context.cineTrackDataStore.data.first()[Keys.syncBaseline] ?: return null
+    private fun syncBaselineKey(provider: TrackingProviderId) = stringPreferencesKey("sync_baseline_${provider.name.lowercase()}_v1")
+
+    suspend fun syncBaselineNow(provider: TrackingProviderId = TrackingProviderId.SIMKL): TrackingSnapshot? {
+        val values = context.cineTrackDataStore.data.first()
+        val raw = values[syncBaselineKey(provider)]
+            ?: values.takeIf { provider == TrackingProviderId.SIMKL }?.get(Keys.syncBaseline)
+            ?: return null
         val movies = mutableListOf<TrackedMovieState>()
         val shows = mutableListOf<TrackedShowState>()
         val episodes = mutableListOf<TrackedEpisodeState>()
@@ -261,13 +266,13 @@ class AppPreferences(private val context: Context) {
         return TrackingSnapshot(movies = movies, shows = shows, episodes = episodes)
     }
 
-    suspend fun saveSyncBaseline(snapshot: TrackingSnapshot) {
+    suspend fun saveSyncBaseline(snapshot: TrackingSnapshot, provider: TrackingProviderId = TrackingProviderId.SIMKL) {
         val encoded = buildString {
             snapshot.movies.forEach { append("M|").append(it.ids.tmdb ?: return@forEach).append('|').append(it.libraryState?.name.orEmpty()).append('|').append(if (it.watched) '1' else '0').append('\n') }
             snapshot.shows.forEach { append("S|").append(it.ids.tmdb ?: return@forEach).append('|').append(it.libraryState?.name.orEmpty()).append('\n') }
             snapshot.episodes.forEach { append("E|").append(it.showIds.tmdb ?: return@forEach).append('|').append(it.season).append('|').append(it.episode).append('|').append(if (it.watched) '1' else '0').append('\n') }
         }
-        context.cineTrackDataStore.edit { it[Keys.syncBaseline] = encoded }
+        context.cineTrackDataStore.edit { it[syncBaselineKey(provider)] = encoded }
     }
 
     suspend fun setTrackingProviders(main: TrackingProviderId?, secondary: TrackingProviderId?) {

@@ -108,8 +108,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
-            legacyBidirectionalSync = { onProgress ->
-                facade.syncSimklProvider(onProgress).getOrThrow()
+            legacyBidirectionalSync = { operations, onProgress ->
+                facade.syncSimklProvider(operations, onProgress).getOrThrow()
             },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(

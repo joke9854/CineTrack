@@ -114,6 +114,10 @@ data class ProviderPushResult(val completedOperationIds: Set<String>)
 data class ProviderSyncOutcome(
     val itemsChanged: Boolean,
     val report: SyncReport = SyncReport(),
+    /** Exact provider-neutral operations acknowledged by the provider pass. */
+    val acknowledgedOperationIds: Set<String> = emptySet(),
+    /** Valid queued intents intentionally left pending because they conflicted. */
+    val deferredOperationIds: Set<String> = emptySet(),
 )
 
 data class SyncCoordinatorOutcome(

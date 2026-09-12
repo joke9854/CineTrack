@@ -34,15 +34,24 @@ class SyncReconcilerTest {
         val baseline = movie(LibraryStatus.WATCHING, false, null)
         val localState = baseline.copy(libraryState = LibraryStatus.COMPLETED)
         val result = reconciler.reconcile(localWithBaseline(TrackingSnapshot(movies = listOf(localState)), TrackingSnapshot(movies = listOf(baseline))), TrackingSnapshot(movies = listOf(baseline)), provider)
-        assertEquals(LibraryStatus.COMPLETED.name, result.remoteOperations.single().value)
+        assertEquals(LibraryStatus.WATCHING, (result.localMutations.single() as LocalMutation.SetLibraryStatus).status)
+        assertTrue(result.remoteOperations.isEmpty())
         assertTrue(result.conflicts.isEmpty())
     }
 
     @Test fun `concurrent library edits create one conflict`() {
         val baseline = movie(LibraryStatus.WATCHING, false, null)
-        val localState = baseline.copy(libraryState = LibraryStatus.COMPLETED)
+        val at = Instant.parse("2025-01-02T00:00:00Z")
+        val localState = baseline.copy(libraryState = LibraryStatus.COMPLETED, updatedAt = at)
         val remoteState = baseline.copy(libraryState = LibraryStatus.DROPPED)
-        val result = reconciler.reconcile(localWithBaseline(TrackingSnapshot(movies = listOf(localState)), TrackingSnapshot(movies = listOf(baseline))), TrackingSnapshot(movies = listOf(remoteState)), provider)
+        val pending = SyncOperation("state:MOVIE:42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = at.toEpochMilli())
+        val local = LocalTrackingSnapshot(
+            state = TrackingSnapshot(movies = listOf(localState)),
+            baseline = TrackingSnapshot(movies = listOf(baseline)),
+            dirtyMediaKeys = setOf("MOVIE:42"),
+            pendingOperations = listOf(pending),
+        )
+        val result = reconciler.reconcile(local, TrackingSnapshot(movies = listOf(remoteState)), provider)
         assertEquals(1, result.conflicts.count { it.field == ConflictField.LIBRARY_STATUS })
     }
 
@@ -59,9 +68,16 @@ class SyncReconcilerTest {
         val localState = movie(LibraryStatus.COMPLETED, true, Instant.parse("2025-01-02T00:00:00Z"))
         val remoteState = movie(LibraryStatus.WATCHING, false, Instant.parse("2025-01-01T00:00:00Z"))
         val baseline = movie(LibraryStatus.WATCHING, false, Instant.parse("2025-01-01T00:00:00Z"))
-        val result = reconciler.reconcile(localWithBaseline(TrackingSnapshot(movies = listOf(localState)), TrackingSnapshot(movies = listOf(baseline))), TrackingSnapshot(movies = listOf(remoteState)), provider)
-        assertEquals(setOf(SyncOperationType.LIBRARY_STATUS, SyncOperationType.MOVIE_WATCHED), result.remoteOperations.map { it.type }.toSet())
-        assertTrue(result.localMutations.isEmpty())
+        val at = localState.updatedAt!!.toEpochMilli()
+        val local = LocalTrackingSnapshot(
+            state = TrackingSnapshot(movies = listOf(localState)),
+            baseline = TrackingSnapshot(movies = listOf(baseline)),
+            dirtyMediaKeys = setOf("MOVIE:42"),
+            pendingOperations = listOf(SyncOperation("state:MOVIE:42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = at)),
+        )
+        val result = reconciler.reconcile(local, TrackingSnapshot(movies = listOf(remoteState)), provider)
+        assertTrue(result.remoteOperations.isEmpty())
+        assertTrue(result.localMutations.any { it is LocalMutation.SetWatched && !it.watched })
     }
 
     @Test fun `remote newer state becomes remote-origin local mutation`() {
@@ -76,9 +92,15 @@ class SyncReconcilerTest {
     @Test fun `pending local operation protects state from stale remote`() {
         val localState = movie(LibraryStatus.COMPLETED, false, Instant.parse("2025-01-02T00:00:00Z"))
         val remoteState = movie(LibraryStatus.WATCHING, false, Instant.parse("2025-01-03T00:00:00Z"))
-        val pending = SyncOperation("pending", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = 1)
-        val result = reconciler.reconcile(local(TrackingSnapshot(movies = listOf(localState)), pending), TrackingSnapshot(movies = listOf(remoteState)), provider)
-        assertEquals(SyncOperationType.LIBRARY_STATUS, result.remoteOperations.single().type)
+        val at = localState.updatedAt!!.toEpochMilli()
+        val pending = SyncOperation("state:MOVIE:42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = at)
+        val protectedLocal = LocalTrackingSnapshot(
+            state = TrackingSnapshot(movies = listOf(localState)),
+            dirtyMediaKeys = setOf("MOVIE:42"),
+            pendingOperations = listOf(pending),
+        )
+        val result = reconciler.reconcile(protectedLocal, TrackingSnapshot(movies = listOf(remoteState)), provider)
+        assertTrue(result.remoteOperations.isEmpty())
         assertTrue(result.localMutations.isEmpty())
     }
 
@@ -106,6 +128,48 @@ class SyncReconcilerTest {
         val result = reconciler.reconcile(localWithBaseline(TrackingSnapshot(movies = listOf(baseline)), TrackingSnapshot(movies = listOf(baseline))), TrackingSnapshot(movies = listOf(remote)), provider)
         assertEquals(true, (result.localMutations.single() as LocalMutation.SetWatched).watched)
         assertTrue(result.conflicts.isEmpty())
+    }
+
+    @Test fun `stale pending row cannot override remote library change`() {
+        val baseline = movie(LibraryStatus.PLAN_TO_WATCH, false, null)
+        val stale = SyncOperation(
+            "reconcile:library:tmdb:42:PLAN_TO_WATCH",
+            SyncOperationType.LIBRARY_STATUS,
+            MediaType.MOVIE,
+            42,
+            "",
+            value = LibraryStatus.PLAN_TO_WATCH.name,
+            sourceVersion = 1L,
+        )
+        val result = reconciler.reconcile(
+            LocalTrackingSnapshot(
+                state = TrackingSnapshot(movies = listOf(baseline)),
+                baseline = TrackingSnapshot(movies = listOf(baseline)),
+                pendingOperations = listOf(stale),
+            ),
+            TrackingSnapshot(movies = listOf(baseline.copy(libraryState = LibraryStatus.DROPPED))),
+            provider,
+        )
+        assertEquals(LibraryStatus.DROPPED, (result.localMutations.single() as LocalMutation.SetLibraryStatus).status)
+        assertTrue(result.remoteOperations.isEmpty())
+        assertTrue(result.conflicts.isEmpty())
+    }
+
+    @Test fun `library intent does not protect independent movie history`() {
+        val at = Instant.parse("2025-01-02T00:00:00Z")
+        val localState = movie(LibraryStatus.COMPLETED, false, at)
+        val baseline = movie(LibraryStatus.WATCHING, false, at)
+        val result = reconciler.reconcile(
+            LocalTrackingSnapshot(
+                state = TrackingSnapshot(movies = listOf(localState)),
+                baseline = TrackingSnapshot(movies = listOf(baseline)),
+                dirtyMediaKeys = setOf("MOVIE:42"),
+                pendingOperations = listOf(SyncOperation("state:MOVIE:42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, "", value = "COMPLETED", sourceVersion = at.toEpochMilli())),
+            ),
+            TrackingSnapshot(movies = listOf(baseline.copy(watched = true, watchedAt = at.plusSeconds(60)))),
+            provider,
+        )
+        assertTrue(result.localMutations.any { it is LocalMutation.SetWatched && it.watched })
     }
 
     @Test fun `missing timestamps are deterministic conflicts`() {

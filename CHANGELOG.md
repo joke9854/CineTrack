@@ -1,3 +1,14 @@
+# CineTrack 0.87 beta
+
+- Repair remote-only MAIN changes so Simkl updates are adopted locally without restoring stale CineTrack values.
+- Validate current field-level local intent before protecting library, movie history, or episode changes.
+- Remove stale and duplicate reconciliation queue rows, preserve retryable conflicts, and require exact provider acknowledgements.
+- Scope synchronization baselines by MAIN provider and advance them only from confirmed agreement.
+- Repair pending, failed, and conflict titles from stored media and episode metadata.
+- Add regression coverage for stale queues, field-specific protection, remote-only changes, and synchronization decisions.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.86 beta
 
 - Persist MAIN synchronization baselines for deterministic three-way reconciliation.

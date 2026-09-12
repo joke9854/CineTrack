@@ -23,49 +23,67 @@ interface SyncOperationRepository {
 class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOperationRepository {
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
         materializeLegacyOperations()
+        repairBlankTitles()
         val writes = database.syncDao().pendingWrites().associateBy { "write:${it.id}" }
-        return database.syncDao().syncOperations().asSequence()
+        val entities = database.syncDao().syncOperations().asSequence()
             .filter { it.status == SyncOperationStatus.PENDING.name || it.status == SyncOperationStatus.FAILED.name }
+            .filterNot { it.operationId.startsWith("reconcile:") }
             .filter { operationIds == null || it.operationId in operationIds }
-            .mapNotNull { entity -> entity.toSyncOperation(writes[entity.operationId]) }
             .toList()
+        return entities.filter { entity ->
+            if (entity.operationId.startsWith("write:")) return@filter writes.containsKey(entity.operationId)
+            if (!entity.operationId.startsWith("state:")) return@filter true
+            val state = database.stateDao().get(entity.mediaType, entity.mediaId)
+            state?.dirty == true && state.status == entity.localValue && state.updatedAt == entity.createdAt
+        }.mapNotNull { entity -> entity.toSyncOperation(writes[entity.operationId]) }
     }
 
     override suspend fun cards(): List<SyncOperationCard> {
         materializeLegacyOperations()
+        repairBlankTitles()
         return database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
     }
 
     override suspend fun enqueue(operations: List<SyncOperation>) {
         if (operations.isEmpty()) return
-        database.syncDao().upsertOperations(operations.map { operation ->
+        val entities = operations.map { operation ->
+            val title = operation.title.ifBlank {
+                resolveDisplayTitle(operation.mediaType.name, operation.mediaId, operation.payload, null)
+            }
             SyncOperationEntity(
                 operationId = operation.id,
                 operation = operation.type.name,
                 mediaType = operation.mediaType.name,
                 mediaId = operation.mediaId,
-                title = operation.title,
+                title = title,
                 status = SyncOperationStatus.PENDING.name,
                 localValue = operation.value,
                 createdAt = operation.sourceVersion,
                 updatedAt = System.currentTimeMillis(),
+                season = operation.payload?.episodePart(0),
+                episode = operation.payload?.episodePart(1),
             )
-        })
+        }
+        database.syncDao().upsertOperations(entities)
     }
 
     override suspend fun complete(operations: List<SyncOperation>) {
         if (operations.isEmpty()) return
         database.withTransaction {
             operations.forEach { operation ->
-                when {
-                    operation.id.startsWith("state:") -> database.stateDao().markCleanIfUnchanged(
+                if (operation.type in setOf(
+                        SyncOperationType.LIBRARY_STATUS,
+                        SyncOperationType.MOVIE_WATCHED,
+                        SyncOperationType.MOVIE_UNWATCHED,
+                    ) || operation.id.startsWith("state:")) {
+                    database.stateDao().markCleanIfUnchanged(
                         operation.mediaType.name,
                         operation.mediaId,
                         operation.sourceVersion,
                     )
-                    operation.id.startsWith("write:") -> operation.id.removePrefix("write:").toLongOrNull()
-                        ?.let { database.syncDao().deleteWrite(it) }
                 }
+                if (operation.id.startsWith("write:")) operation.id.removePrefix("write:").toLongOrNull()
+                    ?.let { database.syncDao().deleteWrite(it) }
             }
             database.syncDao().deleteOperations(operations.map(SyncOperation::id))
         }
@@ -106,6 +124,34 @@ class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOpera
             if (missing.isNotEmpty()) database.syncDao().upsertOperations(missing)
         }
     }
+
+    private suspend fun repairBlankTitles() {
+        val operations = database.syncDao().syncOperations()
+        operations.forEach { operation ->
+            val title = resolveDisplayTitle(
+                mediaType = operation.mediaType,
+                mediaId = operation.mediaId,
+                payload = operation.season?.let { season -> "$season:${operation.episode ?: 0}" },
+                fallback = operation.title,
+            )
+            if (title != operation.title) database.syncDao().upsertOperation(operation.copy(title = title))
+        }
+    }
+
+    private suspend fun resolveDisplayTitle(mediaType: String, mediaId: Int, payload: String?, fallback: String?): String {
+        val mediaTitle = database.mediaDao().get(mediaType, mediaId)?.title?.takeIf(String::isNotBlank)
+        val parts = payload.orEmpty().split(':', limit = 3)
+        val season = parts.getOrNull(0)?.toIntOrNull()
+        val episode = parts.getOrNull(1)?.toIntOrNull()
+        if (season != null && episode != null && mediaType == MediaType.TV.name) {
+            val episodeTitle = database.mediaDao().episode(mediaId, season, episode)?.title?.takeIf(String::isNotBlank)
+            return listOfNotNull(
+                mediaTitle ?: "TV #$mediaId",
+                "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}" + (episodeTitle?.let { " · $it" } ?: ""),
+            ).joinToString(" · ")
+        }
+        return mediaTitle ?: fallback?.takeIf(String::isNotBlank) ?: "$mediaType #$mediaId"
+    }
 }
 
 private fun PendingWriteEntity.toOperationEntity(mediaTitle: String?) = SyncOperationEntity(
@@ -121,7 +167,11 @@ private fun PendingWriteEntity.toOperationEntity(mediaTitle: String?) = SyncOper
     createdAt = createdAt,
     updatedAt = createdAt,
     attemptCount = attemptCount,
+    season = payload.episodePart(0),
+    episode = payload.episodePart(1),
 )
+
+private fun String.episodePart(index: Int): Int? = split(':', limit = 3).getOrNull(index)?.toIntOrNull()
 
 private fun SyncOperationEntity.toSyncOperation(write: PendingWriteEntity?): SyncOperation? {
     val type = runCatching { SyncOperationType.valueOf(operation) }.getOrNull() ?: return null
