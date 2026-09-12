@@ -174,6 +174,9 @@ data class SyncOperationEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val attemptCount: Int = 0,
+    val providerId: String = "SIMKL",
+    val season: Int? = null,
+    val episode: Int? = null,
 )
 
 /**
@@ -524,7 +527,7 @@ interface PeopleDao {
         PendingWriteEntity::class,
         SyncOperationEntity::class,
     ],
-    version = 6,
+    version = 8,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -592,12 +595,25 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val migration6To7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN providerId TEXT NOT NULL DEFAULT 'SIMKL'")
+            }
+        }
+
+        private val migration7To8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN season INTEGER")
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN episode INTEGER")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8).build().also { instance = it }
         }
     }
 }
@@ -635,3 +651,4 @@ fun MediaCard.toEntity() = MediaEntity(
     providers = providers.joinToString("|"),
     collectionId = collectionId,
 )
+

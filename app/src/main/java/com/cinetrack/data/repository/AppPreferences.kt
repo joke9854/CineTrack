@@ -17,6 +17,11 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.remote.SimklAuthService
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.MediaIds
+import com.cinetrack.data.sync.TrackedMovieState
+import com.cinetrack.data.sync.TrackedShowState
+import com.cinetrack.data.sync.TrackedEpisodeState
+import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.domain.SyncReport
 import kotlinx.coroutines.flow.Flow
@@ -107,6 +112,7 @@ class AppPreferences(private val context: Context) {
         val introductionCompleted = booleanPreferencesKey("introduction_completed")
         val mainTrackingProvider = stringPreferencesKey("main_tracking_provider")
         val secondaryTrackingProvider = stringPreferencesKey("secondary_tracking_provider")
+        val syncBaseline = stringPreferencesKey("sync_baseline_v1")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
@@ -237,6 +243,31 @@ class AppPreferences(private val context: Context) {
 
     suspend fun markSimklChecked(at: Long = System.currentTimeMillis()) {
         context.cineTrackDataStore.edit { it[Keys.simklLastCheckAt] = at }
+    }
+
+    suspend fun syncBaselineNow(): TrackingSnapshot? {
+        val raw = context.cineTrackDataStore.data.first()[Keys.syncBaseline] ?: return null
+        val movies = mutableListOf<TrackedMovieState>()
+        val shows = mutableListOf<TrackedShowState>()
+        val episodes = mutableListOf<TrackedEpisodeState>()
+        raw.lineSequence().forEach { line ->
+            val p = line.split('|')
+            when (p.firstOrNull()) {
+                "M" -> p.getOrNull(1)?.toLongOrNull()?.let { movies += TrackedMovieState(MediaIds(tmdb = it), p.getOrNull(2)?.let { s -> runCatching { com.cinetrack.domain.LibraryStatus.valueOf(s) }.getOrNull() }, p.getOrNull(3) == "1") }
+                "S" -> p.getOrNull(1)?.toLongOrNull()?.let { shows += TrackedShowState(MediaIds(tmdb = it), p.getOrNull(2)?.let { s -> runCatching { com.cinetrack.domain.LibraryStatus.valueOf(s) }.getOrNull() }) }
+                "E" -> if (p.size >= 5) p[1].toLongOrNull()?.let { tmdb -> p[2].toIntOrNull()?.let { season -> p[3].toIntOrNull()?.let { episode -> episodes += TrackedEpisodeState(MediaIds(tmdb = tmdb), season, episode, p[4] == "1") } } }
+            }
+        }
+        return TrackingSnapshot(movies = movies, shows = shows, episodes = episodes)
+    }
+
+    suspend fun saveSyncBaseline(snapshot: TrackingSnapshot) {
+        val encoded = buildString {
+            snapshot.movies.forEach { append("M|").append(it.ids.tmdb ?: return@forEach).append('|').append(it.libraryState?.name.orEmpty()).append('|').append(if (it.watched) '1' else '0').append('\n') }
+            snapshot.shows.forEach { append("S|").append(it.ids.tmdb ?: return@forEach).append('|').append(it.libraryState?.name.orEmpty()).append('\n') }
+            snapshot.episodes.forEach { append("E|").append(it.showIds.tmdb ?: return@forEach).append('|').append(it.season).append('|').append(it.episode).append('|').append(if (it.watched) '1' else '0').append('\n') }
+        }
+        context.cineTrackDataStore.edit { it[Keys.syncBaseline] = encoded }
     }
 
     suspend fun setTrackingProviders(main: TrackingProviderId?, secondary: TrackingProviderId?) {

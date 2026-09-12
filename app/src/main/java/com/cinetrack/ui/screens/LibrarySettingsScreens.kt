@@ -757,12 +757,16 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
         SyncOperationStatus.FAILED -> androidx.compose.material3.MaterialTheme.colorScheme.error
         SyncOperationStatus.PENDING -> AccentLight
     }
+    val providerName = operation.providerId.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
     val actionLabel = when (operation.operation) {
-        "LIBRARY_STATUS", "LIBRARY_CONFLICT" -> stringResource(R.string.sync_library_change)
+        "LIBRARY_STATUS" -> stringResource(R.string.sync_library_change)
+        "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> stringResource(R.string.sync_library_conflict)
+        "WATCHED_CONFLICT" -> stringResource(R.string.sync_watched_conflict)
+        "EPISODE_WATCHED_CONFLICT" -> stringResource(R.string.sync_episode_watched_conflict)
         "EPISODE_WATCHED" -> stringResource(R.string.sync_episode_watched)
         "EPISODE_UNWATCHED" -> stringResource(R.string.sync_episode_unwatched)
         "MEDIA_HISTORY_REMOVE" -> stringResource(R.string.sync_history_removed)
-        else -> operation.operation.replace('_', ' ').lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+        else -> stringResource(R.string.sync_library_change)
     }
     Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -777,7 +781,13 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             )
         }
-        operation.message?.takeIf(String::isNotBlank)?.let { message ->
+        val conflictMessage = when (operation.operation) {
+            "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> stringResource(R.string.sync_library_conflict_message, providerName)
+            "WATCHED_CONFLICT" -> stringResource(R.string.sync_watched_conflict_message, providerName)
+            "EPISODE_WATCHED_CONFLICT" -> stringResource(R.string.sync_episode_watched_conflict_message, providerName)
+            else -> operation.message
+        }
+        conflictMessage?.takeIf(String::isNotBlank)?.let { message ->
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
             Text(message, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         }
@@ -794,17 +804,17 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
                     onClick = { viewModel.resolveSyncConflict(operation.id, SyncConflictChoice.USE_REMOTE) },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
                     shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
-                ) { Text(stringResource(R.string.use_simkl), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
+                ) { Text(stringResource(R.string.use_provider, providerName), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
             }
             Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(R.string.local_value, syncValueLabel(operation.localValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
-                Text(stringResource(R.string.remote_value, syncValueLabel(operation.remoteValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.local_value, localizedSyncValue(operation.localValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                Text(stringResource(R.string.provider_value, providerName, localizedSyncValue(operation.remoteValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         } else {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 operation.localValue?.takeIf(String::isNotBlank)?.let { value ->
-                    Text(syncValueLabel(value), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
+                    Text(localizedSyncValue(value), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
                 } ?: Spacer(Modifier.weight(1f))
                 Button(
                     onClick = { viewModel.retrySyncOperation(operation.id) },
@@ -820,10 +830,16 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
     }
 }
 
-private fun syncValueLabel(value: String?): String = value.orEmpty()
-    .replace(':', ' ')
-    .replace('_', ' ')
-    .lowercase()
+@Composable
+private fun localizedSyncValue(value: String?): String = when (value) {
+    "PLAN_TO_WATCH" -> stringResource(R.string.status_plan_to_watch)
+    "COMPLETED" -> stringResource(R.string.status_completed)
+    "DROPPED" -> stringResource(R.string.status_dropped)
+    "PAUSED" -> stringResource(R.string.status_paused)
+    "true" -> stringResource(R.string.watched)
+    "false" -> stringResource(R.string.not_watched)
+    else -> value.orEmpty().replace(':', ' ').replace('_', ' ')
+}
     .replaceFirstChar { it.titlecase(Locale.getDefault()) }
 
 @Composable
@@ -1463,3 +1479,4 @@ internal fun ChoiceRow(title: String, selected: Boolean, description: String? = 
         }
     }
 }
+

@@ -380,7 +380,20 @@
     <string name="sync_episode_unwatched">Episode marked as unwatched</string>
     <string name="sync_history_removed">Watch history removal</string>
     <string name="keep_local">Keep local</string>
-    <string name="use_simkl">Use Simkl</string>
+    <string name="use_provider">Use %1$s</string>
+    <string name="provider_value">%1$s: %2$s</string>
+    <string name="sync_library_conflict">Library status conflict</string>
+    <string name="sync_watched_conflict">Watched status conflict</string>
+    <string name="sync_episode_watched_conflict">Episode watched conflict</string>
+    <string name="sync_library_conflict_message">The library status was changed both locally and on %1$s.</string>
+    <string name="sync_watched_conflict_message">The watched status was changed both locally and on %1$s.</string>
+    <string name="sync_episode_watched_conflict_message">The episode watched state was changed both locally and on %1$s.</string>
+    <string name="keep_local_explanation">This will upload the CineTrack value to %1$s.</string>
+    <string name="use_provider_explanation">This will replace the CineTrack value with the value from %1$s.</string>
+    <string name="status_plan_to_watch">Plan to watch</string>
+    <string name="status_completed">Completed</string>
+    <string name="status_dropped">Dropped</string>
+    <string name="status_paused">Paused</string>
     <string name="local_value">Local: %1$s</string>
     <string name="remote_value">Simkl: %1$s</string>
     <string name="try_now">Try now</string>
@@ -469,3 +482,4 @@
     <string name="discover_load_more">Load more titles</string>
     <string name="discover_list_end">You have reached the end of this list.</string>
 </resources>
+

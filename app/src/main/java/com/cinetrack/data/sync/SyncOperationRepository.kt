@@ -154,6 +154,7 @@ private fun SyncOperationEntity.toCard(): SyncOperationCard? {
         createdAt = createdAt,
         updatedAt = updatedAt,
         attemptCount = attemptCount,
+        providerId = providerId,
     )
 }
 

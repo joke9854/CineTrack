@@ -380,7 +380,20 @@
     <string name="sync_episode_unwatched">Episodio segnato come non visto</string>
     <string name="sync_history_removed">Rimozione dalla cronologia</string>
     <string name="keep_local">Mantieni locale</string>
-    <string name="use_simkl">Usa Simkl</string>
+    <string name="use_provider">Usa %1$s</string>
+    <string name="provider_value">%1$s: %2$s</string>
+    <string name="sync_library_conflict">Conflitto dello stato della raccolta</string>
+    <string name="sync_watched_conflict">Conflitto dello stato di visione</string>
+    <string name="sync_episode_watched_conflict">Conflitto episodio visto</string>
+    <string name="sync_library_conflict_message">Lo stato della raccolta è stato modificato sia localmente sia su %1$s.</string>
+    <string name="sync_watched_conflict_message">Lo stato di visione è stato modificato sia localmente sia su %1$s.</string>
+    <string name="sync_episode_watched_conflict_message">Lo stato visto dell episodio è stato modificato sia localmente sia su %1$s.</string>
+    <string name="keep_local_explanation">Il valore di CineTrack verrà inviato a %1$s.</string>
+    <string name="use_provider_explanation">Il valore di CineTrack verrà sostituito con quello di %1$s.</string>
+    <string name="status_plan_to_watch">Da guardare</string>
+    <string name="status_completed">Completato</string>
+    <string name="status_dropped">Abbandonato</string>
+    <string name="status_paused">In pausa</string>
     <string name="local_value">Locale: %1$s</string>
     <string name="remote_value">Simkl: %1$s</string>
     <string name="try_now">Prova ora</string>
@@ -469,3 +482,4 @@
     <string name="discover_load_more">Carica altri titoli</string>
     <string name="discover_list_end">Hai raggiunto la fine dell’elenco.</string>
 </resources>
+

@@ -212,6 +212,7 @@ data class SyncOperationCard(
     val createdAt: Long,
     val updatedAt: Long,
     val attemptCount: Int = 0,
+    val providerId: String = "SIMKL",
 )
 
 @Immutable
@@ -295,3 +296,4 @@ object RailIds {
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"
 }
+

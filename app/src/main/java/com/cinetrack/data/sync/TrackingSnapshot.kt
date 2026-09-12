@@ -54,6 +54,8 @@ data class TrackingSnapshot(
 /** Local state is deliberately separate so dirty/pending information cannot be lost. */
 data class LocalTrackingSnapshot(
     val state: TrackingSnapshot,
+    /** Last canonical MAIN snapshot. Null means bootstrap sync. */
+    val baseline: TrackingSnapshot? = null,
     val dirtyMediaKeys: Set<String> = emptySet(),
     val pendingOperations: List<SyncOperation> = emptyList(),
 )
@@ -94,6 +96,13 @@ data class SyncConflict(
     val remoteUpdatedAt: Instant?,
     val providerId: TrackingProviderId,
     val mediaType: MediaType = MediaType.MOVIE,
+    val conflictId: String = "",
+    val ids: MediaIds = MediaIds(),
+    val baselineValue: String? = null,
+    val title: String? = null,
+    val season: Int? = null,
+    val episode: Int? = null,
+    val createdAt: Instant = Instant.now(),
 )
 
 data class ReconciliationResult(

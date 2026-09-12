@@ -77,10 +77,10 @@ class SimklTrackingProvider(
             (item.show ?: item.movie)?.ids?.let { MediaIds(it.tmdb?.toLongOrNull(), it.tvdb?.toLongOrNull(), it.imdb, it.simkl) }
                 ?: MediaIds()
         val shows = showItems.map { item ->
-            TrackedShowState(ids(item), item.status.toLibraryStatus(), item.lastWatchedAt.toInstantOrNull() ?: item.addedAt.toInstantOrNull())
+            TrackedShowState(ids(item), item.status.toLibraryStatus(), null)
         }
         val movies = responses.third.movies.map { item ->
-            TrackedMovieState(ids(item), item.status.toLibraryStatus(), item.lastWatchedAt != null, item.lastWatchedAt.toInstantOrNull(), item.lastWatchedAt.toInstantOrNull() ?: item.addedAt.toInstantOrNull())
+            TrackedMovieState(ids(item), item.status.toLibraryStatus(), item.lastWatchedAt != null, item.lastWatchedAt.toInstantOrNull(), null)
         }
         val episodes = showItems.flatMap { item ->
             val showIds = ids(item)

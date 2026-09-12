@@ -36,6 +36,7 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackedMovieState
 import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackedEpisodeState
+import com.cinetrack.data.sync.LocalMutation
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
@@ -932,34 +933,61 @@ class CineTrackRepository(
             return Result.failure(IllegalStateException("Operation is not a conflict"))
         }
         if (choice == SyncConflictChoice.KEEP_LOCAL) {
+            val type = runCatching { MediaType.valueOf(conflict.mediaType) }.getOrNull()
+                ?: return Result.failure(IllegalStateException("Conflict media type is invalid"))
+            val current = database.stateDao().get(conflict.mediaType, conflict.mediaId)
+                ?: return Result.failure(IllegalStateException("Local state is no longer available"))
+            val operationType = when (conflict.operation) {
+                "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS
+                "WATCHED_CONFLICT" -> if (current.watched) com.cinetrack.data.sync.SyncOperationType.MOVIE_WATCHED else com.cinetrack.data.sync.SyncOperationType.MOVIE_UNWATCHED
+                "EPISODE_WATCHED_CONFLICT" -> if (current.watched) com.cinetrack.data.sync.SyncOperationType.EPISODE_WATCHED else com.cinetrack.data.sync.SyncOperationType.EPISODE_UNWATCHED
+                else -> return Result.failure(IllegalStateException("Unsupported conflict field"))
+            }
+            val operationIdForResolution = "resolution:$operationId"
+            val operation = com.cinetrack.data.sync.SyncOperation(
+                id = operationIdForResolution,
+                type = operationType,
+                mediaType = type,
+                mediaId = current.mediaId,
+                title = conflict.title,
+                value = if (operationType == com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS) current.status else current.watched.toString(),
+                sourceVersion = current.updatedAt,
+            )
+            syncOperationRepository.enqueue(listOf(operation))
             database.syncDao().deleteOperation(operationId)
-            return Result.success(Unit)
+            return syncCoordinator.pushPending(setOf(operationIdForResolution))
         }
-        val remoteStatus = conflict.remoteValue?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
-            ?: return Result.failure(IllegalStateException("Remote value is unavailable"))
         val media = database.mediaDao().get(conflict.mediaType, conflict.mediaId)
             ?: return Result.failure(IllegalStateException("Media is no longer available"))
         database.withTransaction {
             val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
-            database.stateDao().upsert(
-                UserMediaStateEntity(
-                    mediaType = conflict.mediaType,
-                    mediaId = conflict.mediaId,
-                    status = remoteStatus.name,
-                    watched = remoteStatus == LibraryStatus.COMPLETED,
-                    simklId = previous?.simklId,
-                    dirty = true,
-                ),
-            )
-            queueStateOperation(media.toDomain(), remoteStatus)
-            if (remoteStatus == LibraryStatus.NONE) database.timelineDao().deleteMediaHistory(conflict.mediaType, conflict.mediaId)
+            when {
+                conflict.operation == "LIBRARY_STATUS_CONFLICT" || conflict.operation == "LIBRARY_CONFLICT" -> {
+                    val remoteStatus = conflict.remoteValue?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
+                        ?: return@withTransaction
+                    database.stateDao().upsert(UserMediaStateEntity(conflict.mediaType, conflict.mediaId, remoteStatus.name, previous?.watched ?: false, previous?.simklId, System.currentTimeMillis(), dirty = false))
+                    if (remoteStatus == LibraryStatus.NONE) database.timelineDao().deleteMediaHistory(conflict.mediaType, conflict.mediaId)
+                }
+                conflict.operation == "WATCHED_CONFLICT" -> {
+                    val watched = conflict.remoteValue?.toBooleanStrictOrNull() ?: return@withTransaction
+                    database.stateDao().upsert(UserMediaStateEntity(conflict.mediaType, conflict.mediaId, previous?.status ?: LibraryStatus.NONE.name, watched, previous?.simklId, System.currentTimeMillis(), dirty = false))
+                }
+                conflict.operation == "EPISODE_WATCHED_CONFLICT" -> {
+                    val watched = conflict.remoteValue?.toBooleanStrictOrNull() ?: return@withTransaction
+                    val season = conflict.season ?: return@withTransaction
+                    val episode = conflict.episode ?: return@withTransaction
+                    if (watched) database.timelineDao().insertHistory(WatchHistoryEntity(mediaType = conflict.mediaType, mediaId = conflict.mediaId, season = season, episodeNumber = episode, watchedAt = Instant.now().toString()))
+                    else database.timelineDao().deleteEpisodeHistory(conflict.mediaType, conflict.mediaId, season, episode)
+                }
+            }
+            val staleOperations = database.syncDao().syncOperations()
+                .filter { it.operationId != operationId && it.mediaType == conflict.mediaType && it.mediaId == conflict.mediaId && it.status != SyncOperationStatus.CONFLICT.name }
+                .map(SyncOperationEntity::operationId)
+            if (staleOperations.isNotEmpty()) database.syncDao().deleteOperations(staleOperations)
             rebuildLibraryRailInTransaction()
         }
-        val type = runCatching { MediaType.valueOf(conflict.mediaType) }.getOrNull()
-            ?: return Result.failure(IllegalStateException("Conflict media type is invalid"))
-        val result = pushLibraryChange(type, conflict.mediaId)
-        if (result.isSuccess) database.syncDao().deleteOperation(operationId)
-        return result
+        database.syncDao().deleteOperation(operationId)
+        return Result.success(Unit)
     }
 
     suspend fun markWatched(media: MediaCard) {
@@ -2120,6 +2148,7 @@ class CineTrackRepository(
                 }.distinctBy { "${it.showIds.tmdb}:$it.season:$it.episode" },
                 generatedAt = Instant.now(),
             ),
+            baseline = preferences.syncBaselineNow(),
             dirtyMediaKeys = pendingLocalStates.flatMap {
                 listOf("${it.mediaType}:${it.mediaId}", "tmdb:${it.mediaId}")
             }.toSet(),
@@ -2134,35 +2163,28 @@ class CineTrackRepository(
         // dispatched by the coordinator on the next provider pass, while the
         // current legacy import continues to preserve its proven ordering.
         syncOperationRepository.enqueue(reconciliation.remoteOperations)
-        val conflictOperations = pendingLocalStates.mapNotNull { local ->
-            val remoteState = remoteStatesByKey["${local.mediaType}:${local.mediaId}"] ?: return@mapNotNull null
-            if (local.status == remoteState.status && local.watched == remoteState.watched) return@mapNotNull null
+        val conflictOperations = reconciliation.conflicts.map { conflict ->
+            val mediaId = conflict.ids.tmdb?.toInt() ?: 0
+            val mediaTitle = localMediaByKey["${conflict.mediaType.name}:$mediaId"]?.title
+                ?: when {
+                    conflict.season != null && conflict.episode != null -> "${conflict.mediaType.name} #$mediaId S${conflict.season.toString().padStart(2, '0')}E${conflict.episode.toString().padStart(2, '0')}"
+                    else -> "${conflict.mediaType.name} #$mediaId"
+                }
             SyncOperationEntity(
-                operationId = "conflict:${local.mediaType}:${local.mediaId}",
-                operation = "LIBRARY_CONFLICT",
-                mediaType = local.mediaType,
-                mediaId = local.mediaId,
-                title = localMediaByKey["${local.mediaType}:${local.mediaId}"]?.title ?: "${local.mediaType} #${local.mediaId}",
-                status = SyncOperationStatus.CONFLICT.name,
-                message = "The title changed locally and on Simkl since the previous synchronization.",
-                localValue = local.status,
-                remoteValue = remoteState.status,
-                createdAt = local.updatedAt,
-                updatedAt = System.currentTimeMillis(),
-            )
-        } + reconciliation.conflicts.map { conflict ->
-            SyncOperationEntity(
-                operationId = "conflict:${conflict.mediaKey}:${conflict.field.name}",
+                operationId = "conflict:${conflict.conflictId}",
                 operation = "${conflict.field.name}_CONFLICT",
                 mediaType = conflict.mediaType.name,
-                mediaId = conflict.mediaKey.split(':').getOrNull(1)?.toIntOrNull() ?: 0,
-                title = "",
+                mediaId = mediaId,
+                title = mediaTitle,
                 status = SyncOperationStatus.CONFLICT.name,
-                message = "The local and MAIN provider values differ; review the synchronization operation.",
+                message = null,
                 localValue = conflict.localValue,
                 remoteValue = conflict.remoteValue,
                 createdAt = System.currentTimeMillis(),
                 updatedAt = System.currentTimeMillis(),
+                providerId = conflict.providerId.name,
+                season = conflict.season,
+                episode = conflict.episode,
             )
         }.distinctBy(SyncOperationEntity::operationId)
         // Commit Simkl's identifiers and list state immediately. TMDB artwork
@@ -2295,6 +2317,23 @@ class CineTrackRepository(
                 // Locally dirty states win over a simultaneous remote snapshot.
                 database.stateDao().upsertAll(pendingLocalStates)
             }
+            reconciliation.localMutations.forEach { mutation ->
+                val type = mutation.mediaType.name
+                val id = mutation.mediaId.toInt()
+                val previous = database.stateDao().get(type, id)
+                when (mutation) {
+                    is LocalMutation.SetLibraryStatus -> database.stateDao().upsert(
+                        UserMediaStateEntity(type, id, mutation.status.name, previous?.watched ?: false, previous?.simklId, System.currentTimeMillis(), dirty = false),
+                    )
+                    is LocalMutation.SetWatched -> {
+                        database.stateDao().upsert(UserMediaStateEntity(type, id, previous?.status ?: LibraryStatus.NONE.name, mutation.watched, previous?.simklId, System.currentTimeMillis(), dirty = false))
+                        if (mutation.season != null && mutation.episode != null) {
+                            if (mutation.watched) database.timelineDao().insertHistory(WatchHistoryEntity(mediaType = type, mediaId = id, season = mutation.season, episodeNumber = mutation.episode, watchedAt = mutation.watchedAt?.toString() ?: Instant.now().toString()))
+                            else database.timelineDao().deleteEpisodeHistory(type, id, mutation.season, mutation.episode)
+                        } else if (!mutation.watched) database.timelineDao().deleteMediaHistory(type, id)
+                    }
+                }
+            }
             remoteRemovedStates.groupBy(UserMediaStateEntity::mediaType).forEach { (mediaType, states) ->
                 states.map(UserMediaStateEntity::mediaId).distinct().chunked(500).forEach { ids ->
                     database.timelineDao().deleteMediaHistories(mediaType, ids)
@@ -2342,6 +2381,7 @@ class CineTrackRepository(
             if (libraryChanged) rebuildLibraryRailInTransaction()
         }
         preferences.markSimklChecked(committedAt)
+        preferences.saveSyncBaseline(remoteTrackingSnapshot)
         progress(true, .78f, SyncStage.COMMIT)
         val addedCount = remoteStates.count { state ->
             localStatesByKey["${state.mediaType}:${state.mediaId}"]?.status in setOf(null, LibraryStatus.NONE.name)
