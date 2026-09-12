@@ -1,4 +1,4 @@
-"""Run the production 4→5 and 5→6 migration SQL against SQLite."""
+"""Run the production index and durable sync-operation migration checks."""
 from pathlib import Path
 import re
 import sqlite3
@@ -9,7 +9,7 @@ statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
 assert len(statements) == 3, "Expected the three production index statements"
 assert all(sql.startswith("CREATE INDEX IF NOT EXISTS ") for sql in statements)
 
-migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("fun create(context:", 1)[0]
+migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("private val migration6To7", 1)[0]
 table_match = re.search(r'database\.execSQL\(\s*"""(CREATE TABLE.*?)""",?\s*\)', migration_6, re.S)
 assert table_match, "Expected the production sync_operations table statement"
 sync_table_statement = " ".join(table_match.group(1).split())
@@ -96,3 +96,4 @@ assert "SELECT * FROM media WHERE title LIKE '%' || :query || '%' ORDER BY score
 sync_columns = [row[1] for row in db.execute("PRAGMA table_info('sync_operations')")]
 assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "title", "status", "message", "localValue", "remoteValue", "createdAt", "updatedAt", "attemptCount"]
 print("PASS: 6,000 rows preserved; database indexes and durable sync-operation migration verified.")
+
