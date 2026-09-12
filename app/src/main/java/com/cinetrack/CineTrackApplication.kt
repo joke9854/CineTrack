@@ -2,10 +2,30 @@ package com.cinetrack
 
 import android.app.Application
 import com.cinetrack.data.local.AppDatabase
+import com.cinetrack.data.library.LibraryRepository
+import com.cinetrack.data.library.RoomLibraryRepository
+import com.cinetrack.data.discovery.DefaultDiscoveryRepository
+import com.cinetrack.data.discovery.DiscoveryRepository
+import com.cinetrack.data.media.DefaultMediaRepository
+import com.cinetrack.data.media.MediaRepository
+import com.cinetrack.data.people.DefaultPeopleRepository
+import com.cinetrack.data.people.PeopleRepository
 import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.CineTrackRepository
-import com.cinetrack.data.sync.SimklWorkScheduler
+import com.cinetrack.data.repository.LegacyMediaDataSource
+import com.cinetrack.data.repository.SettingsRepository
+import com.cinetrack.data.schedule.DefaultReleaseScheduleRepository
+import com.cinetrack.data.sync.DefaultTrackingProviderRegistry
+import com.cinetrack.data.sync.RoomSyncOperationRepository
+import com.cinetrack.data.sync.SyncCoordinator
+import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.TrackingWorkScheduler
+import com.cinetrack.data.sync.SyncReconciler
+import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
+import com.cinetrack.data.sync.simkl.SimklTrackingProvider
+import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
+import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.sync.ReleaseNotifier
 import coil.ImageLoader
 import coil.ImageLoaderFactory
@@ -31,7 +51,7 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
         container = AppContainer(this, applicationScope)
         ReleaseNotifier.createChannel(this)
         applicationScope.launch {
-            SimklWorkScheduler.update(
+            TrackingWorkScheduler.update(
                 this@CineTrackApplication,
                 enabled = container.preferences.backgroundSync.first(),
                 wifiOnly = container.preferences.wifiOnly.first(),
@@ -57,6 +77,7 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
 
 class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val preferences = AppPreferences(application)
+    val settingsRepository = SettingsRepository(preferences)
     private val startupReady = CompletableDeferred<Unit>()
     private val token = AtomicReference<String?>(null)
     private val tmdbApiKey = AtomicReference(BuildConfig.TMDB_API_TOKEN)
@@ -72,23 +93,57 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataRegion = metadataRegion::get,
         metadataTimezone = metadataTimezone::get,
     )
-    val repository = CineTrackRepository(
-        database = database,
-        services = services,
-        preferences = preferences,
-        awaitStartupReady = startupReady::await,
-        onTokenChanged = token::set,
-        currentToken = token::get,
-        onTmdbApiKeyChanged = tmdbApiKey::set,
-        tmdbApiKey = tmdbApiKey::get,
-        onMdbListApiKeyChanged = mdbListApiKey::set,
-        mdbListApiKey = mdbListApiKey::get,
-        onMetadataLanguageChanged = metadataLanguage::set,
-        onMetadataRegionChanged = metadataRegion::set,
-        onMetadataTimezoneChanged = metadataTimezone::set,
-    )
+    private val syncOperationRepository = RoomSyncOperationRepository(database)
+    val trackingProviderRegistry: TrackingProviderRegistry
+    val syncCoordinator: SyncCoordinator
+    val repository: CineTrackRepository
+    val libraryRepository: LibraryRepository
+    val mediaRepository: MediaRepository
+    val discoveryRepository: DiscoveryRepository
+    val peopleRepository: PeopleRepository
+    val watchProviderRepository: WatchProviderRepository
 
     init {
+        lateinit var facade: CineTrackRepository
+        val simkl = SimklTrackingProvider(services, preferences) { onProgress ->
+            facade.syncSimklProvider(onProgress).getOrThrow()
+        }
+        trackingProviderRegistry = DefaultTrackingProviderRegistry(
+            providers = listOf(simkl, FloppyTrackingProvider()),
+            settingsRepository = settingsRepository,
+        )
+        val syncReconciler = SyncReconciler()
+        syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
+        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator) {
+            facade.scheduleAutomaticBackup()
+        }
+        facade = CineTrackRepository(
+            database = database,
+            services = services,
+            preferences = preferences,
+            awaitStartupReady = startupReady::await,
+            onTokenChanged = token::set,
+            currentToken = token::get,
+            onTmdbApiKeyChanged = tmdbApiKey::set,
+            tmdbApiKey = tmdbApiKey::get,
+            onMdbListApiKeyChanged = mdbListApiKey::set,
+            mdbListApiKey = mdbListApiKey::get,
+            onMetadataLanguageChanged = metadataLanguage::set,
+            onMetadataRegionChanged = metadataRegion::set,
+            onMetadataTimezoneChanged = metadataTimezone::set,
+            syncOperationRepository = syncOperationRepository,
+            syncCoordinator = syncCoordinator,
+            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
+            libraryRepository = localLibrary,
+            syncReconciler = syncReconciler,
+        )
+        repository = facade
+        libraryRepository = localLibrary
+        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(facade))
+        discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
+        peopleRepository = DefaultPeopleRepository(mediaRepository)
+        watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)
+
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
                 coroutineScope {
@@ -128,3 +183,4 @@ private data class StartupPreferences(
     val metadataRegion: String,
     val metadataTimezone: String,
 )
+
