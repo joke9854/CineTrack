@@ -13,6 +13,7 @@ import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.DurableTrackingQueue
+import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.domain.EpisodeCard
@@ -45,8 +46,9 @@ class RoomLibraryRepository(
     private val syncCoordinator: SyncCoordinator,
     private val onLocalStateChanged: () -> Unit,
     private val providerRegistry: TrackingProviderRegistry,
+    private val routingMutex: TrackingRoutingMutex,
 ) : LibraryRepository {
-    private val durableQueue = DurableTrackingQueue(providerRegistry)
+    private val durableQueue = DurableTrackingQueue(providerRegistry, routingMutex)
     override fun observeLocalChanges(): Flow<Set<String>> = database.invalidationTracker.createFlow(
         "media",
         "media_rails",
@@ -59,7 +61,8 @@ class RoomLibraryRepository(
     )
 
     override suspend fun setLibraryStatus(media: MediaCard, status: LibraryStatus) {
-        database.withTransaction {
+        val operationIds = routingMutex.withLock { database.withTransaction {
+            val ids = mutableSetOf("state:${media.type.name}:${media.id}")
             val previous = database.stateDao().get(media.type.name, media.id)
             database.mediaDao().upsertMedia(listOf(media.toEntity()))
             database.stateDao().upsert(
@@ -99,17 +102,19 @@ class RoomLibraryRepository(
                     value = "MEDIA_HISTORY_REMOVE",
                     payload = previous.simklId?.toString().orEmpty(),
                 )
+                ids += "write:$writeId"
             }
             rebuildLibraryRail()
-        }
+            ids
+        } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) {
-            syncCoordinator.pushPending(setOf("state:${media.type.name}:${media.id}"))
+            syncCoordinator.pushPending(operationIds)
         }
     }
 
     override suspend fun markWatched(media: MediaCard) {
-        database.withTransaction {
+        val operationIds = routingMutex.withLock { database.withTransaction {
             val previous = database.stateDao().get(media.type.name, media.id)
             database.mediaDao().upsertMedia(listOf(media.toEntity()))
             database.stateDao().upsert(
@@ -127,16 +132,17 @@ class RoomLibraryRepository(
                 WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = Instant.now().toString()),
             )
             rebuildLibraryRail()
-        }
+            setOf("state:${media.type.name}:${media.id}")
+        } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) {
-            syncCoordinator.pushPending(setOf("state:${media.type.name}:${media.id}"))
+            syncCoordinator.pushPending(operationIds)
         }
     }
 
     override suspend fun markEpisodeWatched(episode: EpisodeCard) {
         val watchedAt = Instant.now().toString()
-        val operationId = database.withTransaction {
+        val operationId = routingMutex.withLock { database.withTransaction {
             database.timelineDao().insertHistory(
                 WatchHistoryEntity(
                     mediaType = MediaType.TV.name,
@@ -160,14 +166,14 @@ class RoomLibraryRepository(
             )
             queueWriteOperation(writeId, "EPISODE_WATCHED", episode, episode.label)
             "write:$writeId"
-        }
+        } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
     }
 
     override suspend fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
         if (watched) return markEpisodeWatched(episode)
-        val operationId = database.withTransaction {
+        val operationId = routingMutex.withLock { database.withTransaction {
             database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, episode.showId, episode.season, episode.number)
             refreshLocalUpNext(episode.showId)
             val writeId = database.syncDao().queue(
@@ -180,7 +186,7 @@ class RoomLibraryRepository(
             )
             queueWriteOperation(writeId, "EPISODE_UNWATCHED", episode, episode.label)
             "write:$writeId"
-        }
+        } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
     }
@@ -188,7 +194,7 @@ class RoomLibraryRepository(
     override suspend fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
         if (changed.isEmpty()) return
-        val operationIds = database.withTransaction {
+        val operationIds = routingMutex.withLock { database.withTransaction {
             val ids = mutableListOf<String>()
             changed.forEach { episode ->
                 val watchedAt = Instant.now().toString()
@@ -212,7 +218,7 @@ class RoomLibraryRepository(
             }
             changed.map(EpisodeCard::showId).toSet().forEach { refreshLocalUpNext(it) }
             ids
-        }
+        } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds.toSet())
     }
@@ -255,7 +261,7 @@ class RoomLibraryRepository(
         payload: String? = null,
     ) {
         val operation = SyncOperation(operationId, type, mediaType, mediaId, "", value, payload, operationVersion)
-        val rows = durableQueue.snapshot(operation).map { delivery ->
+        val rows = durableQueue.snapshotUnlocked(operation).map { delivery ->
             com.cinetrack.data.local.SyncOperationDeliveryEntity(
                 operationId = delivery.operationId,
                 operationVersion = delivery.operationVersion,

@@ -72,7 +72,10 @@ class SyncCoordinator(
             // The provider only attempted the current MAIN delivery set. Older
             // generations that are already ACKNOWLEDGED (for example after a
             // partial SECONDARY failure) must not be required in this response.
-            acknowledge(mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
+            // Keep the provider identity captured at the start of this pass.
+            // Configuration may change while the network request is running;
+            // its result must never be attributed to the new MAIN provider.
+            acknowledge(main.id, mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
             // A retry may have had only SECONDARY work left after MAIN was
             // acknowledged by an earlier attempt. Re-evaluate the complete
             // operation against every persisted delivery, not just this pass.
@@ -141,6 +144,7 @@ class SyncCoordinator(
     }
 
     private suspend fun acknowledge(
+        providerId: TrackingProviderId,
         pending: List<SyncOperation>,
         acknowledgedIds: Set<String>,
         deferredIds: Set<String>,
@@ -149,9 +153,8 @@ class SyncCoordinator(
         check((acknowledgedIds + deferredIds).containsAll(pendingIds)) {
             "MAIN provider did not acknowledge every synchronization operation"
         }
-        val main = registry.configuration().mainProvider ?: TrackingProviderId.SIMKL
         val acknowledged = pending.filter { it.id in acknowledgedIds }
-        operations.acknowledge(main, acknowledged)
+        operations.acknowledge(providerId, acknowledged)
         operations.completeReady(acknowledged)
     }
 

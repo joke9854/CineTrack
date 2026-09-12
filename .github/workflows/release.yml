@@ -2,10 +2,9 @@ name: Publish update
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - "testing/**"
-      - "beta-testing"
+  workflow_run:
+    workflows: ["Android test build"]
+    types: [completed]
 
 permissions:
   contents: write
@@ -16,23 +15,28 @@ jobs:
     # workflow, but only an explicit [release] commit (or manual dispatch)
     # reaches the signed build and GitHub Release steps.
     if: >-
-      (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') &&
-      (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[release]')) &&
-      !contains(github.event.head_commit.message, '[skip release]')
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        (startsWith(github.event.workflow_run.head_branch, 'testing/') || github.event.workflow_run.head_branch == 'beta-testing') &&
+        contains(github.event.workflow_run.head_commit.message, '[release]'))) &&
+      (github.event_name == 'workflow_dispatch' || !contains(github.event.workflow_run.head_commit.message, '[skip release]'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
       - name: Verify beta version policy
-        if: github.ref_name == 'beta-testing' && github.event_name == 'push'
+        if: github.event_name == 'workflow_run'
         run: |
           PREVIOUS_FILE="$RUNNER_TEMP/cinetrack-previous-build.gradle.kts"
-          if git show "${{ github.event.before }}:app/build.gradle.kts" > "$PREVIOUS_FILE" 2>/dev/null; then
+          if git show "HEAD^:app/build.gradle.kts" > "$PREVIOUS_FILE" 2>/dev/null; then
             python3 scripts/check_version_policy.py --previous-file "$PREVIOUS_FILE"
           else
             python3 scripts/check_version_policy.py
           fi
       - name: Verify beta version format
-        if: github.ref_name != 'beta-testing' || github.event_name != 'push'
+        if: github.event_name == 'workflow_dispatch'
         run: python3 scripts/check_version_policy.py
       - name: Verify database schema and migration chain
         run: python3 scripts/check_database_indexes.py
@@ -80,20 +84,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          TARGET_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
           TAG="v$VERSION-testing"
           APK="app/build/outputs/apk/release/app-release.apk"
           cp "$APK" "CineTrack-$VERSION-universal.apk"
           sha256sum "CineTrack-$VERSION-universal.apk" > "CineTrack-$VERSION-universal.apk.sha256"
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" \
-              --target "$GITHUB_SHA" \
+              --target "$TARGET_SHA" \
               --title "CineTrack $VERSION beta" \
               --notes-file CHANGELOG.md \
               --latest
             gh release upload "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" --clobber
           else
             gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
-              --target "$GITHUB_SHA" \
+              --target "$TARGET_SHA" \
               --title "CineTrack $VERSION beta" \
               --notes-file CHANGELOG.md \
               --latest

@@ -21,6 +21,7 @@ import com.cinetrack.data.sync.RoomSyncOperationRepository
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingConfigurationService
+import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
@@ -96,7 +97,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataTimezone = metadataTimezone::get,
     )
     private val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
-    val trackingConfigurationService = TrackingConfigurationService(preferences, syncOperationRepository)
+    val trackingRoutingMutex = TrackingRoutingMutex()
+    val trackingConfigurationService = TrackingConfigurationService(preferences, syncOperationRepository, trackingRoutingMutex)
     val trackingProviderRegistry: TrackingProviderRegistry
     val syncCoordinator: SyncCoordinator
     val repository: CineTrackRepository
@@ -107,7 +109,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val watchProviderRepository: WatchProviderRepository
 
     init {
-        settingsRepository = SettingsRepository(preferences, syncOperationRepository)
+        settingsRepository = SettingsRepository(preferences, trackingConfigurationService)
         lateinit var facade: CineTrackRepository
         val simklSyncEngine = SimklSyncEngine()
         val simkl = SimklTrackingProvider(
@@ -123,7 +125,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
         val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, {
             facade.scheduleAutomaticBackup()
-        }, trackingProviderRegistry)
+        }, trackingProviderRegistry, trackingRoutingMutex)
         facade = CineTrackRepository(
             database = database,
             services = services,

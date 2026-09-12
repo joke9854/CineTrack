@@ -4,6 +4,9 @@ import re
 import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
+schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
+for version in (5, 6, 7, 8, 9, 10):
+    assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
 assert "version = 10" in source, "Room database version must be 10"
 for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10"):
     assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
@@ -113,5 +116,5 @@ for index in (
 ):
     assert index in source, f"Missing delivery index {index}"
 assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
-print("PASS: data preserved; current sync tables, delivery indexes, and 5/6/7/8/9->10 migration chain verified.")
+print("PASS: static schema, delivery indexes, migration declarations, and 5-10 fixtures verified; MigrationTestHelper remains authoritative for execution.")
 

@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.first
 class TrackingConfigurationService(
     private val preferences: AppPreferences,
     private val operations: SyncOperationRepository,
+    private val routingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
 ) {
     suspend fun current(): TrackingConfiguration = TrackingConfiguration(
         preferences.mainTrackingProvider.first(),
@@ -19,25 +20,27 @@ class TrackingConfigurationService(
 
     suspend fun setProviders(main: TrackingProviderId?, secondary: TrackingProviderId?): TrackingConfiguration {
         val next = TrackingConfiguration(main, secondary)
-        val previous = current()
-        val removed = (setOfNotNull(previous.mainProvider, previous.secondaryProvider) -
-            setOfNotNull(next.mainProvider, next.secondaryProvider))
-        // Cancel first. If the process dies before DataStore is committed, the
-        // retry sees the same old configuration and repeats this harmlessly.
-        removed.forEach { operations.cancelProviderDeliveries(it) }
-        preferences.setTrackingProviders(next.mainProvider, next.secondaryProvider)
-        // A retry after the DataStore commit also repairs any remaining rows for
-        // providers no longer configured.
-        repair(next)
+        routingMutex.withLock {
+            val previous = current()
+            val removed = (setOfNotNull(previous.mainProvider, previous.secondaryProvider) -
+                setOfNotNull(next.mainProvider, next.secondaryProvider))
+            // Persist first. If the process dies before cancellation, startup
+            // repair sees the committed configuration and finishes the transition.
+            preferences.setTrackingProviders(next.mainProvider, next.secondaryProvider)
+            removed.forEach { operations.cancelProviderDeliveries(it) }
+            val pending = operations.pending()
+            operations.completeReady(pending)
+        }
         return next
     }
 
-    suspend fun repair(configuration: TrackingConfiguration? = null) {
+    suspend fun repair(configuration: TrackingConfiguration? = null) = routingMutex.withLock {
         val resolved = configuration ?: current()
         val configured = setOfNotNull(resolved.mainProvider, resolved.secondaryProvider)
         TrackingProviderId.entries.filterNot(configured::contains).forEach {
             operations.cancelProviderDeliveries(it)
         }
+        operations.completeReady(operations.pending())
     }
 }
 

@@ -269,10 +269,6 @@ class RoomSyncOperationRepository(
         database.withTransaction {
             database.syncDao().cancelOutstandingDeliveries(provider.name, reason)
         }
-        // A removed provider must not leave the logical operation blocked. The
-        // remaining delivery rows still decide whether it is ready to clean up.
-        val candidates = pending()
-        if (candidates.isNotEmpty()) completeReady(candidates)
     }
 
     /** Removes 0.89 orphan rows and stale generations without retargeting modern work. */
