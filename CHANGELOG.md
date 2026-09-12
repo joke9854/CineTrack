@@ -1,3 +1,9 @@
+# CineTrack 0.94 beta
+
+- Keep full-sync acknowledgements scoped to the MAIN deliveries actually attempted, so a retry after a partial secondary failure never replays an already acknowledged MAIN write.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.93 beta
 
 - Preserve immutable provider target snapshots across role switches, add idempotent legacy delivery backfill, and surface partial provider delivery status.

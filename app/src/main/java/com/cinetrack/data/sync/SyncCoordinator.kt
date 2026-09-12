@@ -65,7 +65,10 @@ class SyncCoordinator(
             requireAuthenticated(main)
             attemptedMain = mainPending
             val outcome = main.syncBidirectionally(mainPending, onProgress)
-            acknowledge(pending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
+            // The provider only attempted the current MAIN delivery set. Older
+            // generations that are already ACKNOWLEDGED (for example after a
+            // partial SECONDARY failure) must not be required in this response.
+            acknowledge(mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
