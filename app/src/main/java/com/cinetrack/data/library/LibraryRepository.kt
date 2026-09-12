@@ -44,8 +44,8 @@ class RoomLibraryRepository(
     private val database: AppDatabase,
     private val preferences: AppPreferences,
     private val syncCoordinator: SyncCoordinator,
-    private val providerRegistry: TrackingProviderRegistry,
     private val onLocalStateChanged: () -> Unit,
+    private val providerRegistry: TrackingProviderRegistry? = null,
 ) : LibraryRepository {
     override fun observeLocalChanges(): Flow<Set<String>> = database.invalidationTracker.createFlow(
         "media",
@@ -240,13 +240,14 @@ class RoomLibraryRepository(
         payload: String? = null,
     ) {
         val operation = SyncOperation(operationId, type, mediaType, mediaId, "", value, payload, operationVersion)
-        val config = providerRegistry.configuration()
+        val registry = providerRegistry ?: return
+        val config = registry.configuration()
         val rows = buildList {
             config.mainProvider?.let { provider ->
                 add(com.cinetrack.data.local.SyncOperationDeliveryEntity(operationId = operationId, operationVersion = operationVersion, providerId = provider.name, status = DeliveryStatus.PENDING.name, required = true, roleAtEnqueue = TrackingRole.MAIN.name, createdAt = operationVersion, updatedAt = operationVersion))
             }
             config.secondaryProvider?.let { providerId ->
-                val provider = providerRegistry.getProvider(providerId)
+                val provider = registry.getProvider(providerId)
                 val supported = provider?.capabilities?.supports(operation) == true
                 add(com.cinetrack.data.local.SyncOperationDeliveryEntity(operationId = operationId, operationVersion = operationVersion, providerId = providerId.name, status = if (supported) DeliveryStatus.PENDING.name else DeliveryStatus.SKIPPED_UNSUPPORTED.name, required = supported, roleAtEnqueue = TrackingRole.SECONDARY.name, createdAt = operationVersion, updatedAt = operationVersion))
             }

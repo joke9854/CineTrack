@@ -120,9 +120,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         )
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
-        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, trackingProviderRegistry) {
+        val localLibrary = RoomLibraryRepository(database, preferences, syncCoordinator, {
             repositoryRef.get()?.scheduleAutomaticBackup()
-        }
+        }, trackingProviderRegistry)
         val facade = CineTrackRepository(
             database = database,
             services = services,

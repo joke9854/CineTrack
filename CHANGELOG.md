@@ -1,3 +1,9 @@
+# CineTrack 0.92 beta
+
+- Preserve the existing local-library constructor contract while retaining provider-target snapshots for new mutations.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.91 beta
 
 - Clear legacy Simkl sync state when disconnecting or switching accounts so a new account syncs immediately without affecting local library data.
