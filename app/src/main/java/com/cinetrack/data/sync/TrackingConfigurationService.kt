@@ -32,8 +32,9 @@ class TrackingConfigurationService(
         return next
     }
 
-    suspend fun repair(configuration: TrackingConfiguration = current()) {
-        val configured = setOfNotNull(configuration.mainProvider, configuration.secondaryProvider)
+    suspend fun repair(configuration: TrackingConfiguration? = null) {
+        val resolved = configuration ?: current()
+        val configured = setOfNotNull(resolved.mainProvider, resolved.secondaryProvider)
         TrackingProviderId.entries.filterNot(configured::contains).forEach {
             operations.cancelProviderDeliveries(it)
         }

@@ -298,8 +298,8 @@ class RoomLibraryRepository(
                 localValue = value,
                 createdAt = sourceVersion,
                 updatedAt = sourceVersion,
-                season = payload.episodePart(0),
-                episode = payload.episodePart(1),
+                season = payload.split(':', limit = 3).getOrNull(0)?.toIntOrNull(),
+                episode = payload.split(':', limit = 3).getOrNull(1)?.toIntOrNull(),
             ),
         )
         snapshotDeliveries("write:$writeId", sourceVersion, SyncOperationType.valueOf(operation), mediaType, mediaId, value, payload)

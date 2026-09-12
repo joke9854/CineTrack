@@ -104,6 +104,8 @@ assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "tit
 assert 'primaryKeys = ["operationId", "operationVersion", "providerId"]' in source
 for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "attemptCount", "lastError", "createdAt", "updatedAt"):
     assert re.search(rf"val {column}\s*:", source), f"Missing delivery column {column}"
+for column in ("operationId", "operation", "mediaType", "mediaId", "title", "status", "providerId", "season", "episode"):
+    assert re.search(rf"data class SyncOperationEntity[\s\S]*?val {column}\s*:", source), f"Missing sync-operation column {column}"
 for index in (
     "index_sync_operation_deliveries_providerId_status",
     "index_sync_operation_deliveries_operationId",
