@@ -16,6 +16,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - name: Verify beta version bump
+        if: github.ref_name == 'beta-testing' && github.event_name == 'push'
+        run: |
+          CURRENT=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          PREVIOUS=$(git show "${{ github.event.before }}:app/build.gradle.kts" 2>/dev/null | sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' | head -1 || true)
+          if [ -n "$PREVIOUS" ] && [ "$CURRENT" = "$PREVIOUS" ]; then
+            echo "beta-testing pushes must bump app versionName (currently $CURRENT)"
+            exit 1
+          fi
       - name: Verify database index migration
         run: python3 scripts/check_database_indexes.py
       - uses: actions/setup-java@v4

@@ -1,3 +1,12 @@
+# CineTrack 0.86 beta
+
+- Persist MAIN synchronization baselines for deterministic three-way reconciliation.
+- Resolve remote-only changes without false conflicts and make KEEP LOCAL / USE REMOTE durable and provider-neutral.
+- Add localized, provider-aware conflict cards with typed episode context and retryable resolution operations.
+- Add schema migrations and regression coverage for library, movie, and episode reconciliation.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.85 beta
 
 - Introduce provider-neutral tracking snapshots and deterministic reconciliation for library, movie, and episode history.
