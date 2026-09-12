@@ -25,7 +25,7 @@ jobs:
             echo "beta-testing pushes must bump app versionName (currently $CURRENT)"
             exit 1
           fi
-      - name: Verify database index migration
+      - name: Verify database schema and migration chain
         run: python3 scripts/check_database_indexes.py
       - uses: actions/setup-java@v4
         with:
