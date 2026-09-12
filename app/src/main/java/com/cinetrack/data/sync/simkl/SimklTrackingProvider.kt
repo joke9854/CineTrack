@@ -32,7 +32,7 @@ import kotlinx.coroutines.coroutineScope
 class SimklTrackingProvider(
     private val services: ApiServices,
     private val preferences: AppPreferences,
-    private val legacyBidirectionalSync: suspend (List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome,
+    private val syncEngine: SimklSyncEngine,
     private val normalizedSnapshot: (suspend () -> TrackingSnapshot)? = null,
 ) : TrackingProvider {
     override val id = TrackingProviderId.SIMKL
@@ -96,7 +96,7 @@ class SimklTrackingProvider(
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
         if (!isAuthenticated()) throw TrackingSyncError.AuthenticationRequired(id)
-        return legacyBidirectionalSync(operations, onProgress)
+        return syncEngine.sync(operations, onProgress)
     }
 
     override suspend fun testConnection(): ConnectionResult {

@@ -31,6 +31,23 @@ enum class SyncOperationType {
     SET_RATING,
 }
 
+/** Per-provider delivery state for one logical CineTrack mutation. */
+enum class DeliveryStatus { PENDING, ACKNOWLEDGED, FAILED, SKIPPED_UNSUPPORTED }
+
+enum class TrackingRole { MAIN, SECONDARY }
+
+data class SyncOperationDelivery(
+    val operationId: String,
+    val providerId: TrackingProviderId,
+    val status: DeliveryStatus = DeliveryStatus.PENDING,
+    val required: Boolean = true,
+    val roleAtEnqueue: TrackingRole = TrackingRole.MAIN,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
 enum class TrackingCapability {
     PULL_LIBRARY,
     PUSH_LIBRARY,

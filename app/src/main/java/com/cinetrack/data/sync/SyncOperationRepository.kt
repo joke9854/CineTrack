@@ -4,9 +4,13 @@ import androidx.room.withTransaction
 import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.PendingWriteEntity
 import com.cinetrack.data.local.SyncOperationEntity
+import com.cinetrack.data.local.SyncOperationDeliveryEntity
+import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.SyncOperationCard
+import com.cinetrack.domain.SyncDeliveryCard
 import com.cinetrack.domain.SyncOperationStatus
+import kotlinx.coroutines.flow.first
 
 interface SyncOperationRepository {
     suspend fun pending(operationIds: Set<String>? = null): List<SyncOperation>
@@ -14,13 +18,24 @@ interface SyncOperationRepository {
     suspend fun cards(): List<SyncOperationCard>
     suspend fun complete(operations: List<SyncOperation>)
     suspend fun fail(operations: List<SyncOperation>, error: Throwable)
+
+    /** Provider delivery hooks. Defaults keep lightweight test repositories source-compatible. */
+    suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {}
+    suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> = emptyList()
+    suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {}
+    suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {}
+    suspend fun skipUnsupported(provider: TrackingProviderId, operationIds: Set<String>) {}
+    suspend fun completeReady(operations: List<SyncOperation>) = complete(operations)
 }
 
 /**
  * Adapts the existing Room queue to provider-neutral operations. The legacy
  * pending rows remain the durable payload/source-of-truth during migration.
  */
-class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOperationRepository {
+class RoomSyncOperationRepository(
+    private val database: AppDatabase,
+    private val preferences: AppPreferences? = null,
+) : SyncOperationRepository {
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
         materializeLegacyOperations()
         repairBlankTitles()
@@ -41,7 +56,13 @@ class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOpera
     override suspend fun cards(): List<SyncOperationCard> {
         materializeLegacyOperations()
         repairBlankTitles()
-        return database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
+        val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
+        val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).map(SyncOperationDeliveryEntity::toDomain)
+        return cards.map { card ->
+            card.copy(deliveries = deliveryRows.filter { it.operationId == card.id }.map {
+                SyncDeliveryCard(it.providerId.name, it.status.name, it.required, it.attemptCount, it.lastError)
+            })
+        }
     }
 
     override suspend fun enqueue(operations: List<SyncOperation>) {
@@ -65,6 +86,13 @@ class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOpera
             )
         }
         database.syncDao().upsertOperations(entities)
+        val main = preferences?.mainTrackingProvider?.first()
+        val secondary = preferences?.secondaryTrackingProvider?.first()
+        val now = System.currentTimeMillis()
+        ensureDeliveries(operations, buildList {
+            main?.let { provider -> operations.forEach { add(SyncOperationDelivery(it.id, provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
+            secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(it.id, provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
+        })
     }
 
     override suspend fun complete(operations: List<SyncOperation>) {
@@ -92,6 +120,41 @@ class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOpera
     override suspend fun fail(operations: List<SyncOperation>, error: Throwable) {
         val message = error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
         operations.forEach { database.syncDao().markOperationFailed(it.id, message) }
+    }
+
+    override suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {
+        if (operations.isEmpty() || targets.isEmpty()) return
+        val ids = operations.mapTo(linkedSetOf(), SyncOperation::id)
+        val existing = database.syncDao().deliveries(ids.toList()).map { "${it.operationId}:${it.providerId}" }.toSet()
+        val now = System.currentTimeMillis()
+        val missing = targets.filter { it.operationId in ids && "${it.operationId}:${it.providerId.name}" !in existing }
+            .map { it.toEntity(now) }
+        if (missing.isNotEmpty()) database.syncDao().upsertDeliveries(missing)
+    }
+
+    override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
+        if (operationIds.isEmpty()) emptyList() else database.syncDao().deliveries(operationIds.toList()).map(SyncOperationDeliveryEntity::toDomain)
+
+    override suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {
+        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.ACKNOWLEDGED.name, null)
+    }
+
+    override suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {
+        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.FAILED.name, error.message)
+    }
+
+    override suspend fun skipUnsupported(provider: TrackingProviderId, operationIds: Set<String>) {
+        if (operationIds.isNotEmpty()) database.syncDao().updateDelivery(provider.name, operationIds.toList(), DeliveryStatus.SKIPPED_UNSUPPORTED.name, null)
+    }
+
+    override suspend fun completeReady(operations: List<SyncOperation>) {
+        if (operations.isEmpty()) return
+        val deliveries = deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
+        val ready = operations.filter { operation ->
+            val rows = deliveries.filter { it.operationId == operation.id }
+            rows.isEmpty() || rows.filter(SyncOperationDelivery::required).all { it.status == DeliveryStatus.ACKNOWLEDGED || it.status == DeliveryStatus.SKIPPED_UNSUPPORTED }
+        }
+        complete(ready)
     }
 
     private suspend fun materializeLegacyOperations() {
@@ -153,6 +216,30 @@ class RoomSyncOperationRepository(private val database: AppDatabase) : SyncOpera
         return mediaTitle ?: fallback?.takeIf(String::isNotBlank) ?: "$mediaType #$mediaId"
     }
 }
+
+private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
+    operationId = operationId,
+    providerId = providerId.name,
+    status = status.name,
+    required = required,
+    roleAtEnqueue = roleAtEnqueue.name,
+    attemptCount = attemptCount,
+    lastError = lastError,
+    createdAt = createdAt,
+    updatedAt = now,
+)
+
+private fun SyncOperationDeliveryEntity.toDomain() = SyncOperationDelivery(
+    operationId = operationId,
+    providerId = runCatching { TrackingProviderId.valueOf(providerId) }.getOrDefault(TrackingProviderId.SIMKL),
+    status = runCatching { DeliveryStatus.valueOf(status) }.getOrDefault(DeliveryStatus.PENDING),
+    required = required,
+    roleAtEnqueue = runCatching { TrackingRole.valueOf(roleAtEnqueue) }.getOrDefault(TrackingRole.MAIN),
+    attemptCount = attemptCount,
+    lastError = lastError,
+    createdAt = createdAt,
+    updatedAt = updatedAt,
+)
 
 private fun PendingWriteEntity.toOperationEntity(mediaTitle: String?) = SyncOperationEntity(
     operationId = "write:$id",

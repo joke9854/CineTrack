@@ -382,7 +382,9 @@ object NetworkFactory {
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
+            redactHeader("simkl-api-key")
             redactQueryParams("api_key")
+            redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         val common = OkHttpClient.Builder()
@@ -454,3 +456,4 @@ object NetworkFactory {
         )
     }
 }
+

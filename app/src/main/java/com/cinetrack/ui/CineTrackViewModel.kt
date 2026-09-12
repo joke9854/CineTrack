@@ -792,7 +792,7 @@ class CineTrackViewModel(
         if (!syncCoordinator.isMainProviderConnected()) {
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
-        if (!force && !repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) {
+        if (!force && !repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) {
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
         var completedSync = _syncProgress.value

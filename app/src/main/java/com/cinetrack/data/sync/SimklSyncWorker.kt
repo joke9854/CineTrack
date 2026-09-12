@@ -11,6 +11,7 @@ import androidx.work.WorkerParameters
 import com.cinetrack.CineTrackApplication
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 
 object TrackingWorkScheduler {
     private const val WORK_NAME = "simkl-periodic-sync"
@@ -45,9 +46,12 @@ open class TrackingSyncWorker(
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
         if (!application.container.syncCoordinator.isMainProviderConnected()) return Result.success()
-        if (!application.container.repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
+        if (!application.container.repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
         return application.container.syncCoordinator.sync { }.fold(
             onSuccess = {
+                application.container.preferences.mainTrackingProvider.first()?.let { provider ->
+                    application.container.preferences.markTrackingChecked(provider)
+                }
                 try {
                     val state = application.container.repository.loadCachedState()
                     ReleaseNotifier.notifyUpcoming(

@@ -24,6 +24,7 @@ import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
 import com.cinetrack.data.sync.simkl.SimklTrackingProvider
+import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.sync.ReleaseNotifier
@@ -93,7 +94,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataRegion = metadataRegion::get,
         metadataTimezone = metadataTimezone::get,
     )
-    private val syncOperationRepository = RoomSyncOperationRepository(database)
+    private val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
     val trackingProviderRegistry: TrackingProviderRegistry
     val syncCoordinator: SyncCoordinator
     val repository: CineTrackRepository
@@ -108,7 +109,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
-            legacyBidirectionalSync = { operations, onProgress ->
+            syncEngine = SimklSyncEngine { operations, onProgress ->
                 facade.syncSimklProvider(operations, onProgress).getOrThrow()
             },
         )

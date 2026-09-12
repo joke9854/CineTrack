@@ -30,23 +30,41 @@ class SyncCoordinator(
         // Capture once. A provider must never expose its DTOs to the queue or UI.
         val pending = operations.pending()
         try {
-            val mainUnsupported = pending.firstOrNull { !main.capabilities.supports(it) }
-            if (mainUnsupported != null) throw TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type)
-
-            // Direction is structural: SECONDARY has no pull/sync call anywhere here.
-            // Deliver first because the legacy Simkl MAIN pass also clears its
-            // acknowledged queue rows; a secondary failure must leave them retryable.
             val secondary = configuration.secondaryProvider?.let(registry::getProvider)
-            if (secondary != null && pending.isNotEmpty()) {
-                requireAuthenticated(secondary)
-                pushTo(secondary, pending)
+            val targets = buildTargets(pending, main, secondary, configuration)
+            operations.ensureDeliveries(pending, targets)
+
+            val mainPending = pendingFor(pending, main.id)
+            val mainUnsupported = mainPending.firstOrNull { !main.capabilities.supports(it) }
+            if (mainUnsupported != null) {
+                operations.failDelivery(main.id, mainPending.mapTo(linkedSetOf(), SyncOperation::id), TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type))
+                throw TrackingSyncError.UnsupportedOperation(main.id, mainUnsupported.type)
             }
 
-            val outcome = main.syncBidirectionally(pending, onProgress)
+            // Direction is structural: SECONDARY has no pull/sync call anywhere here.
+            // A secondary failure is isolated; MAIN still performs its authoritative pass.
+            if (secondary != null) {
+                val secondaryPending = pendingFor(pending, secondary.id)
+                val unsupported = secondaryPending.filterNot(secondary.capabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
+                operations.skipUnsupported(secondary.id, unsupported)
+                val deliverable = secondaryPending.filter { it.id !in unsupported }
+                if (deliverable.isNotEmpty()) runCatching {
+                    requireAuthenticated(secondary)
+                    pushTo(secondary, deliverable)
+                }.onSuccess { operations.acknowledge(secondary.id, deliverable.mapTo(linkedSetOf(), SyncOperation::id)) }
+                    .onFailure { error ->
+                        operations.failDelivery(secondary.id, deliverable.mapTo(linkedSetOf(), SyncOperation::id), error)
+                        operations.fail(deliverable, error)
+                    }
+            }
+
+            requireAuthenticated(main)
+            val outcome = main.syncBidirectionally(mainPending, onProgress)
             acknowledge(pending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
+            operations.failDelivery(main.id, pending.mapTo(linkedSetOf(), SyncOperation::id), error)
             operations.fail(pending, error)
             throw error
         }
@@ -56,22 +74,38 @@ class SyncCoordinator(
         val pending = operations.pending(operationIds)
         if (pending.isEmpty()) return@resultOf Unit
         val configuration = registry.configuration()
-        val targets = listOfNotNull(
-            configuration.mainProvider?.let(registry::getProvider),
-            configuration.secondaryProvider?.let(registry::getProvider),
-        ).distinctBy(TrackingProvider::id)
+        val main = configuration.mainProvider?.let(registry::getProvider)
+        val secondary = configuration.secondaryProvider?.let(registry::getProvider)
+        val targets = listOfNotNull(main, secondary).distinctBy(TrackingProvider::id)
         if (targets.isEmpty()) throw IllegalStateException("No tracking provider is configured")
-        try {
-            targets.forEach { provider ->
-                requireAuthenticated(provider)
-                pushTo(provider, pending)
+        operations.ensureDeliveries(pending, buildTargets(pending, main, secondary, configuration))
+        var secondaryFailure: Throwable? = null
+        targets.forEach { provider ->
+            val providerPending = pendingFor(pending, provider.id)
+            val unsupported = providerPending.filterNot(provider.capabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
+            if (provider.id == configuration.mainProvider && unsupported.isNotEmpty()) {
+                val error = TrackingSyncError.UnsupportedOperation(provider.id, providerPending.first { it.id in unsupported }.type)
+                operations.failDelivery(provider.id, unsupported, error)
+                operations.fail(providerPending.filter { it.id in unsupported }, error)
+                throw error
             }
-            operations.complete(pending)
-        } catch (error: Throwable) {
-            if (error is CancellationException) throw error
-            operations.fail(pending, error)
-            throw error
+            operations.skipUnsupported(provider.id, unsupported)
+            val deliverable = providerPending.filter { it.id !in unsupported }
+            if (deliverable.isEmpty()) return@forEach
+            try {
+                requireAuthenticated(provider)
+                pushTo(provider, deliverable)
+                operations.acknowledge(provider.id, deliverable.mapTo(linkedSetOf(), SyncOperation::id))
+            } catch (error: Throwable) {
+                if (error is CancellationException) throw error
+                operations.failDelivery(provider.id, deliverable.mapTo(linkedSetOf(), SyncOperation::id), error)
+                operations.fail(deliverable, error)
+                if (provider.id == configuration.mainProvider) throw error
+                secondaryFailure = error
+            }
         }
+        secondaryFailure?.let { throw it }
+        operations.completeReady(pending)
     }
 
     suspend fun retry(operationId: String): Result<Unit> = pushPending(setOf(operationId))
@@ -99,7 +133,33 @@ class SyncCoordinator(
         check((acknowledgedIds + deferredIds).containsAll(pendingIds)) {
             "MAIN provider did not acknowledge every synchronization operation"
         }
-        operations.complete(pending.filter { it.id in acknowledgedIds })
+        operations.acknowledge(registry.configuration().mainProvider ?: TrackingProviderId.SIMKL, acknowledgedIds)
+        operations.completeReady(pending.filter { it.id in acknowledgedIds })
+    }
+
+    private suspend fun pendingFor(all: List<SyncOperation>, provider: TrackingProviderId): List<SyncOperation> {
+        val ids = all.mapTo(linkedSetOf(), SyncOperation::id)
+        val rows = operations.deliveries(ids)
+        if (rows.isEmpty()) return all
+        val byId = rows.filter { it.providerId == provider }.associateBy(SyncOperationDelivery::operationId)
+        return all.filter { byId[it.id]?.status in setOf(null, DeliveryStatus.PENDING, DeliveryStatus.FAILED) }
+    }
+
+    private fun buildTargets(
+        operations: List<SyncOperation>,
+        main: TrackingProvider?,
+        secondary: TrackingProvider?,
+        configuration: TrackingConfiguration,
+    ): List<SyncOperationDelivery> = buildList {
+        val now = System.currentTimeMillis()
+        operations.forEach { operation ->
+            main?.let {
+                add(SyncOperationDelivery(operation.id, it.id, required = true, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now))
+            }
+            secondary?.let {
+                add(SyncOperationDelivery(operation.id, it.id, required = it.capabilities.supports(operation), roleAtEnqueue = TrackingRole.SECONDARY, status = if (it.capabilities.supports(operation)) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now))
+            }
+        }
     }
 
     private suspend fun requireAuthenticated(provider: TrackingProvider) {

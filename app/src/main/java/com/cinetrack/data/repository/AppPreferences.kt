@@ -217,7 +217,15 @@ class AppPreferences(private val context: Context) {
         return BuildConfig.MDBLIST_API_KEY
     }
 
-    suspend fun simklLastCheckAt(): Long? = context.cineTrackDataStore.data.first()[Keys.simklLastCheckAt]
+    private fun trackingLastCheckKey(provider: TrackingProviderId) = longPreferencesKey("tracking_last_sync_${provider.name}")
+
+    suspend fun trackingLastCheckAt(provider: TrackingProviderId): Long? {
+        val values = context.cineTrackDataStore.data.first()
+        return values[trackingLastCheckKey(provider)]
+            ?: values.takeIf { provider == TrackingProviderId.SIMKL }?.get(Keys.simklLastCheckAt)
+    }
+
+    suspend fun simklLastCheckAt(): Long? = trackingLastCheckAt(TrackingProviderId.SIMKL)
 
     suspend fun syncReportNow(): SyncReport {
         val values = context.cineTrackDataStore.data.first()[Keys.syncReport].orEmpty().split('|')
@@ -242,7 +250,14 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun markSimklChecked(at: Long = System.currentTimeMillis()) {
-        context.cineTrackDataStore.edit { it[Keys.simklLastCheckAt] = at }
+        markTrackingChecked(TrackingProviderId.SIMKL, at)
+    }
+
+    suspend fun markTrackingChecked(provider: TrackingProviderId, at: Long = System.currentTimeMillis()) {
+        context.cineTrackDataStore.edit {
+            it[trackingLastCheckKey(provider)] = at
+            if (provider == TrackingProviderId.SIMKL) it[Keys.simklLastCheckAt] = at
+        }
     }
 
     private fun syncBaselineKey(provider: TrackingProviderId) = stringPreferencesKey("sync_baseline_${provider.name.lowercase()}_v1")

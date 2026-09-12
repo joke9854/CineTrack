@@ -15,7 +15,17 @@ The focused repositories now define the dependency direction used by the UI:
 
 ## Reconciliation boundary
 
-`TrackingSnapshot`, `MediaIds`, `LocalTrackingSnapshot`, `SyncReconciler`, `ReconciliationResult`, `LocalMutation`, and `SyncConflict` are provider-neutral. The reconciler performs no I/O and applies deterministic timestamp rules. Pending/dirty local state is protected from stale MAIN snapshots, and remote-origin mutations are explicitly marked `REMOTE_SYNC` so they cannot create feedback-loop writes.
+`TrackingSnapshot`, `MediaIds`, `LocalTrackingSnapshot`, `SyncReconciler`, `ReconciliationResult`, `LocalMutation`, and `SyncConflict` are provider-neutral. The reconciler performs no I/O and evaluates a three-way baseline (previous remote, current local, current MAIN snapshot). A local value is authoritative only when a field-specific durable operation matches its current value and source version; arbitrary dirty or stale rows do not protect a field. MAIN-only remote changes are applied locally without outbound writes, while true concurrent edits become conflicts.
 
-Only the configured MAIN provider may pull and reconcile. SECONDARY is dispatched through `push` only. Simkl DTOs and request mapping are contained in `SimklTrackingProvider`; the legacy full-import path remains behind the façade until its proven Room commit logic is fully migrated.
+Only the configured MAIN provider may pull and reconcile. SECONDARY is dispatched through `push` only. Every logical `SyncOperation` can have independent provider delivery rows, so acknowledgements and failures are retried per provider. Existing delivery targets retain the role captured at enqueue; role changes affect new operations only. Simkl DTOs and request mapping are contained in `SimklTrackingProvider`, with the proven full-import path isolated behind `SimklSyncEngine` until its Room commit logic is fully migrated.
+
+```text
+Local mutation
+      |
+Logical SyncOperation
+      |
+      +-- Simkl delivery (MAIN or SECONDARY)
+      |
+      +-- Floppy delivery (when configured and supported)
+```
 

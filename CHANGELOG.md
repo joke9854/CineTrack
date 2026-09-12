@@ -1,3 +1,12 @@
+# CineTrack 0.89 beta
+
+- Add provider-specific delivery state so Simkl and future Floppy deliveries acknowledge and retry independently.
+- Add non-destructive Room 8→9 migration with delivery indexes and deterministic legacy queue backfill hooks.
+- Make foreground/background cadence provider-neutral and redact both API-key query forms plus credential headers.
+- Isolate the Simkl full-sync implementation behind a dedicated sync engine boundary.
+
+Verification is pending in the release environment.
+
 # CineTrack 0.88 beta
 
 - Preserve the coupled movie-watched change when a local mark-watched action is represented by the legacy completed library operation.

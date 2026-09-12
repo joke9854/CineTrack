@@ -213,6 +213,27 @@ data class SyncOperationCard(
     val updatedAt: Long,
     val attemptCount: Int = 0,
     val providerId: String = "SIMKL",
+    val deliveries: List<SyncDeliveryCard> = emptyList(),
+)
+
+@Immutable
+data class SyncDeliveryCard(
+    val providerId: String,
+    val status: String,
+    val required: Boolean,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+)
+
+@Immutable
+data class TrackingProviderState(
+    val providerId: String,
+    val role: String,
+    val configured: Boolean = false,
+    val authenticated: Boolean = false,
+    val connectionStatus: String = "UNKNOWN",
+    val lastSuccessfulSync: Long? = null,
+    val lastError: String? = null,
 )
 
 @Immutable
@@ -229,6 +250,7 @@ data class AppUiState(
     val people: List<PersonCard> = emptyList(),
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
+    val trackingProviders: List<TrackingProviderState> = emptyList(),
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
     val notificationEpisodes: Boolean = true,

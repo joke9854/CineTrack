@@ -179,6 +179,23 @@ data class SyncOperationEntity(
     val episode: Int? = null,
 )
 
+@Entity(
+    tableName = "sync_operation_deliveries",
+    primaryKeys = ["operationId", "providerId"],
+    indices = [Index("providerId", "status"), Index("operationId"), Index("status")],
+)
+data class SyncOperationDeliveryEntity(
+    val operationId: String,
+    val providerId: String,
+    val status: String,
+    val required: Boolean,
+    val roleAtEnqueue: String,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
+)
+
 /**
  * One transactionally consistent view of every table used to build AppUiState.
  * Reading these tables independently allowed a sync commit to land between two
@@ -494,6 +511,21 @@ interface SyncDao {
 
     @Query("DELETE FROM sync_operations WHERE operationId IN (:operationIds)")
     suspend fun deleteOperations(operationIds: List<String>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeliveries(items: List<SyncOperationDeliveryEntity>)
+
+    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
+    suspend fun deliveries(operationIds: List<String>): List<SyncOperationDeliveryEntity>
+
+    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId = :operationId AND providerId = :providerId LIMIT 1")
+    suspend fun delivery(operationId: String, providerId: String): SyncOperationDeliveryEntity?
+
+    @Query("UPDATE sync_operation_deliveries SET status = :status, attemptCount = attemptCount + 1, lastError = :lastError, updatedAt = :updatedAt WHERE operationId IN (:operationIds) AND providerId = :providerId")
+    suspend fun updateDelivery(providerId: String, operationIds: List<String>, status: String, lastError: String?, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
+    suspend fun deleteDeliveries(operationIds: List<String>)
 }
 
 @Dao
@@ -526,8 +558,9 @@ interface PeopleDao {
         SyncStateEntity::class,
         PendingWriteEntity::class,
         SyncOperationEntity::class,
+        SyncOperationDeliveryEntity::class,
     ],
-    version = 8,
+    version = 9,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -608,12 +641,31 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val migration8To9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries` (
+                    `operationId` TEXT NOT NULL,
+                    `providerId` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `required` INTEGER NOT NULL,
+                    `roleAtEnqueue` TEXT NOT NULL,
+                    `attemptCount` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`operationId`, `providerId`))""")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_providerId_status` ON `sync_operation_deliveries` (`providerId`, `status`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_operationId` ON `sync_operation_deliveries` (`operationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_status` ON `sync_operation_deliveries` (`status`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9).build().also { instance = it }
         }
     }
 }

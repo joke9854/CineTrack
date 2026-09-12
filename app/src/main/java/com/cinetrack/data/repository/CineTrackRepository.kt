@@ -660,12 +660,16 @@ class CineTrackRepository(
         emitInitialState = false,
     )
 
-    suspend fun isSimklSyncDue(maxAgeMillis: Long): Boolean {
-        val lastCheck = preferences.simklLastCheckAt()
+    suspend fun isMainTrackingSyncDue(maxAgeMillis: Long): Boolean {
+        val provider = preferences.mainTrackingProvider.first() ?: return false
+        val lastCheck = preferences.trackingLastCheckAt(provider)
             ?: database.syncDao().get("all")?.lastSuccessfulSync
             ?: return true
         return System.currentTimeMillis() - lastCheck >= maxAgeMillis
     }
+
+    @Deprecated("Use isMainTrackingSyncDue")
+    suspend fun isSimklSyncDue(maxAgeMillis: Long): Boolean = isMainTrackingSyncDue(maxAgeMillis)
 
     suspend fun loadCachedState(): AppUiState = coroutineScope {
         // The database portion is read in one Room transaction. Preferences can
