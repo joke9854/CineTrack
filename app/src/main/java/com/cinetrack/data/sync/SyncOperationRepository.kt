@@ -431,7 +431,12 @@ class RoomSyncOperationRepository(
                 }
                 if (!current) return@forEach
                 val existing = database.syncDao().deliveries(listOf(operation.id))
-                    .any { it.operationVersion == operation.sourceVersion }
+                    .any {
+                        it.providerId == provider.name &&
+                            it.operationVersion == operation.sourceVersion &&
+                            it.status != DeliveryStatus.CANCELLED_PROVIDER_REMOVED.name &&
+                            it.status != DeliveryStatus.SUPERSEDED.name
+                    }
                 if (existing) return@forEach
                 ensureDeliveries(
                     listOf(operation),
