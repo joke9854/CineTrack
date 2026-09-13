@@ -1,3 +1,8 @@
+# CineTrack 0.99.02 beta
+
+- Hardened durable multi-provider routing with mutex-protected target snapshots and atomic KEEP_LOCAL conflict replacement.
+- Added secondary-only configuration normalization, provider bootstrap readiness, safe MAIN promotion rules, and race coverage.
+
 # CineTrack 0.99.01 beta
 
 - Completed the final multi-provider synchronization hardening pass, including real Room migration validation in CI and packaging historical schemas for instrumentation tests.
