@@ -1277,11 +1277,20 @@ class CineTrackRepository(
             if (field == null) {
                 false
             } else {
-                val newerLocalIntent = database.syncDao().syncOperations().any { entity ->
-                    entity.logicalField() == field &&
-                        entity.operationId != operation.id &&
-                        entity.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
-                        entity.createdAt > operation.sourceVersion
+                var newerLocalIntent = false
+                for (entity in database.syncDao().syncOperations()) {
+                    if (entity.logicalField() != field || entity.operationId == operation.id ||
+                        entity.status !in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) ||
+                        entity.createdAt <= operation.sourceVersion
+                    ) continue
+                    if (syncOperationRepository.currentIntentTargetsProvider(
+                            entity.operationId,
+                            entity.createdAt,
+                            TrackingProviderId.SIMKL,
+                        )) {
+                        newerLocalIntent = true
+                        break
+                    }
                 }
                 if (newerLocalIntent) {
                     false
