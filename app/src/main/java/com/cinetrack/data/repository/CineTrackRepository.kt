@@ -1307,7 +1307,15 @@ class CineTrackRepository(
             val conflict = database.syncDao().syncOperation(operationId)
                 ?: error("Conflict no longer exists")
             require(conflict.status == SyncOperationStatus.CONFLICT.name) { "Operation is not a conflict" }
-            require(conflict.operation == initial.operation) { "Conflict changed while resolving" }
+            require(
+                conflict.operation == initial.operation &&
+                    conflict.mediaType == initial.mediaType &&
+                    conflict.mediaId == initial.mediaId &&
+                    conflict.localValue == initial.localValue &&
+                    conflict.remoteValue == initial.remoteValue &&
+                    conflict.season == initial.season &&
+                    conflict.episode == initial.episode,
+            ) { "Conflict changed while resolving" }
             val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
             when (plan) {
                 is RemoteConflictPlan.Library -> {
