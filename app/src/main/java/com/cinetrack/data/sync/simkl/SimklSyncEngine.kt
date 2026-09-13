@@ -794,7 +794,7 @@ class SimklSyncEngine(
                         watched?.season != null -> operation.operation in setOf(
                             SyncOperationType.EPISODE_WATCHED.name,
                             SyncOperationType.EPISODE_UNWATCHED.name,
-                        ) && operation.season == watched.season && operation.episode == watched.episode
+                        ) && operation.season == watched?.season && operation.episode == watched?.episode
                         else -> operation.operation in setOf(
                             SyncOperationType.LIBRARY_STATUS.name,
                             SyncOperationType.MOVIE_WATCHED.name,
