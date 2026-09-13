@@ -2,6 +2,8 @@ package com.cinetrack.data.sync
 
 import com.cinetrack.domain.SyncProgress
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /** Owns provider selection and direction. Providers own only transport/mapping. */
 class SyncCoordinator(
@@ -9,6 +11,7 @@ class SyncCoordinator(
     private val operations: SyncOperationRepository,
     private val reconciler: SyncReconciler = SyncReconciler(),
 ) {
+    private val fullSyncMutex = Mutex()
     /** Exposes the pure policy for provider adapters and deterministic tests. */
     fun reconcile(
         local: LocalTrackingSnapshot,
@@ -16,7 +19,8 @@ class SyncCoordinator(
         provider: TrackingProviderId,
     ): ReconciliationResult = reconciler.reconcile(local, remote, provider)
 
-    suspend fun sync(onProgress: (SyncProgress) -> Unit): Result<SyncCoordinatorOutcome> = resultOf {
+    suspend fun sync(onProgress: (SyncProgress) -> Unit): Result<SyncCoordinatorOutcome> = fullSyncMutex.withLock {
+        resultOf {
         val configuration = registry.configuration()
         val mainId = configuration.mainProvider
             ?: throw IllegalStateException("Select a MAIN tracking provider")
@@ -86,6 +90,7 @@ class SyncCoordinator(
             operations.failDelivery(main.id, attemptedMain, error)
             operations.fail(attemptedMain, error)
             throw error
+        }
         }
     }
 
@@ -217,4 +222,3 @@ private suspend inline fun <T> resultOf(crossinline block: suspend () -> T): Res
 } catch (error: Throwable) {
     Result.failure(error)
 }
-

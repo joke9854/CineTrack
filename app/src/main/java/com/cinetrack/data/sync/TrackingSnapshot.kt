@@ -92,8 +92,8 @@ data class SyncConflict(
     val field: ConflictField,
     val localValue: String?,
     val remoteValue: String?,
-    val localUpdatedAt: Instant?,
-    val remoteUpdatedAt: Instant?,
+    val localUpdatedAt: Instant? = null,
+    val remoteUpdatedAt: Instant? = null,
     val providerId: TrackingProviderId,
     val mediaType: MediaType = MediaType.MOVIE,
     val conflictId: String = "",
@@ -123,4 +123,3 @@ object DefaultMediaIdentityResolver : MediaIdentityResolver {
         return left.isNotEmpty() && left.intersect(right).isNotEmpty()
     }
 }
-

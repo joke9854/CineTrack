@@ -120,7 +120,13 @@ class SimklTrackingProvider(
                 check(unmatched.isEmpty()) { "Simkl could not match the item being removed" }
             }
             LibraryStatus.COMPLETED -> services.simklSync.addHistory(
-                operation.request(item.copy(watchedAt = Instant.now().toString(), status = status.toSimklStatus())),
+                operation.request(item.copy(
+                    watchedAt = operation.payload
+                        ?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                        ?.toString()
+                        ?: Instant.ofEpochMilli(operation.sourceVersion).toString(),
+                    status = status.toSimklStatus(),
+                )),
             )
             else -> services.simklSync.addToList(operation.request(item.copy(to = status.toSimklStatus())))
         }
@@ -133,6 +139,7 @@ class SimklTrackingProvider(
         val episode = parts.getOrNull(1)?.toIntOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Invalid queued episode")
         val watchedAt = parts.getOrNull(2)
+            ?.let { runCatching { Instant.parse(it) }.getOrNull()?.toString() }
         val request = operation.request(
             SimklSyncItem(
                 ids = SimklIds(tmdb = operation.mediaId.toString()),
@@ -149,9 +156,17 @@ class SimklTrackingProvider(
     }
 
     private suspend fun pushMovieHistory(operation: SyncOperation, watched: Boolean) {
+        val watchedAt = if (watched) {
+            operation.payload
+                ?.let { runCatching { Instant.parse(it) }.getOrNull() }
+                ?.toString()
+                ?: Instant.now().toString()
+        } else {
+            null
+        }
         val request = operation.request(SimklSyncItem(
             ids = SimklIds(tmdb = operation.mediaId.toString()),
-            watchedAt = operation.value.takeIf { watched } ?: Instant.now().toString(),
+            watchedAt = watchedAt,
         ))
         if (watched) services.simklSync.addHistory(request) else services.simklSync.removeHistory(request)
     }
@@ -185,4 +200,3 @@ private fun String.toLibraryStatus(): LibraryStatus = when (lowercase()) {
 }
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
-

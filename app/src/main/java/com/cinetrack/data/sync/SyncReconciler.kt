@@ -19,11 +19,11 @@ class SyncReconciler(
             mergeField(l.libraryState, r.libraryState, b?.libraryState, b != null, hasValidLibraryIntent(local, l, MediaType.MOVIE),
                 onLocal = { /* The durable state:* row owns delivery. */ },
                 onRemote = { mutations += LocalMutation.SetLibraryStatus(MediaType.MOVIE, l.ids.tmdb ?: r.ids.tmdb ?: 0L, r.libraryState ?: LibraryStatus.NONE) },
-                onConflict = { conflicts += conflict(key, l.ids, MediaType.MOVIE, ConflictField.LIBRARY_STATUS, l.libraryState?.name, r.libraryState?.name, b?.libraryState?.name, provider) })
+                onConflict = { conflicts += conflict(key, l.ids, MediaType.MOVIE, ConflictField.LIBRARY_STATUS, l.libraryState?.name, r.libraryState?.name, b?.libraryState?.name, provider, localUpdatedAt = l.updatedAt, remoteUpdatedAt = r.updatedAt) })
             mergeField(l.watched, r.watched, b?.watched, b != null, hasValidMovieWatchedIntent(local, l),
                 onLocal = { /* The durable movie-history row owns delivery. */ },
                 onRemote = { mutations += LocalMutation.SetWatched(MediaType.MOVIE, l.ids.tmdb ?: r.ids.tmdb ?: 0L, r.watched, watchedAt = r.watchedAt) },
-                onConflict = { conflicts += conflict(key, l.ids, MediaType.MOVIE, ConflictField.WATCHED, l.watched.toString(), r.watched.toString(), b?.watched?.toString(), provider) })
+                onConflict = { conflicts += conflict(key, l.ids, MediaType.MOVIE, ConflictField.WATCHED, l.watched.toString(), r.watched.toString(), b?.watched?.toString(), provider, localUpdatedAt = l.updatedAt, remoteUpdatedAt = r.watchedAt ?: r.updatedAt) })
         }
         local.state.shows.forEach { l ->
             val r = remote.shows.firstOrNull { identity.matches(l.ids, it.ids) } ?: return@forEach
@@ -32,7 +32,7 @@ class SyncReconciler(
             mergeField(l.libraryState, r.libraryState, b?.libraryState, b != null, hasValidLibraryIntent(local, l, MediaType.TV),
                 onLocal = { /* The durable state:* row owns delivery. */ },
                 onRemote = { mutations += LocalMutation.SetLibraryStatus(MediaType.TV, l.ids.tmdb ?: r.ids.tmdb ?: 0L, r.libraryState ?: LibraryStatus.NONE) },
-                onConflict = { conflicts += conflict(key, l.ids, MediaType.TV, ConflictField.LIBRARY_STATUS, l.libraryState?.name, r.libraryState?.name, b?.libraryState?.name, provider) })
+                onConflict = { conflicts += conflict(key, l.ids, MediaType.TV, ConflictField.LIBRARY_STATUS, l.libraryState?.name, r.libraryState?.name, b?.libraryState?.name, provider, localUpdatedAt = l.updatedAt, remoteUpdatedAt = r.updatedAt) })
         }
         local.state.episodes.forEach { l ->
             val r = remote.episodes.firstOrNull { it.season == l.season && it.episode == l.episode && identity.matches(l.showIds, it.showIds) } ?: return@forEach
@@ -41,7 +41,7 @@ class SyncReconciler(
             mergeField(l.watched, r.watched, b?.watched, b != null, hasValidEpisodeIntent(local, l),
                 onLocal = { /* The durable write:* row owns delivery. */ },
                 onRemote = { mutations += LocalMutation.SetWatched(MediaType.TV, l.showIds.tmdb ?: r.showIds.tmdb ?: 0L, r.watched, l.season, l.episode, r.watchedAt) },
-                onConflict = { conflicts += conflict(key, l.showIds, MediaType.TV, ConflictField.EPISODE_WATCHED, l.watched.toString(), r.watched.toString(), b?.watched?.toString(), provider, l.season, l.episode) })
+                onConflict = { conflicts += conflict(key, l.showIds, MediaType.TV, ConflictField.EPISODE_WATCHED, l.watched.toString(), r.watched.toString(), b?.watched?.toString(), provider, l.season, l.episode, l.updatedAt, r.updatedAt ?: r.watchedAt) })
         }
         // Reconciliation is a direction decision only. Existing state:/write:
         // operations are the single durable representation of a local edit;
@@ -68,8 +68,35 @@ class SyncReconciler(
         onRemote()
     }
 
-    private fun conflict(key: String, ids: MediaIds, type: MediaType, field: ConflictField, local: String?, remote: String?, baseline: String?, provider: TrackingProviderId, season: Int? = null, episode: Int? = null) =
-        SyncConflict(mediaKey = key, field = field, localValue = local, remoteValue = remote, localUpdatedAt = null, remoteUpdatedAt = null, providerId = provider, mediaType = type, conflictId = "$key:${field.name}:${season ?: 0}:${episode ?: 0}", ids = ids, baselineValue = baseline, season = season, episode = episode, createdAt = Instant.now())
+    private fun conflict(
+        key: String,
+        ids: MediaIds,
+        type: MediaType,
+        field: ConflictField,
+        local: String?,
+        remote: String?,
+        baseline: String?,
+        provider: TrackingProviderId,
+        season: Int? = null,
+        episode: Int? = null,
+        localUpdatedAt: Instant? = null,
+        remoteUpdatedAt: Instant? = null,
+    ) = SyncConflict(
+        mediaKey = key,
+        field = field,
+        localValue = local,
+        remoteValue = remote,
+        localUpdatedAt = localUpdatedAt,
+        remoteUpdatedAt = remoteUpdatedAt,
+        providerId = provider,
+        mediaType = type,
+        conflictId = "$key:${field.name}:${season ?: 0}:${episode ?: 0}",
+        ids = ids,
+        baselineValue = baseline,
+        season = season,
+        episode = episode,
+        createdAt = Instant.now(),
+    )
 
     private fun hasValidLibraryIntent(local: LocalTrackingSnapshot, state: TrackedMovieState, type: MediaType): Boolean =
         hasValidLibraryIntent(local, state.ids, type, state.libraryState, state.updatedAt)
@@ -108,6 +135,8 @@ class SyncReconciler(
                     operation.type == SyncOperationType.LIBRARY_STATUS &&
                         state.libraryState == LibraryStatus.COMPLETED && state.watched ->
                         operation.value == LibraryStatus.COMPLETED.name && isCurrent(operation, state.updatedAt)
+                    operation.type == SyncOperationType.MEDIA_HISTORY_REMOVE ->
+                        !state.watched && isCurrent(operation, state.updatedAt)
                     else -> false
                 }
         }
@@ -129,4 +158,3 @@ class SyncReconciler(
         return operation.sourceVersion == current
     }
 }
-

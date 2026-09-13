@@ -27,6 +27,39 @@ class DurableTrackingQueue(
     suspend fun snapshot(operation: SyncOperation): List<SyncOperationDelivery> =
         routingMutex.withLock { snapshotUnlocked(operation) }
 
+    /**
+     * Captures an explicit provider target set. This is used for remote-only
+     * MAIN reconciliation mirrors: they must be delivered to SECONDARY only
+     * and must never become a new MAIN intent.
+     */
+    suspend fun snapshotForProviders(
+        operation: SyncOperation,
+        providers: Set<TrackingProviderId>,
+    ): List<SyncOperationDelivery> = routingMutex.withLock {
+        snapshotForProvidersUnlocked(operation, providers)
+    }
+
+    internal suspend fun snapshotForProvidersUnlocked(
+        operation: SyncOperation,
+        providers: Set<TrackingProviderId>,
+    ): List<SyncOperationDelivery> {
+        val configuration = providerRegistry.configuration()
+        return providers.mapNotNull { providerId ->
+            if (providerId != configuration.secondaryProvider) return@mapNotNull null
+            val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+            SyncOperationDelivery(
+                operationId = operation.id,
+                operationVersion = operation.sourceVersion,
+                providerId = providerId,
+                required = supported,
+                roleAtEnqueue = TrackingRole.SECONDARY,
+                status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
+                createdAt = operation.sourceVersion,
+                updatedAt = operation.sourceVersion,
+            )
+        }
+    }
+
     /** Caller already holding the shared routing mutex (normally a Room transaction). */
     internal suspend fun snapshotUnlocked(operation: SyncOperation): List<SyncOperationDelivery> {
         val configuration = providerRegistry.configuration()
@@ -72,6 +105,22 @@ class DurableSyncOperationWriter(
     private val durableQueue: DurableTrackingQueue,
     private val routingMutex: TrackingRoutingMutex,
 ) {
+    suspend fun enqueueForProviders(
+        operation: SyncOperation,
+        providers: Set<TrackingProviderId>,
+        supersedeLogicalKey: Boolean = false,
+    ) {
+        routingMutex.withLock {
+            val targets = durableQueue.snapshotForProvidersUnlocked(operation, providers)
+            if (targets.isEmpty()) return@withLock
+            operationRepository.enqueue(
+                operations = listOf(operation),
+                targets = targets,
+                supersedeOperationIds = if (supersedeLogicalKey) setOf(operation.id) else emptySet(),
+            )
+        }
+    }
+
     suspend fun enqueue(
         operation: SyncOperation,
         supersedeLogicalKey: Boolean = false,
