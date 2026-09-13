@@ -51,6 +51,9 @@ interface SyncOperationRepository {
 
     /** Terminates pending deliveries when a provider is explicitly removed. */
     suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider removed") {}
+
+    /** Binds only current, never-targeted local intents after initial MAIN setup. */
+    suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {}
 }
 
 /**
@@ -100,10 +103,12 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun enqueue(operations: List<SyncOperation>) {
-        enqueue(
-            operations = operations,
-            targets = emptyList(),
-        )
+        if (operations.isNotEmpty()) {
+            error(
+                "Production sync operations require persisted provider targets; " +
+                    "use DurableSyncOperationWriter",
+            )
+        }
     }
 
     override suspend fun enqueue(
@@ -302,6 +307,50 @@ class RoomSyncOperationRepository(
         }
     }
 
+    override suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {
+        val operations = database.syncDao().syncOperations().filter { operation ->
+            operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                !operation.operationId.startsWith("reconcile:") &&
+                !operation.operationId.startsWith("conflict:")
+        }
+        if (operations.isEmpty()) return
+        database.withTransaction {
+            operations.forEach { entity ->
+                val write = entity.operationId.removePrefix("write:").toLongOrNull()
+                    ?.let { database.syncDao().pendingWrite(it) }
+                val operation = entity.toSyncOperation(write) ?: return@forEach
+                val current = when {
+                    operation.id.startsWith("state:") -> {
+                        val state = database.stateDao().get(operation.mediaType.name, operation.mediaId)
+                        state?.dirty == true &&
+                            state.status == operation.value &&
+                            state.updatedAt == operation.sourceVersion
+                    }
+                    operation.id.startsWith("write:") -> write?.createdAt == operation.sourceVersion
+                    else -> true
+                }
+                if (!current) return@forEach
+                val existing = database.syncDao().deliveries(listOf(operation.id))
+                    .any { it.operationVersion == operation.sourceVersion }
+                if (existing) return@forEach
+                ensureDeliveries(
+                    listOf(operation),
+                    listOf(
+                        SyncOperationDelivery(
+                            operationId = operation.id,
+                            operationVersion = operation.sourceVersion,
+                            providerId = provider,
+                            required = true,
+                            roleAtEnqueue = TrackingRole.MAIN,
+                            createdAt = operation.sourceVersion,
+                            updatedAt = operation.sourceVersion,
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
     /** Removes 0.89 orphan rows and stale generations without retargeting modern work. */
     private suspend fun repairDeliveryRows() {
         val operations = database.syncDao().syncOperations().associateBy(SyncOperationEntity::operationId)
@@ -476,4 +525,3 @@ private fun SyncOperationStatus.aggregateWith(deliveries: List<SyncOperationDeli
     val hasAcknowledged = required.any { it.status == DeliveryStatus.ACKNOWLEDGED }
     return if (hasFailed && hasAcknowledged) SyncOperationStatus.PARTIAL else this
 }
-

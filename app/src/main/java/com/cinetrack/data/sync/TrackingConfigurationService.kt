@@ -41,6 +41,9 @@ class TrackingConfigurationService(
             val newlyAddedSecondary = next.secondaryProvider?.takeIf {
                 it !in setOfNotNull(previous.mainProvider, previous.secondaryProvider)
             }
+            val demotedFormerMain = previous.mainProvider?.takeIf {
+                it != next.mainProvider && it == next.secondaryProvider
+            }
             // Reset stale readiness before committing a re-add. If the process
             // dies before the DataStore write, the old configuration remains and
             // the provider is conservatively still not promotable.
@@ -50,7 +53,15 @@ class TrackingConfigurationService(
             // Persist first. If the process dies before cancellation, startup
             // repair sees the committed configuration and finishes the transition.
             preferences.setTrackingProviders(next.mainProvider, next.secondaryProvider)
+            demotedFormerMain?.let {
+                // A provider that has successfully served as MAIN is already
+                // bootstrapped and remains eligible for a later promotion.
+                preferences.setProviderBootstrapState(it, ProviderBootstrapState.READY)
+            }
             removed.forEach { operations.cancelProviderDeliveries(it) }
+            if (previous.mainProvider == null && next.mainProvider != null) {
+                operations.bindUnboundCurrentIntents(next.mainProvider)
+            }
             val pending = operations.pending()
             operations.completeReady(pending)
         }
@@ -72,4 +83,3 @@ class TrackingConfigurationService(
         operations.completeReady(operations.pending())
     }
 }
-

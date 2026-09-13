@@ -98,5 +98,30 @@ class DurableSyncOperationWriter(
             )
         }
     }
-}
 
+    /**
+     * Builds a replacement from current Room state while the routing mutex is
+     * held. The repository revalidates and removes the conflict in its same
+     * persistence transaction, so a failed replacement leaves the conflict
+     * visible.
+     */
+    suspend fun enqueueFromCurrentState(
+        removeConflictId: String,
+        supersedeLogicalKey: Boolean = false,
+        buildOperation: suspend () -> SyncOperation,
+    ): SyncOperation = routingMutex.withLock {
+        val operation = buildOperation()
+        val targets = durableQueue.snapshotUnlocked(operation)
+        operationRepository.enqueue(
+            operations = listOf(operation),
+            targets = targets,
+            removeOperationId = removeConflictId,
+            supersedeOperationIds = if (supersedeLogicalKey) {
+                setOf(operation.id)
+            } else {
+                emptySet()
+            },
+        )
+        operation
+    }
+}

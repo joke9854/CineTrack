@@ -117,6 +117,16 @@ data class ProgressRefreshRequest(
     )
 }
 
+private sealed interface RemoteConflictPlan {
+    data class Library(val status: LibraryStatus) : RemoteConflictPlan
+    data class MovieWatched(val watched: Boolean) : RemoteConflictPlan
+    data class EpisodeWatched(
+        val watched: Boolean,
+        val season: Int,
+        val episode: Int,
+    ) : RemoteConflictPlan
+}
+
 class CineTrackRepository(
     override val database: AppDatabase,
     override val services: ApiServices,
@@ -1173,79 +1183,309 @@ class CineTrackRepository(
 
     suspend fun retrySyncOperation(operationId: String): Result<Unit> = syncCoordinator.retry(operationId)
 
-    suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice): Result<Unit> {
-        val conflict = database.syncDao().syncOperation(operationId)
-            ?: return Result.failure(IllegalStateException("Conflict no longer exists"))
-        if (conflict.status != SyncOperationStatus.CONFLICT.name) {
-            return Result.failure(IllegalStateException("Operation is not a conflict"))
-        }
+    suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice): Result<Unit> =
         if (choice == SyncConflictChoice.KEEP_LOCAL) {
-            val type = runCatching { MediaType.valueOf(conflict.mediaType) }.getOrNull()
-                ?: return Result.failure(IllegalStateException("Conflict media type is invalid"))
-            val current = database.stateDao().get(conflict.mediaType, conflict.mediaId)
-                ?: return Result.failure(IllegalStateException("Local state is no longer available"))
-            val operationType = when (conflict.operation) {
-                "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS
-                "WATCHED_CONFLICT" -> if (current.watched) com.cinetrack.data.sync.SyncOperationType.MOVIE_WATCHED else com.cinetrack.data.sync.SyncOperationType.MOVIE_UNWATCHED
-                "EPISODE_WATCHED_CONFLICT" -> if (current.watched) com.cinetrack.data.sync.SyncOperationType.EPISODE_WATCHED else com.cinetrack.data.sync.SyncOperationType.EPISODE_UNWATCHED
-                else -> return Result.failure(IllegalStateException("Unsupported conflict field"))
-            }
-            val operationIdForResolution = if (operationType == com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS) {
-                stateOperationId(type.name, current.mediaId)
-            } else {
-                "resolution:$operationId"
-            }
-            val operation = com.cinetrack.data.sync.SyncOperation(
-                id = operationIdForResolution,
-                type = operationType,
-                mediaType = type,
-                mediaId = current.mediaId,
-                title = conflict.title,
-                value = if (operationType == com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS) current.status else current.watched.toString(),
-                sourceVersion = current.updatedAt,
-            )
-            durableOperationWriter.enqueue(
-
-                operation = operation,
-
-                supersedeLogicalKey = true,
-
-                removeConflictId = operationId,
-
-            )
-            return syncCoordinator.pushPending(setOf(operationIdForResolution))
+            resolveKeepLocalConflict(operationId)
+        } else {
+            resolveUseRemoteConflict(operationId)
         }
-        val media = database.mediaDao().get(conflict.mediaType, conflict.mediaId)
-            ?: return Result.failure(IllegalStateException("Media is no longer available"))
+
+    private suspend fun resolveKeepLocalConflict(operationId: String): Result<Unit> = try {
+        val operation = durableOperationWriter.enqueueFromCurrentState(
+            removeConflictId = operationId,
+        ) {
+            val conflict = database.syncDao().syncOperation(operationId)
+                ?: error("Conflict no longer exists")
+            require(conflict.status == SyncOperationStatus.CONFLICT.name) {
+                "Operation is not a conflict"
+            }
+            buildKeepLocalOperation(conflict)
+        }
+        // Network work starts only after the routing lock has been released.
+        syncCoordinator.pushPending(setOf(operation.id)).getOrThrow()
+        Result.success(Unit)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private suspend fun buildKeepLocalOperation(conflict: SyncOperationEntity): SyncOperation {
+        val mediaType = runCatching { MediaType.valueOf(conflict.mediaType) }
+            .getOrElse { error("Conflict media type is invalid") }
+        return when (conflict.operation) {
+            "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> {
+                val state = database.stateDao().get(conflict.mediaType, conflict.mediaId)
+                    ?: error("Local state is no longer available")
+                SyncOperation(
+                    id = stateOperationId(mediaType.name, state.mediaId),
+                    type = SyncOperationType.LIBRARY_STATUS,
+                    mediaType = mediaType,
+                    mediaId = state.mediaId,
+                    title = conflict.title,
+                    value = state.status,
+                    sourceVersion = state.updatedAt,
+                )
+            }
+            "WATCHED_CONFLICT" -> {
+                val state = database.stateDao().get(conflict.mediaType, conflict.mediaId)
+                    ?: error("Local state is no longer available")
+                val existing = database.syncDao().syncOperations()
+                    .asSequence()
+                    .filter { it.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) }
+                    .filter { it.mediaType == mediaType.name && it.mediaId == state.mediaId }
+                    .filter { it.operation in setOf(SyncOperationType.MOVIE_WATCHED.name, SyncOperationType.MOVIE_UNWATCHED.name) }
+                    .filter { (it.operation == SyncOperationType.MOVIE_WATCHED.name) == state.watched }
+                    .maxByOrNull(SyncOperationEntity::createdAt)
+                    ?.let { it.toDomainOperation() }
+                existing ?: SyncOperation(
+                    id = "resolution:${conflict.operationId}",
+                    type = if (state.watched) SyncOperationType.MOVIE_WATCHED else SyncOperationType.MOVIE_UNWATCHED,
+                    mediaType = mediaType,
+                    mediaId = state.mediaId,
+                    title = conflict.title,
+                    value = state.watched.toString(),
+                    sourceVersion = state.updatedAt,
+                )
+            }
+            "EPISODE_WATCHED_CONFLICT" -> buildKeepLocalEpisodeOperation(conflict, mediaType)
+            else -> error("Unsupported conflict field")
+        }
+    }
+
+    private suspend fun buildKeepLocalEpisodeOperation(
+        conflict: SyncOperationEntity,
+        mediaType: MediaType,
+    ): SyncOperation {
+        require(mediaType == MediaType.TV) { "Episode conflicts must target TV media" }
+        val season = conflict.season ?: error("Episode conflict season is missing")
+        val episode = conflict.episode ?: error("Episode conflict number is missing")
+        val title = episodeDisplayTitle(conflict.mediaId, season, episode, conflict.title)
+        val exactWrite = database.syncDao().pendingWrites()
+            .asSequence()
+            .filter { it.mediaType == MediaType.TV.name && it.mediaId == conflict.mediaId }
+            .filter { it.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) }
+            .filter { it.episodeParts() == (season to episode) }
+            .maxByOrNull(PendingWriteEntity::createdAt)
+        if (exactWrite != null) return exactWrite.toEpisodeOperation(title)
+            ?: error("Episode write operation is invalid")
+
+        val exactOperation = database.syncDao().syncOperations()
+            .asSequence()
+            .filter { it.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) }
+            .filter { it.mediaType == MediaType.TV.name && it.mediaId == conflict.mediaId }
+            .filter { it.season == season && it.episode == episode }
+            .filter { it.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) }
+            .maxByOrNull(SyncOperationEntity::createdAt)
+        if (exactOperation != null) return exactOperation.toDomainOperation()
+            ?: error("Episode operation is invalid")
+
+        val history = database.timelineDao().episodeHistoryForShow(MediaType.TV.name, conflict.mediaId)
+        val matchingHistory = history.firstOrNull { it.season == season && it.episodeNumber == episode }
+        val watched = matchingHistory != null
+        val watchedAt = matchingHistory?.watchedAt
+            ?: Instant.now().toString()
+        val operationType = if (watched) SyncOperationType.EPISODE_WATCHED else SyncOperationType.EPISODE_UNWATCHED
+        return SyncOperation(
+            id = "resolution:${conflict.operationId}",
+            type = operationType,
+            mediaType = MediaType.TV,
+            mediaId = conflict.mediaId,
+            title = title,
+            value = watched.toString(),
+            payload = if (watched) "$season:$episode:$watchedAt" else "$season:$episode",
+            sourceVersion = conflict.createdAt,
+        )
+    }
+
+    private suspend fun resolveUseRemoteConflict(operationId: String): Result<Unit> = try {
+        val initial = database.syncDao().syncOperation(operationId)
+            ?: error("Conflict no longer exists")
+        require(initial.status == SyncOperationStatus.CONFLICT.name) { "Operation is not a conflict" }
+        val plan = validateRemoteConflict(initial)
         database.withTransaction {
+            val conflict = database.syncDao().syncOperation(operationId)
+                ?: error("Conflict no longer exists")
+            require(conflict.status == SyncOperationStatus.CONFLICT.name) { "Operation is not a conflict" }
+            require(conflict.operation == initial.operation) { "Conflict changed while resolving" }
             val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
-            when {
-                conflict.operation == "LIBRARY_STATUS_CONFLICT" || conflict.operation == "LIBRARY_CONFLICT" -> {
-                    val remoteStatus = conflict.remoteValue?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
-                        ?: return@withTransaction
-                    database.stateDao().upsert(UserMediaStateEntity(conflict.mediaType, conflict.mediaId, remoteStatus.name, previous?.watched ?: false, previous?.simklId, System.currentTimeMillis(), dirty = false))
-                    if (remoteStatus == LibraryStatus.NONE) database.timelineDao().deleteMediaHistory(conflict.mediaType, conflict.mediaId)
+            when (plan) {
+                is RemoteConflictPlan.Library -> {
+                    database.stateDao().upsert(
+                        UserMediaStateEntity(
+                            conflict.mediaType,
+                            conflict.mediaId,
+                            plan.status.name,
+                            previous?.watched ?: false,
+                            previous?.simklId,
+                            System.currentTimeMillis(),
+                            dirty = false,
+                        ),
+                    )
+                    if (plan.status == LibraryStatus.NONE) {
+                        database.timelineDao().deleteMediaHistory(conflict.mediaType, conflict.mediaId)
+                    }
+                    removeExactConflictIntent(conflict, plan)
                 }
-                conflict.operation == "WATCHED_CONFLICT" -> {
-                    val watched = conflict.remoteValue?.toBooleanStrictOrNull() ?: return@withTransaction
-                    database.stateDao().upsert(UserMediaStateEntity(conflict.mediaType, conflict.mediaId, previous?.status ?: LibraryStatus.NONE.name, watched, previous?.simklId, System.currentTimeMillis(), dirty = false))
+                is RemoteConflictPlan.MovieWatched -> {
+                    database.stateDao().upsert(
+                        UserMediaStateEntity(
+                            conflict.mediaType,
+                            conflict.mediaId,
+                            previous?.status ?: LibraryStatus.NONE.name,
+                            plan.watched,
+                            previous?.simklId,
+                            System.currentTimeMillis(),
+                            dirty = false,
+                        ),
+                    )
+                    removeExactConflictIntent(conflict, plan)
                 }
-                conflict.operation == "EPISODE_WATCHED_CONFLICT" -> {
-                    val watched = conflict.remoteValue?.toBooleanStrictOrNull() ?: return@withTransaction
-                    val season = conflict.season ?: return@withTransaction
-                    val episode = conflict.episode ?: return@withTransaction
-                    if (watched) database.timelineDao().insertHistory(WatchHistoryEntity(mediaType = conflict.mediaType, mediaId = conflict.mediaId, season = season, episodeNumber = episode, watchedAt = Instant.now().toString()))
-                    else database.timelineDao().deleteEpisodeHistory(conflict.mediaType, conflict.mediaId, season, episode)
+                is RemoteConflictPlan.EpisodeWatched -> {
+                    if (plan.watched) {
+                        database.timelineDao().insertHistory(
+                            WatchHistoryEntity(
+                                mediaType = MediaType.TV.name,
+                                mediaId = conflict.mediaId,
+                                season = plan.season,
+                                episodeNumber = plan.episode,
+                                watchedAt = Instant.now().toString(),
+                            ),
+                        )
+                    } else {
+                        database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, conflict.mediaId, plan.season, plan.episode)
+                    }
+                    removeExactConflictIntent(conflict, plan)
                 }
             }
-            val staleOperations = database.syncDao().syncOperations()
-                .filter { it.operationId != operationId && it.mediaType == conflict.mediaType && it.mediaId == conflict.mediaId && it.status != SyncOperationStatus.CONFLICT.name }
-                .map(SyncOperationEntity::operationId)
-            if (staleOperations.isNotEmpty()) database.syncDao().deleteOperations(staleOperations)
             rebuildLibraryRailInTransaction()
+            database.syncDao().deleteOperation(operationId)
         }
-        database.syncDao().deleteOperation(operationId)
-        return Result.success(Unit)
+        Result.success(Unit)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        Result.failure(error)
+    }
+
+    private suspend fun validateRemoteConflict(conflict: SyncOperationEntity): RemoteConflictPlan {
+        val mediaType = runCatching { MediaType.valueOf(conflict.mediaType) }
+            .getOrElse { error("Conflict media type is invalid") }
+        require(database.mediaDao().get(conflict.mediaType, conflict.mediaId) != null) {
+            "Media is no longer available"
+        }
+        return when (conflict.operation) {
+            "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> RemoteConflictPlan.Library(
+                conflict.remoteValue?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
+                    ?: error("Remote library status is invalid"),
+            )
+            "WATCHED_CONFLICT" -> {
+                require(mediaType == MediaType.MOVIE) { "Movie watched conflicts must target movies" }
+                RemoteConflictPlan.MovieWatched(conflict.remoteValue?.toBooleanStrictOrNull()
+                    ?: error("Remote watched value is invalid"))
+            }
+            "EPISODE_WATCHED_CONFLICT" -> {
+                require(mediaType == MediaType.TV) { "Episode conflicts must target TV media" }
+                RemoteConflictPlan.EpisodeWatched(
+                    watched = conflict.remoteValue?.toBooleanStrictOrNull()
+                        ?: error("Remote watched value is invalid"),
+                    season = conflict.season ?: error("Episode conflict season is missing"),
+                    episode = conflict.episode ?: error("Episode conflict number is missing"),
+                )
+            }
+            else -> error("Unsupported conflict field")
+        }
+    }
+
+    private suspend fun removeExactConflictIntent(conflict: SyncOperationEntity, plan: RemoteConflictPlan) {
+        val ids = linkedSetOf<String>()
+        val writes = database.syncDao().pendingWrites()
+        when (plan) {
+            is RemoteConflictPlan.Library -> {
+                ids += stateOperationId(conflict.mediaType, conflict.mediaId)
+            }
+            is RemoteConflictPlan.MovieWatched -> {
+                database.syncDao().syncOperations()
+                    .filter { it.status != SyncOperationStatus.CONFLICT.name }
+                    .filter { it.mediaType == MediaType.MOVIE.name && it.mediaId == conflict.mediaId }
+                    .filter { it.operation in setOf(SyncOperationType.MOVIE_WATCHED.name, SyncOperationType.MOVIE_UNWATCHED.name) }
+                    .filter { (it.operation == SyncOperationType.MOVIE_WATCHED.name) == conflict.localValue?.toBooleanStrictOrNull() }
+                    .mapTo(ids, SyncOperationEntity::operationId)
+            }
+            is RemoteConflictPlan.EpisodeWatched -> {
+                writes.filter { write ->
+                    write.mediaType == MediaType.TV.name &&
+                        write.mediaId == conflict.mediaId &&
+                        write.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) &&
+                        write.episodeParts() == (plan.season to plan.episode) &&
+                        (write.operation == SyncOperationType.EPISODE_WATCHED.name) == conflict.localValue?.toBooleanStrictOrNull()
+                }.forEach { write ->
+                    database.syncDao().deleteWrite(write.id)
+                    ids += "write:${write.id}"
+                }
+                database.syncDao().syncOperations()
+                    .filter { it.status != SyncOperationStatus.CONFLICT.name }
+                    .filter { it.mediaType == MediaType.TV.name && it.mediaId == conflict.mediaId && it.season == plan.season && it.episode == plan.episode }
+                    .filter { it.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) }
+                    .filter { (it.operation == SyncOperationType.EPISODE_WATCHED.name) == conflict.localValue?.toBooleanStrictOrNull() }
+                    .mapTo(ids, SyncOperationEntity::operationId)
+            }
+        }
+        if (ids.isNotEmpty()) {
+            database.syncDao().deleteDeliveries(ids.toList())
+            database.syncDao().deleteOperations(ids.toList())
+        }
+    }
+
+    private fun SyncOperationEntity.toDomainOperation(): SyncOperation? {
+        val type = runCatching { SyncOperationType.valueOf(operation) }.getOrNull() ?: return null
+        val media = runCatching { MediaType.valueOf(mediaType) }.getOrNull() ?: return null
+        val payload = if (season != null && episode != null) "$season:$episode" else null
+        return SyncOperation(
+            id = operationId,
+            type = type,
+            mediaType = media,
+            mediaId = mediaId,
+            title = title,
+            value = localValue,
+            payload = payload,
+            sourceVersion = createdAt,
+        )
+    }
+
+    private fun PendingWriteEntity.episodeParts(): Pair<Int?, Int?> {
+        val parts = payload.split(':', limit = 3)
+        return parts.getOrNull(0)?.toIntOrNull() to parts.getOrNull(1)?.toIntOrNull()
+    }
+
+    private fun PendingWriteEntity.toEpisodeOperation(title: String): SyncOperation? {
+        val type = runCatching { SyncOperationType.valueOf(operation) }.getOrNull() ?: return null
+        return SyncOperation(
+            id = "write:$id",
+            type = type,
+            mediaType = MediaType.TV,
+            mediaId = mediaId,
+            title = title,
+            value = (type == SyncOperationType.EPISODE_WATCHED).toString(),
+            payload = payload,
+            sourceVersion = createdAt,
+        )
+    }
+
+    private suspend fun episodeDisplayTitle(
+        showId: Int,
+        season: Int,
+        episode: Int,
+        fallback: String,
+    ): String {
+        val showTitle = database.mediaDao().get(MediaType.TV.name, showId)?.title
+            ?.takeIf(String::isNotBlank)
+            ?: fallback.takeIf(String::isNotBlank)
+            ?: "TV #$showId"
+        val episodeTitle = database.mediaDao().episode(showId, season, episode)?.title
+            ?.takeIf(String::isNotBlank)
+        val label = "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
+        return listOf(showTitle, label, episodeTitle).filterNotNull().joinToString(" · ")
     }
 
     suspend fun markWatched(media: MediaCard) {
@@ -2757,4 +2997,3 @@ class CineTrackRepository(
     private fun String.fromCineTrackStatus(): LibraryStatus =
         runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
 }
-
