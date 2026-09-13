@@ -671,6 +671,7 @@ class SimklSyncEngine(
             val currentPendingWrites = database.syncDao().pendingWrites()
             val exactWriteIds = exactWritesByOperationId.values.mapTo(linkedSetOf(), PendingWriteEntity::id)
             val activeMainWriteIds = mutableSetOf<Long>()
+            activeMainWriteIds += exactWriteIds
             for (write in currentPendingWrites) {
                 if (syncOperationRepository.currentIntentTargetsProvider("write:${write.id}", write.createdAt, TrackingProviderId.SIMKL)) {
                     activeMainWriteIds += write.id
