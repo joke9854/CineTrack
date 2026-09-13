@@ -11,6 +11,7 @@ import com.cinetrack.data.library.RoomLibraryRepository
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncOperationStatus
 import kotlinx.coroutines.runBlocking
