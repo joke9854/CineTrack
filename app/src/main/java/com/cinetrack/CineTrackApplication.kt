@@ -160,6 +160,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
+            trackingRoutingMutex = trackingRoutingMutex,
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))
@@ -207,4 +208,3 @@ private data class StartupPreferences(
     val metadataRegion: String,
     val metadataTimezone: String,
 )
-

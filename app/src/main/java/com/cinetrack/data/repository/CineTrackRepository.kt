@@ -32,6 +32,7 @@ import com.cinetrack.data.sync.SyncOperationRepository
 import com.cinetrack.data.sync.DurableSyncOperationWriter
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.data.sync.MediaIds
@@ -148,6 +149,7 @@ class CineTrackRepository(
     private val libraryRepository: LibraryRepository,
     override val syncReconciler: SyncReconciler = SyncReconciler(),
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
+    private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
 ) : SimklSyncHost {
     suspend fun awaitStartup() {
         awaitStartupReady()
@@ -1298,7 +1300,8 @@ class CineTrackRepository(
         )
     }
 
-    private suspend fun resolveUseRemoteConflict(operationId: String): Result<Unit> = try {
+    private suspend fun resolveUseRemoteConflict(operationId: String): Result<Unit> = trackingRoutingMutex.withLock {
+        try {
         val initial = database.syncDao().syncOperation(operationId)
             ?: error("Conflict no longer exists")
         require(initial.status == SyncOperationStatus.CONFLICT.name) { "Operation is not a conflict" }
@@ -1374,6 +1377,7 @@ class CineTrackRepository(
         throw cancelled
     } catch (error: Throwable) {
         Result.failure(error)
+        }
     }
 
     private suspend fun validateRemoteConflict(conflict: SyncOperationEntity): RemoteConflictPlan {
@@ -1389,11 +1393,13 @@ class CineTrackRepository(
             )
             "WATCHED_CONFLICT" -> {
                 require(mediaType == MediaType.MOVIE) { "Movie watched conflicts must target movies" }
+                require(conflict.localValue?.toBooleanStrictOrNull() != null) { "Local watched value is invalid" }
                 RemoteConflictPlan.MovieWatched(conflict.remoteValue?.toBooleanStrictOrNull()
                     ?: error("Remote watched value is invalid"))
             }
             "EPISODE_WATCHED_CONFLICT" -> {
                 require(mediaType == MediaType.TV) { "Episode conflicts must target TV media" }
+                require(conflict.localValue?.toBooleanStrictOrNull() != null) { "Local watched value is invalid" }
                 RemoteConflictPlan.EpisodeWatched(
                     watched = conflict.remoteValue?.toBooleanStrictOrNull()
                         ?: error("Remote watched value is invalid"),
