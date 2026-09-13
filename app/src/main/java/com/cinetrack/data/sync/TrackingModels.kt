@@ -76,6 +76,8 @@ enum class DeliveryStatus {
     ACKNOWLEDGED,
     FAILED,
     SKIPPED_UNSUPPORTED,
+    /** Terminal when a newer canonical generation supersedes this delivery. */
+    SUPERSEDED,
     /** Terminal when a configured provider is explicitly removed. */
     CANCELLED_PROVIDER_REMOVED,
 }
@@ -212,4 +214,3 @@ interface TrackingProvider {
 
     suspend fun testConnection(): ConnectionResult
 }
-

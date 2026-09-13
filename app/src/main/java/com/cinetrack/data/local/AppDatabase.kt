@@ -536,6 +536,9 @@ interface SyncDao {
 
     @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_REMOVED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
     suspend fun cancelOutstandingDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
+    suspend fun supersedeDeliveries(providerId: String, operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
 }
 
 @Dao
@@ -739,4 +742,3 @@ fun MediaCard.toEntity() = MediaEntity(
     providers = providers.joinToString("|"),
     collectionId = collectionId,
 )
-

@@ -133,13 +133,24 @@ class SimklTrackingProvider(
     }
 
     private suspend fun pushEpisodeHistory(operation: SyncOperation) {
-        val parts = operation.payload.orEmpty().split(':', limit = 3)
+        // Room's legacy SyncOperationEntity has no payload column for
+        // provider-only mirror rows. Reconstruct their stable episode key and
+        // use the operation generation as the watched timestamp.
+        val parts = operation.payload?.split(':', limit = 3)
+            ?: operation.id.split(':').let { idParts ->
+                if (idParts.size >= 5 && idParts[0] == "mirror" && idParts[1] == "episode-watched") {
+                    listOf(idParts[3], idParts[4])
+                } else emptyList()
+            }
         val season = parts.getOrNull(0)?.toIntOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Invalid queued season")
         val episode = parts.getOrNull(1)?.toIntOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Invalid queued episode")
         val watchedAt = parts.getOrNull(2)
             ?.let { runCatching { Instant.parse(it) }.getOrNull()?.toString() }
+            ?: Instant.ofEpochMilli(operation.sourceVersion).toString().takeIf {
+                operation.type == SyncOperationType.EPISODE_WATCHED
+            }
         val request = operation.request(
             SimklSyncItem(
                 ids = SimklIds(tmdb = operation.mediaId.toString()),
@@ -160,7 +171,7 @@ class SimklTrackingProvider(
             operation.payload
                 ?.let { runCatching { Instant.parse(it) }.getOrNull() }
                 ?.toString()
-                ?: Instant.now().toString()
+                ?: Instant.ofEpochMilli(operation.sourceVersion).toString()
         } else {
             null
         }

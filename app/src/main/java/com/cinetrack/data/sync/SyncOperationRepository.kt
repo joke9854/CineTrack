@@ -46,6 +46,9 @@ interface SyncOperationRepository {
     suspend fun skipUnsupported(provider: TrackingProviderId, operations: List<SyncOperation>) = skipUnsupported(provider, operations.mapTo(linkedSetOf(), SyncOperation::id))
     suspend fun completeReady(operations: List<SyncOperation>) = complete(operations)
 
+    /** Marks stale SECONDARY deliveries terminal without retargeting history. */
+    suspend fun supersedeSecondary(operation: SyncOperation) {}
+
     /** Binds pre-delivery operations to one startup MAIN provider exactly once. */
     suspend fun backfillLegacyDeliveries() {}
 
@@ -295,10 +298,24 @@ class RoomSyncOperationRepository(
             rows.isNotEmpty() && rows.filter(SyncOperationDelivery::required).all {
                 it.status == DeliveryStatus.ACKNOWLEDGED ||
                     it.status == DeliveryStatus.SKIPPED_UNSUPPORTED ||
-                    it.status == DeliveryStatus.CANCELLED_PROVIDER_REMOVED
+                    it.status == DeliveryStatus.CANCELLED_PROVIDER_REMOVED ||
+                    it.status == DeliveryStatus.SUPERSEDED
             }
         }
         complete(ready)
+    }
+
+    override suspend fun supersedeSecondary(operation: SyncOperation) {
+        val secondary = preferences.secondaryTrackingProvider.first() ?: return
+        val matching = database.syncDao().syncOperations().filter { entity ->
+            entity.operationId != operation.id && sameLogicalField(entity, operation)
+        }
+        if (matching.isNotEmpty()) {
+            database.syncDao().supersedeDeliveries(
+                providerId = secondary.name,
+                operationIds = matching.map(SyncOperationEntity::operationId),
+            )
+        }
     }
 
     override suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String) {
@@ -437,6 +454,29 @@ class RoomSyncOperationRepository(
 
 private const val LEGACY_DELIVERY_BACKFILL_AREA = "sync_delivery_backfill_089"
 private const val LEGACY_OPERATION_MATERIALIZATION_AREA = "sync_operation_materialization_096"
+
+private fun sameLogicalField(entity: SyncOperationEntity, operation: SyncOperation): Boolean {
+    if (entity.mediaType != operation.mediaType.name || entity.mediaId != operation.mediaId) return false
+    return when (operation.type) {
+        SyncOperationType.LIBRARY_STATUS -> entity.operation == SyncOperationType.LIBRARY_STATUS.name
+        SyncOperationType.MOVIE_WATCHED,
+        SyncOperationType.MOVIE_UNWATCHED,
+        SyncOperationType.MEDIA_HISTORY_REMOVE ->
+            operation.mediaType == MediaType.MOVIE && entity.operation in setOf(
+                SyncOperationType.MOVIE_WATCHED.name,
+                SyncOperationType.MOVIE_UNWATCHED.name,
+                SyncOperationType.MEDIA_HISTORY_REMOVE.name,
+                SyncOperationType.LIBRARY_STATUS.name,
+            )
+        SyncOperationType.EPISODE_WATCHED,
+        SyncOperationType.EPISODE_UNWATCHED ->
+            operation.mediaType == MediaType.TV &&
+                entity.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) &&
+                entity.season == operation.payload?.episodePart(0) &&
+                entity.episode == operation.payload?.episodePart(1)
+        SyncOperationType.SET_RATING -> false
+    }
+}
 
 private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
     operationId = operationId,

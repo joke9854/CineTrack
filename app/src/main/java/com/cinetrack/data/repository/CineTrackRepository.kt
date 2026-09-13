@@ -1232,6 +1232,9 @@ class CineTrackRepository(
 
     override suspend fun enqueueSecondaryMirror(operation: SyncOperation) {
         val secondary = trackingProviderRegistry?.configuration()?.secondaryProvider ?: return
+        // Retire only pending/failed deliveries for the same logical field;
+        // acknowledged historical generations remain immutable.
+        syncOperationRepository.supersedeSecondary(operation)
         durableOperationWriter.enqueueForProviders(
             operation = operation,
             providers = setOf(secondary),
