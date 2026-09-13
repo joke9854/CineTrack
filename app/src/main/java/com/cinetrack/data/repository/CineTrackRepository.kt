@@ -1284,9 +1284,13 @@ class CineTrackRepository(
 
         val history = database.timelineDao().episodeHistoryForShow(MediaType.TV.name, conflict.mediaId)
         val matchingHistory = history.firstOrNull { it.season == season && it.episodeNumber == episode }
-        val watched = matchingHistory != null
+        val watched = matchingHistory != null ||
+            (matchingHistory == null && conflict.localValue?.toBooleanStrictOrNull() == true)
         val watchedAt = matchingHistory?.watchedAt
             ?: Instant.now().toString()
+        val sourceVersion = matchingHistory?.watchedAt
+            ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
+            ?: conflict.createdAt
         val operationType = if (watched) SyncOperationType.EPISODE_WATCHED else SyncOperationType.EPISODE_UNWATCHED
         return SyncOperation(
             id = "resolution:${conflict.operationId}",
@@ -1296,7 +1300,7 @@ class CineTrackRepository(
             title = title,
             value = watched.toString(),
             payload = if (watched) "$season:$episode:$watchedAt" else "$season:$episode",
-            sourceVersion = conflict.createdAt,
+            sourceVersion = sourceVersion,
         )
     }
 
