@@ -779,7 +779,33 @@ class SimklSyncEngine(
         // MAIN reconciliation is authoritative locally, but a remote-only
         // change still needs a SECONDARY-only durable mirror. Stable ids make
         // a newer remote generation supersede an older queued mirror.
-        appliedRemoteMutations.forEach { mutation ->
+        suspend fun mirrorStillCurrent(mutation: LocalMutation): Boolean {
+            val key = "${mutation.mediaType.name}:${mutation.mediaId.toInt()}"
+            val before = localStatesByKey[key]
+            val current = database.stateDao().get(mutation.mediaType.name, mutation.mediaId.toInt())
+            if (current?.dirty == true && (before == null || current.updatedAt > before.updatedAt)) return false
+            val watched = mutation as? LocalMutation.SetWatched
+            return database.syncDao().syncOperations().none { operation ->
+                operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                    operation.createdAt > syncStartedAt &&
+                    operation.mediaType == mutation.mediaType.name &&
+                    operation.mediaId == mutation.mediaId.toInt() &&
+                    when {
+                        watched?.season != null -> operation.operation in setOf(
+                            SyncOperationType.EPISODE_WATCHED.name,
+                            SyncOperationType.EPISODE_UNWATCHED.name,
+                        ) && operation.season == watched.season && operation.episode == watched.episode
+                        else -> operation.operation in setOf(
+                            SyncOperationType.LIBRARY_STATUS.name,
+                            SyncOperationType.MOVIE_WATCHED.name,
+                            SyncOperationType.MOVIE_UNWATCHED.name,
+                            SyncOperationType.MEDIA_HISTORY_REMOVE.name,
+                        )
+                    }
+            }
+        }
+        for (mutation in appliedRemoteMutations) {
+            if (!mirrorStillCurrent(mutation)) continue
             val operation = when (mutation) {
                 is LocalMutation.SetLibraryStatus -> SyncOperation(
                     id = "mirror:library:${mutation.mediaType.name}:${mutation.mediaId}",
