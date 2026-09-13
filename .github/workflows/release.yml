@@ -34,7 +34,7 @@ jobs:
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
       - name: Verify beta version policy
-        if: github.event_name == 'workflow_run'
+        if: github.event_name == 'push' || github.event_name == 'workflow_run'
         run: |
           PREVIOUS_FILE="$RUNNER_TEMP/cinetrack-previous-build.gradle.kts"
           if git show "HEAD^:app/build.gradle.kts" > "$PREVIOUS_FILE" 2>/dev/null; then

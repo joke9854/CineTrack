@@ -1,4 +1,4 @@
-# CineTrack 0.99 beta
+# CineTrack 0.99.01 beta
 
 - Completed the final multi-provider synchronization hardening pass, including real Room migration validation in CI and packaging historical schemas for instrumentation tests.
 - Moved Simkl full-sync orchestration into its dedicated engine and removed the application binding cycle.
