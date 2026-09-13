@@ -703,8 +703,9 @@ class SimklSyncEngine(
                 val before = localStatesByKey["$type:$id"]
                 val current = database.stateDao().get(type, id)
                 val stateSuperseded = current?.dirty == true && (before == null || current.updatedAt > before.updatedAt)
-                val mutationSeason = mutation.season
-                val mutationEpisode = mutation.episode
+                val watchedMutation = mutation as? LocalMutation.SetWatched
+                val mutationSeason = watchedMutation?.season
+                val mutationEpisode = watchedMutation?.episode
                 val episodeSuperseded = mutationSeason != null && mutationEpisode != null &&
                     currentPendingWrites.any { write ->
                         write.mediaType == type && write.mediaId == id &&
