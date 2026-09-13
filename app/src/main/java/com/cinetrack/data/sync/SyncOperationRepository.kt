@@ -466,8 +466,8 @@ private fun sameLogicalField(entity: SyncOperationEntity, operation: SyncOperati
                 SyncOperationType.MOVIE_WATCHED.name,
                 SyncOperationType.MOVIE_UNWATCHED.name,
                 SyncOperationType.MEDIA_HISTORY_REMOVE.name,
-                SyncOperationType.LIBRARY_STATUS.name,
-            )
+            ) || (entity.operation == SyncOperationType.LIBRARY_STATUS.name &&
+                entity.localValue == com.cinetrack.domain.LibraryStatus.COMPLETED.name)
         SyncOperationType.EPISODE_WATCHED,
         SyncOperationType.EPISODE_UNWATCHED ->
             operation.mediaType == MediaType.TV &&
