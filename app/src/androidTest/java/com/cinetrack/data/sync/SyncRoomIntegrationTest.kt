@@ -140,7 +140,7 @@ class SyncRoomIntegrationTest {
         repository.enqueue(listOf(second), targets(second).take(1))
 
         repository.complete(listOf(first))
-        repository.fail(listOf(first), error("stale failure"))
+        repository.fail(listOf(first), IllegalStateException("stale failure"))
 
         val current = database.syncDao().syncOperation(second.id)
         assertNotNull(current)
@@ -168,7 +168,7 @@ class SyncRoomIntegrationTest {
         repository.enqueue(listOf(movieFirst), targets(movieFirst).take(1))
         repository.enqueue(listOf(movieSecond), targets(movieSecond).take(1))
         repository.complete(listOf(movieFirst))
-        repository.fail(listOf(movieFirst), error("stale movie failure"))
+        repository.fail(listOf(movieFirst), IllegalStateException("stale movie failure"))
         assertEquals(400L, database.syncDao().syncOperation(movieSecond.id)?.createdAt)
         assertEquals(SyncOperationStatus.PENDING.name, database.syncDao().syncOperation(movieSecond.id)?.status)
     }
@@ -197,7 +197,7 @@ class SyncRoomIntegrationTest {
             sourceVersion = 300L,
         )
         repository.enqueue(listOf(library, unwatched), targets(library).take(1) + targets(unwatched).take(1))
-        repository.fail(listOf(library), error("library unavailable"))
+        repository.fail(listOf(library), IllegalStateException("library unavailable"))
         repository.acknowledge(TrackingProviderId.SIMKL, listOf(unwatched))
         repository.complete(listOf(unwatched))
 

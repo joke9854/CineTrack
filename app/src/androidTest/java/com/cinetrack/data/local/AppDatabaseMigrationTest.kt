@@ -91,7 +91,11 @@ class AppDatabaseMigrationTest {
             }
         }
         if (version >= 9) {
-            db.execSQL("INSERT INTO sync_operation_deliveries(operationId,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('failed-op','SIMKL','FAILED',1,'MAIN',2,'offline',100,101)")
+            if (version >= 10) {
+                db.execSQL("INSERT INTO sync_operation_deliveries(operationId,operationVersion,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('failed-op',100,'SIMKL','FAILED',1,'MAIN',2,'offline',100,101)")
+            } else {
+                db.execSQL("INSERT INTO sync_operation_deliveries(operationId,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('failed-op','SIMKL','FAILED',1,'MAIN',2,'offline',100,101)")
+            }
         }
     }
 
