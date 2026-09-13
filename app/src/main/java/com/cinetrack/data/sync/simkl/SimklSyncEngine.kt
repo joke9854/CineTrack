@@ -762,15 +762,28 @@ class SimklSyncEngine(
                 val watchedMutation = mutation as? LocalMutation.SetWatched
                 val mutationSeason = watchedMutation?.season
                 val mutationEpisode = watchedMutation?.episode
-                val episodeSuperseded = mutationSeason != null && mutationEpisode != null &&
-                    currentPendingWrites.any { write ->
-                        write.mediaType == type && write.mediaId == id &&
-                            write.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) &&
-                            write.payload.split(':', limit = 3).let { parts ->
-                                parts.getOrNull(0)?.toIntOrNull() == mutationSeason &&
-                                    parts.getOrNull(1)?.toIntOrNull() == mutationEpisode
-                            } && (write.id in exactWriteIds || write.createdAt >= syncStartedAt)
+                var episodeSuperseded = false
+                if (mutationSeason != null && mutationEpisode != null) {
+                    for (write in currentPendingWrites) {
+                        if (write.mediaType != type || write.mediaId != id ||
+                            write.operation !in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name)
+                        ) continue
+                        val parts = write.payload.split(':', limit = 3)
+                        if (parts.getOrNull(0)?.toIntOrNull() != mutationSeason ||
+                            parts.getOrNull(1)?.toIntOrNull() != mutationEpisode
+                        ) continue
+                        val targetsMain = write.id in exactWriteIds ||
+                            syncOperationRepository.currentIntentTargetsProvider(
+                                "write:${write.id}",
+                                write.createdAt,
+                                TrackingProviderId.SIMKL,
+                            )
+                        if (targetsMain) {
+                            episodeSuperseded = true
+                            break
+                        }
                     }
+                }
                 if (stateSuperseded || episodeSuperseded) continue
                 appliedRemoteMutations += mutation
                 val previous = database.stateDao().get(type, id)
