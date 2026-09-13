@@ -1,3 +1,8 @@
+# CineTrack 0.99 beta
+
+- Completed the final multi-provider synchronization hardening pass, including real Room migration validation in CI and packaging historical schemas for instrumentation tests.
+- Moved Simkl full-sync orchestration into its dedicated engine and removed the application binding cycle.
+
 # CineTrack 0.97 beta
 
 - Hardened generation-aware delivery routing: missing rows are never inferred as pending, role switches preserve targets, and removed providers are cancelled terminally.
