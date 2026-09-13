@@ -2,6 +2,10 @@ name: Publish update
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - "testing/**"
+      - "beta-testing"
   workflow_run:
     workflows: ["Android test build"]
     types: [completed]
@@ -16,11 +20,14 @@ jobs:
     # reaches the signed build and GitHub Release steps.
     if: >-
       (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' &&
+        (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') &&
+        contains(github.event.head_commit.message, '[release]')) ||
        (github.event_name == 'workflow_run' &&
         github.event.workflow_run.conclusion == 'success' &&
         (startsWith(github.event.workflow_run.head_branch, 'testing/') || github.event.workflow_run.head_branch == 'beta-testing') &&
         contains(github.event.workflow_run.head_commit.message, '[release]'))) &&
-      (github.event_name == 'workflow_dispatch' || !contains(github.event.workflow_run.head_commit.message, '[skip release]'))
+      (github.event_name != 'workflow_run' || !contains(github.event.workflow_run.head_commit.message, '[skip release]'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -40,6 +47,23 @@ jobs:
         run: python3 scripts/check_version_policy.py
       - name: Verify database schema and migration chain
         run: python3 scripts/check_database_indexes.py
+      - name: Wait for Android validation
+        if: github.event_name == 'push'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 60); do
+            RUN=$(gh run list --workflow "Android test build" --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --limit 1 --json status,conclusion)
+            STATUS=$(echo "$RUN" | jq -r '.[0].status // empty')
+            CONCLUSION=$(echo "$RUN" | jq -r '.[0].conclusion // empty')
+            if [ "$STATUS" = "completed" ]; then
+              test "$CONCLUSION" = "success"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for Android validation for $GITHUB_SHA" >&2
+          exit 1
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
