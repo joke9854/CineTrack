@@ -98,7 +98,7 @@ class SyncCoordinatorTest {
         val queue = FakeOperationRepository(operation())
         val secondary = FakeProvider(TrackingProviderId.FLOPPY)
         val registry = MutableRegistry(secondary).apply {
-            current = TrackingConfiguration(mainProvider = null, secondaryProvider = TrackingProviderId.FLOPPY)
+            current = TrackingConfiguration(mainProvider = null, secondaryProvider = null)
         }
         val result = SyncCoordinator(registry, queue).sync { }
         assertTrue(result.isFailure)
@@ -150,6 +150,37 @@ class SyncCoordinatorTest {
             TrackingConfiguration(TrackingProviderId.SIMKL, TrackingProviderId.SIMKL)
         }
         assertFalse(result.isSuccess)
+    }
+
+    @Test
+    fun `secondary without main is rejected and legacy read is normalized`() {
+        assertFalse(runCatching {
+            TrackingConfiguration(mainProvider = null, secondaryProvider = TrackingProviderId.FLOPPY)
+        }.isSuccess)
+        assertEquals(
+            TrackingConfiguration(mainProvider = null, secondaryProvider = null),
+            TrackingConfiguration.normalized(null, TrackingProviderId.FLOPPY),
+        )
+    }
+
+    @Test
+    fun `main promotion requires configured secondary bootstrap`() {
+        val previous = TrackingConfiguration(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY)
+        val next = TrackingConfiguration(TrackingProviderId.FLOPPY, TrackingProviderId.SIMKL)
+
+        assertTrue(runCatching {
+            validateTrackingConfigurationTransition(previous, next, ProviderBootstrapState.NOT_STARTED)
+        }.isFailure)
+        assertTrue(runCatching {
+            validateTrackingConfigurationTransition(previous, next, ProviderBootstrapState.READY)
+        }.isSuccess)
+        assertTrue(runCatching {
+            validateTrackingConfigurationTransition(
+                TrackingConfiguration(TrackingProviderId.SIMKL, null),
+                TrackingConfiguration(TrackingProviderId.FLOPPY, null),
+                ProviderBootstrapState.READY,
+            )
+        }.isFailure)
     }
 }
 

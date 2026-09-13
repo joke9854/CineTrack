@@ -63,3 +63,40 @@ class DurableTrackingQueue(
     }
 }
 
+/**
+ * Captures provider targets and persists the operation as one routing-critical
+ * section. No network work is performed while the shared mutex is held.
+ */
+class DurableSyncOperationWriter(
+    private val operationRepository: SyncOperationRepository,
+    private val durableQueue: DurableTrackingQueue,
+    private val routingMutex: TrackingRoutingMutex,
+) {
+    suspend fun enqueue(
+        operation: SyncOperation,
+        supersedeLogicalKey: Boolean = false,
+        removeConflictId: String? = null,
+    ) = enqueue(listOf(operation), supersedeLogicalKey, removeConflictId)
+
+    suspend fun enqueue(
+        operations: List<SyncOperation>,
+        supersedeLogicalKey: Boolean = false,
+        removeConflictId: String? = null,
+    ) {
+        if (operations.isEmpty()) return
+        routingMutex.withLock {
+            val targets = operations.flatMap { durableQueue.snapshotUnlocked(it) }
+            operationRepository.enqueue(
+                operations = operations,
+                targets = targets,
+                removeOperationId = removeConflictId,
+                supersedeOperationIds = if (supersedeLogicalKey) {
+                    operations.mapTo(linkedSetOf(), SyncOperation::id)
+                } else {
+                    emptySet()
+                },
+            )
+        }
+    }
+}
+

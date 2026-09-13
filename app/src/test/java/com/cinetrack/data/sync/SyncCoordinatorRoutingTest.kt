@@ -5,7 +5,9 @@ import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.SyncProgress
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
+import kotlinx.coroutines.yield
 import kotlinx.coroutines.test.runTest
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -93,6 +95,74 @@ class SyncCoordinatorRoutingTest {
         assertTrue(queue.pending().isEmpty())
     }
 
+    @Test
+    fun `secondary-only configuration never completes a persisted operation`() = runTest {
+        val operation = operation()
+        val queue = PersistedQueue(operation)
+        val floppy = RecordingProvider(TrackingProviderId.FLOPPY)
+        val registry = MutableRoutingRegistry(floppy, floppy).apply {
+            current = TrackingConfiguration(mainProvider = null, secondaryProvider = null)
+        }
+
+        assertTrue(SyncCoordinator(registry, queue).pushPending().isFailure)
+        assertEquals(listOf(operation.id), queue.pending().map(SyncOperation::id))
+        assertTrue(queue.acknowledgedProviders.isEmpty())
+    }
+
+    @Test
+    fun `durable writer holds routing boundary across keep-local persistence`() = runTest {
+        val simkl = RecordingProvider(TrackingProviderId.SIMKL)
+        val floppy = RecordingProvider(TrackingProviderId.FLOPPY)
+        val registry = MutableRoutingRegistry(simkl, floppy)
+        val queue = PersistedQueue()
+        val mutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            operationRepository = queue,
+            durableQueue = DurableTrackingQueue(registry, mutex),
+            routingMutex = mutex,
+        )
+        val operation = operation()
+
+        val writing = async { writer.enqueue(operation) }
+        queue.enqueueEntered.await()
+        val removalEntered = CompletableDeferred<Unit>()
+        val removal = async {
+            mutex.withLock {
+                removalEntered.complete(Unit)
+                registry.current = TrackingConfiguration(TrackingProviderId.SIMKL, null)
+                queue.cancelProviderDeliveries(TrackingProviderId.FLOPPY, "Provider removed")
+            }
+        }
+        yield()
+        assertFalse(removalEntered.isCompleted)
+
+        queue.allowPersist.complete(Unit)
+        writing.await()
+        removal.await()
+        assertEquals(DeliveryStatus.CANCELLED_PROVIDER_REMOVED, queue.rows.single { it.providerId == TrackingProviderId.FLOPPY }.status)
+    }
+
+    @Test
+    fun `removal before durable writer snapshot excludes the removed provider`() = runTest {
+        val simkl = RecordingProvider(TrackingProviderId.SIMKL)
+        val floppy = RecordingProvider(TrackingProviderId.FLOPPY)
+        val registry = MutableRoutingRegistry(simkl, floppy)
+        val queue = PersistedQueue()
+        val mutex = TrackingRoutingMutex()
+        mutex.withLock { registry.current = TrackingConfiguration(TrackingProviderId.SIMKL, null) }
+        val writer = DurableSyncOperationWriter(
+            operationRepository = queue,
+            durableQueue = DurableTrackingQueue(registry, mutex),
+            routingMutex = mutex,
+        )
+
+        val writing = async { writer.enqueue(operation()) }
+        queue.enqueueEntered.await()
+        queue.allowPersist.complete(Unit)
+        writing.await()
+        assertEquals(setOf(TrackingProviderId.SIMKL), queue.rows.map { it.providerId }.toSet())
+    }
+
     private fun operation() = SyncOperation(
         id = "state:MOVIE:42",
         type = SyncOperationType.LIBRARY_STATUS,
@@ -156,6 +226,8 @@ private class PersistedQueue(vararg initial: SyncOperation) : SyncOperationRepos
     private val values = initial.toMutableList()
     val rows = mutableListOf<SyncOperationDelivery>()
     val acknowledgedProviders = mutableListOf<TrackingProviderId>()
+    val enqueueEntered = CompletableDeferred<Unit>()
+    val allowPersist = CompletableDeferred<Unit>()
 
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> =
         values.filter { operationIds == null || it.id in operationIds }
@@ -167,6 +239,22 @@ private class PersistedQueue(vararg initial: SyncOperation) : SyncOperationRepos
     override suspend fun fail(operations: List<SyncOperation>, error: Throwable) = Unit
 
     override suspend fun cards(): List<SyncOperationCard> = emptyList()
+
+    override suspend fun enqueue(
+        operations: List<SyncOperation>,
+        targets: List<SyncOperationDelivery>,
+        removeOperationId: String?,
+        supersedeOperationIds: Set<String>,
+    ) {
+        enqueueEntered.complete(Unit)
+        allowPersist.await()
+        values.removeAll { it.id in supersedeOperationIds }
+        rows.removeAll { it.operationId in supersedeOperationIds }
+        values.removeAll { it.id == removeOperationId }
+        rows.removeAll { it.operationId == removeOperationId }
+        values += operations
+        rows += targets
+    }
 
     override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
         rows.filter { it.operationId in operationIds }

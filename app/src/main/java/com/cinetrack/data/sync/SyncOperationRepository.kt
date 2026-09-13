@@ -18,6 +18,19 @@ interface SyncOperationRepository {
     val requiresPersistedDeliveryRows: Boolean get() = false
     suspend fun pending(operationIds: Set<String>? = null): List<SyncOperation>
     suspend fun enqueue(operations: List<SyncOperation>) {}
+    /**
+     * Persists operations with the exact provider targets captured while the
+     * routing mutex was held. Implementations that do not persist deliveries
+     * may keep using the compatibility enqueue above.
+     */
+    suspend fun enqueue(
+        operations: List<SyncOperation>,
+        targets: List<SyncOperationDelivery>,
+        removeOperationId: String? = null,
+        supersedeOperationIds: Set<String> = emptySet(),
+    ) {
+        enqueue(operations)
+    }
     suspend fun cards(): List<SyncOperationCard>
     suspend fun complete(operations: List<SyncOperation>)
     suspend fun fail(operations: List<SyncOperation>, error: Throwable)
@@ -87,6 +100,18 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun enqueue(operations: List<SyncOperation>) {
+        enqueue(
+            operations = operations,
+            targets = emptyList(),
+        )
+    }
+
+    override suspend fun enqueue(
+        operations: List<SyncOperation>,
+        targets: List<SyncOperationDelivery>,
+        removeOperationId: String?,
+        supersedeOperationIds: Set<String>,
+    ) {
         if (operations.isEmpty()) return
         val entities = operations.map { operation ->
             val title = operation.title.ifBlank {
@@ -107,14 +132,20 @@ class RoomSyncOperationRepository(
             )
         }
         database.withTransaction {
+            removeOperationId?.let { conflictId ->
+                val conflict = database.syncDao().syncOperation(conflictId)
+                require(conflict?.status == SyncOperationStatus.CONFLICT.name) {
+                    "Conflict no longer exists"
+                }
+            }
+            if (supersedeOperationIds.isNotEmpty()) {
+                database.syncDao().deleteDeliveries(supersedeOperationIds.toList())
+            }
             database.syncDao().upsertOperations(entities)
-            val main = preferences.mainTrackingProvider.first()
-            val secondary = preferences.secondaryTrackingProvider.first()
-            val now = System.currentTimeMillis()
-            ensureDeliveries(operations, buildList {
-                main?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.MAIN, createdAt = now, updatedAt = now)) } }
-                secondary?.let { provider -> operations.forEach { add(SyncOperationDelivery(operationId = it.id, operationVersion = it.sourceVersion, providerId = provider, roleAtEnqueue = TrackingRole.SECONDARY, createdAt = now, updatedAt = now)) } }
-            })
+            ensureDeliveries(operations, targets)
+            removeOperationId?.let { conflictId ->
+                database.syncDao().deleteOperation(conflictId)
+            }
         }
     }
 

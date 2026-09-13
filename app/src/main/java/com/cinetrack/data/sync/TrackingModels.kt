@@ -10,13 +10,52 @@ enum class TrackingProviderId { SIMKL, FLOPPY }
 /** MAIN is bidirectional; SECONDARY is deliberately outbound-only. */
 enum class TrackingDirection { BIDIRECTIONAL, OUTBOUND_ONLY }
 
+/** Readiness contract for a provider added as a SECONDARY before promotion. */
+enum class ProviderBootstrapState { NOT_STARTED, RUNNING, READY, FAILED }
+
 data class TrackingConfiguration(
     val mainProvider: TrackingProviderId? = TrackingProviderId.SIMKL,
     val secondaryProvider: TrackingProviderId? = null,
 ) {
     init {
+        require(mainProvider != null || secondaryProvider == null) {
+            "A SECONDARY provider requires a MAIN provider"
+        }
         require(mainProvider == null || mainProvider != secondaryProvider) {
             "The same tracking provider cannot be both MAIN and SECONDARY"
+        }
+    }
+
+    companion object {
+        /** Safely reads legacy DataStore values without constructing an invalid configuration. */
+        fun normalized(mainProvider: TrackingProviderId?, secondaryProvider: TrackingProviderId?): TrackingConfiguration =
+            when {
+                mainProvider == null -> TrackingConfiguration(mainProvider = null, secondaryProvider = null)
+                mainProvider == secondaryProvider -> TrackingConfiguration(mainProvider = mainProvider, secondaryProvider = null)
+                else -> TrackingConfiguration(mainProvider, secondaryProvider)
+            }
+    }
+}
+
+/**
+ * Validates a role transition without guessing authority for a new MAIN.
+ * A replacement MAIN must have first been configured as SECONDARY and
+ * explicitly bootstrapped by that provider.
+ */
+fun validateTrackingConfigurationTransition(
+    previous: TrackingConfiguration,
+    next: TrackingConfiguration,
+    promotedBootstrapState: ProviderBootstrapState? = null,
+) {
+    if (previous.mainProvider != null &&
+        next.mainProvider != null &&
+        previous.mainProvider != next.mainProvider
+    ) {
+        require(next.mainProvider == previous.secondaryProvider) {
+            "A new MAIN provider must first be configured as SECONDARY"
+        }
+        require(promotedBootstrapState == ProviderBootstrapState.READY) {
+            "The promoted MAIN provider must complete bootstrap first"
         }
     }
 }

@@ -26,10 +26,6 @@ class SettingsRepository(
     private fun validConfiguration(
         main: TrackingProviderId?,
         secondary: TrackingProviderId?,
-    ): TrackingConfiguration = if (main != null && main == secondary) {
-        TrackingConfiguration(mainProvider = main, secondaryProvider = null)
-    } else {
-        TrackingConfiguration(mainProvider = main, secondaryProvider = secondary)
-    }
+    ): TrackingConfiguration = TrackingConfiguration.normalized(main, secondary)
 }
 

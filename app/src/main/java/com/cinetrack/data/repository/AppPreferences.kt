@@ -17,6 +17,7 @@ import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.remote.SimklAuthService
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.MediaIds
 import com.cinetrack.data.sync.TrackedMovieState
 import com.cinetrack.data.sync.TrackedShowState
@@ -262,6 +263,22 @@ class AppPreferences(private val context: Context) {
 
     private fun syncBaselineKey(provider: TrackingProviderId) = stringPreferencesKey("sync_baseline_${provider.name.lowercase()}_v1")
 
+    private fun providerBootstrapKey(provider: TrackingProviderId) = stringPreferencesKey("provider_bootstrap_${provider.name.lowercase()}")
+
+    fun providerBootstrapState(provider: TrackingProviderId): Flow<ProviderBootstrapState> =
+        context.cineTrackDataStore.data.map { prefs ->
+            prefs[providerBootstrapKey(provider)]?.let { value ->
+                runCatching { ProviderBootstrapState.valueOf(value) }.getOrNull()
+            } ?: ProviderBootstrapState.NOT_STARTED
+        }
+
+    suspend fun providerBootstrapStateNow(provider: TrackingProviderId): ProviderBootstrapState =
+        providerBootstrapState(provider).first()
+
+    suspend fun setProviderBootstrapState(provider: TrackingProviderId, state: ProviderBootstrapState) {
+        context.cineTrackDataStore.edit { it[providerBootstrapKey(provider)] = state.name }
+    }
+
     suspend fun syncBaselineNow(provider: TrackingProviderId = TrackingProviderId.SIMKL): TrackingSnapshot? {
         val values = context.cineTrackDataStore.data.first()
         val raw = values[syncBaselineKey(provider)]
@@ -291,6 +308,7 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun setTrackingProviders(main: TrackingProviderId?, secondary: TrackingProviderId?) {
+        require(secondary == null || main != null) { "A SECONDARY provider requires a MAIN provider" }
         require(main == null || main != secondary) { "The same tracking provider cannot be both MAIN and SECONDARY" }
         context.cineTrackDataStore.edit { prefs ->
             prefs[Keys.mainTrackingProvider] = main?.name ?: "NONE"

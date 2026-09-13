@@ -17,6 +17,8 @@ import com.cinetrack.data.repository.LegacyMediaDataSource
 import com.cinetrack.data.repository.SettingsRepository
 import com.cinetrack.data.schedule.DefaultReleaseScheduleRepository
 import com.cinetrack.data.sync.DefaultTrackingProviderRegistry
+import com.cinetrack.data.sync.DurableSyncOperationWriter
+import com.cinetrack.data.sync.DurableTrackingQueue
 import com.cinetrack.data.sync.RoomSyncOperationRepository
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
@@ -124,6 +126,11 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         )
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
+        val durableOperationWriter = DurableSyncOperationWriter(
+            operationRepository = syncOperationRepository,
+            durableQueue = DurableTrackingQueue(trackingProviderRegistry, trackingRoutingMutex),
+            routingMutex = trackingRoutingMutex,
+        )
         val localLibrary = RoomLibraryRepository(
             database,
             preferences,
@@ -147,6 +154,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             onMetadataRegionChanged = metadataRegion::set,
             onMetadataTimezoneChanged = metadataTimezone::set,
             syncOperationRepository = syncOperationRepository,
+            durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,
             releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
             libraryRepository = localLibrary,
