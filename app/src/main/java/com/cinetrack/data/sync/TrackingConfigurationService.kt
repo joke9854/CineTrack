@@ -50,18 +50,19 @@ class TrackingConfigurationService(
             newlyAddedSecondary?.let {
                 preferences.setProviderBootstrapState(it, ProviderBootstrapState.NOT_STARTED)
             }
-            // Persist first. If the process dies before cancellation, startup
-            // repair sees the committed configuration and finishes the transition.
-            preferences.setTrackingProviders(next.mainProvider, next.secondaryProvider)
             demotedFormerMain?.let {
                 // A provider that has successfully served as MAIN is already
-                // bootstrapped and remains eligible for a later promotion.
+                // bootstrapped and remains eligible for a later promotion. Do
+                // this before the role write so an interrupted swap leaves the
+                // old configuration valid and READY.
                 preferences.setProviderBootstrapState(it, ProviderBootstrapState.READY)
             }
+            // Persist after readiness. If the process dies here, startup repair
+            // sees either the old valid configuration or the new one and
+            // completes the remaining idempotent queue work.
+            preferences.setTrackingProviders(next.mainProvider, next.secondaryProvider)
             removed.forEach { operations.cancelProviderDeliveries(it) }
-            if (previous.mainProvider == null && next.mainProvider != null) {
-                operations.bindUnboundCurrentIntents(next.mainProvider)
-            }
+            next.mainProvider?.let { operations.bindUnboundCurrentIntents(it) }
             val pending = operations.pending()
             operations.completeReady(pending)
         }
@@ -77,6 +78,9 @@ class TrackingConfigurationService(
     suspend fun repair(configuration: TrackingConfiguration? = null) = routingMutex.withLock {
         val resolved = configuration ?: current()
         val configured = setOfNotNull(resolved.mainProvider, resolved.secondaryProvider)
+        // Bind first so a process dying after the MAIN DataStore write cannot
+        // strand current local intents without an immutable target row.
+        resolved.mainProvider?.let { operations.bindUnboundCurrentIntents(it) }
         TrackingProviderId.entries.filterNot(configured::contains).forEach {
             operations.cancelProviderDeliveries(it)
         }

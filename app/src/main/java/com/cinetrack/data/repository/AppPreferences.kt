@@ -326,6 +326,7 @@ class AppPreferences(private val context: Context) {
             prefs.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
             prefs.remove(syncBaselineKey(TrackingProviderId.SIMKL))
             prefs.remove(Keys.syncBaseline)
+            prefs[providerBootstrapKey(TrackingProviderId.SIMKL)] = ProviderBootstrapState.NOT_STARTED.name
         }
     }
 
@@ -603,6 +604,7 @@ class AppPreferences(private val context: Context) {
             it.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
             it.remove(syncBaselineKey(TrackingProviderId.SIMKL))
             it.remove(Keys.syncBaseline)
+            it[providerBootstrapKey(TrackingProviderId.SIMKL)] = ProviderBootstrapState.NOT_STARTED.name
         }
         Unit
     }.recoverCatching { cause ->
@@ -613,4 +615,3 @@ class AppPreferences(private val context: Context) {
         throw cause
     }
 }
-

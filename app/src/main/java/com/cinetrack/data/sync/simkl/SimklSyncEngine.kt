@@ -180,29 +180,31 @@ class SimklSyncEngine(
         // SyncCoordinator has already selected the exact MAIN delivery set.
         // These operations are the only local intents this provider may upload
         // or use as reconciliation protection during this pass.
-        val exactWritesByOperationId = operations.mapNotNull { operation ->
-            val writeId = operation.id.removePrefix("write:").toLongOrNull() ?: return@mapNotNull null
-            val write = database.syncDao().pendingWrite(writeId) ?: return@mapNotNull null
-            write.takeIf { it.createdAt == operation.sourceVersion && it.operation == operation.type.name }
-                ?.let { operation.id to it }
-        }.toMap()
-        val pendingLocalStates = operations.asSequence()
-            .filter { it.type == SyncOperationType.LIBRARY_STATUS }
-            .mapNotNull { operation ->
-                database.stateDao().get(operation.mediaType.name, operation.mediaId)?.takeIf {
-                    it.dirty && it.updatedAt == operation.sourceVersion && it.status == operation.value
+        val exactWritesByOperationId = linkedMapOf<String, PendingWriteEntity>()
+        for (operation in operations) {
+            val writeId = operation.id.removePrefix("write:").toLongOrNull() ?: continue
+            val write = database.syncDao().pendingWrite(writeId) ?: continue
+            if (write.createdAt == operation.sourceVersion && write.operation == operation.type.name) {
+                exactWritesByOperationId[operation.id] = write
+            }
+        }
+        val pendingLocalStates = mutableListOf<UserMediaStateEntity>()
+        for (operation in operations) {
+            if (operation.type != SyncOperationType.LIBRARY_STATUS) continue
+            database.stateDao().get(operation.mediaType.name, operation.mediaId)?.takeIf {
+                it.dirty && it.updatedAt == operation.sourceVersion && it.status == operation.value
+            }?.let { state ->
+                if (pendingLocalStates.none { it.mediaType == state.mediaType && it.mediaId == state.mediaId }) {
+                    pendingLocalStates += state
                 }
             }
-            .distinctBy { "${it.mediaType}:${it.mediaId}" }
-            .toList()
-        val pendingEpisodeWrites = operations.asSequence()
+        }
+        val pendingEpisodeWrites = operations
             .filter { it.type == SyncOperationType.EPISODE_WATCHED || it.type == SyncOperationType.EPISODE_UNWATCHED }
             .mapNotNull { exactWritesByOperationId[it.id] }
-            .toList()
-        val pendingMediaHistoryRemovals = operations.asSequence()
+        val pendingMediaHistoryRemovals = operations
             .filter { it.type == SyncOperationType.MEDIA_HISTORY_REMOVE }
             .mapNotNull { exactWritesByOperationId[it.id] }
-            .toList()
         val pendingCount = operations.size
         val syncStartedAt = System.currentTimeMillis()
 
@@ -648,8 +650,9 @@ class SimklSyncEngine(
             val beforeKeys = historyBeforeSync.mapNotNull { it.episodeKey() }.toSet()
             val currentHistory = database.timelineDao().historySnapshot()
             val currentKeys = currentHistory.mapNotNull { it.episodeKey() }.toSet()
+            val currentPendingWrites = database.syncDao().pendingWrites()
             val exactWriteIds = exactWritesByOperationId.values.mapTo(linkedSetOf(), PendingWriteEntity::id)
-            val protectedKeys = database.syncDao().pendingWrites()
+            val protectedKeys = currentPendingWrites
                 .filter { it.id in exactWriteIds || it.createdAt >= syncStartedAt }
                 .filter { it.operation == "EPISODE_WATCHED" || it.operation == "EPISODE_UNWATCHED" }
                 .mapNotNull { write ->
@@ -670,20 +673,23 @@ class SimklSyncEngine(
                     SyncOperationType.MEDIA_HISTORY_REMOVE,
                 ) }
                 .mapTo(linkedSetOf(), SyncOperation::mediaId)
-                .also { ids ->
-                    database.syncDao().syncOperations()
-                        .filter { it.mediaType == MediaType.MOVIE.name && it.createdAt >= syncStartedAt }
-                        .mapTo(ids, SyncOperationEntity::mediaId)
-                }
+            database.syncDao().syncOperations()
+                .filter { it.mediaType == MediaType.MOVIE.name && it.createdAt >= syncStartedAt }
+                .mapTo(protectedMovieIds, SyncOperationEntity::mediaId)
             if (newMedia.isNotEmpty()) database.mediaDao().upsertMedia(newMedia)
-            fun supersededState(state: UserMediaStateEntity): Boolean {
+            suspend fun supersededState(state: UserMediaStateEntity): Boolean {
                 val current = database.stateDao().get(state.mediaType, state.mediaId) ?: return false
                 val before = localStatesByKey["${state.mediaType}:${state.mediaId}"]
                 return current.dirty && (before == null || current.updatedAt > before.updatedAt)
             }
-            val remoteStatesToApply = (remoteStates + remoteRemovedStates).filterNot(::supersededState)
+            val remoteStatesToApply = mutableListOf<UserMediaStateEntity>()
+            for (state in remoteStates + remoteRemovedStates) {
+                if (!supersededState(state)) remoteStatesToApply += state
+            }
+            val currentStatesByKey = database.stateDao().stateSnapshot()
+                .associateBy { "${it.mediaType}:${it.mediaId}" }
             val currentPendingStates = pendingLocalStates.filter { state ->
-                val current = database.stateDao().get(state.mediaType, state.mediaId)
+                val current = currentStatesByKey["${state.mediaType}:${state.mediaId}"]
                 current?.dirty == true && current.updatedAt == state.updatedAt && current.status == state.status
             }
             if (remoteStatesToApply.isNotEmpty() || currentPendingStates.isNotEmpty()) {
@@ -691,22 +697,24 @@ class SimklSyncEngine(
                 // Only validated, current user intent may override MAIN.
                 database.stateDao().upsertAll(currentPendingStates)
             }
-            reconciliation.localMutations.forEach { mutation ->
+            for (mutation in reconciliation.localMutations) {
                 val type = mutation.mediaType.name
                 val id = mutation.mediaId.toInt()
                 val before = localStatesByKey["$type:$id"]
                 val current = database.stateDao().get(type, id)
                 val stateSuperseded = current?.dirty == true && (before == null || current.updatedAt > before.updatedAt)
-                val episodeSuperseded = mutation.season != null && mutation.episode != null &&
-                    database.syncDao().pendingWrites().any { write ->
+                val mutationSeason = mutation.season
+                val mutationEpisode = mutation.episode
+                val episodeSuperseded = mutationSeason != null && mutationEpisode != null &&
+                    currentPendingWrites.any { write ->
                         write.mediaType == type && write.mediaId == id &&
                             write.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) &&
                             write.payload.split(':', limit = 3).let { parts ->
-                                parts.getOrNull(0)?.toIntOrNull() == mutation.season &&
-                                    parts.getOrNull(1)?.toIntOrNull() == mutation.episode
+                                parts.getOrNull(0)?.toIntOrNull() == mutationSeason &&
+                                    parts.getOrNull(1)?.toIntOrNull() == mutationEpisode
                             } && (write.id in exactWriteIds || write.createdAt >= syncStartedAt)
                     }
-                if (stateSuperseded || episodeSuperseded) return@forEach
+                if (stateSuperseded || episodeSuperseded) continue
                 appliedRemoteMutations += mutation
                 val previous = database.stateDao().get(type, id)
                 when (mutation) {
@@ -724,7 +732,8 @@ class SimklSyncEngine(
                     }
                 }
             }
-            remoteRemovedStates.filterNot(::supersededState).groupBy(UserMediaStateEntity::mediaType).forEach { (mediaType, states) ->
+            val remoteRemovedStatesToApply = remoteRemovedStates.filter { state -> state in remoteStatesToApply }
+            remoteRemovedStatesToApply.groupBy(UserMediaStateEntity::mediaType).forEach { (mediaType, states) ->
                 states.map(UserMediaStateEntity::mediaId).distinct().chunked(500).forEach { ids ->
                     database.timelineDao().deleteMediaHistories(mediaType, ids)
                 }
