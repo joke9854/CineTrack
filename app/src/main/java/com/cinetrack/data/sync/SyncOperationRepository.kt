@@ -51,7 +51,7 @@ interface SyncOperationRepository {
 
     /** Atomically replaces the current SECONDARY mirror for one logical field. */
     suspend fun replaceSecondaryMirror(operation: SyncOperation, target: SyncOperationDelivery) {
-        enqueue(operation, listOf(target))
+        enqueue(listOf(operation), listOf(target))
     }
 
     /** Binds pre-delivery operations to one startup MAIN provider exactly once. */
@@ -276,8 +276,11 @@ class RoomSyncOperationRepository(
         }
     }
 
-    override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
-        if (operationIds.isEmpty()) emptyList() else database.syncDao().deliveries(operationIds.toList()).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
+    override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> {
+        repairDeliveryRows()
+        return if (operationIds.isEmpty()) emptyList()
+        else database.syncDao().deliveries(operationIds.toList()).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
+    }
 
     override suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {
         operationIds.forEach { id -> database.syncDao().deliveries(listOf(id)).filter { it.providerId == provider.name }.forEach { row ->

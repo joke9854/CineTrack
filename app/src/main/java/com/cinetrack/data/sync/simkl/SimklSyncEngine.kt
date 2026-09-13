@@ -700,7 +700,7 @@ class SimklSyncEngine(
                 val current = database.stateDao().get(state.mediaType, state.mediaId) ?: return false
                 val before = localStatesByKey["${state.mediaType}:${state.mediaId}"]
                 val libraryChanged = hasNewerLocalIntent(SyncLogicalField.library(MediaType.valueOf(state.mediaType), state.mediaId))
-                val watchedChanged = state.mediaType == MediaType.MOVIE &&
+                val watchedChanged = state.mediaType == MediaType.MOVIE.name &&
                     hasNewerLocalIntent(SyncLogicalField.movieWatched(state.mediaId))
                 return libraryChanged || watchedChanged || (current.dirty && (before == null || current.updatedAt > before.updatedAt))
             }
@@ -744,11 +744,11 @@ class SimklSyncEngine(
                 when (mutation) {
                     is LocalMutation.SetLibraryStatus -> {
                         database.stateDao().upsert(
-                            UserMediaStateEntity(type, id, mutation.status.name, previous?.watched ?: false, previous?.simklId, System.currentTimeMillis(), dirty = false),
+                            UserMediaStateEntity(type, id, mutation.status.name, previous?.watched ?: false, previous?.simklId, committedAt, dirty = false),
                         )
                     }
                     is LocalMutation.SetWatched -> {
-                        database.stateDao().upsert(UserMediaStateEntity(type, id, previous?.status ?: LibraryStatus.NONE.name, mutation.watched, previous?.simklId, System.currentTimeMillis(), dirty = false))
+                        database.stateDao().upsert(UserMediaStateEntity(type, id, previous?.status ?: LibraryStatus.NONE.name, mutation.watched, previous?.simklId, committedAt, dirty = false))
                         if (mutation.season != null && mutation.episode != null) {
                             if (mutation.watched) database.timelineDao().insertHistory(WatchHistoryEntity(mediaType = type, mediaId = id, season = mutation.season, episodeNumber = mutation.episode, watchedAt = mutation.watchedAt?.toString() ?: Instant.now().toString()))
                             else database.timelineDao().deleteEpisodeHistory(type, id, mutation.season, mutation.episode)
