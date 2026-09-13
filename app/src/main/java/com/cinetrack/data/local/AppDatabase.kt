@@ -177,6 +177,7 @@ data class SyncOperationEntity(
     val providerId: String = "SIMKL",
     val season: Int? = null,
     val episode: Int? = null,
+    val payload: String? = null,
 )
 
 @Entity(
@@ -489,6 +490,9 @@ interface SyncDao {
     @Query("DELETE FROM pending_writes WHERE id = :id")
     suspend fun deleteWrite(id: Long)
 
+    @Query("DELETE FROM pending_writes WHERE id = :id AND createdAt = :createdAt")
+    suspend fun deletePendingWriteIfGeneration(id: Long, createdAt: Long): Int
+
     @Query("DELETE FROM pending_writes WHERE id IN (:ids)")
     suspend fun deleteWrites(ids: List<Long>)
 
@@ -507,8 +511,14 @@ interface SyncDao {
     @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId")
     suspend fun markOperationFailed(operationId: String, message: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId AND createdAt = :operationVersion")
+    suspend fun markOperationFailedIfGeneration(operationId: String, operationVersion: Long, message: String, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("DELETE FROM sync_operations WHERE operationId = :operationId")
     suspend fun deleteOperation(operationId: String)
+
+    @Query("DELETE FROM sync_operations WHERE operationId = :operationId AND createdAt = :operationVersion")
+    suspend fun deleteOperationIfGeneration(operationId: String, operationVersion: Long): Int
 
     @Query("DELETE FROM sync_operations WHERE operationId IN (:operationIds)")
     suspend fun deleteOperations(operationIds: List<String>)
@@ -527,6 +537,9 @@ interface SyncDao {
 
     @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
     suspend fun deleteDeliveries(operationIds: List<String>)
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion")
+    suspend fun deleteDeliveriesForGeneration(operationId: String, operationVersion: Long): Int
 
     @Query("SELECT * FROM sync_operation_deliveries")
     suspend fun allDeliveries(): List<SyncOperationDeliveryEntity>
@@ -576,7 +589,7 @@ interface PeopleDao {
         SyncOperationEntity::class,
         SyncOperationDeliveryEntity::class,
     ],
-    version = 10,
+    version = 11,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -702,12 +715,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val migration10To11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN payload TEXT")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11).build().also { instance = it }
         }
     }
 }

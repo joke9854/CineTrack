@@ -98,7 +98,10 @@ class RoomSyncOperationRepository(
         repairDeliveryRows()
         repairBlankTitles()
         val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
-        val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
+        val currentGenerations = cards.associate { it.id to it.createdAt }
+        val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id))
+            .filter { row -> currentGenerations[row.operationId] == row.operationVersion }
+            .mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
         return cards.map { card ->
             val deliveries = deliveryRows.filter { it.operationId == card.id }
             card.copy(
@@ -142,6 +145,7 @@ class RoomSyncOperationRepository(
                 updatedAt = System.currentTimeMillis(),
                 season = operation.payload?.episodePart(0),
                 episode = operation.payload?.episodePart(1),
+                payload = operation.payload,
             )
         }
         database.withTransaction {
@@ -180,29 +184,34 @@ class RoomSyncOperationRepository(
         if (operations.isEmpty()) return
         database.withTransaction {
             operations.forEach { operation ->
-                if (operation.type in setOf(
-                        SyncOperationType.LIBRARY_STATUS,
-                        SyncOperationType.MOVIE_WATCHED,
-                        SyncOperationType.MOVIE_UNWATCHED,
-                    ) || operation.id.startsWith("state:")) {
+                val current = database.syncDao().syncOperation(operation.id)
+                val isCurrentGeneration = current?.createdAt == operation.sourceVersion
+                if (isCurrentGeneration && (
+                        operation.type == SyncOperationType.LIBRARY_STATUS ||
+                            operation.id.startsWith("state:")
+                        )) {
                     database.stateDao().markCleanIfUnchanged(
                         operation.mediaType.name,
                         operation.mediaId,
                         operation.sourceVersion,
                     )
                 }
-                if (operation.id.startsWith("write:")) operation.id.removePrefix("write:").toLongOrNull()
-                    ?.let { database.syncDao().deleteWrite(it) }
+                if (isCurrentGeneration && operation.id.startsWith("write:")) {
+                    operation.id.removePrefix("write:").toLongOrNull()?.let { writeId ->
+                        database.syncDao().deletePendingWriteIfGeneration(writeId, operation.sourceVersion)
+                    }
+                }
+                // Delivery history is generation-scoped. An old response may
+                // retire its own rows, but can never delete a newer generation.
+                database.syncDao().deleteDeliveriesForGeneration(operation.id, operation.sourceVersion)
+                if (isCurrentGeneration) database.syncDao().deleteOperationIfGeneration(operation.id, operation.sourceVersion)
             }
-            val ids = operations.map(SyncOperation::id)
-            database.syncDao().deleteOperations(ids)
-            database.syncDao().deleteDeliveries(ids)
         }
     }
 
     override suspend fun fail(operations: List<SyncOperation>, error: Throwable) {
         val message = error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
-        operations.forEach { database.syncDao().markOperationFailed(it.id, message) }
+        operations.forEach { database.syncDao().markOperationFailedIfGeneration(it.id, it.sourceVersion, message) }
     }
 
     override suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {
@@ -365,6 +374,7 @@ class RoomSyncOperationRepository(
                 updatedAt = System.currentTimeMillis(),
                 season = operation.payload?.episodePart(0),
                 episode = operation.payload?.episodePart(1),
+                payload = operation.payload,
             )
             database.syncDao().upsertOperation(entity)
             ensureDeliveries(listOf(operation), listOf(target))
@@ -449,6 +459,13 @@ class RoomSyncOperationRepository(
             val entity = database.syncDao().syncOperation(id) ?: return@forEach
             val rows = database.syncDao().deliveries(listOf(id))
             val required = rows.filter { it.required }
+            if (rows.isEmpty()) {
+                entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId ->
+                    database.syncDao().deletePendingWriteIfGeneration(writeId, entity.createdAt)
+                }
+                database.syncDao().deleteOperationIfGeneration(id, entity.createdAt)
+                return@forEach
+            }
             if (required.isEmpty() || required.any {
                     it.status !in setOf(
                         DeliveryStatus.ACKNOWLEDGED.name,
@@ -457,9 +474,11 @@ class RoomSyncOperationRepository(
                         DeliveryStatus.SUPERSEDED.name,
                     )
                 }) return@forEach
-            entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId -> database.syncDao().deleteWrite(writeId) }
-            database.syncDao().deleteOperation(id)
-            database.syncDao().deleteDeliveries(listOf(id))
+            entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId ->
+                database.syncDao().deletePendingWriteIfGeneration(writeId, entity.createdAt)
+            }
+            database.syncDao().deleteDeliveriesForGeneration(id, entity.createdAt)
+            database.syncDao().deleteOperationIfGeneration(id, entity.createdAt)
         }
     }
 
@@ -598,7 +617,7 @@ private fun SyncOperationEntity.toSyncOperation(write: PendingWriteEntity?): Syn
         mediaId = mediaId,
         title = title,
         value = localValue,
-        payload = write?.payload ?: when (type) {
+        payload = write?.payload ?: payload ?: when (type) {
             SyncOperationType.EPISODE_WATCHED -> {
                 if (season == null || episode == null) null
                 else "$season:$episode:${java.time.Instant.ofEpochMilli(write?.createdAt ?: createdAt)}"

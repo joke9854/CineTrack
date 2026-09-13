@@ -17,6 +17,7 @@ import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.data.sync.logicalField
+import com.cinetrack.data.sync.MutationGeneration
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -62,10 +63,15 @@ class RoomLibraryRepository(
     )
 
     override suspend fun setLibraryStatus(media: MediaCard, status: LibraryStatus) {
-        val mutationVersion = System.currentTimeMillis()
+        val mutationVersion = MutationGeneration.next()
         val operationIds = routingMutex.withLock { database.withTransaction {
             val ids = mutableSetOf("state:${media.type.name}:${media.id}")
             val previous = database.stateDao().get(media.type.name, media.id)
+            val shouldClearHistory = media.type == MediaType.TV &&
+                (status == LibraryStatus.NONE || (previous?.watched == true && status != LibraryStatus.COMPLETED))
+            val episodeHistoryToClear = if (shouldClearHistory) {
+                database.timelineDao().episodeHistoryForShow(MediaType.TV.name, media.id)
+            } else emptyList()
             database.mediaDao().upsertMedia(listOf(media.toEntity()))
             database.stateDao().upsert(
                 UserMediaStateEntity(
@@ -80,17 +86,48 @@ class RoomLibraryRepository(
             )
             queueStateOperation(media, status)
             if (media.type == MediaType.MOVIE) {
-                queueMovieWatchedOperation(media, status == LibraryStatus.COMPLETED, mutationVersion)
+                queueMovieWatchedOperation(media, status == LibraryStatus.COMPLETED, mutationVersion, status)
             }
             if (status == LibraryStatus.COMPLETED && previous?.watched != true) {
+                if (media.type == MediaType.MOVIE) database.timelineDao().deleteMediaHistory(media.type.name, media.id)
                 database.timelineDao().insertHistory(
                     WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = Instant.ofEpochMilli(mutationVersion).toString()),
                 )
             }
-            if (status == LibraryStatus.NONE) {
+            if (media.type == MediaType.TV && episodeHistoryToClear.isNotEmpty()) {
+                episodeHistoryToClear.asSequence()
+                    .mapNotNull { history ->
+                        val season = history.season ?: return@mapNotNull null
+                        val episode = history.episodeNumber ?: return@mapNotNull null
+                        season to episode
+                    }
+                    .distinct()
+                    .forEach { (season, episode) ->
+                        val writeId = database.syncDao().queue(
+                            PendingWriteEntity(
+                                operation = "EPISODE_UNWATCHED",
+                                mediaType = MediaType.TV.name,
+                                mediaId = media.id,
+                                payload = "$season:$episode",
+                                createdAt = mutationVersion,
+                            ),
+                        )
+                        queueWriteOperation(
+                            writeId = writeId,
+                            operation = "EPISODE_UNWATCHED",
+                            mediaType = MediaType.TV,
+                            mediaId = media.id,
+                            title = media.title,
+                            value = "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}",
+                            payload = "$season:$episode",
+                        )
+                        ids += "write:$writeId"
+                    }
+            }
+            if (status == LibraryStatus.NONE || (previous?.watched == true && status != LibraryStatus.COMPLETED)) {
                 database.timelineDao().deleteMediaHistory(media.type.name, media.id)
-            } else if (previous?.watched == true && status != LibraryStatus.COMPLETED && media.type != MediaType.MOVIE) {
-                database.timelineDao().deleteMediaHistory(media.type.name, media.id)
+            }
+            if (previous?.watched == true && status != LibraryStatus.COMPLETED && media.type != MediaType.MOVIE && media.type != MediaType.TV) {
                 val writeId = database.syncDao().queue(
                     PendingWriteEntity(
                         operation = "MEDIA_HISTORY_REMOVE",
@@ -122,7 +159,7 @@ class RoomLibraryRepository(
     }
 
     override suspend fun markWatched(media: MediaCard) {
-        val mutationVersion = System.currentTimeMillis()
+        val mutationVersion = MutationGeneration.next()
         val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationIds = routingMutex.withLock { database.withTransaction {
             val previous = database.stateDao().get(media.type.name, media.id)
@@ -140,8 +177,9 @@ class RoomLibraryRepository(
             )
             queueStateOperation(media, LibraryStatus.COMPLETED)
             if (media.type == MediaType.MOVIE) {
-                queueMovieWatchedOperation(media, watched = true, mutationVersion)
+                queueMovieWatchedOperation(media, watched = true, mutationVersion, LibraryStatus.COMPLETED)
             }
+            if (media.type == MediaType.MOVIE) database.timelineDao().deleteMediaHistory(media.type.name, media.id)
             database.timelineDao().insertHistory(
                 WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = watchedAt),
             )
@@ -158,7 +196,7 @@ class RoomLibraryRepository(
     }
 
     override suspend fun markEpisodeWatched(episode: EpisodeCard) {
-        val mutationVersion = System.currentTimeMillis()
+        val mutationVersion = MutationGeneration.next()
         val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationId = routingMutex.withLock { database.withTransaction {
             database.timelineDao().insertHistory(
@@ -192,9 +230,10 @@ class RoomLibraryRepository(
 
     override suspend fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
         if (watched) return markEpisodeWatched(episode)
-        val mutationVersion = System.currentTimeMillis()
+        val mutationVersion = MutationGeneration.next()
         val operationId = routingMutex.withLock { database.withTransaction {
             database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, episode.showId, episode.season, episode.number)
+            database.stateDao().touch(MediaType.TV.name, episode.showId, mutationVersion)
             refreshLocalUpNext(episode.showId)
             val writeId = database.syncDao().queue(
                 PendingWriteEntity(
@@ -215,7 +254,7 @@ class RoomLibraryRepository(
     override suspend fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
         if (changed.isEmpty()) return
-        val mutationVersion = System.currentTimeMillis()
+        val mutationVersion = MutationGeneration.next()
         val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationIds = routingMutex.withLock { database.withTransaction {
             val ids = mutableListOf<String>()
@@ -261,7 +300,12 @@ class RoomLibraryRepository(
         )
     }
 
-    private suspend fun queueMovieWatchedOperation(media: MediaCard, watched: Boolean, mutationVersion: Long) {
+    private suspend fun queueMovieWatchedOperation(
+        media: MediaCard,
+        watched: Boolean,
+        mutationVersion: Long,
+        desiredLibraryStatus: LibraryStatus,
+    ) {
         persistOperation(
             SyncOperation(
                 id = "movie-watched:${media.type.name}:${media.id}",
@@ -270,7 +314,7 @@ class RoomLibraryRepository(
                 mediaId = media.id,
                 title = media.title,
                 value = watched.toString(),
-                payload = if (watched) Instant.ofEpochMilli(mutationVersion).toString() else null,
+                payload = if (watched) Instant.ofEpochMilli(mutationVersion).toString() else desiredLibraryStatus.name,
                 sourceVersion = mutationVersion,
             ),
         )
@@ -300,6 +344,7 @@ class RoomLibraryRepository(
                 updatedAt = operation.sourceVersion,
                 season = operation.payload?.split(':', limit = 3)?.getOrNull(0)?.toIntOrNull(),
                 episode = operation.payload?.split(':', limit = 3)?.getOrNull(1)?.toIntOrNull(),
+                payload = operation.payload,
             ),
         )
         snapshotDeliveries(
@@ -319,9 +364,10 @@ class RoomLibraryRepository(
             val rows = database.syncDao().deliveries(listOf(id))
             val required = rows.filter { it.required }
             if (required.isEmpty() || required.any { it.status !in setOf("ACKNOWLEDGED", "SKIPPED_UNSUPPORTED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED") }) return@forEach
-            id.removePrefix("write:").toLongOrNull()?.let { database.syncDao().deleteWrite(it) }
-            database.syncDao().deleteOperation(id)
-            database.syncDao().deleteDeliveries(listOf(id))
+            val entity = database.syncDao().syncOperation(id) ?: return@forEach
+            id.removePrefix("write:").toLongOrNull()?.let { database.syncDao().deletePendingWriteIfGeneration(it, entity.createdAt) }
+            database.syncDao().deleteDeliveriesForGeneration(id, entity.createdAt)
+            database.syncDao().deleteOperationIfGeneration(id, entity.createdAt)
         }
     }
 

@@ -49,5 +49,4 @@ jobs:
           api-level: 35
           arch: x86_64
           profile: pixel_2
-          script: ./gradlew :app:connectedDebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.class=com.cinetrack.data.local.AppDatabaseMigrationTest
-
+          script: ./gradlew :app:connectedDebugAndroidTest

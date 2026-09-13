@@ -121,6 +121,20 @@ class DurableSyncOperationWriter(
     private val durableQueue: DurableTrackingQueue,
     private val routingMutex: TrackingRoutingMutex,
 ) {
+    /** Repairs one current operation using an atomic provider-target snapshot. */
+    suspend fun repairCurrentOperation(operation: SyncOperation) = routingMutex.withLock {
+        repairCurrentOperationUnlocked(operation)
+    }
+
+    /** Caller already holds TrackingRoutingMutex. */
+    internal suspend fun repairCurrentOperationUnlocked(operation: SyncOperation) {
+        val targets = durableQueue.snapshotUnlocked(operation)
+        operationRepository.enqueue(
+            operations = listOf(operation),
+            targets = targets,
+        )
+    }
+
     /**
      * Replaces one SECONDARY mirror atomically with its supersession.  The
      * routing snapshot is captured exactly once while the mutex is held; the

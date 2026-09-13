@@ -12,6 +12,8 @@ class SyncCoordinator(
     private val reconciler: SyncReconciler = SyncReconciler(),
 ) {
     private val fullSyncMutex = Mutex()
+    /** Serializes all provider network traffic, including immediate pushes. */
+    private val providerIoMutex = Mutex()
     /** Exposes the pure policy for provider adapters and deterministic tests. */
     fun reconcile(
         local: LocalTrackingSnapshot,
@@ -20,6 +22,7 @@ class SyncCoordinator(
     ): ReconciliationResult = reconciler.reconcile(local, remote, provider)
 
     suspend fun sync(onProgress: (SyncProgress) -> Unit): Result<SyncCoordinatorOutcome> = fullSyncMutex.withLock {
+        providerIoMutex.withLock {
         resultOf {
         val configuration = registry.configuration()
         val mainId = configuration.mainProvider
@@ -92,9 +95,10 @@ class SyncCoordinator(
             throw error
         }
         }
+        }
     }
 
-    suspend fun pushPending(operationIds: Set<String>? = null): Result<Unit> = resultOf {
+    suspend fun pushPending(operationIds: Set<String>? = null): Result<Unit> = providerIoMutex.withLock { resultOf {
         val pending = operations.pending(operationIds)
         if (pending.isEmpty()) return@resultOf Unit
         val configuration = registry.configuration()
@@ -130,7 +134,7 @@ class SyncCoordinator(
         }
         secondaryFailure?.let { throw it }
         operations.completeReady(pending)
-    }
+    } }
 
     suspend fun retry(operationId: String): Result<Unit> = pushPending(setOf(operationId))
 

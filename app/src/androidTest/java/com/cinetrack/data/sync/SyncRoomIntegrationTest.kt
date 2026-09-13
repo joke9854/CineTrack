@@ -5,12 +5,19 @@ import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.cinetrack.data.local.AppDatabase
+import com.cinetrack.data.local.UserMediaStateEntity
 import com.cinetrack.data.repository.AppPreferences
+import com.cinetrack.data.library.RoomLibraryRepository
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.SyncProgress
+import com.cinetrack.domain.SyncOperationStatus
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -125,6 +132,122 @@ class SyncRoomIntegrationTest {
         assertTrue(repository.pending().isEmpty())
     }
 
+    @Test
+    fun staleSameIdCompletionAndFailureCannotTouchNewGeneration() = runBlocking {
+        val first = libraryOperation("state:MOVIE:42", 100L, LibraryStatus.WATCHING.name)
+        val second = libraryOperation("state:MOVIE:42", 200L, LibraryStatus.DROPPED.name)
+        repository.enqueue(listOf(first), targets(first).take(1))
+        repository.enqueue(listOf(second), targets(second).take(1))
+
+        repository.complete(listOf(first))
+        repository.fail(listOf(first), error("stale failure"))
+
+        val current = database.syncDao().syncOperation(second.id)
+        assertNotNull(current)
+        assertEquals(200L, current?.createdAt)
+        assertEquals(SyncOperationStatus.PENDING.name, current?.status)
+        assertTrue(repository.deliveries(setOf(second.id)).any { it.operationVersion == 200L && it.status == DeliveryStatus.PENDING })
+        assertTrue(repository.deliveries(setOf(first.id)).none { it.operationVersion == 100L })
+
+        val movieFirst = SyncOperation(
+            id = "movie-watched:MOVIE:42",
+            type = SyncOperationType.MOVIE_WATCHED,
+            mediaType = MediaType.MOVIE,
+            mediaId = 42,
+            title = "Example movie",
+            value = "true",
+            payload = Instant.ofEpochMilli(300L).toString(),
+            sourceVersion = 300L,
+        )
+        val movieSecond = movieFirst.copy(
+            type = SyncOperationType.MOVIE_UNWATCHED,
+            value = "false",
+            payload = LibraryStatus.DROPPED.name,
+            sourceVersion = 400L,
+        )
+        repository.enqueue(listOf(movieFirst), targets(movieFirst).take(1))
+        repository.enqueue(listOf(movieSecond), targets(movieSecond).take(1))
+        repository.complete(listOf(movieFirst))
+        repository.fail(listOf(movieFirst), error("stale movie failure"))
+        assertEquals(400L, database.syncDao().syncOperation(movieSecond.id)?.createdAt)
+        assertEquals(SyncOperationStatus.PENDING.name, database.syncDao().syncOperation(movieSecond.id)?.status)
+    }
+
+    @Test
+    fun watchedCompletionDoesNotClearIndependentMovieLibraryDirtyState() = runBlocking {
+        database.stateDao().upsert(
+            UserMediaStateEntity(
+                mediaType = MediaType.MOVIE.name,
+                mediaId = 42,
+                status = LibraryStatus.DROPPED.name,
+                watched = false,
+                updatedAt = 300L,
+                dirty = true,
+            ),
+        )
+        val library = libraryOperation("state:MOVIE:42", 300L, LibraryStatus.DROPPED.name)
+        val unwatched = SyncOperation(
+            id = "movie-watched:MOVIE:42",
+            type = SyncOperationType.MOVIE_UNWATCHED,
+            mediaType = MediaType.MOVIE,
+            mediaId = 42,
+            title = "Example movie",
+            value = "false",
+            payload = LibraryStatus.DROPPED.name,
+            sourceVersion = 300L,
+        )
+        repository.enqueue(listOf(library, unwatched), targets(library).take(1) + targets(unwatched).take(1))
+        repository.fail(listOf(library), error("library unavailable"))
+        repository.acknowledge(TrackingProviderId.SIMKL, listOf(unwatched))
+        repository.complete(listOf(unwatched))
+
+        assertTrue(database.stateDao().get(MediaType.MOVIE.name, 42)?.dirty == true)
+        assertTrue(repository.pending().any { it.id == library.id })
+        repository.complete(listOf(library))
+        assertFalse(database.stateDao().get(MediaType.MOVIE.name, 42)?.dirty == true)
+    }
+
+    @Test
+    fun movieStatusTransitionsKeepOneCanonicalHistoryRow() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val registry = object : TrackingProviderRegistry {
+            override fun getProvider(id: TrackingProviderId): TrackingProvider? = null
+            override suspend fun configuration() = TrackingConfiguration(null, null)
+        }
+        val coordinator = SyncCoordinator(registry, repository)
+        val library = RoomLibraryRepository(
+            database = database,
+            preferences = AppPreferences(context),
+            syncCoordinator = coordinator,
+            onLocalStateChanged = {},
+            providerRegistry = registry,
+            routingMutex = TrackingRoutingMutex(),
+        )
+        val movie = MediaCard(
+            id = 42,
+            type = MediaType.MOVIE,
+            title = "Example movie",
+            overview = "",
+            posterUrl = null,
+            backdropUrl = null,
+            releaseDate = null,
+            score = null,
+            status = LibraryStatus.COMPLETED,
+            watched = true,
+            runtimeMinutes = null,
+            genres = emptyList(),
+            providers = emptyList(),
+            collectionId = null,
+        )
+        library.setLibraryStatus(movie, LibraryStatus.COMPLETED)
+        library.setLibraryStatus(movie, LibraryStatus.DROPPED)
+        assertEquals(0, database.timelineDao().historySnapshot().count { it.mediaType == MediaType.MOVIE.name && it.mediaId == 42 })
+        assertTrue(database.stateDao().get(MediaType.MOVIE.name, 42)?.watched == false)
+
+        library.setLibraryStatus(movie.copy(status = LibraryStatus.DROPPED, watched = false), LibraryStatus.COMPLETED)
+        assertEquals(1, database.timelineDao().historySnapshot().count { it.mediaType == MediaType.MOVIE.name && it.mediaId == 42 })
+    }
+
     private fun episodeOperation(
         id: String,
         type: SyncOperationType,
@@ -138,6 +261,16 @@ class SyncRoomIntegrationTest {
         title = "Example show",
         value = type.name,
         payload = payload,
+        sourceVersion = sourceVersion,
+    )
+
+    private fun libraryOperation(id: String, sourceVersion: Long, status: String) = SyncOperation(
+        id = id,
+        type = SyncOperationType.LIBRARY_STATUS,
+        mediaType = MediaType.MOVIE,
+        mediaId = 42,
+        title = "Example movie",
+        value = status,
         sourceVersion = sourceVersion,
     )
 

@@ -25,6 +25,7 @@ class AppDatabaseMigrationTest {
     @Test fun migration7To10PreservesProviderId() = migrateAndValidate(7)
     @Test fun migration8To10PreservesEpisodeCoordinates() = migrateAndValidate(8)
     @Test fun migration9To10PreservesDeliveryGeneration() = migrateAndValidate(9)
+    @Test fun migration10To11AddsOperationPayload() = migrateAndValidate(10)
 
     @Test
     fun migration5To6IsDeclaredForLegacyInstallations() {
@@ -36,13 +37,14 @@ class AppDatabaseMigrationTest {
             seedCanonicalRows(db, version)
         }
         val migrations = when (version) {
-            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10)
-            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10)
-            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10)
-            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10)
-            else -> arrayOf(AppDatabase.migration9To10)
+            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
+            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
+            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
+            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
+            9 -> arrayOf(AppDatabase.migration9To10, AppDatabase.migration10To11)
+            else -> arrayOf(AppDatabase.migration10To11)
         }
-        helper.runMigrationsAndValidate("migration-$version", 10, true, *migrations).use { migrated ->
+        helper.runMigrationsAndValidate("migration-$version", 11, true, *migrations).use { migrated ->
             assertEquals(1, count(migrated, "media"))
             assertEquals(1, count(migrated, "user_media_state"))
             assertEquals(1, count(migrated, "playback"))
@@ -58,6 +60,13 @@ class AppDatabaseMigrationTest {
                     assertEquals(100L, cursor.getLong(0))
                     assertEquals("SIMKL", cursor.getString(1))
                     assertEquals("FAILED", cursor.getString(2))
+                }
+            }
+            if (version >= 10) {
+                migrated.query("PRAGMA table_info(sync_operations)").use { cursor ->
+                    var foundPayload = false
+                    while (cursor.moveToNext()) if (cursor.getString(1) == "payload") foundPayload = true
+                    assertTrue(foundPayload)
                 }
             }
         }
@@ -98,4 +107,3 @@ class AppDatabaseMigrationTest {
             cursor.getInt(0)
         }
 }
-

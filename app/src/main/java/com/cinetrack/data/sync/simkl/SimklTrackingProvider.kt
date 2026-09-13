@@ -170,7 +170,26 @@ class SimklTrackingProvider(
             ids = SimklIds(tmdb = operation.mediaId.toString()),
             watchedAt = watchedAt,
         ))
-        if (watched) services.simklSync.addHistory(request) else services.simklSync.removeHistory(request)
+        if (watched) {
+            services.simklSync.addHistory(request)
+        } else {
+            services.simklSync.removeHistory(request)
+            // MOVIE_UNWATCHED may be retried independently of its library
+            // operation. If context was persisted, restore that exact list
+            // status after Simkl removes history.
+            val desiredStatus = operation.payload
+                ?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
+            if (desiredStatus != null && desiredStatus != LibraryStatus.NONE) {
+                services.simklSync.addToList(
+                    operation.request(
+                        SimklSyncItem(
+                            ids = SimklIds(tmdb = operation.mediaId.toString()),
+                            to = desiredStatus.toSimklStatus(),
+                        ),
+                    ),
+                )
+            }
+        }
     }
 
     private suspend fun removeMediaHistory(operation: SyncOperation) {

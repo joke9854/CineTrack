@@ -180,24 +180,6 @@ class CineTrackRepository(
     override fun stateOperationId(type: String, id: Int) = "state:$type:$id"
     override fun writeOperationId(id: Long) = "write:$id"
 
-    private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
-        val updatedAt = database.stateDao().get(media.type.name, media.id)?.updatedAt ?: System.currentTimeMillis()
-        database.syncDao().deleteDeliveries(listOf(stateOperationId(media.type.name, media.id)))
-        database.syncDao().upsertOperation(
-            SyncOperationEntity(
-                operationId = stateOperationId(media.type.name, media.id),
-                operation = "LIBRARY_STATUS",
-                mediaType = media.type.name,
-                mediaId = media.id,
-                title = media.title,
-                status = SyncOperationStatus.PENDING.name,
-                localValue = status.name,
-                createdAt = updatedAt,
-                updatedAt = updatedAt,
-            ),
-        )
-    }
-
     /**
      * Repairs queue rows written by older reconciliation versions. A stale
      * reconcile:* row is never evidence of current local intent. State rows are
@@ -206,54 +188,58 @@ class CineTrackRepository(
      * rows are materialized as one canonical state:* operation.
      */
     override suspend fun repairSyncQueue() {
-        // Materialize pre-0.89 operations once against the configured MAIN
-        // provider before any role changes can be observed by the coordinator.
-        syncOperationRepository.backfillLegacyDeliveries()
-        val mainProvider = preferences.mainTrackingProvider.first()
-        val baseline = mainProvider?.let { preferences.syncBaselineNow(it) }
-        database.withTransaction {
-            val states = database.stateDao().stateSnapshot()
-            val operations = database.syncDao().syncOperations()
-            val media = database.mediaDao().mediaSnapshot().associateBy { "${it.mediaType}:${it.tmdbId}" }
-            val deletes = operations.filter { it.operationId.startsWith("reconcile:") }.map(SyncOperationEntity::operationId).toMutableList()
-            states.forEach { state ->
-                val operationId = stateOperationId(state.mediaType, state.mediaId)
-                val operation = operations.firstOrNull { it.operationId == operationId }
-                val baselineValue = baselineValue(baseline, state.mediaType, state.mediaId)
-                if (!state.dirty) {
-                    if (operation != null) deletes += operationId
-                    return@forEach
+        trackingRoutingMutex.withLock {
+            // Materialize legacy rows and capture provider configuration under
+            // the same routing lock used by local mutations and role changes.
+            syncOperationRepository.backfillLegacyDeliveries()
+            val mainProvider = preferences.mainTrackingProvider.first()
+            val baseline = mainProvider?.let { preferences.syncBaselineNow(it) }
+            val repairs = mutableListOf<SyncOperation>()
+            database.withTransaction {
+                val states = database.stateDao().stateSnapshot()
+                val operations = database.syncDao().syncOperations()
+                val media = database.mediaDao().mediaSnapshot().associateBy { "${it.mediaType}:${it.tmdbId}" }
+                operations.filter { it.operationId.startsWith("reconcile:") }.forEach { stale ->
+                    database.syncDao().deleteDeliveriesForGeneration(stale.operationId, stale.createdAt)
+                    database.syncDao().deleteOperationIfGeneration(stale.operationId, stale.createdAt)
                 }
-                if (baselineValue != null && baselineValue == state.status) {
-                    database.stateDao().upsert(state.copy(dirty = false))
-                    if (operation != null) deletes += operationId
-                    return@forEach
-                }
-                val current = operation != null &&
-                    operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
-                    operation.localValue == state.status && operation.createdAt == state.updatedAt
-                if (!current) {
-                    database.syncDao().upsertOperation(
-                        SyncOperationEntity(
-                            operationId = operationId,
-                            operation = SyncOperationType.LIBRARY_STATUS.name,
-                            mediaType = state.mediaType,
-                            mediaId = state.mediaId,
-                            title = media["${state.mediaType}:${state.mediaId}"]?.title ?: "${state.mediaType} #${state.mediaId}",
-                            status = SyncOperationStatus.PENDING.name,
-                            localValue = state.status,
-                            createdAt = state.updatedAt,
-                            updatedAt = state.updatedAt,
-                        ),
+                states.forEach { state ->
+                    val operationId = stateOperationId(state.mediaType, state.mediaId)
+                    val operation = operations.firstOrNull { it.operationId == operationId }
+                    val baselineValue = baselineValue(baseline, state.mediaType, state.mediaId)
+                    if (!state.dirty) {
+                        operation?.let {
+                            database.syncDao().deleteDeliveriesForGeneration(it.operationId, it.createdAt)
+                            database.syncDao().deleteOperationIfGeneration(it.operationId, it.createdAt)
+                        }
+                        return@forEach
+                    }
+                    if (baselineValue != null && baselineValue == state.status) {
+                        database.stateDao().upsert(state.copy(dirty = false))
+                        operation?.let {
+                            database.syncDao().deleteDeliveriesForGeneration(it.operationId, it.createdAt)
+                            database.syncDao().deleteOperationIfGeneration(it.operationId, it.createdAt)
+                        }
+                        return@forEach
+                    }
+                    val current = operation != null &&
+                        operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                        operation.localValue == state.status && operation.createdAt == state.updatedAt
+                    if (!current) repairs += SyncOperation(
+                        id = operationId,
+                        type = SyncOperationType.LIBRARY_STATUS,
+                        mediaType = runCatching { MediaType.valueOf(state.mediaType) }.getOrElse { return@forEach },
+                        mediaId = state.mediaId,
+                        title = media["${state.mediaType}:${state.mediaId}"]?.title ?: "${state.mediaType} #${state.mediaId}",
+                        value = state.status,
+                        sourceVersion = state.updatedAt,
                     )
                 }
+                database.syncDao().upsert(SyncStateEntity("sync_queue_repair_087", mainProvider?.name, System.currentTimeMillis()))
             }
-            if (deletes.isNotEmpty()) {
-                val ids = deletes.distinct()
-                database.syncDao().deleteOperations(ids)
-                database.syncDao().deleteDeliveries(ids)
-            }
-            database.syncDao().upsert(SyncStateEntity("sync_queue_repair_087", mainProvider?.name, System.currentTimeMillis()))
+            // Persist each repaired operation and its immutable target snapshot
+            // atomically while the routing lock is still held.
+            repairs.forEach { durableOperationWriter.repairCurrentOperationUnlocked(it) }
         }
     }
 
@@ -1164,7 +1150,23 @@ class CineTrackRepository(
                     ),
                 )
                 if (watched) services.simklSync.addHistory(request)
-                else services.simklSync.removeHistory(request)
+                else {
+                    services.simklSync.removeHistory(request)
+                    // Simkl may couple history removal with watchlist
+                    // membership. Re-apply the canonical library field so a
+                    // MOVIE_UNWATCHED retry remains semantically complete on
+                    // its own.
+                    if (state.status != LibraryStatus.NONE.name) {
+                        services.simklSync.addToList(
+                            state.syncRequest(
+                                SimklSyncItem(
+                                    ids = SimklIds(simkl = state.simklId, tmdb = operation.mediaId.toString()),
+                                    to = state.status.toSimklStatus(),
+                                ),
+                            ),
+                        )
+                    }
+                }
             }
             SyncOperationType.EPISODE_WATCHED,
             SyncOperationType.EPISODE_UNWATCHED -> {

@@ -5,10 +5,10 @@ import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
 schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
-for version in (5, 6, 7, 8, 9, 10):
+for version in (5, 6, 7, 8, 9, 10, 11):
     assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
-assert "version = 10" in source, "Room database version must be 10"
-for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10"):
+assert "version = 11" in source, "Room database version must be 11"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11"):
     assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
 migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
@@ -107,7 +107,7 @@ assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "tit
 assert 'primaryKeys = ["operationId", "operationVersion", "providerId"]' in source
 for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "attemptCount", "lastError", "createdAt", "updatedAt"):
     assert re.search(rf"val {column}\s*:", source), f"Missing delivery column {column}"
-for column in ("operationId", "operation", "mediaType", "mediaId", "title", "status", "providerId", "season", "episode"):
+for column in ("operationId", "operation", "mediaType", "mediaId", "title", "status", "providerId", "season", "episode", "payload"):
     assert re.search(rf"data class SyncOperationEntity[\s\S]*?val {column}\s*:", source), f"Missing sync-operation column {column}"
 for index in (
     "index_sync_operation_deliveries_providerId_status",
@@ -116,5 +116,4 @@ for index in (
 ):
     assert index in source, f"Missing delivery index {index}"
 assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
-print("PASS: static schema, delivery indexes, migration declarations, and 5-10 fixtures verified; MigrationTestHelper remains authoritative for execution.")
-
+print("PASS: static schema, delivery indexes, migration declarations, and 5-11 fixtures verified; MigrationTestHelper remains authoritative for execution.")

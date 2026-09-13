@@ -848,7 +848,15 @@ class SimklSyncEngine(
                         title = localMediaByKey["${mutation.mediaType.name}:${mutation.mediaId.toInt()}"]?.title
                             ?: "${mutation.mediaType.name} #${mutation.mediaId}",
                         value = watched.toString(),
-                        payload = if (!movie && watched) "${mutation.season}:${mutation.episode}:${mutation.watchedAt}" else if (!movie) "${mutation.season}:${mutation.episode}" else mutation.watchedAt?.toString(),
+                        payload = if (!movie && watched) {
+                            "${mutation.season}:${mutation.episode}:${mutation.watchedAt}"
+                        } else if (!movie) {
+                            "${mutation.season}:${mutation.episode}"
+                        } else if (watched) {
+                            mutation.watchedAt?.toString()
+                        } else {
+                            database.stateDao().get(MediaType.MOVIE.name, mutation.mediaId.toInt())?.status
+                        },
                         sourceVersion = mutation.watchedAt?.toEpochMilli() ?: committedAt,
                     )
                 }
