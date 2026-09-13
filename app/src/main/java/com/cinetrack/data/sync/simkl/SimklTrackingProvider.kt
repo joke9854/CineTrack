@@ -119,15 +119,6 @@ class SimklTrackingProvider(
                 val unmatched = if (operation.mediaType == MediaType.MOVIE) response.notFound.movies else response.notFound.shows
                 check(unmatched.isEmpty()) { "Simkl could not match the item being removed" }
             }
-            LibraryStatus.COMPLETED -> services.simklSync.addHistory(
-                operation.request(item.copy(
-                    watchedAt = operation.payload
-                        ?.let { runCatching { Instant.parse(it) }.getOrNull() }
-                        ?.toString()
-                        ?: Instant.ofEpochMilli(operation.sourceVersion).toString(),
-                    status = status.toSimklStatus(),
-                )),
-            )
             else -> services.simklSync.addToList(operation.request(item.copy(to = status.toSimklStatus())))
         }
     }
