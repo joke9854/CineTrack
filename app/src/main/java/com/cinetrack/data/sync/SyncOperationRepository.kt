@@ -38,6 +38,12 @@ interface SyncOperationRepository {
     /** Provider delivery hooks. Defaults keep lightweight test repositories source-compatible. */
     suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {}
     suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> = emptyList()
+    /** Returns true only when this exact generation is still active for the provider. */
+    suspend fun currentIntentTargetsProvider(
+        operationId: String,
+        operationVersion: Long,
+        provider: TrackingProviderId,
+    ): Boolean = false
     suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {}
     suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {}
     suspend fun skipUnsupported(provider: TrackingProviderId, operationIds: Set<String>) {}
@@ -289,6 +295,19 @@ class RoomSyncOperationRepository(
         repairDeliveryRows()
         return if (operationIds.isEmpty()) emptyList()
         else database.syncDao().deliveries(operationIds.toList()).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
+    }
+
+    override suspend fun currentIntentTargetsProvider(
+        operationId: String,
+        operationVersion: Long,
+        provider: TrackingProviderId,
+    ): Boolean {
+        val operation = database.syncDao().syncOperation(operationId) ?: return false
+        if (operation.createdAt != operationVersion ||
+            operation.status !in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name)
+        ) return false
+        val delivery = database.syncDao().delivery(operationId, operationVersion, provider.name) ?: return false
+        return delivery.status == DeliveryStatus.PENDING.name || delivery.status == DeliveryStatus.FAILED.name
     }
 
     override suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {

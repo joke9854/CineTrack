@@ -51,6 +51,17 @@ class RoomLibraryRepository(
     private val routingMutex: TrackingRoutingMutex,
 ) : LibraryRepository {
     private val durableQueue = DurableTrackingQueue(providerRegistry, routingMutex)
+
+    /** Reads every persisted queue/state generation while routing is locked. */
+    private suspend fun nextMutationGenerationLocked(): Long {
+        val persisted = buildList {
+            addAll(database.stateDao().stateSnapshot().map(UserMediaStateEntity::updatedAt))
+            addAll(database.syncDao().syncOperations().map(SyncOperationEntity::createdAt))
+            addAll(database.syncDao().allDeliveries().map { it.operationVersion })
+            addAll(database.syncDao().pendingWrites().map { it.createdAt })
+        }.maxOrNull()
+        return MutationGeneration.next(previous = persisted)
+    }
     override fun observeLocalChanges(): Flow<Set<String>> = database.invalidationTracker.createFlow(
         "media",
         "media_rails",
@@ -63,8 +74,8 @@ class RoomLibraryRepository(
     )
 
     override suspend fun setLibraryStatus(media: MediaCard, status: LibraryStatus) {
-        val mutationVersion = MutationGeneration.next()
         val operationIds = routingMutex.withLock { database.withTransaction {
+            val mutationVersion = nextMutationGenerationLocked()
             val ids = mutableSetOf("state:${media.type.name}:${media.id}")
             val previous = database.stateDao().get(media.type.name, media.id)
             val shouldClearHistory = media.type == MediaType.TV &&
@@ -159,9 +170,9 @@ class RoomLibraryRepository(
     }
 
     override suspend fun markWatched(media: MediaCard) {
-        val mutationVersion = MutationGeneration.next()
-        val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationIds = routingMutex.withLock { database.withTransaction {
+            val mutationVersion = nextMutationGenerationLocked()
+            val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
             val previous = database.stateDao().get(media.type.name, media.id)
             database.mediaDao().upsertMedia(listOf(media.toEntity()))
             database.stateDao().upsert(
@@ -196,9 +207,9 @@ class RoomLibraryRepository(
     }
 
     override suspend fun markEpisodeWatched(episode: EpisodeCard) {
-        val mutationVersion = MutationGeneration.next()
-        val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationId = routingMutex.withLock { database.withTransaction {
+            val mutationVersion = nextMutationGenerationLocked()
+            val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
             database.timelineDao().insertHistory(
                 WatchHistoryEntity(
                     mediaType = MediaType.TV.name,
@@ -230,8 +241,8 @@ class RoomLibraryRepository(
 
     override suspend fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
         if (watched) return markEpisodeWatched(episode)
-        val mutationVersion = MutationGeneration.next()
         val operationId = routingMutex.withLock { database.withTransaction {
+            val mutationVersion = nextMutationGenerationLocked()
             database.timelineDao().deleteEpisodeHistory(MediaType.TV.name, episode.showId, episode.season, episode.number)
             database.stateDao().touch(MediaType.TV.name, episode.showId, mutationVersion)
             refreshLocalUpNext(episode.showId)
@@ -254,9 +265,9 @@ class RoomLibraryRepository(
     override suspend fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
         if (changed.isEmpty()) return
-        val mutationVersion = MutationGeneration.next()
-        val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
         val operationIds = routingMutex.withLock { database.withTransaction {
+            val mutationVersion = nextMutationGenerationLocked()
+            val watchedAt = Instant.ofEpochMilli(mutationVersion).toString()
             val ids = mutableListOf<String>()
             changed.forEach { episode ->
                 if (watched) {
@@ -363,6 +374,14 @@ class RoomLibraryRepository(
         operationIds.forEach { id ->
             val rows = database.syncDao().deliveries(listOf(id))
             val required = rows.filter { it.required }
+            if (rows.isEmpty()) {
+                val entity = database.syncDao().syncOperation(id) ?: return@forEach
+                entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId ->
+                    database.syncDao().deletePendingWriteIfGeneration(writeId, entity.createdAt)
+                }
+                database.syncDao().deleteOperationIfGeneration(id, entity.createdAt)
+                return@forEach
+            }
             if (required.isEmpty() || required.any { it.status !in setOf("ACKNOWLEDGED", "SKIPPED_UNSUPPORTED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED") }) return@forEach
             val entity = database.syncDao().syncOperation(id) ?: return@forEach
             id.removePrefix("write:").toLongOrNull()?.let { database.syncDao().deletePendingWriteIfGeneration(it, entity.createdAt) }

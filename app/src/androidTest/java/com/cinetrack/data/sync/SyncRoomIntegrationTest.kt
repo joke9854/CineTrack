@@ -248,6 +248,41 @@ class SyncRoomIntegrationTest {
         assertEquals(1, database.timelineDao().historySnapshot().count { it.mediaType == MediaType.MOVIE.name && it.mediaId == 42 })
     }
 
+    @Test
+    fun trackingDisabledWatchedThenUnwatchedDoesNotResurrectSupersededWrite() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        val preferences = AppPreferences(context)
+        preferences.setTrackingProviders(null, null)
+        val registry = object : TrackingProviderRegistry {
+            override fun getProvider(id: TrackingProviderId): TrackingProvider? = null
+            override suspend fun configuration() = TrackingConfiguration(null, null)
+        }
+        val library = RoomLibraryRepository(
+            database = database,
+            preferences = preferences,
+            syncCoordinator = SyncCoordinator(registry, repository),
+            onLocalStateChanged = {},
+            providerRegistry = registry,
+            routingMutex = TrackingRoutingMutex(),
+        )
+        val episode = EpisodeCard(505, 42, 1, 5, "Episode", "", null)
+        try {
+            library.markEpisodeWatched(episode)
+            library.setEpisodeWatched(episode, false)
+            val current = repository.pending()
+            assertEquals(1, current.count { it.type == SyncOperationType.EPISODE_UNWATCHED })
+            assertTrue(current.none { it.type == SyncOperationType.EPISODE_WATCHED })
+
+            // Enabling MAIN later binds only the current unwatched intent.
+            repository.bindUnboundCurrentIntents(TrackingProviderId.SIMKL)
+            val rows = repository.deliveries(current.mapTo(linkedSetOf(), SyncOperation::id))
+            assertTrue(rows.any { it.providerId == TrackingProviderId.SIMKL && it.operationId == current.single().id })
+            assertTrue(rows.none { it.operationId.contains("watched") && it.operationId != current.single().id })
+        } finally {
+            preferences.setTrackingProviders(TrackingProviderId.SIMKL, null)
+        }
+    }
+
     private fun episodeOperation(
         id: String,
         type: SyncOperationType,

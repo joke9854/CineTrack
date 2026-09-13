@@ -48,6 +48,7 @@ interface SimklSyncHost {
         previous: TrackingSnapshot?,
         remote: TrackingSnapshot,
         acknowledgedStates: List<UserMediaStateEntity>,
+        acknowledgedMovieHistoryOperations: List<SyncOperation>,
         acknowledgedEpisodeWrites: List<PendingWriteEntity>,
         acknowledgedHistoryRemovals: List<PendingWriteEntity>,
         conflicts: List<SyncConflict>,
@@ -65,6 +66,15 @@ interface SimklSyncHost {
     suspend fun pushOperation(operation: SyncOperation)
     /** Persists a remote-only MAIN mutation as a SECONDARY-only mirror. */
     suspend fun enqueueSecondaryMirror(operation: SyncOperation) {}
+    /** Validates that the provider which started this pass is still MAIN. */
+    suspend fun isMainProviderCurrent(provider: TrackingProviderId): Boolean = true
+    /** Executes a commit only while the provider remains the authoritative MAIN. */
+    suspend fun <T> withMainAuthority(
+        provider: TrackingProviderId,
+        block: suspend () -> T,
+    ): T? = if (isMainProviderCurrent(provider)) block() else null
+    /** Allocates a fresh CineTrack causal generation from persisted state. */
+    suspend fun nextCausalGeneration(): Long = MutationGeneration.next()
     suspend fun pushMediaHistoryRemoval(write: PendingWriteEntity)
     suspend fun pushEpisodeWrite(write: PendingWriteEntity)
     suspend fun clearObsoleteOperations(
@@ -104,6 +114,7 @@ class SimklSyncEngine(
         val services = host.services
         val preferences = host.preferences
         val tmdbApiKey = host.tmdbApiKey
+        val syncOperationRepository = host.syncOperationRepository
         val syncReconciler = host.syncReconciler
         suspend fun repairSyncQueue() = host.repairSyncQueue()
         suspend fun refreshProgressCache(
@@ -119,10 +130,11 @@ class SimklSyncEngine(
             previous: TrackingSnapshot?,
             remote: TrackingSnapshot,
             acknowledgedStates: List<UserMediaStateEntity>,
+            acknowledgedMovieHistoryOperations: List<SyncOperation>,
             acknowledgedEpisodeWrites: List<PendingWriteEntity>,
             acknowledgedHistoryRemovals: List<PendingWriteEntity>,
             conflicts: List<SyncConflict>,
-        ) = host.advanceSyncBaseline(previous, remote, acknowledgedStates, acknowledgedEpisodeWrites, acknowledgedHistoryRemovals, conflicts)
+        ) = host.advanceSyncBaseline(previous, remote, acknowledgedStates, acknowledgedMovieHistoryOperations, acknowledgedEpisodeWrites, acknowledgedHistoryRemovals, conflicts)
         fun mergePulledSnapshot(
             previous: TrackingSnapshot?,
             pulled: TrackingSnapshot,
@@ -133,6 +145,9 @@ class SimklSyncEngine(
         suspend fun resolveSimklItems(items: List<SimklLibraryItem>, type: MediaType) = host.resolveSimklItems(items, type)
         suspend fun pushOperation(operation: SyncOperation) = host.pushOperation(operation)
         suspend fun enqueueSecondaryMirror(operation: SyncOperation) = host.enqueueSecondaryMirror(operation)
+        suspend fun isMainProviderCurrent() = host.isMainProviderCurrent(TrackingProviderId.SIMKL)
+        suspend fun <T> withMainAuthority(block: suspend () -> T) = host.withMainAuthority(TrackingProviderId.SIMKL, block)
+        suspend fun nextCausalGeneration() = host.nextCausalGeneration()
         suspend fun rebuildLibraryRailInTransaction() = host.rebuildLibraryRailInTransaction()
         fun syncError(error: Throwable) = host.syncError(error)
 
@@ -645,6 +660,7 @@ class SimklSyncEngine(
                 add(SyncStateEntity("library_snapshot_051", activity.all, committedAt))
             }
         }
+        val committedAsMain = withMainAuthority {
         database.withTransaction {
             fun WatchHistoryEntity.episodeKey(): Triple<Int, Int, Int>? =
                 if (mediaType == MediaType.TV.name && season != null && episodeNumber != null)
@@ -654,8 +670,14 @@ class SimklSyncEngine(
             val currentKeys = currentHistory.mapNotNull { it.episodeKey() }.toSet()
             val currentPendingWrites = database.syncDao().pendingWrites()
             val exactWriteIds = exactWritesByOperationId.values.mapTo(linkedSetOf(), PendingWriteEntity::id)
+            val activeMainWriteIds = mutableSetOf<Long>()
+            for (write in currentPendingWrites) {
+                if (syncOperationRepository.currentIntentTargetsProvider("write:${write.id}", write.createdAt, TrackingProviderId.SIMKL)) {
+                    activeMainWriteIds += write.id
+                }
+            }
             val protectedKeys = currentPendingWrites
-                .filter { it.id in exactWriteIds || it.createdAt >= syncStartedAt }
+                .filter { it.id in exactWriteIds || it.id in activeMainWriteIds }
                 .filter { it.operation == "EPISODE_WATCHED" || it.operation == "EPISODE_UNWATCHED" }
                 .mapNotNull { write ->
                     val parts = write.payload.split(':', limit = 3)
@@ -675,10 +697,23 @@ class SimklSyncEngine(
                 ) }
                 .mapTo(linkedSetOf(), SyncOperation::mediaId)
             val currentIntentEntities = database.syncDao().syncOperations()
-            currentIntentEntities
-                .filter { it.mediaType == MediaType.MOVIE.name && it.logicalField() == SyncLogicalField.movieWatched(it.mediaId) }
-                .filter { it.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) }
-                .mapTo(protectedMovieIds, SyncOperationEntity::mediaId)
+            val activeMainIntentKeys = mutableSetOf<String>()
+            // The coordinator supplied this exact MAIN delivery set. Keep it
+            // active even when a lightweight repository implementation cannot
+            // expose delivery rows; persisted Room rows are still checked
+            // below for mutations created during the network pass.
+            operations.forEach { operation ->
+                activeMainIntentKeys += "${operation.id}:${operation.sourceVersion}"
+            }
+            for (entity in currentIntentEntities) {
+                if (entity.status !in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name)) continue
+                if (syncOperationRepository.currentIntentTargetsProvider(entity.operationId, entity.createdAt, TrackingProviderId.SIMKL)) {
+                    activeMainIntentKeys += "${entity.operationId}:${entity.createdAt}"
+                    if (entity.mediaType == MediaType.MOVIE.name && entity.logicalField() == SyncLogicalField.movieWatched(entity.mediaId)) {
+                        protectedMovieIds += entity.mediaId
+                    }
+                }
+            }
             fun mutationField(mutation: LocalMutation): SyncLogicalField = when (mutation) {
                 is LocalMutation.SetLibraryStatus -> SyncLogicalField.library(mutation.mediaType, mutation.mediaId.toInt())
                 is LocalMutation.SetWatched -> if (mutation.season != null && mutation.episode != null) {
@@ -689,10 +724,8 @@ class SimklSyncEngine(
                 val start = syncStartOperationsByField[field].orEmpty()
                 return currentIntentEntities.any { entity ->
                     entity.logicalField() == field &&
-                        entity.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
-                        start.none { original ->
-                            original.id == entity.operationId && original.sourceVersion == entity.createdAt
-                        }
+                        "${entity.operationId}:${entity.createdAt}" in activeMainIntentKeys &&
+                        start.none { original -> original.id == entity.operationId && original.sourceVersion == entity.createdAt }
                 }
             }
             if (newMedia.isNotEmpty()) database.mediaDao().upsertMedia(newMedia)
@@ -799,6 +832,18 @@ class SimklSyncEngine(
             // visible in the same commit. No observer can see the halfway state.
             if (libraryChanged) rebuildLibraryRailInTransaction()
         }
+        }
+        if (committedAsMain == null) {
+            // Transport bookkeeping can still be acknowledged by the
+            // coordinator, but a role-swapped provider may not commit its
+            // downloaded snapshot or create mirrors as the current MAIN.
+            return@cancellableResult ProviderSyncOutcome(
+                itemsChanged = false,
+                report = previousReport,
+                acknowledgedOperationIds = transportedOperationIds,
+                deferredOperationIds = deferredOperationIds,
+            )
+        }
         // MAIN reconciliation is authoritative locally, but a remote-only
         // change still needs a SECONDARY-only durable mirror. Stable ids make
         // a newer remote generation supersede an older queued mirror.
@@ -813,14 +858,17 @@ class SimklSyncEngine(
                     SyncLogicalField.episodeWatched(mutation.mediaId.toInt(), mutation.season, mutation.episode)
                 } else SyncLogicalField.movieWatched(mutation.mediaId.toInt())
             }
-            return database.syncDao().syncOperations().none { operation ->
-                operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
-                    operation.createdAt > syncStartedAt &&
-                    operation.logicalField() == field
+            val currentIntentEntities = database.syncDao().syncOperations()
+            for (operation in currentIntentEntities) {
+                if (operation.status !in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name)) continue
+                if (operation.createdAt <= syncStartedAt || operation.logicalField() != field) continue
+                if (syncOperationRepository.currentIntentTargetsProvider(operation.operationId, operation.createdAt, TrackingProviderId.SIMKL)) return false
             }
+            return true
         }
         for (mutation in appliedRemoteMutations) {
             if (!mirrorStillCurrent(mutation)) continue
+            val mirrorGeneration = nextCausalGeneration()
             val operation = when (mutation) {
                 is LocalMutation.SetLibraryStatus -> SyncOperation(
                     id = "mirror:library:${mutation.mediaType.name}:${mutation.mediaId}",
@@ -830,7 +878,7 @@ class SimklSyncEngine(
                     title = localMediaByKey["${mutation.mediaType.name}:${mutation.mediaId.toInt()}"]?.title
                         ?: "${mutation.mediaType.name} #${mutation.mediaId}",
                     value = mutation.status.name,
-                    sourceVersion = committedAt,
+                    sourceVersion = mirrorGeneration,
                 )
                 is LocalMutation.SetWatched -> {
                     val movie = mutation.season == null
@@ -857,11 +905,11 @@ class SimklSyncEngine(
                         } else {
                             database.stateDao().get(MediaType.MOVIE.name, mutation.mediaId.toInt())?.status
                         },
-                        sourceVersion = mutation.watchedAt?.toEpochMilli() ?: committedAt,
+                        sourceVersion = mirrorGeneration,
                     )
                 }
             }
-            enqueueSecondaryMirror(operation)
+            if (isMainProviderCurrent()) enqueueSecondaryMirror(operation)
         }
         preferences.markSimklChecked(committedAt)
         preferences.saveSyncBaseline(
@@ -869,6 +917,10 @@ class SimklSyncEngine(
                 previous = previousBaseline,
                 remote = remoteTrackingSnapshot,
                 acknowledgedStates = localStatesToPushExact.filter { stateOperationId(it.mediaType, it.mediaId) in transportedOperationIds },
+                acknowledgedMovieHistoryOperations = operationsToPush.filter {
+                    it.id in transportedOperationIds &&
+                        it.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED)
+                },
                 acknowledgedEpisodeWrites = episodeWritesToPushExact,
                 acknowledgedHistoryRemovals = historyRemovalsToPushExact,
                 conflicts = reconciliation.conflicts,

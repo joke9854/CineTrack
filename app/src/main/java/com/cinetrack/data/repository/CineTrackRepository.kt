@@ -48,6 +48,7 @@ import com.cinetrack.data.sync.simkl.SimklSyncHost
 import com.cinetrack.data.sync.LocalMutation
 import com.cinetrack.data.sync.SyncConflict
 import com.cinetrack.data.sync.ConflictField
+import com.cinetrack.data.sync.MutationGeneration
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
@@ -180,6 +181,34 @@ class CineTrackRepository(
     override fun stateOperationId(type: String, id: Int) = "state:$type:$id"
     override fun writeOperationId(id: Long) = "write:$id"
 
+    private suspend fun persistedGenerationFloor(): Long? {
+        val values = buildList {
+            addAll(database.stateDao().stateSnapshot().map(UserMediaStateEntity::updatedAt))
+            addAll(database.syncDao().syncOperations().map(SyncOperationEntity::createdAt))
+            addAll(database.syncDao().allDeliveries().map { it.operationVersion })
+            addAll(database.syncDao().pendingWrites().map { it.createdAt })
+        }
+        return values.maxOrNull()
+    }
+
+    private suspend fun nextCausalGenerationLocked(): Long =
+        MutationGeneration.next(previous = persistedGenerationFloor())
+
+    override suspend fun nextCausalGeneration(): Long = trackingRoutingMutex.withLock {
+        nextCausalGenerationLocked()
+    }
+
+    override suspend fun isMainProviderCurrent(provider: TrackingProviderId): Boolean =
+        (trackingProviderRegistry?.configuration()?.mainProvider
+            ?: preferences.mainTrackingProvider.first()) == provider
+
+    override suspend fun <T> withMainAuthority(
+        provider: TrackingProviderId,
+        block: suspend () -> T,
+    ): T? = trackingRoutingMutex.withLock {
+        if (isMainProviderCurrent(provider)) block() else null
+    }
+
     /**
      * Repairs queue rows written by older reconciliation versions. A stale
      * reconcile:* row is never evidence of current local intent. State rows are
@@ -253,6 +282,7 @@ class CineTrackRepository(
         previous: TrackingSnapshot?,
         remote: TrackingSnapshot,
         acknowledgedStates: List<UserMediaStateEntity>,
+        acknowledgedMovieHistoryOperations: List<SyncOperation>,
         acknowledgedEpisodeWrites: List<PendingWriteEntity>,
         acknowledgedHistoryRemovals: List<PendingWriteEntity>,
         conflicts: List<SyncConflict>,
@@ -263,11 +293,24 @@ class CineTrackRepository(
         acknowledgedStates.forEach { state ->
             val status = state.status.fromCineTrackStatus()
             if (state.mediaType == MediaType.MOVIE.name) {
-                val index = movies.indexOfFirst { it.ids.tmdb?.toInt() == state.mediaId }
-                if (index >= 0) movies = movies.toMutableList().also { it[index] = it[index].copy(libraryState = status, watched = state.watched) }
+            val index = movies.indexOfFirst { it.ids.tmdb?.toInt() == state.mediaId }
+                if (index >= 0) movies = movies.toMutableList().also { it[index] = it[index].copy(libraryState = status) }
             } else if (state.mediaType == MediaType.TV.name) {
                 val index = shows.indexOfFirst { it.ids.tmdb?.toInt() == state.mediaId }
                 if (index >= 0) shows = shows.toMutableList().also { it[index] = it[index].copy(libraryState = status) }
+            }
+        }
+        acknowledgedMovieHistoryOperations.forEach { operation ->
+            if (operation.mediaType != MediaType.MOVIE) return@forEach
+            val index = movies.indexOfFirst { it.ids.tmdb?.toInt() == operation.mediaId }
+            if (index < 0) return@forEach
+            val current = movies[index]
+            val watched = operation.type == SyncOperationType.MOVIE_WATCHED
+            val watchedAt = if (watched) {
+                operation.payload?.let { runCatching { Instant.parse(it) }.getOrNull() } ?: current.watchedAt
+            } else null
+            movies = movies.toMutableList().also {
+                it[index] = current.copy(watched = watched, watchedAt = watchedAt)
             }
         }
         acknowledgedEpisodeWrites.forEach { write ->
@@ -1229,6 +1272,7 @@ class CineTrackRepository(
         // while its routing lock is held so an intervening local edit owns the
         // normal MAIN+SECONDARY path and cannot be superseded by this mirror.
         durableOperationWriter.replaceSecondaryMirror(operation) {
+            if (!isMainProviderCurrent(TrackingProviderId.SIMKL)) return@replaceSecondaryMirror false
             val field = operation.logicalField()
             if (field == null) {
                 false
@@ -1424,9 +1468,10 @@ class CineTrackRepository(
             (matchingHistory == null && conflict.localValue?.toBooleanStrictOrNull() == true)
         val watchedAt = matchingHistory?.watchedAt
             ?: Instant.now().toString()
-        val sourceVersion = matchingHistory?.watchedAt
-            ?.let { runCatching { Instant.parse(it).toEpochMilli() }.getOrNull() }
-            ?: conflict.createdAt
+        // History timestamps are provider event times, not local queue
+        // generations. Allocate a fresh causal generation while the caller
+        // still holds TrackingRoutingMutex.
+        val sourceVersion = nextCausalGenerationLocked()
         val operationType = if (watched) SyncOperationType.EPISODE_WATCHED else SyncOperationType.EPISODE_UNWATCHED
         return SyncOperation(
             id = "resolution:${conflict.operationId}",
@@ -1462,6 +1507,8 @@ class CineTrackRepository(
                     conflict.episode == initial.episode,
             ) { "Conflict changed while resolving" }
             validateConflictGeneration(conflict, plan)
+            val mirrorGeneration = nextCausalGenerationLocked()
+            val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
             mirrorOperation = when (plan) {
                 is RemoteConflictPlan.Library -> SyncOperation(
                     id = "mirror:library:${conflict.mediaType}:${conflict.mediaId}",
@@ -1471,7 +1518,7 @@ class CineTrackRepository(
                     title = conflict.title.orEmpty(),
                     value = plan.status.name,
                     payload = if (plan.status == LibraryStatus.COMPLETED) Instant.ofEpochMilli(conflict.updatedAt).toString() else null,
-                    sourceVersion = conflict.updatedAt,
+                    sourceVersion = mirrorGeneration,
                 )
                 is RemoteConflictPlan.MovieWatched -> SyncOperation(
                     id = "mirror:movie-watched:${conflict.mediaId}",
@@ -1480,8 +1527,12 @@ class CineTrackRepository(
                     mediaId = conflict.mediaId,
                     title = conflict.title.orEmpty(),
                     value = plan.watched.toString(),
-                    payload = if (plan.watched) Instant.ofEpochMilli(conflict.updatedAt).toString() else null,
-                    sourceVersion = conflict.updatedAt,
+                    payload = if (plan.watched) {
+                        Instant.ofEpochMilli(conflict.updatedAt).toString()
+                    } else {
+                        previous?.status
+                    },
+                    sourceVersion = mirrorGeneration,
                 )
                 is RemoteConflictPlan.EpisodeWatched -> SyncOperation(
                     id = "mirror:episode-watched:${conflict.mediaId}:${plan.season}:${plan.episode}",
@@ -1491,10 +1542,9 @@ class CineTrackRepository(
                     title = conflict.title.orEmpty(),
                     value = plan.watched.toString(),
                     payload = if (plan.watched) "${plan.season}:${plan.episode}:${Instant.ofEpochMilli(conflict.updatedAt)}" else "${plan.season}:${plan.episode}",
-                    sourceVersion = conflict.updatedAt,
+                    sourceVersion = mirrorGeneration,
                 )
             }
-            val previous = database.stateDao().get(conflict.mediaType, conflict.mediaId)
             when (plan) {
                 is RemoteConflictPlan.Library -> {
                     database.stateDao().upsert(
@@ -1711,7 +1761,7 @@ class CineTrackRepository(
     private fun SyncOperationEntity.toDomainOperation(): SyncOperation? {
         val type = runCatching { SyncOperationType.valueOf(operation) }.getOrNull() ?: return null
         val media = runCatching { MediaType.valueOf(mediaType) }.getOrNull() ?: return null
-        val payload = if (season != null && episode != null) "$season:$episode" else null
+        val payload = entityPayloadOrEpisodeFallback()
         return SyncOperation(
             id = operationId,
             type = type,
@@ -1723,6 +1773,9 @@ class CineTrackRepository(
             sourceVersion = createdAt,
         )
     }
+
+    private fun SyncOperationEntity.entityPayloadOrEpisodeFallback(): String? =
+        payload ?: if (season != null && episode != null) "$season:$episode" else null
 
     private fun PendingWriteEntity.episodeParts(): Pair<Int?, Int?> {
         val parts = payload.split(':', limit = 3)
