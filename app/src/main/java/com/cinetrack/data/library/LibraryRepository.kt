@@ -16,6 +16,7 @@ import com.cinetrack.data.sync.DurableTrackingQueue
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.logicalField
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -78,6 +79,9 @@ class RoomLibraryRepository(
                 ),
             )
             queueStateOperation(media, status)
+            if (media.type == MediaType.MOVIE) {
+                queueMovieWatchedOperation(media, status == LibraryStatus.COMPLETED, mutationVersion)
+            }
             if (status == LibraryStatus.COMPLETED && previous?.watched != true) {
                 database.timelineDao().insertHistory(
                     WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = Instant.ofEpochMilli(mutationVersion).toString()),
@@ -85,7 +89,7 @@ class RoomLibraryRepository(
             }
             if (status == LibraryStatus.NONE) {
                 database.timelineDao().deleteMediaHistory(media.type.name, media.id)
-            } else if (previous?.watched == true && status != LibraryStatus.COMPLETED) {
+            } else if (previous?.watched == true && status != LibraryStatus.COMPLETED && media.type != MediaType.MOVIE) {
                 database.timelineDao().deleteMediaHistory(media.type.name, media.id)
                 val writeId = database.syncDao().queue(
                     PendingWriteEntity(
@@ -107,6 +111,7 @@ class RoomLibraryRepository(
                 )
                 ids += "write:$writeId"
             }
+            if (media.type == MediaType.MOVIE) ids += "movie-watched:${media.type.name}:${media.id}"
             rebuildLibraryRail()
             ids
         } }
@@ -134,11 +139,17 @@ class RoomLibraryRepository(
                 ),
             )
             queueStateOperation(media, LibraryStatus.COMPLETED)
+            if (media.type == MediaType.MOVIE) {
+                queueMovieWatchedOperation(media, watched = true, mutationVersion)
+            }
             database.timelineDao().insertHistory(
                 WatchHistoryEntity(mediaType = media.type.name, mediaId = media.id, watchedAt = watchedAt),
             )
             rebuildLibraryRail()
-            setOf("state:${media.type.name}:${media.id}")
+            buildSet {
+                add("state:${media.type.name}:${media.id}")
+                if (media.type == MediaType.MOVIE) add("movie-watched:${media.type.name}:${media.id}")
+            }
         } }
         onLocalStateChanged()
         if (syncCoordinator.isMainProviderConnected()) {
@@ -237,30 +248,81 @@ class RoomLibraryRepository(
 
     private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
         val updatedAt = database.stateDao().get(media.type.name, media.id)?.updatedAt ?: System.currentTimeMillis()
-        // State operation keys are logical/media keys; delivery rows are generation-specific.
-        // Remove any prior generation before creating the new intent in this transaction.
-        database.syncDao().deleteDeliveries(listOf("state:${media.type.name}:${media.id}"))
-        database.syncDao().upsertOperation(
-            SyncOperationEntity(
-                operationId = "state:${media.type.name}:${media.id}",
-                operation = "LIBRARY_STATUS",
-                mediaType = media.type.name,
+        persistOperation(
+            SyncOperation(
+                id = "state:${media.type.name}:${media.id}",
+                type = SyncOperationType.LIBRARY_STATUS,
+                mediaType = media.type,
                 mediaId = media.id,
                 title = media.title,
+                value = status.name,
+                sourceVersion = updatedAt,
+            ),
+        )
+    }
+
+    private suspend fun queueMovieWatchedOperation(media: MediaCard, watched: Boolean, mutationVersion: Long) {
+        persistOperation(
+            SyncOperation(
+                id = "movie-watched:${media.type.name}:${media.id}",
+                type = if (watched) SyncOperationType.MOVIE_WATCHED else SyncOperationType.MOVIE_UNWATCHED,
+                mediaType = MediaType.MOVIE,
+                mediaId = media.id,
+                title = media.title,
+                value = watched.toString(),
+                payload = if (watched) Instant.ofEpochMilli(mutationVersion).toString() else null,
+                sourceVersion = mutationVersion,
+            ),
+        )
+    }
+
+    /** Persists one operation and supersedes older generations atomically. */
+    private suspend fun persistOperation(operation: SyncOperation) {
+        val field = operation.logicalField()
+        val existing = database.syncDao().syncOperations()
+        val staleIds = if (field == null) emptySet() else existing.filter {
+            it.operationId != operation.id && it.logicalField() == field
+        }.mapTo(linkedSetOf(), SyncOperationEntity::operationId)
+        if (staleIds.isNotEmpty()) database.syncDao().supersedeAllDeliveries(staleIds.toList())
+        val oldGeneration = database.syncDao().deliveries(listOf(operation.id))
+            .any { it.operationVersion != operation.sourceVersion && it.status in setOf("PENDING", "FAILED") }
+        if (oldGeneration) database.syncDao().supersedeAllDeliveries(listOf(operation.id))
+        database.syncDao().upsertOperation(
+            SyncOperationEntity(
+                operationId = operation.id,
+                operation = operation.type.name,
+                mediaType = operation.mediaType.name,
+                mediaId = operation.mediaId,
+                title = operation.title,
                 status = SyncOperationStatus.PENDING.name,
-                localValue = status.name,
-                createdAt = updatedAt,
-                updatedAt = updatedAt,
+                localValue = operation.value,
+                createdAt = operation.sourceVersion,
+                updatedAt = operation.sourceVersion,
+                season = operation.payload?.split(':', limit = 3)?.getOrNull(0)?.toIntOrNull(),
+                episode = operation.payload?.split(':', limit = 3)?.getOrNull(1)?.toIntOrNull(),
             ),
         )
         snapshotDeliveries(
-            operationId = "state:${media.type.name}:${media.id}",
-            operationVersion = updatedAt,
-            type = SyncOperationType.LIBRARY_STATUS,
-            mediaType = media.type,
-            mediaId = media.id,
-            value = status.name,
+            operationId = operation.id,
+            operationVersion = operation.sourceVersion,
+            type = operation.type,
+            mediaType = operation.mediaType,
+            mediaId = operation.mediaId,
+            value = operation.value,
+            payload = operation.payload,
         )
+        retireTerminalOperations(staleIds)
+    }
+
+    private suspend fun retireTerminalOperations(operationIds: Set<String>) {
+        operationIds.forEach { id ->
+            val rows = database.syncDao().deliveries(listOf(id))
+            val required = rows.filter { it.required }
+            if (required.isEmpty() || required.any { it.status !in setOf("ACKNOWLEDGED", "SKIPPED_UNSUPPORTED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED") }) return@forEach
+            id.removePrefix("write:").toLongOrNull()?.let { database.syncDao().deleteWrite(it) }
+            database.syncDao().deleteOperation(id)
+            database.syncDao().deleteDeliveries(listOf(id))
+        }
     }
 
     private suspend fun snapshotDeliveries(
@@ -305,22 +367,18 @@ class RoomLibraryRepository(
         payload: String,
     ) {
         val sourceVersion = database.syncDao().pendingWrite(writeId)?.createdAt ?: System.currentTimeMillis()
-        database.syncDao().upsertOperation(
-            SyncOperationEntity(
-                operationId = "write:$writeId",
-                operation = operation,
-                mediaType = mediaType.name,
+        persistOperation(
+            SyncOperation(
+                id = "write:$writeId",
+                type = SyncOperationType.valueOf(operation),
+                mediaType = mediaType,
                 mediaId = mediaId,
                 title = title,
-                status = SyncOperationStatus.PENDING.name,
-                localValue = value,
-                createdAt = sourceVersion,
-                updatedAt = sourceVersion,
-                season = payload.split(':', limit = 3).getOrNull(0)?.toIntOrNull(),
-                episode = payload.split(':', limit = 3).getOrNull(1)?.toIntOrNull(),
+                value = value,
+                payload = database.syncDao().pendingWrite(writeId)?.payload ?: payload,
+                sourceVersion = sourceVersion,
             ),
         )
-        snapshotDeliveries("write:$writeId", sourceVersion, SyncOperationType.valueOf(operation), mediaType, mediaId, value, payload)
     }
 
     private suspend fun refreshLocalUpNext(showId: Int) {

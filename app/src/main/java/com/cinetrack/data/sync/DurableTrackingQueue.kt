@@ -60,6 +60,22 @@ class DurableTrackingQueue(
         }
     }
 
+    /** Reads the configuration once and returns the current SECONDARY target. */
+    internal suspend fun snapshotSecondaryUnlocked(operation: SyncOperation): SyncOperationDelivery? {
+        val providerId = providerRegistry.configuration().secondaryProvider ?: return null
+        val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+        return SyncOperationDelivery(
+            operationId = operation.id,
+            operationVersion = operation.sourceVersion,
+            providerId = providerId,
+            required = supported,
+            roleAtEnqueue = TrackingRole.SECONDARY,
+            status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
+            createdAt = operation.sourceVersion,
+            updatedAt = operation.sourceVersion,
+        )
+    }
+
     /** Caller already holding the shared routing mutex (normally a Room transaction). */
     internal suspend fun snapshotUnlocked(operation: SyncOperation): List<SyncOperationDelivery> {
         val configuration = providerRegistry.configuration()
@@ -105,6 +121,21 @@ class DurableSyncOperationWriter(
     private val durableQueue: DurableTrackingQueue,
     private val routingMutex: TrackingRoutingMutex,
 ) {
+    /**
+     * Replaces one SECONDARY mirror atomically with its supersession.  The
+     * routing snapshot is captured exactly once while the mutex is held; the
+     * optional validation callback is also evaluated under that same lock.
+     */
+    suspend fun replaceSecondaryMirror(
+        operation: SyncOperation,
+        isCurrent: suspend () -> Boolean = { true },
+    ): Boolean = routingMutex.withLock {
+        val target = durableQueue.snapshotSecondaryUnlocked(operation) ?: return@withLock false
+        if (!isCurrent()) return@withLock false
+        operationRepository.replaceSecondaryMirror(operation, target)
+        true
+    }
+
     suspend fun enqueueForProviders(
         operation: SyncOperation,
         providers: Set<TrackingProviderId>,

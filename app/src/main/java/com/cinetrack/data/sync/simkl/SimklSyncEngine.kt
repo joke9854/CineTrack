@@ -148,7 +148,38 @@ class SimklSyncEngine(
         fun progress(running: Boolean, value: Float, stage: SyncStage, message: String? = null) =
             onProgress(SyncProgress(running, value, stage, message, previousSuccessfulSync))
         progress(true, .08f, SyncStage.AUTH)
+        // Correctness snapshot: capture every local generation and exact
+        // queued intent before any provider network I/O.  A user edit made
+        // while activities/all-items/playback are downloading must therefore
+        // be recognized as newer during the final commit.
         val historyBeforeSync = database.timelineDao().historySnapshot()
+        val localStates = database.stateDao().stateSnapshot()
+        val localStatesByKey = localStates.associateBy { "${it.mediaType}:${it.mediaId}" }
+        val exactWritesByOperationId = linkedMapOf<String, PendingWriteEntity>()
+        for (operation in operations) {
+            val writeId = operation.id.removePrefix("write:").toLongOrNull() ?: continue
+            val write = database.syncDao().pendingWrite(writeId) ?: continue
+            if (write.createdAt == operation.sourceVersion && write.operation == operation.type.name) {
+                exactWritesByOperationId[operation.id] = write
+            }
+        }
+        val pendingLocalStates = operations.filter { it.type == SyncOperationType.LIBRARY_STATUS }
+            .mapNotNull { operation ->
+                localStatesByKey["${operation.mediaType.name}:${operation.mediaId}"]?.takeIf {
+                    it.dirty && it.updatedAt == operation.sourceVersion && it.status == operation.value
+                }
+            }
+            .distinctBy { "${it.mediaType}:${it.mediaId}" }
+        val pendingEpisodeWrites = operations
+            .filter { it.type == SyncOperationType.EPISODE_WATCHED || it.type == SyncOperationType.EPISODE_UNWATCHED }
+            .mapNotNull { exactWritesByOperationId[it.id] }
+        val pendingMediaHistoryRemovals = operations
+            .filter { it.type == SyncOperationType.MEDIA_HISTORY_REMOVE }
+            .mapNotNull { exactWritesByOperationId[it.id] }
+        val syncStartedAt = System.currentTimeMillis()
+        val syncStartOperationsByField = operations.mapNotNull { operation ->
+            operation.logicalField()?.let { it to operation }
+        }.groupBy({ it.first }, { it.second })
         val activity = services.simklSync.activities()
         progress(true, .20f, SyncStage.ACTIVITY)
 
@@ -180,33 +211,7 @@ class SimklSyncEngine(
         // SyncCoordinator has already selected the exact MAIN delivery set.
         // These operations are the only local intents this provider may upload
         // or use as reconciliation protection during this pass.
-        val exactWritesByOperationId = linkedMapOf<String, PendingWriteEntity>()
-        for (operation in operations) {
-            val writeId = operation.id.removePrefix("write:").toLongOrNull() ?: continue
-            val write = database.syncDao().pendingWrite(writeId) ?: continue
-            if (write.createdAt == operation.sourceVersion && write.operation == operation.type.name) {
-                exactWritesByOperationId[operation.id] = write
-            }
-        }
-        val pendingLocalStates = mutableListOf<UserMediaStateEntity>()
-        for (operation in operations) {
-            if (operation.type != SyncOperationType.LIBRARY_STATUS) continue
-            database.stateDao().get(operation.mediaType.name, operation.mediaId)?.takeIf {
-                it.dirty && it.updatedAt == operation.sourceVersion && it.status == operation.value
-            }?.let { state ->
-                if (pendingLocalStates.none { it.mediaType == state.mediaType && it.mediaId == state.mediaId }) {
-                    pendingLocalStates += state
-                }
-            }
-        }
-        val pendingEpisodeWrites = operations
-            .filter { it.type == SyncOperationType.EPISODE_WATCHED || it.type == SyncOperationType.EPISODE_UNWATCHED }
-            .mapNotNull { exactWritesByOperationId[it.id] }
-        val pendingMediaHistoryRemovals = operations
-            .filter { it.type == SyncOperationType.MEDIA_HISTORY_REMOVE }
-            .mapNotNull { exactWritesByOperationId[it.id] }
         val pendingCount = operations.size
-        val syncStartedAt = System.currentTimeMillis()
 
         // Simkl activity is the gate for every remote/item operation. When the
         // generation is unchanged and there is nothing local to push, stop here:
@@ -337,8 +342,6 @@ class SimklSyncEngine(
         val remoteStates = resolvedItems.mapNotNull { it.item.toState(it.type, it.tmdbId) }
         val remoteTvKeys = resolvedShows.map { "${MediaType.TV.name}:${it.tmdbId}" }.toSet()
         val remoteMovieKeys = resolvedMovies.map { "${MediaType.MOVIE.name}:${it.tmdbId}" }.toSet()
-        val localStates = database.stateDao().stateSnapshot()
-        val localStatesByKey = localStates.associateBy { "${it.mediaType}:${it.mediaId}" }
         val localTvCount = localStates.count { it.mediaType == MediaType.TV.name && it.status != LibraryStatus.NONE.name }
         val localMovieCount = localStates.count { it.mediaType == MediaType.MOVIE.name && it.status != LibraryStatus.NONE.name }
         // Reconcile absence only when every item in the full response resolved to
@@ -526,8 +529,7 @@ class SimklSyncEngine(
                         operation.type == SyncOperationType.LIBRARY_STATUS && operation.mediaType == conflict.mediaType && operation.mediaId == conflict.ids.tmdb?.toInt()
                     com.cinetrack.data.sync.ConflictField.WATCHED ->
                         operation.mediaType == MediaType.MOVIE && operation.mediaId == conflict.ids.tmdb?.toInt() &&
-                            (operation.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED, SyncOperationType.MEDIA_HISTORY_REMOVE) ||
-                                operation.type == SyncOperationType.LIBRARY_STATUS)
+                            operation.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED, SyncOperationType.MEDIA_HISTORY_REMOVE)
                     com.cinetrack.data.sync.ConflictField.EPISODE_WATCHED ->
                         operation.type in setOf(SyncOperationType.EPISODE_WATCHED, SyncOperationType.EPISODE_UNWATCHED) &&
                             operation.mediaId == conflict.ids.tmdb?.toInt() && operation.payload.orEmpty().startsWith("${conflict.season}:${conflict.episode}")
@@ -667,20 +669,40 @@ class SimklSyncEngine(
             }
             val protectedMovieIds = operations
                 .filter { it.mediaType == MediaType.MOVIE && it.type in setOf(
-                    SyncOperationType.LIBRARY_STATUS,
                     SyncOperationType.MOVIE_WATCHED,
                     SyncOperationType.MOVIE_UNWATCHED,
                     SyncOperationType.MEDIA_HISTORY_REMOVE,
                 ) }
                 .mapTo(linkedSetOf(), SyncOperation::mediaId)
-            database.syncDao().syncOperations()
-                .filter { it.mediaType == MediaType.MOVIE.name && it.createdAt >= syncStartedAt }
+            val currentIntentEntities = database.syncDao().syncOperations()
+            currentIntentEntities
+                .filter { it.mediaType == MediaType.MOVIE.name && it.logicalField() == SyncLogicalField.movieWatched(it.mediaId) }
+                .filter { it.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) }
                 .mapTo(protectedMovieIds, SyncOperationEntity::mediaId)
+            fun mutationField(mutation: LocalMutation): SyncLogicalField = when (mutation) {
+                is LocalMutation.SetLibraryStatus -> SyncLogicalField.library(mutation.mediaType, mutation.mediaId.toInt())
+                is LocalMutation.SetWatched -> if (mutation.season != null && mutation.episode != null) {
+                    SyncLogicalField.episodeWatched(mutation.mediaId.toInt(), mutation.season, mutation.episode)
+                } else SyncLogicalField.movieWatched(mutation.mediaId.toInt())
+            }
+            fun hasNewerLocalIntent(field: SyncLogicalField): Boolean {
+                val start = syncStartOperationsByField[field].orEmpty()
+                return currentIntentEntities.any { entity ->
+                    entity.logicalField() == field &&
+                        entity.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                        start.none { original ->
+                            original.id == entity.operationId && original.sourceVersion == entity.createdAt
+                        }
+                }
+            }
             if (newMedia.isNotEmpty()) database.mediaDao().upsertMedia(newMedia)
             suspend fun supersededState(state: UserMediaStateEntity): Boolean {
                 val current = database.stateDao().get(state.mediaType, state.mediaId) ?: return false
                 val before = localStatesByKey["${state.mediaType}:${state.mediaId}"]
-                return current.dirty && (before == null || current.updatedAt > before.updatedAt)
+                val libraryChanged = hasNewerLocalIntent(SyncLogicalField.library(MediaType.valueOf(state.mediaType), state.mediaId))
+                val watchedChanged = state.mediaType == MediaType.MOVIE &&
+                    hasNewerLocalIntent(SyncLogicalField.movieWatched(state.mediaId))
+                return libraryChanged || watchedChanged || (current.dirty && (before == null || current.updatedAt > before.updatedAt))
             }
             val remoteStatesToApply = mutableListOf<UserMediaStateEntity>()
             for (state in remoteStates + remoteRemovedStates) {
@@ -702,7 +724,8 @@ class SimklSyncEngine(
                 val id = mutation.mediaId.toInt()
                 val before = localStatesByKey["$type:$id"]
                 val current = database.stateDao().get(type, id)
-                val stateSuperseded = current?.dirty == true && (before == null || current.updatedAt > before.updatedAt)
+                val stateSuperseded = hasNewerLocalIntent(mutationField(mutation)) ||
+                    (current?.dirty == true && (before == null || current.updatedAt > before.updatedAt))
                 val watchedMutation = mutation as? LocalMutation.SetWatched
                 val mutationSeason = watchedMutation?.season
                 val mutationEpisode = watchedMutation?.episode
@@ -784,24 +807,16 @@ class SimklSyncEngine(
             val before = localStatesByKey[key]
             val current = database.stateDao().get(mutation.mediaType.name, mutation.mediaId.toInt())
             if (current?.dirty == true && (before == null || current.updatedAt > before.updatedAt)) return false
-            val watched = mutation as? LocalMutation.SetWatched
+            val field = when (mutation) {
+                is LocalMutation.SetLibraryStatus -> SyncLogicalField.library(mutation.mediaType, mutation.mediaId.toInt())
+                is LocalMutation.SetWatched -> if (mutation.season != null && mutation.episode != null) {
+                    SyncLogicalField.episodeWatched(mutation.mediaId.toInt(), mutation.season, mutation.episode)
+                } else SyncLogicalField.movieWatched(mutation.mediaId.toInt())
+            }
             return database.syncDao().syncOperations().none { operation ->
                 operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
                     operation.createdAt > syncStartedAt &&
-                    operation.mediaType == mutation.mediaType.name &&
-                    operation.mediaId == mutation.mediaId.toInt() &&
-                    when {
-                        watched?.season != null -> operation.operation in setOf(
-                            SyncOperationType.EPISODE_WATCHED.name,
-                            SyncOperationType.EPISODE_UNWATCHED.name,
-                        ) && operation.season == watched?.season && operation.episode == watched?.episode
-                        else -> operation.operation in setOf(
-                            SyncOperationType.LIBRARY_STATUS.name,
-                            SyncOperationType.MOVIE_WATCHED.name,
-                            SyncOperationType.MOVIE_UNWATCHED.name,
-                            SyncOperationType.MEDIA_HISTORY_REMOVE.name,
-                        )
-                    }
+                    operation.logicalField() == field
             }
         }
         for (mutation in appliedRemoteMutations) {

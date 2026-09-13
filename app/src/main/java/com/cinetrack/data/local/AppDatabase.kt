@@ -539,6 +539,9 @@ interface SyncDao {
 
     @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
     suspend fun supersedeDeliveries(providerId: String, operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
+    suspend fun supersedeAllDeliveries(operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
 }
 
 @Dao

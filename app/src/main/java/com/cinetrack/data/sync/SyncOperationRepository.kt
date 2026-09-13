@@ -49,6 +49,11 @@ interface SyncOperationRepository {
     /** Marks stale SECONDARY deliveries terminal without retargeting history. */
     suspend fun supersedeSecondary(operation: SyncOperation) {}
 
+    /** Atomically replaces the current SECONDARY mirror for one logical field. */
+    suspend fun replaceSecondaryMirror(operation: SyncOperation, target: SyncOperationDelivery) {
+        enqueue(operation, listOf(target))
+    }
+
     /** Binds pre-delivery operations to one startup MAIN provider exactly once. */
     suspend fun backfillLegacyDeliveries() {}
 
@@ -93,7 +98,7 @@ class RoomSyncOperationRepository(
         repairDeliveryRows()
         repairBlankTitles()
         val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
-        val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).map(SyncOperationDeliveryEntity::toDomain)
+        val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id)).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
         return cards.map { card ->
             val deliveries = deliveryRows.filter { it.operationId == card.id }
             card.copy(
@@ -146,14 +151,28 @@ class RoomSyncOperationRepository(
                     "Conflict no longer exists"
                 }
             }
-            if (supersedeOperationIds.isNotEmpty()) {
-                database.syncDao().deleteDeliveries(supersedeOperationIds.toList())
+            // A new local generation makes every older intent for the same
+            // logical field obsolete across every provider.  Delivery history
+            // is retained; only non-terminal rows transition to SUPERSEDED.
+            val existingOperations = database.syncDao().syncOperations()
+            val staleByField = operations.flatMap { operation ->
+                val field = operation.logicalField() ?: return@flatMap emptyList()
+                existingOperations.filter { entity ->
+                    entity.operationId != operation.id && entity.logicalField() == field
+                }.map(SyncOperationEntity::operationId)
+            }.toSet()
+            val newIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
+            val explicitSuperseded = supersedeOperationIds.filter { it !in newIds }.toSet()
+            val supersededIds = staleByField + explicitSuperseded
+            if (supersededIds.isNotEmpty()) {
+                database.syncDao().supersedeAllDeliveries(supersededIds.toList())
             }
             database.syncDao().upsertOperations(entities)
             ensureDeliveries(operations, targets)
             removeOperationId?.let { conflictId ->
                 database.syncDao().deleteOperation(conflictId)
             }
+            retireTerminalOperations(supersededIds)
         }
     }
 
@@ -195,8 +214,8 @@ class RoomSyncOperationRepository(
             existingRows.any { it.operationId == operation.id } &&
                 existingRows.none { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
         }.mapTo(linkedSetOf(), SyncOperation::id)
-        if (staleIds.isNotEmpty()) database.syncDao().deleteDeliveries(staleIds.toList())
-        val currentRows = existingRows.filterNot { it.operationId in staleIds }
+        if (staleIds.isNotEmpty()) database.syncDao().supersedeAllDeliveries(staleIds.toList())
+        val currentRows = existingRows
         val hasGeneration = operations.associate { it.id to it.sourceVersion }
         val now = System.currentTimeMillis()
         val missing = targets.filter { target ->
@@ -258,7 +277,7 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
-        if (operationIds.isEmpty()) emptyList() else database.syncDao().deliveries(operationIds.toList()).map(SyncOperationDeliveryEntity::toDomain)
+        if (operationIds.isEmpty()) emptyList() else database.syncDao().deliveries(operationIds.toList()).mapNotNull(SyncOperationDeliveryEntity::toDomainOrNull)
 
     override suspend fun acknowledge(provider: TrackingProviderId, operationIds: Set<String>) {
         operationIds.forEach { id -> database.syncDao().deliveries(listOf(id)).filter { it.providerId == provider.name }.forEach { row ->
@@ -307,14 +326,46 @@ class RoomSyncOperationRepository(
 
     override suspend fun supersedeSecondary(operation: SyncOperation) {
         val secondary = preferences.secondaryTrackingProvider.first() ?: return
-        val matching = database.syncDao().syncOperations().filter { entity ->
-            entity.operationId != operation.id && sameLogicalField(entity, operation)
+        database.withTransaction {
+            val matching = database.syncDao().syncOperations().filter { entity ->
+                entity.operationId != operation.id && entity.logicalField() == operation.logicalField()
+            }
+            if (matching.isNotEmpty()) {
+                database.syncDao().supersedeDeliveries(
+                    providerId = secondary.name,
+                    operationIds = matching.map(SyncOperationEntity::operationId),
+                )
+                retireTerminalOperations(matching.map(SyncOperationEntity::operationId).toSet())
+            }
         }
-        if (matching.isNotEmpty()) {
-            database.syncDao().supersedeDeliveries(
-                providerId = secondary.name,
-                operationIds = matching.map(SyncOperationEntity::operationId),
+    }
+
+    override suspend fun replaceSecondaryMirror(operation: SyncOperation, target: SyncOperationDelivery) {
+        require(target.providerId == TrackingProviderId.FLOPPY || target.providerId == TrackingProviderId.SIMKL)
+        database.withTransaction {
+            val matching = database.syncDao().syncOperations().filter { entity ->
+                entity.operationId != operation.id && entity.logicalField() == operation.logicalField()
+            }
+            val staleIds = matching.map(SyncOperationEntity::operationId).toSet()
+            if (staleIds.isNotEmpty()) {
+                database.syncDao().supersedeDeliveries(target.providerId.name, staleIds.toList())
+            }
+            val entity = SyncOperationEntity(
+                operationId = operation.id,
+                operation = operation.type.name,
+                mediaType = operation.mediaType.name,
+                mediaId = operation.mediaId,
+                title = operation.title,
+                status = SyncOperationStatus.PENDING.name,
+                localValue = operation.value,
+                createdAt = operation.sourceVersion,
+                updatedAt = System.currentTimeMillis(),
+                season = operation.payload?.episodePart(0),
+                episode = operation.payload?.episodePart(1),
             )
+            database.syncDao().upsertOperation(entity)
+            ensureDeliveries(listOf(operation), listOf(target))
+            retireTerminalOperations(staleIds)
         }
     }
 
@@ -372,11 +423,40 @@ class RoomSyncOperationRepository(
     private suspend fun repairDeliveryRows() {
         val operations = database.syncDao().syncOperations().associateBy(SyncOperationEntity::operationId)
         database.syncDao().allDeliveries().forEach { row ->
+            val provider = runCatching { TrackingProviderId.valueOf(row.providerId) }.getOrNull()
+            val status = runCatching { DeliveryStatus.valueOf(row.status) }.getOrNull()
+            val role = runCatching { TrackingRole.valueOf(row.roleAtEnqueue) }.getOrNull()
+            if (provider == null || status == null || role == null) {
+                android.util.Log.e("CineTrackSync", "Quarantining invalid delivery row ${row.operationId}/${row.providerId}/${row.status}/${row.roleAtEnqueue}")
+                database.syncDao().deleteDelivery(row.operationId, row.operationVersion, row.providerId)
+                return@forEach
+            }
             val operation = operations[row.operationId]
             val expected = operation?.let { database.syncDao().pendingWrite(row.operationId.removePrefix("write:").toLongOrNull() ?: -1L)?.createdAt ?: it.createdAt }
-            if (operation == null || expected != row.operationVersion) {
+            if (operation == null) {
                 database.syncDao().deleteDelivery(row.operationId, row.operationVersion, row.providerId)
+            } else if (expected != row.operationVersion && status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED)) {
+                database.syncDao().supersedeDeliveries(row.providerId, listOf(row.operationId))
             }
+        }
+    }
+
+    private suspend fun retireTerminalOperations(operationIds: Set<String>) {
+        operationIds.forEach { id ->
+            val entity = database.syncDao().syncOperation(id) ?: return@forEach
+            val rows = database.syncDao().deliveries(listOf(id))
+            val required = rows.filter { it.required }
+            if (required.isEmpty() || required.any {
+                    it.status !in setOf(
+                        DeliveryStatus.ACKNOWLEDGED.name,
+                        DeliveryStatus.SKIPPED_UNSUPPORTED.name,
+                        DeliveryStatus.CANCELLED_PROVIDER_REMOVED.name,
+                        DeliveryStatus.SUPERSEDED.name,
+                    )
+                }) return@forEach
+            entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId -> database.syncDao().deleteWrite(writeId) }
+            database.syncDao().deleteOperation(id)
+            database.syncDao().deleteDeliveries(listOf(id))
         }
     }
 
@@ -455,31 +535,6 @@ class RoomSyncOperationRepository(
 private const val LEGACY_DELIVERY_BACKFILL_AREA = "sync_delivery_backfill_089"
 private const val LEGACY_OPERATION_MATERIALIZATION_AREA = "sync_operation_materialization_096"
 
-private fun sameLogicalField(entity: SyncOperationEntity, operation: SyncOperation): Boolean {
-    if (entity.mediaType != operation.mediaType.name || entity.mediaId != operation.mediaId) return false
-    return when (operation.type) {
-        SyncOperationType.LIBRARY_STATUS -> entity.operation == SyncOperationType.LIBRARY_STATUS.name
-        SyncOperationType.MOVIE_WATCHED,
-        SyncOperationType.MOVIE_UNWATCHED,
-        SyncOperationType.MEDIA_HISTORY_REMOVE ->
-            operation.mediaType == MediaType.MOVIE && (
-                entity.operation in setOf(
-                    SyncOperationType.MOVIE_WATCHED.name,
-                    SyncOperationType.MOVIE_UNWATCHED.name,
-                    SyncOperationType.MEDIA_HISTORY_REMOVE.name,
-                ) || (entity.operation == SyncOperationType.LIBRARY_STATUS.name &&
-                    entity.localValue == com.cinetrack.domain.LibraryStatus.COMPLETED.name)
-                )
-        SyncOperationType.EPISODE_WATCHED,
-        SyncOperationType.EPISODE_UNWATCHED ->
-            operation.mediaType == MediaType.TV &&
-                entity.operation in setOf(SyncOperationType.EPISODE_WATCHED.name, SyncOperationType.EPISODE_UNWATCHED.name) &&
-                entity.season == operation.payload?.episodePart(0) &&
-                entity.episode == operation.payload?.episodePart(1)
-        SyncOperationType.SET_RATING -> false
-    }
-}
-
 private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEntity(
     operationId = operationId,
     operationVersion = operationVersion,
@@ -493,18 +548,23 @@ private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEnt
     updatedAt = now,
 )
 
-private fun SyncOperationDeliveryEntity.toDomain() = SyncOperationDelivery(
+private fun SyncOperationDeliveryEntity.toDomainOrNull(): SyncOperationDelivery? {
+    val provider = runCatching { TrackingProviderId.valueOf(providerId) }.getOrNull() ?: return null
+    val parsedStatus = runCatching { DeliveryStatus.valueOf(status) }.getOrNull() ?: return null
+    val role = runCatching { TrackingRole.valueOf(roleAtEnqueue) }.getOrNull() ?: return null
+    return SyncOperationDelivery(
     operationId = operationId,
     operationVersion = operationVersion,
-    providerId = runCatching { TrackingProviderId.valueOf(providerId) }.getOrDefault(TrackingProviderId.SIMKL),
-    status = runCatching { DeliveryStatus.valueOf(status) }.getOrDefault(DeliveryStatus.PENDING),
+    providerId = provider,
+    status = parsedStatus,
     required = required,
-    roleAtEnqueue = runCatching { TrackingRole.valueOf(roleAtEnqueue) }.getOrDefault(TrackingRole.MAIN),
+    roleAtEnqueue = role,
     attemptCount = attemptCount,
     lastError = lastError,
     createdAt = createdAt,
     updatedAt = updatedAt,
-)
+    )
+}
 
 private fun PendingWriteEntity.toOperationEntity(mediaTitle: String?) = SyncOperationEntity(
     operationId = "write:$id",
@@ -535,7 +595,16 @@ private fun SyncOperationEntity.toSyncOperation(write: PendingWriteEntity?): Syn
         mediaId = mediaId,
         title = title,
         value = localValue,
-        payload = write?.payload,
+        payload = write?.payload ?: when (type) {
+            SyncOperationType.EPISODE_WATCHED -> {
+                if (season == null || episode == null) null
+                else "$season:$episode:${java.time.Instant.ofEpochMilli(write?.createdAt ?: createdAt)}"
+            }
+            SyncOperationType.EPISODE_UNWATCHED -> {
+                if (season == null || episode == null) null else "$season:$episode"
+            }
+            else -> null
+        },
         sourceVersion = write?.createdAt ?: createdAt,
     )
 }

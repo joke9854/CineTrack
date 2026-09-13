@@ -35,6 +35,7 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.logicalField
 import com.cinetrack.data.sync.MediaIds
 import com.cinetrack.data.sync.LocalTrackingSnapshot
 import com.cinetrack.data.sync.SyncReconciler
@@ -1101,6 +1102,7 @@ class CineTrackRepository(
     suspend fun pushLibraryChange(type: MediaType, id: Int): Result<Unit> {
         val ids = buildSet {
             add(stateOperationId(type.name, id))
+            if (type == MediaType.MOVIE) add("movie-watched:${type.name}:$id")
             database.syncDao().pendingWrites()
                 .filter { it.operation == "MEDIA_HISTORY_REMOVE" && it.mediaType == type.name && it.mediaId == id }
                 .forEach { add(writeOperationId(it.id)) }
@@ -1122,26 +1124,10 @@ class CineTrackRepository(
                 response.notFound.shows
             }
             check(unmatched.isEmpty()) { "Simkl could not match the item being removed" }
-        } else if (state.watched) {
-            val watchedAt = database.timelineDao().historySnapshot()
-                .asSequence()
-                .filter { it.mediaType == state.mediaType && it.mediaId == state.mediaId }
-                .filter { it.season == null && it.episodeNumber == null }
-                .mapNotNull { history -> runCatching { Instant.parse(history.watchedAt) }.getOrNull() }
-                .maxOrNull()
-                ?.toString()
-                ?: Instant.now().toString()
-            services.simklSync.addHistory(
-                state.syncRequest(
-                    SimklSyncItem(
-                        ids = ids,
-                        watchedAt = watchedAt,
-                        status = targetStatus,
-                    ),
-                ),
-            )
         } else {
-            // Simkl requires `to` on every item, not at the request root.
+            // Library status is its own logical field. Movie/episode history
+            // operations are dispatched independently by pushOperation; this
+            // adapter call changes only Simkl's library membership/status.
             services.simklSync.addToList(state.syncRequest(SimklSyncItem(ids = ids, to = targetStatus)))
         }
     }
@@ -1160,9 +1146,14 @@ class CineTrackRepository(
             SyncOperationType.MOVIE_UNWATCHED -> {
                 require(operation.mediaType == MediaType.MOVIE) { "Movie history operation must target a movie" }
                 val watched = operation.type == SyncOperationType.MOVIE_WATCHED
+                val state = database.stateDao().get(MediaType.MOVIE.name, operation.mediaId)
+                    ?: error("Local movie state is no longer available")
+                require(state.updatedAt == operation.sourceVersion && state.watched == watched) {
+                    "Local movie history generation changed before upload"
+                }
                 val watchedAt = if (watched) {
                     operation.payload?.let { runCatching { Instant.parse(it) }.getOrNull() }?.toString()
-                        ?: Instant.now().toString()
+                        ?: Instant.ofEpochMilli(operation.sourceVersion).toString()
                 } else null
                 val request = SimklSyncRequest(
                     movies = listOf(
@@ -1231,17 +1222,46 @@ class CineTrackRepository(
     }
 
     override suspend fun enqueueSecondaryMirror(operation: SyncOperation) {
-        val secondary = trackingProviderRegistry?.configuration()?.secondaryProvider ?: return
-        // Retire only pending/failed deliveries for the same logical field;
-        // acknowledged historical generations remain immutable.
-        syncOperationRepository.supersedeSecondary(operation)
-        durableOperationWriter.enqueueForProviders(
-            operation = operation,
-            providers = setOf(secondary),
-            // Mirror ids are stable logical keys. A newer MAIN generation
-            // replaces an older, not-yet-delivered SECONDARY mirror.
-            supersedeLogicalKey = true,
-        )
+        // The writer captures SECONDARY once and performs supersession plus
+        // replacement in one Room transaction. Re-read the canonical field
+        // while its routing lock is held so an intervening local edit owns the
+        // normal MAIN+SECONDARY path and cannot be superseded by this mirror.
+        durableOperationWriter.replaceSecondaryMirror(operation) {
+            val field = operation.logicalField()
+            if (field == null) {
+                false
+            } else {
+                val newerLocalIntent = database.syncDao().syncOperations().any { entity ->
+                    entity.logicalField() == field &&
+                        entity.operationId != operation.id &&
+                        entity.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
+                        entity.createdAt > operation.sourceVersion
+                }
+                if (newerLocalIntent) {
+                    false
+                } else {
+                    when (operation.type) {
+                        SyncOperationType.LIBRARY_STATUS ->
+                            database.stateDao().get(operation.mediaType.name, operation.mediaId)?.status == operation.value
+                        SyncOperationType.MOVIE_WATCHED ->
+                            database.stateDao().get(MediaType.MOVIE.name, operation.mediaId)?.watched == true
+                        SyncOperationType.MOVIE_UNWATCHED,
+                        SyncOperationType.MEDIA_HISTORY_REMOVE ->
+                            database.stateDao().get(MediaType.MOVIE.name, operation.mediaId)?.watched == false
+                        SyncOperationType.EPISODE_WATCHED,
+                        SyncOperationType.EPISODE_UNWATCHED -> {
+                            val parts = operation.payload.orEmpty().split(':', limit = 3)
+                            val season = parts.getOrNull(0)?.toIntOrNull()
+                            val episode = parts.getOrNull(1)?.toIntOrNull()
+                            season != null && episode != null &&
+                                (database.timelineDao().episodeHistoryForShow(MediaType.TV.name, operation.mediaId)
+                                    .any { it.season == season && it.episodeNumber == episode } == (operation.type == SyncOperationType.EPISODE_WATCHED))
+                        }
+                        SyncOperationType.SET_RATING -> true
+                    }
+                }
+            }
+        }
     }
 
     private fun UserMediaStateEntity.syncRequest(item: SimklSyncItem): SimklSyncRequest =
