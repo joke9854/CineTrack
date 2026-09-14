@@ -91,7 +91,7 @@ class FloppySecondaryRoomIntegrationTest {
             ),
             "integration-secret",
         )
-        val registry = IntegrationRegistry(main, floppy)
+        val registry = IntegrationRegistry(preferences, main, floppy)
         coordinator = SyncCoordinator(registry, repository, SyncReconciler())
         movie = MediaCard(
             id = 42,
@@ -125,7 +125,7 @@ class FloppySecondaryRoomIntegrationTest {
             preferences,
             coordinator,
             onLocalStateChanged = {},
-            providerRegistry = IntegrationRegistry(main, floppy),
+            providerRegistry = IntegrationRegistry(preferences, main, floppy),
             routingMutex = TrackingRoutingMutex(),
         )
         main.authenticated = false
@@ -153,7 +153,7 @@ class FloppySecondaryRoomIntegrationTest {
             preferences,
             coordinator,
             onLocalStateChanged = {},
-            providerRegistry = IntegrationRegistry(main, floppy),
+            providerRegistry = IntegrationRegistry(preferences, main, floppy),
             routingMutex = TrackingRoutingMutex(),
         )
         main.authenticated = false
@@ -182,7 +182,7 @@ class FloppySecondaryRoomIntegrationTest {
         val routingMutex = TrackingRoutingMutex()
         val writer = DurableSyncOperationWriter(
             repository,
-            DurableTrackingQueue(IntegrationRegistry(main, floppy), routingMutex),
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
             routingMutex,
         )
         val bootstrap = FloppyBootstrapCoordinator(
@@ -211,6 +211,7 @@ class FloppySecondaryRoomIntegrationTest {
 }
 
 private class IntegrationRegistry(
+    private val preferences: AppPreferences,
     private val main: TrackingProvider,
     private val floppy: TrackingProvider,
 ) : TrackingProviderRegistry {
@@ -219,9 +220,9 @@ private class IntegrationRegistry(
         TrackingProviderId.FLOPPY -> floppy
     }
 
-    override suspend fun configuration() = TrackingConfiguration(
-        TrackingProviderId.SIMKL,
-        TrackingProviderId.FLOPPY,
+    override suspend fun configuration() = TrackingConfiguration.normalized(
+        preferences.mainTrackingProvider.first(),
+        preferences.secondaryTrackingProvider.first(),
     )
 }
 
@@ -245,3 +246,4 @@ private class IntegrationMainProvider : TrackingProvider {
         )
     override suspend fun testConnection() = ConnectionResult.Connected
 }
+

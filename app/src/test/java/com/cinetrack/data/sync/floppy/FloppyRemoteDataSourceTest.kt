@@ -129,6 +129,25 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun episodeWatchPaginatesHistoryBeyondFirstPageBeforePosting() = runBlocking {
+        val firstPage = (1..200).joinToString(",") { episode ->
+            "{\"media_id\":\"99\",\"media_type\":\"episode\",\"season\":1,\"episode\":$episode,\"watched\":true}"
+        }
+        server.enqueue(json("{\"pagination\":{\"total\":201,\"limit\":200,\"offset\":0,\"next\":\"/next\",\"previous\":null},\"results\":[$firstPage]}"))
+        server.enqueue(json("{\"pagination\":{\"total\":201,\"limit\":200,\"offset\":200,\"next\":null,\"previous\":\"/previous\"},\"results\":[{\"media_id\":\"42\",\"media_type\":\"episode\",\"season\":2,\"episode\":3,\"watched\":true}]}"))
+
+        remote.push(session, listOf(operation(
+            SyncOperationType.EPISODE_WATCHED,
+            mediaType = MediaType.TV,
+            payload = "2:3:2026-01-01T00:00:00Z",
+        )))
+
+        assertEquals(2, server.requestCount)
+        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=episode", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=200&types=episode", server.takeRequest().path)
+    }
+
+    @Test
     fun episodeUnwatchedUsesTheDedicatedDropRoute() = runBlocking {
         server.enqueue(json("{}"))
 
@@ -174,6 +193,26 @@ class FloppyRemoteDataSourceTest {
         remote.push(session, listOf(watched, completed))
 
         assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun coupledMovieCompletionRemovesContradictoryActiveConsumptionAfterSeedingPlay() = runBlocking {
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val watched = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString()).copy(id = "watched")
+        val completed = operation(SyncOperationType.LIBRARY_STATUS, value = "COMPLETED").copy(id = "completed")
+        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":1}]}"))
+        server.enqueue(json("{}"))
+        server.enqueue(json("{\"pagination\":{\"total\":2,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":1},{\"consumption_id\":8,\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":8,\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
+
+        val result = remote.push(session, listOf(completed, watched))
+
+        assertEquals(setOf("completed", "watched"), result.completedOperationIds)
+        assertEquals(5, server.requestCount)
+        repeat(3) { server.takeRequest() }
+        assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
+        server.takeRequest()
     }
 
     @Test
