@@ -322,6 +322,7 @@ class SyncRoomIntegrationTest {
             operationId = operation.id,
             operationVersion = operation.sourceVersion,
             providerId = TrackingProviderId.FLOPPY,
+            providerInstanceId = "floppy-instance",
             required = true,
             roleAtEnqueue = TrackingRole.SECONDARY,
         ),
@@ -349,6 +350,9 @@ private class RecordingProvider(override val id: TrackingProviderId) : TrackingP
     var fail = false
     var calls = 0
     val sentIds = mutableListOf<String>()
+
+    override suspend fun currentDeliveryInstanceId(): String? =
+        if (id == TrackingProviderId.FLOPPY) "floppy-instance" else null
 
     override suspend fun isAuthenticated(): Boolean = true
 

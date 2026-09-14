@@ -200,7 +200,7 @@ class FloppySecondaryRoomIntegrationTest {
             bootstrap = { bootstrap },
         )
 
-        assertEquals(com.cinetrack.data.sync.ConnectionResult.Connected, service.connect(server.url("/").toString(), "integration-secret"))
+        assertEquals(com.cinetrack.data.sync.ConnectionResult.Connected, service.connect(server.url("/").toString(), "integration-secret", allowInsecureLocalHttp = true))
         assertEquals(TrackingProviderId.FLOPPY, preferences.secondaryTrackingProvider.first())
         assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
     }
@@ -245,4 +245,3 @@ private class IntegrationMainProvider : TrackingProvider {
         )
     override suspend fun testConnection() = ConnectionResult.Connected
 }
-
