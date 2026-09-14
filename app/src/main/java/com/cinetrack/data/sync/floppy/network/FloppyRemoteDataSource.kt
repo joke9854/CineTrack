@@ -279,9 +279,13 @@ class FloppyRemoteDataSource(
         val watchedAt = watched.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
         var history = loadHistory(api, "movie", source, mediaId)
+        val hadActiveBefore = resolver.resolve(history).active != null
         if (resolver.findExactWatch(history, watchedAt) == null) {
             api.track("movie", FloppyTrackMediaRequest(source, mediaId, watched.title, status = 3, endDate = watchedAt.toString()))
         }
+        // When there was no active consumption, the exact completion check is
+        // sufficient and avoids an unnecessary round trip on retries.
+        if (!hadActiveBefore) return
         history = loadHistory(api, "movie", source, mediaId)
         val active = resolver.resolve(history).active
         active?.let { deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId) }
