@@ -258,6 +258,7 @@
     <string name="sync_delivery_pending">In attesa</string>
     <string name="sync_delivery_skipped">Non supportato</string>
     <string name="sync_delivery_cancelled">Provider rimosso</string>
+    <string name="sync_delivery_cancelled_instance">Annullato — connessione Floppy modificata</string>
     <string name="loading">Caricamento…</string>
     <string name="error_generic">Qualcosa è andato storto. I dati in cache restano disponibili.</string>
     <string name="api_key_missing">Configura il valore API in local.properties.</string>
@@ -509,5 +510,23 @@
     <string name="floppy_role">Ruolo</string>
     <string name="floppy_bootstrap">Bootstrap</string>
     <string name="floppy_self_hosted_description">Monitoraggio self-hosted con X-API-Key</string>
+    <string name="floppy_self_hosted_tracking">Monitoraggio self-hosted</string>
+    <string name="floppy_connected_inactive">Connesso · Inattivo</string>
+    <string name="floppy_setting_up">Secondario · Configurazione…</string>
+    <string name="floppy_ready">Secondario · Pronto</string>
+    <string name="floppy_needs_attention">Secondario · Richiede attenzione</string>
+    <string name="floppy_not_connected">Non connesso</string>
+    <string name="floppy_initial_sync">Sincronizzazione iniziale</string>
+    <string name="floppy_initial_sync_running">Copia della libreria e della cronologia di CineTrack su Floppy…</string>
+    <string name="floppy_initial_sync_failed">Non riuscita</string>
+    <string name="floppy_retry_initial_sync">Riprova sincronizzazione iniziale</string>
+    <string name="floppy_change_connection">Cambia connessione</string>
+    <string name="floppy_saved_securely">Salvata in modo sicuro</string>
+    <string name="floppy_advanced">Avanzate</string>
+    <string name="floppy_allow_http_local_network">Consenti HTTP sulla rete locale</string>
+    <string name="floppy_http_local_supporting">Consente connessioni non cifrate solo a server Floppy privati/locali. HTTPS resta consigliato.</string>
+    <string name="floppy_reason_main_required">È richiesto un servizio di tracking principale</string>
+    <string name="floppy_error_inline">Impossibile raggiungere questo server Floppy.</string>
+    <string name="connecting">Connessione…</string>
 </resources>
 
