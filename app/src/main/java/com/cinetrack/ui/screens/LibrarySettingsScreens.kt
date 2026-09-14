@@ -899,7 +899,6 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 }
 
 @Composable
-@Composable
 private fun floppyIntegrationSubtitle(state: AppUiState): String = when (state.floppyUiState) {
     FloppyUiState.NOT_CONNECTED -> stringResource(R.string.floppy_self_hosted_tracking)
     FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_connected_inactive)
