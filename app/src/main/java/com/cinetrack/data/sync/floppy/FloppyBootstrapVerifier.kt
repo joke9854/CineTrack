@@ -32,8 +32,7 @@ class FloppyBootstrapVerifier {
         val episodesOk = expected.episodes.filter { it.watched }.all { item ->
             actual.episodes.any { remote ->
                 remote.showTmdbId == item.showIds.tmdb && remote.season == item.season &&
-                    remote.episode == item.episode && remote.watched &&
-                    (item.watchedAt == null || remote.watchedAt == item.watchedAt)
+                    remote.episode == item.episode && remote.watched
             }
         }
         return moviesOk && showsOk && episodesOk

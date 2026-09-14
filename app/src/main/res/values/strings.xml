@@ -526,7 +526,7 @@
     <string name="floppy_allow_http_local_network">Allow HTTP on local network</string>
     <string name="floppy_http_local_supporting">Allows unencrypted connections only to private/local Floppy servers. HTTPS remains recommended.</string>
     <string name="floppy_reason_main_required">A main tracking service is required</string>
-    <string name="floppy_error_inline">Couldn&apos;t reach this Floppy server.</string>
+    <string name="floppy_error_inline">Unable to reach this Floppy server.</string>
     <string name="connecting">Connecting…</string>
 </resources>
 
