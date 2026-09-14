@@ -4,6 +4,7 @@ import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.ProviderPushResult
 import com.cinetrack.data.sync.ProviderSyncOutcome
+import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.TrackingCapabilities
 import com.cinetrack.data.sync.TrackingCapability
@@ -26,14 +27,16 @@ class FloppyTrackingProvider(
     override val id = TrackingProviderId.FLOPPY
 
     @Volatile private var discovered = FloppyCapabilities()
+    @Volatile private var bootstrapReady = false
     override val capabilities: TrackingCapabilities
-        get() = discovered.toTrackingCapabilities()
+        get() = discovered.toTrackingCapabilities(bootstrapReady)
 
     override suspend fun isAuthenticated(): Boolean {
         val settings = preferences?.floppySettingsNow() ?: return false
         val key = preferences.floppyApiKeyNow()
         if (key.isNullOrBlank()) return false
         discovered = settings.capabilities
+        bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
         return true
     }
 
@@ -48,6 +51,7 @@ class FloppyTrackingProvider(
                 }
                 preferences?.setFloppyConnection(settings, apiKey)
                 discovered = settings.capabilities
+                bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
                 ConnectionResult.Connected
             },
             onFailure = { error ->
@@ -62,6 +66,7 @@ class FloppyTrackingProvider(
         onDisconnect?.invoke()
         preferences?.setFloppyConnection(null, null)
         discovered = FloppyCapabilities()
+        bootstrapReady = false
     }
 
     override suspend fun push(operations: List<SyncOperation>): ProviderPushResult {
@@ -93,7 +98,10 @@ class FloppyTrackingProvider(
     override suspend fun testConnection(): ConnectionResult {
         val settings = preferences?.floppySettingsNow() ?: return ConnectionResult.AuthenticationRequired
         return remote.test(settings.baseUrl, preferences.floppyApiKeyNow()).also {
-            if (it is ConnectionResult.Connected) discovered = settings.capabilities
+            if (it is ConnectionResult.Connected) {
+                discovered = settings.capabilities
+                bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+            }
         }
     }
 
@@ -101,17 +109,18 @@ class FloppyTrackingProvider(
         val settings = preferences?.floppySettingsNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
         if (preferences.floppyApiKeyNow().isNullOrBlank()) throw TrackingSyncError.AuthenticationRequired(id)
         discovered = settings.capabilities
+        bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
         return settings
     }
 }
 
-private fun FloppyCapabilities.toTrackingCapabilities() = TrackingCapabilities(
+private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) = TrackingCapabilities(
     supportsMovies = canReadLibrary || canWriteLibrary || canReadHistory,
     supportsShows = canReadLibrary || canWriteLibrary || canReadHistory,
     supportsWatchHistory = canReadHistory || canWriteMovieHistory || canWriteEpisodeHistory,
     supportsRatings = false,
     supportsLibrary = canReadLibrary || canWriteLibrary,
-    supportsTwoWaySync = canReadCompleteSnapshot && canReadLibrary && canReadHistory,
+    supportsTwoWaySync = bootstrapReady && canReadCompleteSnapshot && canReadLibrary && canReadHistory,
     supported = buildSet {
         if (canReadLibrary) add(TrackingCapability.PULL_LIBRARY)
         if (canWriteLibrary) add(TrackingCapability.PUSH_LIBRARY)

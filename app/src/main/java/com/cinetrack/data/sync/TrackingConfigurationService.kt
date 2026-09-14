@@ -22,6 +22,11 @@ class TrackingConfigurationService(
         val next = TrackingConfiguration(main, secondary)
         routingMutex.withLock {
             val previous = current()
+            if (next.mainProvider == TrackingProviderId.FLOPPY) {
+                require(preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY) {
+                    "Floppy must complete bootstrap before it can become MAIN"
+                }
+            }
             val promotedBootstrapState = if (
                 previous.mainProvider != null &&
                 next.mainProvider != null &&
