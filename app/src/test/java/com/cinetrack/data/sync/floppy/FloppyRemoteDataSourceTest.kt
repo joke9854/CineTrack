@@ -213,6 +213,7 @@ class FloppyRemoteDataSourceTest {
         repeat(3) { server.takeRequest() }
         assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
         server.takeRequest()
+        Unit
     }
 
     @Test
