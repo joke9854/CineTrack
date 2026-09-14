@@ -173,7 +173,7 @@ class SyncCoordinatorTest {
         }.isFailure)
         assertTrue(runCatching {
             validateTrackingConfigurationTransition(previous, next, ProviderBootstrapState.READY)
-        }.isSuccess)
+        }.isFailure)
         assertTrue(runCatching {
             validateTrackingConfigurationTransition(
                 TrackingConfiguration(TrackingProviderId.SIMKL, null),
@@ -257,4 +257,3 @@ private class FakeOperationRepository(vararg initial: SyncOperation) : SyncOpera
         failed += operations
     }
 }
-
