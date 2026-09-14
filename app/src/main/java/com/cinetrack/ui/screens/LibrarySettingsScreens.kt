@@ -158,6 +158,7 @@ object SettingsPages {
     const val Export = "export"
     const val About = "about"
     const val ServiceSimkl = "service-simkl"
+    const val ServiceFloppy = "service-floppy"
     const val ServiceTmdb = "service-tmdb"
     const val ServiceMdblist = "service-mdblist"
     const val Logs = "logs"
@@ -537,6 +538,7 @@ fun SettingsDetailScreen(
         SettingsPages.Ratings -> stringResource(R.string.rating_sources)
         SettingsPages.Export -> stringResource(R.string.export_data)
         SettingsPages.ServiceSimkl -> "Simkl"
+        SettingsPages.ServiceFloppy -> "Floppy"
         SettingsPages.ServiceTmdb -> "TMDB"
         SettingsPages.ServiceMdblist -> "MDBList"
         SettingsPages.Logs -> stringResource(R.string.logs)
@@ -552,13 +554,14 @@ fun SettingsDetailScreen(
                 }
             }
             item {
-                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist)) SettingsDetailHero(page, title)
+                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceFloppy, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist)) SettingsDetailHero(page, title)
                 when (page) {
                     SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
                     SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.SyncOperations -> SyncOperationsScreen(viewModel)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
                     SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
+                    SettingsPages.ServiceFloppy -> FloppySettingsHost(state, viewModel)
                     SettingsPages.ServiceTmdb -> Column {
                         ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
@@ -588,6 +591,7 @@ fun SettingsDetailScreen(
 private fun SettingsDetailHero(page: String, title: String) {
     val serviceName = when (page) {
         SettingsPages.ServiceSimkl -> "Simkl"
+        SettingsPages.ServiceFloppy -> "Floppy"
         SettingsPages.ServiceTmdb -> "TMDB"
         SettingsPages.ServiceMdblist -> "MDBList"
         else -> null
@@ -602,6 +606,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.Ratings -> Icons.Filled.Star
         SettingsPages.Logs -> Icons.Filled.BugReport
         SettingsPages.ServiceSimkl -> Icons.Filled.CloudSync
+        SettingsPages.ServiceFloppy -> Icons.Filled.CloudSync
         SettingsPages.ServiceTmdb -> Icons.Filled.Movie
         SettingsPages.ServiceMdblist -> Icons.Filled.Star
         else -> Icons.Filled.Download
@@ -615,6 +620,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.Language -> stringResource(R.string.italian)
         SettingsPages.Ratings -> "IMDb · TMDB · Metacritic · Rotten Tomatoes"
         SettingsPages.ServiceSimkl -> stringResource(R.string.simkl_description)
+        SettingsPages.ServiceFloppy -> "Self-hosted tracking with X-API-Key"
         SettingsPages.ServiceTmdb -> stringResource(R.string.tmdb_description)
         SettingsPages.ServiceMdblist -> stringResource(R.string.mdblist_description)
         SettingsPages.Logs -> stringResource(R.string.logs_summary)
@@ -878,6 +884,33 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
         ProviderRow("MDBList", stringResource(R.string.mdblist_description), state.mdbListApiConfigured) { onPage(SettingsPages.ServiceMdblist) }
         GlassDivider()
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
+        GlassDivider()
+        ProviderRow("Floppy", "Self-hosted tracking", state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
+    }
+}
+
+@Composable
+private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
+    var url by remember { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
+    var key by remember { mutableStateOf("") }
+    SettingsSection("Connection") {
+        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(key, { key = it }, label = { Text(if (state.floppyConnected) "API key (leave blank to keep)" else "API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PrimaryAction("${if (state.floppyConnected) "Reconnect" else "Connect"}", Icons.Filled.Link, Modifier.weight(1f)) {
+                if (url.isNotBlank() && key.isNotBlank()) viewModel.connectFloppy(url, key)
+            }
+            if (state.floppyConnected) Button(onClick = viewModel::disconnectFloppy) { Text("Disconnect") }
+        }
+    }
+    if (state.floppyConnected) {
+        SettingsSection("Floppy") {
+            ValueRow("Status", "Connected", true)
+            state.floppyServerVersion?.let { GlassDivider(); ValueRow("Server version", it) }
+            state.floppyBaseUrl?.let { GlassDivider(); ValueRow("Server", it) }
+        }
     }
 }
 
@@ -1507,4 +1540,3 @@ internal fun ChoiceRow(title: String, selected: Boolean, description: String? = 
         }
     }
 }
-

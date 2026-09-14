@@ -75,6 +75,16 @@ class TrackingConfigurationService(
     suspend fun setBootstrapState(provider: TrackingProviderId, state: ProviderBootstrapState) =
         routingMutex.withLock { preferences.setProviderBootstrapState(provider, state) }
 
+    /** Removes a provider from roles before its credentials are discarded. */
+    suspend fun removeProvider(provider: TrackingProviderId) {
+        val current = current()
+        val nextMain = current.mainProvider.takeUnless { it == provider }
+        val nextSecondary = current.secondaryProvider.takeUnless { it == provider }
+        if (nextMain != current.mainProvider || nextSecondary != current.secondaryProvider) {
+            setProviders(nextMain, nextSecondary)
+        }
+    }
+
     suspend fun repair(configuration: TrackingConfiguration? = null) = routingMutex.withLock {
         val resolved = configuration ?: current()
         val configured = setOfNotNull(resolved.mainProvider, resolved.secondaryProvider)

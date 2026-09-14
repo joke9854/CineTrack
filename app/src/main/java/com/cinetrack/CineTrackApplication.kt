@@ -120,8 +120,13 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             preferences = preferences,
             syncEngine = { simklSyncEngine },
         )
+        val floppy = FloppyTrackingProvider(
+            preferences = preferences,
+            onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
+            onIdentityChanged = { syncOperationRepository.cancelProviderDeliveries(com.cinetrack.data.sync.TrackingProviderId.FLOPPY, "Floppy instance changed") },
+        )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
-            providers = listOf(simkl, FloppyTrackingProvider()),
+            providers = listOf(simkl, floppy),
             settingsRepository = settingsRepository,
         )
         val syncReconciler = SyncReconciler()

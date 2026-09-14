@@ -250,6 +250,9 @@ data class AppUiState(
     val people: List<PersonCard> = emptyList(),
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
+    val floppyConnected: Boolean = false,
+    val floppyServerVersion: String? = null,
+    val floppyBaseUrl: String? = null,
     val trackingProviders: List<TrackingProviderState> = emptyList(),
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
@@ -318,4 +321,3 @@ object RailIds {
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"
 }
-

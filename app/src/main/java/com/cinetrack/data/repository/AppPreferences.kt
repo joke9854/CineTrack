@@ -16,7 +16,6 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.remote.SimklAuthService
-import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.MediaIds
 import com.cinetrack.data.sync.TrackedMovieState
@@ -24,6 +23,9 @@ import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackedEpisodeState
 import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingWorkScheduler
+import com.cinetrack.data.sync.floppy.FloppyCapabilities
+import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
+import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.domain.SyncReport
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -114,6 +116,12 @@ class AppPreferences(private val context: Context) {
         val mainTrackingProvider = stringPreferencesKey("main_tracking_provider")
         val secondaryTrackingProvider = stringPreferencesKey("secondary_tracking_provider")
         val syncBaseline = stringPreferencesKey("sync_baseline_v1")
+        val floppyBaseUrl = stringPreferencesKey("floppy_base_url")
+        val floppyServerVersion = stringPreferencesKey("floppy_server_version")
+        val floppyServerIdentity = stringPreferencesKey("floppy_server_identity")
+        val floppyAccountIdentity = stringPreferencesKey("floppy_account_identity")
+        val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
+        val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
@@ -227,6 +235,74 @@ class AppPreferences(private val context: Context) {
     }
 
     suspend fun simklLastCheckAt(): Long? = trackingLastCheckAt(TrackingProviderId.SIMKL)
+
+    val floppyBaseUrl: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.floppyBaseUrl] }
+
+    suspend fun floppyApiKeyNow(): String? = secureCredential("floppy_api_key")?.takeIf(String::isNotBlank)
+
+    suspend fun floppySettingsNow(): FloppyConnectionSettings? {
+        val values = context.cineTrackDataStore.data.first()
+        val baseUrl = values[Keys.floppyBaseUrl]?.takeIf(String::isNotBlank) ?: return null
+        val capabilities = values[Keys.floppyCapabilities].orEmpty().split(',').toSet()
+        return FloppyConnectionSettings(
+            baseUrl = baseUrl,
+            serverVersion = values[Keys.floppyServerVersion],
+            serverIdentity = values[Keys.floppyServerIdentity].orEmpty(),
+            accountIdentity = values[Keys.floppyAccountIdentity],
+            capabilities = FloppyCapabilities(
+                canReadLibrary = "read_library" in capabilities,
+                canWriteLibrary = "write_library" in capabilities,
+                canReadHistory = "read_history" in capabilities,
+                canWriteMovieHistory = "write_movie_history" in capabilities,
+                canWriteEpisodeHistory = "write_episode_history" in capabilities,
+                canRemoveHistory = "remove_history" in capabilities,
+                canReadCompleteSnapshot = "complete_snapshot" in capabilities,
+            ),
+            connectedAt = values[Keys.floppyConnectedAt],
+        )
+    }
+
+    suspend fun setFloppyConnection(settings: FloppyConnectionSettings?, apiKey: String? = null) {
+        settings?.let { require(it.baseUrl == it.baseUrl.trim()) { "Floppy URL must be normalized before saving" } }
+        val previous = floppySettingsNow()
+        val identityChanged = settings != null && previous != null &&
+            (previous.serverIdentity != settings.serverIdentity || previous.accountIdentity != settings.accountIdentity)
+        setSecureCredential("floppy_api_key", apiKey)
+        context.cineTrackDataStore.edit { values ->
+            if (settings == null) {
+                values.remove(Keys.floppyBaseUrl)
+                values.remove(Keys.floppyServerVersion)
+                values.remove(Keys.floppyServerIdentity)
+                values.remove(Keys.floppyAccountIdentity)
+                values.remove(Keys.floppyCapabilities)
+                values.remove(Keys.floppyConnectedAt)
+                values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
+                values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
+                values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
+            } else {
+                values[Keys.floppyBaseUrl] = settings.baseUrl
+                settings.serverVersion?.let { values[Keys.floppyServerVersion] = it } ?: values.remove(Keys.floppyServerVersion)
+                values[Keys.floppyServerIdentity] = settings.serverIdentity
+                settings.accountIdentity?.let { values[Keys.floppyAccountIdentity] = it } ?: values.remove(Keys.floppyAccountIdentity)
+                val capabilities = buildList {
+                    if (settings.capabilities.canReadLibrary) add("read_library")
+                    if (settings.capabilities.canWriteLibrary) add("write_library")
+                    if (settings.capabilities.canReadHistory) add("read_history")
+                    if (settings.capabilities.canWriteMovieHistory) add("write_movie_history")
+                    if (settings.capabilities.canWriteEpisodeHistory) add("write_episode_history")
+                    if (settings.capabilities.canRemoveHistory) add("remove_history")
+                    if (settings.capabilities.canReadCompleteSnapshot) add("complete_snapshot")
+                }
+                values[Keys.floppyCapabilities] = capabilities.joinToString(",")
+                settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
+                if (identityChanged) {
+                    values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
+                    values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
+                    values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
+                }
+            }
+        }
+    }
 
     suspend fun syncReportNow(): SyncReport {
         val values = context.cineTrackDataStore.data.first()[Keys.syncReport].orEmpty().split('|')

@@ -430,14 +430,15 @@ class RoomSyncOperationRepository(
                     else -> true
                 }
                 if (!current) return@forEach
-                val existing = database.syncDao().deliveries(listOf(operation.id))
-                    .any {
-                        it.providerId == provider.name &&
-                            it.operationVersion == operation.sourceVersion &&
-                            it.status != DeliveryStatus.CANCELLED_PROVIDER_REMOVED.name &&
-                            it.status != DeliveryStatus.SUPERSEDED.name
-                    }
-                if (existing) return@forEach
+                // A generation's target snapshot is immutable. Binding is only
+                // allowed for genuinely unbound current work: no delivery row
+                // for any provider exists at this generation. A provider row
+                // that is cancelled, superseded, or targets another provider
+                // is still historical evidence and must never be reopened or
+                // extended with a new target.
+                val hasAnyTarget = database.syncDao().deliveries(listOf(operation.id))
+                    .any { it.operationVersion == operation.sourceVersion }
+                if (hasAnyTarget) return@forEach
                 ensureDeliveries(
                     listOf(operation),
                     listOf(

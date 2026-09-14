@@ -1,3 +1,8 @@
+# CineTrack 0.99.04 beta
+
+- Added the runtime-configured Floppy tracking provider with secure API-key storage, reverse-proxy-safe URL handling, capability discovery, paginated library/history sync, provider identity reset, and Floppy settings controls.
+- Hardened current-intent rebinding so terminal deliveries from any provider cannot be reopened accidentally.
+
 # CineTrack 0.99.02 beta
 
 - Hardened durable multi-provider routing with mutex-protected target snapshots and atomic KEEP_LOCAL conflict replacement.
@@ -122,4 +127,3 @@ Debug and release APK builds, unit tests, lint, baseline-profile compilation, re
 - Clear stale results while switching queries and show a proper empty state after searches complete.
 
 Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
-

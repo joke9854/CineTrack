@@ -900,6 +900,26 @@ class CineTrackViewModel(
         }
     }
 
+    fun connectFloppy(baseUrl: String, apiKey: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val result = repository.connectFloppy(baseUrl, apiKey)
+            withContext(Dispatchers.Main) {
+                if (result is com.cinetrack.data.sync.ConnectionResult.Connected) {
+                    _state.value = readCachedState().copy(error = null)
+                } else {
+                    _state.value = _state.value.copy(error = (result as? com.cinetrack.data.sync.ConnectionResult.Failed)?.error?.message)
+                }
+            }
+        }
+    }
+
+    fun disconnectFloppy() {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.disconnectFloppy()
+            withContext(Dispatchers.Main) { _state.value = readCachedState().copy(error = null) }
+        }
+    }
+
     fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
     fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
     fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
@@ -1304,4 +1324,3 @@ class CineTrackViewModel(
             ) as T
     }
 }
-

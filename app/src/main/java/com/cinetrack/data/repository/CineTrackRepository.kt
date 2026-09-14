@@ -32,6 +32,7 @@ import com.cinetrack.data.sync.SyncOperationRepository
 import com.cinetrack.data.sync.DurableSyncOperationWriter
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
@@ -153,6 +154,14 @@ class CineTrackRepository(
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
 ) : SimklSyncHost {
+    suspend fun connectFloppy(baseUrl: String, apiKey: String): com.cinetrack.data.sync.ConnectionResult =
+        (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
+            ?.connect(baseUrl, apiKey)
+            ?: com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired
+
+    suspend fun disconnectFloppy() {
+        (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
+    }
     suspend fun awaitStartup() {
         awaitStartupReady()
         // Queue repair is idempotent and also runs defensively before every
@@ -760,6 +769,7 @@ class CineTrackRepository(
         val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
         val introductionCompletedDeferred = async { preferences.introductionCompleted.first() }
+        val floppySettingsDeferred = async { preferences.floppySettingsNow() }
         val providerStatesDeferred = async { buildTrackingProviderStates() }
 
         val snapshot = snapshotDeferred.await()
@@ -986,6 +996,9 @@ class CineTrackRepository(
                 report = syncReportDeferred.await(),
             ),
             simklConnected = simklConnectedNow(),
+            floppyConnected = floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null,
+            floppyServerVersion = floppySettingsDeferred.await()?.serverVersion,
+            floppyBaseUrl = floppySettingsDeferred.await()?.baseUrl,
             trackingProviders = providerStatesDeferred.await(),
             backgroundSync = backgroundSyncDeferred.await(),
             wifiOnly = wifiOnlyDeferred.await(),
