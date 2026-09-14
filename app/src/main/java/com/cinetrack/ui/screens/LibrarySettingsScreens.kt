@@ -14,6 +14,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -53,6 +55,8 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Language
@@ -72,6 +76,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -98,7 +103,9 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.appcompat.app.AppCompatDelegate
@@ -918,9 +925,7 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 
 @Composable
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
-    var url by remember { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
-    var key by remember { mutableStateOf("") }
-    var editing by rememberSaveable(state.floppyConnected) { mutableStateOf(!state.floppyConnected) }
+    var showConnectionSheet by rememberSaveable { mutableStateOf(false) }
     SettingsSection(stringResource(R.string.floppy_status)) {
         ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
@@ -931,41 +936,188 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
             })
+            if (state.floppyUiState == FloppyUiState.SETTING_UP) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                    Text(stringResource(R.string.floppy_initial_sync_running), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                }
+            }
         }
-        if (state.floppyUiState == FloppyUiState.SETTING_UP) Text(stringResource(R.string.floppy_initial_sync_running), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.md))
         if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) {
             PrimaryAction(stringResource(R.string.floppy_retry_initial_sync), Icons.Filled.Refresh) { viewModel.retryFloppyInitialSync() }
         }
     }
     SettingsSection(stringResource(R.string.floppy_connection)) {
-        if (state.floppyConnected && !editing) {
-            state.floppyBaseUrl?.let { ValueRow(stringResource(R.string.floppy_server_url), it) }
-            GlassDivider(); ValueRow(stringResource(R.string.floppy_api_key), stringResource(R.string.floppy_saved_securely))
-            PrimaryAction(stringResource(R.string.floppy_change_connection), Icons.Filled.Link) { editing = true }
-        } else {
-            OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.floppy_server_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            if (url.trim().startsWith("http://", ignoreCase = true) && !state.floppyAllowInsecureLocalHttp) {
-                Text(stringResource(R.string.floppy_insecure_http_warning), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 8.dp))
+        if (state.floppyConnected) {
+            ValueRow(stringResource(R.string.floppy_server_url), state.floppyBaseUrl ?: stringResource(R.string.not_configured))
+            GlassDivider(); ValueRow(stringResource(R.string.floppy_api_key), stringResource(R.string.floppy_saved_securely), success = true)
+            GlassDivider()
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { showConnectionSheet = true }.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.floppy_change_connection), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ChevronRight, null, tint = AccentLight, modifier = Modifier.size(18.dp))
             }
-            Spacer(Modifier.height(8.dp))
-            OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (state.floppyConnected) R.string.floppy_api_key_keep else R.string.floppy_api_key)) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-            if (!state.floppyConnectionError.isNullOrBlank()) Text(state.floppyConnectionError!!, color = androidx.compose.material3.MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
-            if (state.floppyConnecting) Text(stringResource(R.string.connecting), color = TextMuted, modifier = Modifier.padding(top = 8.dp))
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PrimaryAction(stringResource(if (state.floppyConnected) R.string.floppy_reconnect else R.string.floppy_connect), Icons.Filled.Link, Modifier.weight(1f)) {
-                    if (url.isNotBlank() && (key.isNotBlank() || state.floppyConnected)) viewModel.connectFloppy(url, key)
-                }
-                if (state.floppyConnected) TextButton(onClick = { editing = false }) { Text(stringResource(R.string.cancel)) }
+        } else {
+            ValueRow(stringResource(R.string.floppy_server_url), stringResource(R.string.not_configured))
+            GlassDivider(); ValueRow(stringResource(R.string.floppy_api_key), stringResource(R.string.not_configured))
+            GlassDivider()
+            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { showConnectionSheet = true }.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.floppy_connect), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Icon(Icons.Filled.ChevronRight, null, tint = AccentLight, modifier = Modifier.size(18.dp))
             }
         }
-        if (state.floppyConnected) TextButton(onClick = viewModel::disconnectFloppy) { Text(stringResource(R.string.floppy_disconnect), color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
     }
-    SettingsSection(stringResource(R.string.floppy_advanced)) {
-        ToggleRow(stringResource(R.string.floppy_allow_http_local_network), state.floppyAllowInsecureLocalHttp) { enabled -> viewModel.setFloppyAllowInsecureLocalHttp(enabled) }
-        Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm))
+    if (state.floppyConnected) {
+        PrimaryAction(stringResource(R.string.floppy_disconnect), Icons.Filled.Link, Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs), containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error, onClick = viewModel::disconnectFloppy)
+    }
+    if (showConnectionSheet) {
+        FloppyConnectionSheet(state, viewModel) { showConnectionSheet = false }
     }
 }
+
+@Composable
+private fun FloppyConnectionSheet(
+    state: AppUiState,
+    viewModel: CineTrackViewModel,
+    onDismiss: () -> Unit,
+) {
+    var url by rememberSaveable(state.floppyBaseUrl) { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
+    var apiKey by rememberSaveable { mutableStateOf("") }
+    var showApiKey by rememberSaveable { mutableStateOf(false) }
+    var allowLocalHttp by rememberSaveable(state.floppyAllowInsecureLocalHttp) { mutableStateOf(state.floppyAllowInsecureLocalHttp) }
+    var advancedExpanded by rememberSaveable { mutableStateOf(false) }
+    var submitted by rememberSaveable { mutableStateOf(false) }
+    var observedConnecting by remember { mutableStateOf(false) }
+    val editing = state.floppyConnected
+    val validUrl = isFloppyUrlValid(url)
+    val canSubmit = validUrl && (apiKey.isNotBlank() || editing) && !state.floppyConnecting
+
+    LaunchedEffect(state.floppyConnecting, state.floppyConnected, state.floppyConnectionError) {
+        if (submitted && state.floppyConnecting) observedConnecting = true
+        if (submitted && observedConnecting && !state.floppyConnecting && state.floppyConnected && state.floppyConnectionError == null) onDismiss()
+    }
+
+    fun submit() {
+        if (!canSubmit) return
+        submitted = true
+        viewModel.connectFloppy(url.trim(), apiKey, allowLocalHttp)
+    }
+
+    SharedGlassSheet(onDismiss = onDismiss) {
+        Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+            Text(stringResource(R.string.floppy_connection_sheet_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text(stringResource(R.string.floppy_connection_sheet_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 4.dp))
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.lg))
+            OutlinedTextField(
+                value = url,
+                onValueChange = { url = it.trimStart(); submitted = false },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !state.floppyConnecting,
+                label = { Text(stringResource(R.string.floppy_server_url)) },
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                colors = credentialFieldColors(),
+                isError = url.isNotBlank() && !validUrl,
+            )
+            if (url.isNotBlank() && !validUrl) Text(stringResource(R.string.floppy_error_invalid_url), color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+            OutlinedTextField(
+                value = apiKey,
+                onValueChange = { apiKey = if (apiKey.isEmpty() && editing) it.replace("•", "") else it; submitted = false },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !state.floppyConnecting,
+                label = { Text(stringResource(if (editing) R.string.floppy_api_key_keep else R.string.floppy_api_key)) },
+                placeholder = { if (editing) Text(stringResource(R.string.floppy_saved_securely), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
+                visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { submit() }),
+                trailingIcon = {
+                    IconButton(onClick = { showApiKey = !showApiKey }, enabled = !state.floppyConnecting) {
+                        Icon(if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = stringResource(if (showApiKey) R.string.hide_api_key else R.string.show_api_key), tint = TextSecondary)
+                    }
+                },
+                colors = credentialFieldColors(),
+            )
+            if (editing) Text(stringResource(R.string.floppy_saved_securely), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { advancedExpanded = !advancedExpanded }.padding(vertical = com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(R.string.floppy_advanced), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Icon(if (advancedExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted)
+            }
+            if (advancedExpanded) {
+                ToggleRow(stringResource(R.string.floppy_allow_http_local_network), allowLocalHttp) { allowLocalHttp = it }
+                Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm))
+            }
+            state.floppyConnectionError?.takeIf { submitted && it.isNotBlank() }?.let { error ->
+                Text(error, color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = com.cinetrack.ui.theme.Spacing.sm))
+            }
+            PrimaryAction(
+                stringResource(if (editing) R.string.floppy_reconnect else R.string.floppy_connect),
+                Icons.Filled.Link,
+                Modifier.fillMaxWidth(),
+                enabled = canSubmit,
+                onClick = ::submit,
+            )
+            if (state.floppyConnecting) {
+                Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.sm), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                    Text(stringResource(R.string.connecting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                }
+            }
+            TextButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.cancel)) }
+        }
+    }
+}
+
+@Composable
+/** Shared credential/input treatment used by TMDB and Floppy. */
+private fun credentialFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedBorderColor = Accent,
+    unfocusedBorderColor = com.cinetrack.ui.theme.GlassStrong,
+    errorBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.error,
+    focusedTextColor = TextPrimary,
+    unfocusedTextColor = TextPrimary,
+)
+
+private fun isFloppyUrlValid(value: String): Boolean = runCatching {
+    val uri = java.net.URI(value.trim())
+    uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrBlank()
+}.getOrDefault(false)
+
+@Composable
+private fun FloppyStatePreviewContent(state: AppUiState) {
+    SettingsSection(stringResource(R.string.floppy_status)) {
+        ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
+        if (state.floppyConnected) {
+            GlassDivider()
+            ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
+            GlassDivider()
+            ValueRow(stringResource(R.string.floppy_initial_sync), if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) stringResource(R.string.floppy_initial_sync_failed) else stringResource(R.string.floppy_ready))
+        }
+    }
+}
+
+@Preview(name = "Floppy not connected", showBackground = true)
+@Composable
+private fun FloppyNotConnectedPreview() = FloppyStatePreviewContent(AppUiState(floppyUiState = FloppyUiState.NOT_CONNECTED))
+
+@Preview(name = "Floppy connected inactive", showBackground = true)
+@Composable
+private fun FloppyConnectedInactivePreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.CONNECTED_INACTIVE))
+
+@Preview(name = "Floppy setting up", showBackground = true)
+@Composable
+private fun FloppySettingUpPreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.SETTING_UP))
+
+@Preview(name = "Floppy ready", showBackground = true)
+@Composable
+private fun FloppyReadyPreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.READY))
+
+@Preview(name = "Floppy needs attention", showBackground = true)
+@Composable
+private fun FloppyNeedsAttentionPreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.NEEDS_ATTENTION))
 
 @Composable
 private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel) {
@@ -1048,12 +1200,7 @@ private fun ApiCredentialSettings(
                         )
                     }
                 },
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = Accent,
-                    unfocusedBorderColor = com.cinetrack.ui.theme.GlassStrong,
-                    focusedTextColor = TextPrimary,
-                    unfocusedTextColor = TextPrimary,
-                ),
+                colors = credentialFieldColors(),
             )
             validationError?.let { message ->
                 Text(
@@ -1558,6 +1705,7 @@ private fun ServiceLogo(name: String, siteUrl: String? = null) {
     val (logo, background, logoSize) = when (name.lowercase()) {
         "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
         "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
+        "floppy" -> Triple(R.drawable.ic_service_floppy, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 23.dp)
         else -> Triple(R.drawable.ic_service_simkl, com.cinetrack.ui.theme.SurfacePalette.WarmText, 24.dp)
     }
     Box(

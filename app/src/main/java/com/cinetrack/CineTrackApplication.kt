@@ -254,8 +254,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     when (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)) {
                         ProviderBootstrapState.NOT_STARTED,
                         ProviderBootstrapState.RUNNING,
-                        -> floppyBootstrapCoordinator.start()
                         ProviderBootstrapState.FAILED,
+                        -> floppyBootstrapCoordinator.start()
                         ProviderBootstrapState.READY -> Unit
                     }
                     syncCoordinator.pushPending()

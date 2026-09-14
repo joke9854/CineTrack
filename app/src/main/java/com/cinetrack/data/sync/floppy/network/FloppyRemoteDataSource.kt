@@ -232,17 +232,13 @@ class FloppyRemoteDataSource(
             return
         }
         if (desired == LibraryStatus.COMPLETED) {
-            if (latestCompleted != null) return
             // A standalone completed movie mutation has no trustworthy local
             // timestamp. Do not invent one or create a history row merely to
             // satisfy a legacy library-only operation; the paired
             // MOVIE_WATCHED operation owns movie completion. TV has no paired
             // movie timestamp and can use one idempotent status-3 entry.
             if (operation.mediaType == MediaType.MOVIE) return
-            api.track(
-                operation.mediaType.floppyType(),
-                FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3),
-            )
+            pushCompletedShow(api, operation, source, mediaId, detail, latestCompleted != null, active)
             return
         }
         val targetStatus = desired.toFloppyStatus()
@@ -254,6 +250,45 @@ class FloppyRemoteDataSource(
             )
         } else {
             api.track(operation.mediaType.floppyType(), FloppyTrackMediaRequest(source, mediaId, operation.title, status = targetStatus))
+        }
+    }
+
+    /** Projects a completed TV show without leaving a contradictory active
+     * consumption behind. Each read/write step is idempotent so a timeout
+     * after a committed POST or DELETE is safe to retry. Historical completed
+     * rows are never deleted. */
+    private suspend fun pushCompletedShow(
+        api: FloppyApi,
+        operation: SyncOperation,
+        source: String,
+        mediaId: String,
+        initialDetail: com.cinetrack.data.sync.floppy.FloppyMediaDetail?,
+        alreadyCompleted: Boolean,
+        initialActive: FloppyConsumption?,
+    ) {
+        var detail = initialDetail
+        var resolution = resolver.resolve(detail?.consumptions.orEmpty())
+        if (!alreadyCompleted && resolution.completed.isEmpty()) {
+            api.track("tv", FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3))
+            // A show that had an active consumption needs a reload to locate
+            // that row after the new completion is committed. If it had no
+            // active row, the POST itself satisfies the desired projection and
+            // no extra request is needed.
+            if (initialActive != null) {
+                detail = mediaDetailOrNull(api, "tv", source, mediaId)
+                resolution = resolver.resolve(detail?.consumptions.orEmpty())
+            }
+        }
+        // Use the freshly reloaded active row when available. The initial
+        // value is only a defensive fallback for servers that return 404 on a
+        // follow-up detail request after a successful completion POST.
+        val active = resolution.active ?: initialActive
+        active?.let { deleteConsumptionSafely(api, "tv", source, mediaId, it.consumptionId) }
+        if (active != null) {
+            val remaining = mediaDetailOrNull(api, "tv", source, mediaId)
+            check(resolver.resolve(remaining?.consumptions.orEmpty()).active == null) {
+                "Floppy retained an active TV consumption after completion"
+            }
         }
     }
 

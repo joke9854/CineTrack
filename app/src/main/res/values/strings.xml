@@ -488,6 +488,9 @@
     <string name="discover_load_more">Load more titles</string>
     <string name="discover_list_end">You have reached the end of this list.</string>
     <string name="floppy_connection">Connection</string>
+    <string name="floppy_connection_sheet_title">Connect Floppy</string>
+    <string name="floppy_connection_sheet_description">Connect your self-hosted Floppy server</string>
+    <string name="floppy_error_invalid_url">This server URL isn’t valid.</string>
     <string name="floppy_server_url">Server URL</string>
     <string name="floppy_api_key">API key</string>
     <string name="floppy_api_key_keep">API key (leave blank to keep)</string>

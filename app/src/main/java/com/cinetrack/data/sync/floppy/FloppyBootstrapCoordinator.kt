@@ -45,9 +45,13 @@ class FloppyBootstrapCoordinator(
         try {
             val instance = instanceId()
             val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
-                ?.takeIf { it.instanceId == instance && preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.RUNNING }
+                ?.takeIf {
+                    it.instanceId == instance &&
+                        preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) in
+                            setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)
+                }
             val snapshot = canonicalSnapshot()
-            val operations = existing?.operations?.map(::toOperation) ?: buildOperations(instance, snapshot)
+            val operations = existing?.operations?.map(::toOperation) ?: buildFloppyBootstrapOperations(instance, snapshot)
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
             // Keep the plan after Room retires acknowledged rows. The marker
             // is written before enqueueing so a restart can reconstruct the
@@ -74,7 +78,7 @@ class FloppyBootstrapCoordinator(
 
     suspend fun markReadyIfComplete() = mutex.withLock {
         val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
-        if (state != ProviderBootstrapState.RUNNING) return@withLock
+        if (state !in setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)) return@withLock
         val instance = instanceId()
         val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
         if (plan?.instanceId != instance) return@withLock
@@ -89,42 +93,6 @@ class FloppyBootstrapCoordinator(
         if (!incomplete && verifyRemote(canonicalSnapshot())) {
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
             preferences.clearFloppyBootstrapPlan()
-        }
-    }
-
-    private fun movieLibrary(instance: String, id: Long, status: LibraryStatus, sourceVersion: Long = MutationGeneration.next()) = SyncOperation(
-        id = "bootstrap:$instance:movie:$id:library", type = SyncOperationType.LIBRARY_STATUS,
-        mediaType = MediaType.MOVIE, mediaId = id.toInt(), title = "", value = status.name,
-        sourceVersion = sourceVersion,
-    )
-    private fun showLibrary(instance: String, id: Long, status: LibraryStatus?, sourceVersion: Long = MutationGeneration.next()) = SyncOperation(
-        id = "bootstrap:$instance:show:$id:library", type = SyncOperationType.LIBRARY_STATUS,
-        mediaType = MediaType.TV, mediaId = id.toInt(), title = "", value = status?.name ?: LibraryStatus.NONE.name,
-        sourceVersion = sourceVersion,
-    )
-    private fun movieWatched(instance: String, id: Long, at: Instant?, sourceVersion: Long = MutationGeneration.next()) = SyncOperation(
-        id = "bootstrap:$instance:movie:$id:watched", type = SyncOperationType.MOVIE_WATCHED,
-        mediaType = MediaType.MOVIE, mediaId = id.toInt(), title = "", payload = at?.toString(),
-        sourceVersion = sourceVersion,
-    )
-    private fun episodeWatched(instance: String, id: Long, season: Int, episode: Int, at: Instant?, sourceVersion: Long = MutationGeneration.next()) = SyncOperation(
-        id = "bootstrap:$instance:episode:$id:$season:$episode", type = SyncOperationType.EPISODE_WATCHED,
-        mediaType = MediaType.TV, mediaId = id.toInt(), title = "", payload = "$season:$episode${at?.let { ":$it" }.orEmpty()}",
-        sourceVersion = sourceVersion,
-    )
-
-    private fun buildOperations(instance: String, snapshot: TrackingSnapshot): List<SyncOperation> = buildList {
-        snapshot.movies.forEach { movie ->
-            movie.ids.tmdb?.let { id ->
-                movie.libraryState?.let { add(movieLibrary(instance, id, it)) }
-                if (movie.watched && movie.watchedAt != null) add(movieWatched(instance, id, movie.watchedAt))
-            }
-        }
-        snapshot.shows.forEach { show ->
-            show.ids.tmdb?.let { id -> show.libraryState?.let { add(showLibrary(instance, id, it)) } }
-        }
-        snapshot.episodes.filter { it.watched }.forEach { episode ->
-            episode.showIds.tmdb?.let { id -> add(episodeWatched(instance, id, episode.season, episode.episode, episode.watchedAt)) }
         }
     }
 
@@ -149,5 +117,93 @@ class FloppyBootstrapCoordinator(
     private fun decodePlan(raw: String?): PersistedPlan? = raw?.let { runCatching { Json.decodeFromString(PersistedPlan.serializer(), it) }.getOrNull() }
 
     private companion object { const val CHUNK_SIZE = 100 }
+}
+
+/** Pure operation construction kept separate so generation/timestamp
+ * invariants can be tested without Android DataStore dependencies. */
+internal fun buildFloppyBootstrapOperations(instance: String, snapshot: TrackingSnapshot): List<SyncOperation> = buildList {
+    snapshot.movies.forEach { movie ->
+        movie.ids.tmdb?.let { id ->
+            val libraryState = movie.libraryState
+            if (libraryState == LibraryStatus.COMPLETED && movie.watched) {
+                // Completion and its exact play are one causal mutation. The
+                // generation also anchors the deterministic fallback timestamp
+                // for legacy rows with no usable watchedAt.
+                val generation = MutationGeneration.next()
+                val watchedAt = movie.watchedAt
+                    ?: movie.updatedAt
+                    ?: Instant.ofEpochMilli(generation)
+                add(SyncOperation(
+                    id = "bootstrap:$instance:movie:$id:library",
+                    type = SyncOperationType.LIBRARY_STATUS,
+                    mediaType = MediaType.MOVIE,
+                    mediaId = id.toInt(),
+                    title = "",
+                    value = LibraryStatus.COMPLETED.name,
+                    sourceVersion = generation,
+                ))
+                add(SyncOperation(
+                    id = "bootstrap:$instance:movie:$id:watched",
+                    type = SyncOperationType.MOVIE_WATCHED,
+                    mediaType = MediaType.MOVIE,
+                    mediaId = id.toInt(),
+                    title = "",
+                    payload = watchedAt.toString(),
+                    sourceVersion = generation,
+                ))
+            } else {
+                libraryState?.let { status ->
+                    add(SyncOperation(
+                        id = "bootstrap:$instance:movie:$id:library",
+                        type = SyncOperationType.LIBRARY_STATUS,
+                        mediaType = MediaType.MOVIE,
+                        mediaId = id.toInt(),
+                        title = "",
+                        value = status.name,
+                        sourceVersion = MutationGeneration.next(),
+                    ))
+                }
+                if (movie.watched && movie.watchedAt != null) {
+                    add(SyncOperation(
+                        id = "bootstrap:$instance:movie:$id:watched",
+                        type = SyncOperationType.MOVIE_WATCHED,
+                        mediaType = MediaType.MOVIE,
+                        mediaId = id.toInt(),
+                        title = "",
+                        payload = movie.watchedAt.toString(),
+                        sourceVersion = MutationGeneration.next(),
+                    ))
+                }
+            }
+        }
+    }
+    snapshot.shows.forEach { show ->
+        show.ids.tmdb?.let { id ->
+            show.libraryState?.let { status ->
+                add(SyncOperation(
+                    id = "bootstrap:$instance:show:$id:library",
+                    type = SyncOperationType.LIBRARY_STATUS,
+                    mediaType = MediaType.TV,
+                    mediaId = id.toInt(),
+                    title = "",
+                    value = status.name,
+                    sourceVersion = MutationGeneration.next(),
+                ))
+            }
+        }
+    }
+    snapshot.episodes.filter { it.watched }.forEach { episode ->
+        episode.showIds.tmdb?.let { id ->
+            add(SyncOperation(
+                id = "bootstrap:$instance:episode:$id:${episode.season}:${episode.episode}",
+                type = SyncOperationType.EPISODE_WATCHED,
+                mediaType = MediaType.TV,
+                mediaId = id.toInt(),
+                title = "",
+                payload = "${episode.season}:${episode.episode}${episode.watchedAt?.let { ":$it" }.orEmpty()}",
+                sourceVersion = MutationGeneration.next(),
+            ))
+        }
+    }
 }
 

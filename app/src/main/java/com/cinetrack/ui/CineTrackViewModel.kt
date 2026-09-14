@@ -914,7 +914,11 @@ class CineTrackViewModel(
                         is com.cinetrack.data.sync.ConnectionResult.Failed -> "Couldn’t reach this Floppy server."
                         else -> "Couldn’t connect to this Floppy server."
                     }
-                    _state.value = _state.value.copy(floppyConnecting = false, floppyConnectionError = message)
+                    // Validation may have committed the connection before an
+                    // initial secondary delivery failed. Refresh persisted
+                    // state so the page can show NEEDS_ATTENTION while the
+                    // sheet keeps the actionable error visible.
+                    _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = message)
                 }
             }
         }
@@ -934,7 +938,7 @@ class CineTrackViewModel(
             _state.value = _state.value.copy(floppyConnecting = true, floppyConnectionError = null)
             runCatching { repository.retryFloppyBootstrap() }
                 .onSuccess { withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = null) } }
-                .onFailure { error -> withContext(Dispatchers.Main) { _state.value = _state.value.copy(floppyConnecting = false, floppyConnectionError = error.message ?: "Couldn’t complete initial sync.") } }
+                .onFailure { error -> withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = "Couldn’t complete initial sync.") } }
         }
     }
 

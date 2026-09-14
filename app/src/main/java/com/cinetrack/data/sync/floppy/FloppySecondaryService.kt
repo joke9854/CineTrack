@@ -5,6 +5,8 @@ import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingConfigurationService
+import com.cinetrack.data.sync.TrackingSyncError
+import kotlinx.coroutines.CancellationException
 
 /**
  * The single orchestration boundary for a Floppy SECONDARY connection.
@@ -31,7 +33,8 @@ class FloppySecondaryService(
                 } else ConnectionResult.Failed(error as? com.cinetrack.data.sync.TrackingSyncError
                     ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error))
             }
-        return coordinator.withProviderIoQuiesced {
+        return try {
+            coordinator.withProviderIoQuiesced {
             val activation = configuration.withRoutingLock {
                 val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
                 // This repair is intentionally ordered after persisting B. It
@@ -56,13 +59,39 @@ class FloppySecondaryService(
             when (preferences.providerBootstrapStateNow(com.cinetrack.data.sync.TrackingProviderId.FLOPPY)) {
                 ProviderBootstrapState.NOT_STARTED,
                 ProviderBootstrapState.RUNNING,
+                ProviderBootstrapState.FAILED,
                 -> bootstrap().start()
-                ProviderBootstrapState.FAILED -> Unit
                 ProviderBootstrapState.READY -> Unit
             }
-            coordinator.pushPendingWhileProviderIoQuiesced()
+            val deliveryResult = coordinator.pushPendingWhileProviderIoQuiesced()
+            if (deliveryResult.isFailure) {
+                // Keep the validated connection and durable plan. A failed
+                // first delivery is actionable, but it is still retryable
+                // without reconnecting or regenerating bootstrap operations.
+                preferences.setProviderBootstrapState(
+                    com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
+                    ProviderBootstrapState.FAILED,
+                )
+                val error = deliveryResult.exceptionOrNull()
+                val mapped = error as? com.cinetrack.data.sync.TrackingSyncError
+                    ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error ?: IllegalStateException("Floppy delivery failed"))
+                return@withProviderIoQuiesced ConnectionResult.Failed(mapped)
+            }
             bootstrap().markReadyIfComplete()
             ConnectionResult.Connected
+            }
+        } catch (error: Throwable) {
+            if (error is CancellationException) throw error
+            // Bootstrap construction/queue failures happen after the
+            // connection metadata is committed. Preserve that connection and
+            // surface a retryable NEEDS_ATTENTION state instead of letting the
+            // UI coroutine fail silently.
+            preferences.setProviderBootstrapState(
+                com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
+                ProviderBootstrapState.FAILED,
+            )
+            val mapped = error as? TrackingSyncError ?: TrackingSyncError.Unknown(error)
+            ConnectionResult.Failed(mapped)
         }
     }
 

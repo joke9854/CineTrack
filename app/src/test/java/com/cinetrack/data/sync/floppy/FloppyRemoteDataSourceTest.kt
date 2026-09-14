@@ -214,6 +214,7 @@ class FloppyRemoteDataSourceTest {
         assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
         server.takeRequest()
         Unit
+        Unit
     }
 
     @Test
@@ -227,6 +228,38 @@ class FloppyRemoteDataSourceTest {
         remote.push(session, listOf(operation))
 
         assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun completedTvRemovesActiveConsumptionAfterCreatingCompletion() = runBlocking {
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":1}]}"))
+        server.enqueue(json("{}"))
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":1},{\"consumption_id\":8,\"status\":3}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":8,\"status\":3}]}"))
+
+        remote.push(session, listOf(operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "COMPLETED")))
+
+        assertEquals(5, server.requestCount)
+        repeat(3) { server.takeRequest() }
+        assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
+        server.takeRequest()
+        Unit
+    }
+
+    @Test
+    fun completedTvWithHistoricalCompletionOnlyCleansActiveAndPreservesHistory() = runBlocking {
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":1},{\"consumption_id\":8,\"status\":3}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":8,\"status\":3}]}"))
+
+        remote.push(session, listOf(operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "COMPLETED")))
+
+        assertEquals(3, server.requestCount)
+        server.takeRequest()
+        assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
+        server.takeRequest()
+        Unit
     }
 
     @Test
