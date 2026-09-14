@@ -27,6 +27,8 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.TrackingSnapshot
+import com.cinetrack.data.sync.MediaIds
+import com.cinetrack.data.sync.TrackedMovieState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -35,6 +37,11 @@ import com.cinetrack.data.sync.TrackingSyncError
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.Json
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
@@ -203,6 +210,70 @@ class FloppySecondaryRoomIntegrationTest {
         assertEquals(com.cinetrack.data.sync.ConnectionResult.Connected, service.connect(server.url("/").toString(), "integration-secret", allowInsecureLocalHttp = true))
         assertEquals(TrackingProviderId.FLOPPY, preferences.secondaryTrackingProvider.first())
         assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+    }
+
+    @Test
+    fun roomCompletedMovieBootstrapPersistsOneSharedGenerationAndFallbackTimestamp() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+
+        bootstrap.start()
+
+        val raw = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        val operations = Json.parseToJsonElement(raw).jsonObject.getValue("operations").jsonArray
+        val library = operations.first { it.jsonObject.getValue("type").jsonPrimitive.content == "LIBRARY_STATUS" }
+        val watched = operations.first { it.jsonObject.getValue("type").jsonPrimitive.content == "MOVIE_WATCHED" }
+        val generation = library.jsonObject.getValue("sourceVersion").jsonPrimitive.long
+        assertEquals(generation, watched.jsonObject.getValue("sourceVersion").jsonPrimitive.long)
+        assertEquals(Instant.ofEpochMilli(generation), Instant.parse(watched.jsonObject.getValue("payload").jsonPrimitive.content))
+    }
+
+    @Test
+    fun failedRoomBootstrapRestartReusesThePersistedPlanExactly() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val first = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        first.start()
+        val before = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+
+        val recreated = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        recreated.start()
+
+        assertEquals(before, preferences.floppyBootstrapPlanRawNow())
     }
 
     private fun json(body: String) = MockResponse()

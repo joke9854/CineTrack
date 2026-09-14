@@ -938,7 +938,7 @@ class CineTrackViewModel(
             _state.value = _state.value.copy(floppyConnecting = true, floppyConnectionError = null)
             runCatching { repository.retryFloppyBootstrap() }
                 .onSuccess { withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = null) } }
-                .onFailure { error -> withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = "Couldn’t complete initial sync.") } }
+                .onFailure { _ -> withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = "Couldn’t complete initial sync.") } }
         }
     }
 
