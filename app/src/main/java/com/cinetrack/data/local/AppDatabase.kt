@@ -560,6 +560,12 @@ interface SyncDao {
     @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
     suspend fun cancelInstanceDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
 
+    /** Repairs rows left behind when a provider instance was persisted before
+     * process death interrupted the cleanup phase.  Identity is immutable:
+     * stale rows are terminally cancelled, never retargeted. */
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND (providerInstanceId IS NULL OR providerInstanceId != :currentInstanceId) AND status IN ('PENDING','FAILED')")
+    suspend fun repairInstanceDeliveries(providerId: String, currentInstanceId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
     @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
     suspend fun supersedeDeliveries(providerId: String, operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
 

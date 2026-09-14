@@ -30,6 +30,17 @@ class FloppyBootstrapCoordinator(
 ) {
     private val mutex = Mutex()
 
+    /** Clears a persisted plan when the configured Floppy identity changes. */
+    suspend fun resetForInstanceChange(newInstanceId: String) = mutex.withLock {
+        val old = decodePlan(preferences.floppyBootstrapPlanRawNow())
+        if (old?.instanceId != newInstanceId ||
+            preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY
+        ) {
+            preferences.clearFloppyBootstrapPlan()
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.NOT_STARTED)
+        }
+    }
+
     suspend fun start(): Int = mutex.withLock {
         try {
             val instance = instanceId()

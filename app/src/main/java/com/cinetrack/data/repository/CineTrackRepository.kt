@@ -55,6 +55,7 @@ import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.FloppyUiState
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PersonCard
@@ -155,6 +156,7 @@ class CineTrackRepository(
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val floppySecondaryService: FloppySecondaryService? = null,
+    private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
 ) : SimklSyncHost {
     suspend fun connectFloppy(baseUrl: String, apiKey: String): com.cinetrack.data.sync.ConnectionResult =
         floppySecondaryService?.connect(baseUrl, apiKey)
@@ -166,6 +168,7 @@ class CineTrackRepository(
         floppySecondaryService?.disconnect()
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
     }
+    suspend fun retryFloppyBootstrap() { floppyRetryBootstrap?.invoke() }
     suspend fun awaitStartup() {
         awaitStartupReady()
         // Queue repair is idempotent and also runs defensively before every
@@ -1043,6 +1046,8 @@ class CineTrackRepository(
             floppyServerVersion = floppySettingsDeferred.await()?.serverVersion,
             floppyBaseUrl = floppySettingsDeferred.await()?.baseUrl,
             floppyAllowInsecureLocalHttp = floppyAllowInsecureHttpDeferred.await(),
+            floppyUiState = providerStatesDeferred.await().firstOrNull { it.providerId == TrackingProviderId.FLOPPY.name }
+                .toFloppyUiState(floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null),
             trackingProviders = providerStatesDeferred.await(),
             backgroundSync = backgroundSyncDeferred.await(),
             wifiOnly = wifiOnlyDeferred.await(),
@@ -1100,6 +1105,14 @@ class CineTrackRepository(
                 bootstrapState = preferences.providerBootstrapStateNow(id).name,
             )
         }
+    }
+
+    private fun TrackingProviderState?.toFloppyUiState(connected: Boolean): FloppyUiState = when {
+        !connected -> FloppyUiState.NOT_CONNECTED
+        this?.role != "SECONDARY" -> FloppyUiState.CONNECTED_INACTIVE
+        this.bootstrapState == "READY" -> FloppyUiState.READY
+        this.bootstrapState == "FAILED" -> FloppyUiState.NEEDS_ATTENTION
+        else -> FloppyUiState.SETTING_UP
     }
 
     suspend fun search(query: String): List<MediaCard> {

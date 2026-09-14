@@ -23,11 +23,14 @@ class FloppyTrackingProvider(
     private val remote: FloppyRemoteDataSource = FloppyRemoteDataSource(FloppyApiClientFactory()),
     private val syncPass: (suspend (List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome)? = null,
     private val onDisconnect: (suspend () -> Unit)? = null,
-    private val onIdentityChanged: (suspend () -> Unit)? = null,
 ) : TrackingProvider {
     data class ConnectionCandidate(
         val settings: FloppyConnectionSettings,
         val apiKey: String,
+    )
+    data class ActivationResult(
+        val previous: FloppyConnectionSettings?,
+        val identityChanged: Boolean,
     )
     override val id = TrackingProviderId.FLOPPY
 
@@ -64,6 +67,18 @@ class FloppyTrackingProvider(
     }
 
     suspend fun activateConnection(settings: FloppyConnectionSettings, apiKey: String) {
+        commitValidatedConnectionLocked(settings, apiKey)
+    }
+
+    /**
+     * Commits a previously validated connection.  The caller must already own
+     * TrackingRoutingMutex (and provider I/O serialization); no callback or
+     * nested routing lock is taken here.
+     */
+    internal suspend fun commitValidatedConnectionLocked(
+        settings: FloppyConnectionSettings,
+        apiKey: String,
+    ): ActivationResult {
         val previous = preferences?.floppySettingsNow()
         val previousKey = preferences?.floppyApiKeyNow()
         val identityChanged = previous != null &&
@@ -72,12 +87,12 @@ class FloppyTrackingProvider(
                 previousKey != apiKey)
         if (identityChanged) {
             connectionGeneration.incrementAndGet()
-            onIdentityChanged?.invoke()
         }
         preferences?.setFloppyConnection(settings, apiKey)
         if (identityChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
         discovered = settings.capabilities
         bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+        return ActivationResult(previous, identityChanged)
     }
 
     suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult =
@@ -124,6 +139,16 @@ class FloppyTrackingProvider(
         checkGeneration(generation)
         checkSessionStillCurrent(session)
         return snapshot
+    }
+
+    suspend fun verificationProjection(): FloppyVerificationProjection {
+        val generation = connectionGeneration.get()
+        val session = captureSession()
+        checkGeneration(generation)
+        val projection = remote.verificationProjection(session)
+        checkGeneration(generation)
+        checkSessionStillCurrent(session)
+        return projection
     }
 
     override suspend fun syncBidirectionally(

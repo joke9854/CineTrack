@@ -13,14 +13,30 @@ class TrackingConfigurationService(
     private val operations: SyncOperationRepository,
     private val routingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
 ) {
+    /** Executes a routing-critical block without reacquiring the mutex. */
+    internal suspend fun <T> withRoutingLock(block: suspend () -> T): T = routingMutex.withLock(block)
+
+    /** Caller must hold the routing mutex when used during activation. */
+    internal suspend fun repairProviderInstanceTargets(instanceId: String) =
+        operations.repairProviderInstanceTargets(TrackingProviderId.FLOPPY, instanceId)
+
     suspend fun current(): TrackingConfiguration = TrackingConfiguration.normalized(
         preferences.mainTrackingProvider.first(),
         preferences.secondaryTrackingProvider.first(),
     )
 
     suspend fun setProviders(main: TrackingProviderId?, secondary: TrackingProviderId?): TrackingConfiguration {
+        return routingMutex.withLock { setProvidersLocked(main, secondary) }
+    }
+
+    /**
+     * Applies a role transition while the caller already owns the shared
+     * TrackingRoutingMutex.  This is intentionally non-locking so provider
+     * instance activation can persist identity, repair deliveries, and update
+     * roles in one uninterrupted routing critical section.
+     */
+    internal suspend fun setProvidersLocked(main: TrackingProviderId?, secondary: TrackingProviderId?): TrackingConfiguration {
         val next = TrackingConfiguration(main, secondary)
-        routingMutex.withLock {
             val previous = current()
             if (next.mainProvider == TrackingProviderId.FLOPPY) {
                 error("Floppy two-way synchronization is not available yet.")
@@ -68,7 +84,6 @@ class TrackingConfigurationService(
             next.mainProvider?.let { operations.bindUnboundCurrentIntents(it) }
             val pending = operations.pending()
             operations.completeReady(pending)
-        }
         return next
     }
 
@@ -101,9 +116,15 @@ class TrackingConfigurationService(
         // Bind first so a process dying after the MAIN DataStore write cannot
         // strand current local intents without an immutable target row.
         resolved.mainProvider?.let { operations.bindUnboundCurrentIntents(it) }
+        if (resolved.secondaryProvider == TrackingProviderId.FLOPPY) {
+            preferences.floppySettingsNow()?.connectionId?.takeIf(String::isNotBlank)?.let { instance ->
+                operations.repairProviderInstanceTargets(TrackingProviderId.FLOPPY, instance)
+            }
+        }
         TrackingProviderId.entries.filterNot(configured::contains).forEach {
             operations.cancelProviderDeliveries(it)
         }
         operations.completeReady(operations.pending())
     }
 }
+

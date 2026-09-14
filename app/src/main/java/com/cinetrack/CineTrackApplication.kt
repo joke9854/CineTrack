@@ -28,6 +28,7 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
+import com.cinetrack.data.sync.SecondaryProviderDeliveryObserver
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
 import com.cinetrack.data.sync.floppy.FloppyBootstrapCoordinator
 import com.cinetrack.data.sync.floppy.FloppyBootstrapVerifier
@@ -130,21 +131,23 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
-            onIdentityChanged = {
-                trackingRoutingMutex.withLock {
-                    syncOperationRepository.cancelProviderInstanceDeliveries(
-                        com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
-                        "Floppy provider instance changed; bootstrap the new target",
-                    )
-                }
-            },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, floppy),
             settingsRepository = settingsRepository,
         )
         val syncReconciler = SyncReconciler()
-        syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
+        syncCoordinator = SyncCoordinator(
+            trackingProviderRegistry,
+            syncOperationRepository,
+            syncReconciler,
+            trackingRoutingMutex,
+            SecondaryProviderDeliveryObserver { providerId ->
+                if (providerId == com.cinetrack.data.sync.TrackingProviderId.FLOPPY && ::floppyBootstrapCoordinator.isInitialized) {
+                    floppyBootstrapCoordinator.markReadyIfComplete()
+                }
+            },
+        )
         floppySecondaryService = FloppySecondaryService(
             provider = floppy,
             preferences = preferences,
@@ -188,6 +191,11 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
             floppySecondaryService = floppySecondaryService,
+            floppyRetryBootstrap = {
+                floppyBootstrapCoordinator.start()
+                syncCoordinator.pushPending()
+                floppyBootstrapCoordinator.markReadyIfComplete()
+            },
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))
@@ -201,7 +209,12 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             operationWriter = durableOperationWriter,
             canonicalSnapshot = { repository.canonicalTrackingSnapshot() },
             verifyRemote = { expected ->
-                runCatching { FloppyBootstrapVerifier().verify(expected, floppy.pullSnapshot()) }.getOrDefault(false)
+                runCatching {
+                    FloppyBootstrapVerifier().verify(
+                        expected,
+                        floppy.verificationProjection(),
+                    )
+                }.getOrDefault(false)
             },
         )
 

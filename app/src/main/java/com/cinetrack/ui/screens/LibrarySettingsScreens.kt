@@ -111,6 +111,7 @@ import com.cinetrack.R
 import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.domain.AppUiState
+import com.cinetrack.domain.FloppyUiState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -759,6 +760,9 @@ private fun SyncOperationSection(
 
 @Composable
 private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackViewModel) {
+    val terminalCancelled = operation.deliveries.isNotEmpty() && operation.deliveries
+        .filter { it.required }
+        .all { it.status in setOf("CANCELLED_PROVIDER_INSTANCE_CHANGED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED", "SKIPPED_UNSUPPORTED", "ACKNOWLEDGED") }
     val statusColor = when (operation.status) {
         SyncOperationStatus.CONFLICT -> StatusPaused
         SyncOperationStatus.FAILED -> androidx.compose.material3.MaterialTheme.colorScheme.error
@@ -822,7 +826,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
                 Text(stringResource(R.string.local_value, localizedSyncValue(operation.localValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Text(stringResource(R.string.provider_value, providerName, localizedSyncValue(operation.remoteValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
-        } else {
+        } else if (!terminalCancelled) {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 operation.localValue?.takeIf(String::isNotBlank)?.let { value ->
@@ -838,6 +842,9 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
                     Text(if (operation.status == SyncOperationStatus.FAILED) stringResource(R.string.retry) else stringResource(R.string.try_now))
                 }
             }
+        } else {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Text(stringResource(R.string.sync_delivery_cancelled_instance), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
 }
@@ -851,11 +858,13 @@ private fun SyncDeliveryRow(delivery: SyncDeliveryCard) {
         "PENDING" -> stringResource(R.string.sync_delivery_pending)
         "SKIPPED_UNSUPPORTED" -> stringResource(R.string.sync_delivery_skipped)
         "CANCELLED_PROVIDER_REMOVED" -> stringResource(R.string.sync_delivery_cancelled)
+        "CANCELLED_PROVIDER_INSTANCE_CHANGED" -> stringResource(R.string.sync_delivery_cancelled_instance)
         else -> stringResource(R.string.sync_delivery_pending)
     }
     val color = when (delivery.status) {
         "ACKNOWLEDGED" -> Success
         "FAILED" -> androidx.compose.material3.MaterialTheme.colorScheme.error
+        "CANCELLED_PROVIDER_INSTANCE_CHANGED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED" -> TextMuted
         else -> TextSecondary
     }
     Row(Modifier.fillMaxWidth().padding(top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -885,55 +894,77 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
         GlassDivider()
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
         GlassDivider()
-        ProviderRow("Floppy", stringResource(R.string.floppy_role_secondary), state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
+        ProviderRow("Floppy", floppyIntegrationSubtitle(state), state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
     }
+}
+
+@Composable
+@Composable
+private fun floppyIntegrationSubtitle(state: AppUiState): String = when (state.floppyUiState) {
+    FloppyUiState.NOT_CONNECTED -> stringResource(R.string.floppy_self_hosted_tracking)
+    FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_connected_inactive)
+    FloppyUiState.SETTING_UP -> stringResource(R.string.floppy_setting_up)
+    FloppyUiState.READY -> stringResource(R.string.floppy_ready)
+    FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_needs_attention)
+}
+
+@Composable
+private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
+    FloppyUiState.NOT_CONNECTED -> stringResource(R.string.floppy_not_connected)
+    FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_connected_inactive)
+    FloppyUiState.SETTING_UP -> stringResource(R.string.floppy_setting_up)
+    FloppyUiState.READY -> stringResource(R.string.floppy_ready)
+    FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_needs_attention)
 }
 
 @Composable
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
     var url by remember { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
     var key by remember { mutableStateOf("") }
-    val floppyState = state.trackingProviders.firstOrNull { it.providerId == "FLOPPY" }
-    SettingsSection(stringResource(R.string.floppy_connection)) {
-        OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.floppy_server_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-        OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (state.floppyConnected) R.string.floppy_api_key_keep else R.string.floppy_api_key)) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-        Spacer(Modifier.height(8.dp))
-        ToggleRow(
-            stringResource(R.string.floppy_allow_insecure_local_http),
-            state.floppyAllowInsecureLocalHttp,
-        ) { enabled -> viewModel.setFloppyAllowInsecureLocalHttp(enabled) }
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryAction(stringResource(if (state.floppyConnected) R.string.floppy_reconnect else R.string.floppy_connect), Icons.Filled.Link, Modifier.weight(1f)) {
-                if (url.isNotBlank() && (key.isNotBlank() || state.floppyConnected)) viewModel.connectFloppy(url, key)
-            }
-            if (state.floppyConnected) Button(onClick = viewModel::disconnectFloppy) { Text(stringResource(R.string.floppy_disconnect)) }
+    var editing by rememberSaveable(state.floppyConnected) { mutableStateOf(!state.floppyConnected) }
+    SettingsSection(stringResource(R.string.floppy_status)) {
+        ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
+        if (state.floppyConnected) {
+            GlassDivider(); ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
+            state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
+            GlassDivider(); ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
+                FloppyUiState.READY -> stringResource(R.string.floppy_ready)
+                FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
+                else -> stringResource(R.string.floppy_setting_up)
+            })
+        }
+        if (state.floppyUiState == FloppyUiState.SETTING_UP) Text(stringResource(R.string.floppy_initial_sync_running), color = TextMuted, modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.md))
+        if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) {
+            PrimaryAction(stringResource(R.string.floppy_retry_initial_sync), Icons.Filled.Refresh) { viewModel.retryFloppyInitialSync() }
         }
     }
-    if (state.floppyConnected) {
-        SettingsSection("Floppy") {
-            ValueRow(stringResource(R.string.floppy_status), stringResource(R.string.floppy_connected), true)
-            val role = floppyState?.role ?: "NONE"
-            ValueRow(
-                stringResource(R.string.floppy_role),
-                when (role) {
-                    "SECONDARY" -> stringResource(R.string.floppy_role_secondary)
-                    else -> stringResource(R.string.floppy_role_connected_inactive)
-                },
-            )
-            state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
-            state.floppyBaseUrl?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_url), it) }
-            floppyState?.let {
-                GlassDivider()
-                val bootstrapText = when (it.bootstrapState) {
-                    "READY" -> stringResource(R.string.floppy_bootstrap_ready)
-                    "RUNNING" -> stringResource(R.string.floppy_bootstrap_running)
-                    "FAILED" -> stringResource(R.string.floppy_bootstrap_failed)
-                    else -> stringResource(R.string.floppy_bootstrap_not_started)
+    SettingsSection(stringResource(R.string.floppy_connection)) {
+        if (state.floppyConnected && !editing) {
+            state.floppyBaseUrl?.let { ValueRow(stringResource(R.string.floppy_server_url), it) }
+            GlassDivider(); ValueRow(stringResource(R.string.floppy_api_key), stringResource(R.string.floppy_saved_securely))
+            PrimaryAction(stringResource(R.string.floppy_change_connection), Icons.Filled.Link) { editing = true }
+        } else {
+            OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.floppy_server_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            if (url.trim().startsWith("http://", ignoreCase = true) && !state.floppyAllowInsecureLocalHttp) {
+                Text(stringResource(R.string.floppy_insecure_http_warning), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 8.dp))
+            }
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (state.floppyConnected) R.string.floppy_api_key_keep else R.string.floppy_api_key)) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            if (!state.floppyConnectionError.isNullOrBlank()) Text(state.floppyConnectionError!!, color = androidx.compose.material3.MaterialTheme.colorScheme.error, modifier = Modifier.padding(top = 8.dp))
+            if (state.floppyConnecting) Text(stringResource(R.string.connecting), color = TextMuted, modifier = Modifier.padding(top = 8.dp))
+            Spacer(Modifier.height(8.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PrimaryAction(stringResource(if (state.floppyConnected) R.string.floppy_reconnect else R.string.floppy_connect), Icons.Filled.Link, Modifier.weight(1f)) {
+                    if (url.isNotBlank() && (key.isNotBlank() || state.floppyConnected)) viewModel.connectFloppy(url, key)
                 }
-                ValueRow(stringResource(R.string.floppy_bootstrap), bootstrapText)
+                if (state.floppyConnected) TextButton(onClick = { editing = false }) { Text(stringResource(R.string.cancel)) }
             }
         }
+        if (state.floppyConnected) TextButton(onClick = viewModel::disconnectFloppy) { Text(stringResource(R.string.floppy_disconnect), color = androidx.compose.material3.MaterialTheme.colorScheme.error) }
+    }
+    SettingsSection(stringResource(R.string.floppy_advanced)) {
+        ToggleRow(stringResource(R.string.floppy_allow_http_local_network), state.floppyAllowInsecureLocalHttp) { enabled -> viewModel.setFloppyAllowInsecureLocalHttp(enabled) }
+        Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm))
     }
 }
 

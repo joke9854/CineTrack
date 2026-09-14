@@ -901,14 +901,20 @@ class CineTrackViewModel(
     }
 
     fun connectFloppy(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp) {
+        _state.value = _state.value.copy(floppyConnecting = true, floppyConnectionError = null)
         viewModelScope.launch(Dispatchers.IO) {
             repository.preferences.setFloppyAllowInsecureLocalHttp(allowInsecureLocalHttp)
             val result = repository.connectFloppy(baseUrl, apiKey)
             withContext(Dispatchers.Main) {
                 if (result is com.cinetrack.data.sync.ConnectionResult.Connected) {
-                    _state.value = readCachedState().copy(error = null)
+                    _state.value = readCachedState().copy(error = null, floppyConnecting = false, floppyConnectionError = null)
                 } else {
-                    _state.value = _state.value.copy(error = (result as? com.cinetrack.data.sync.ConnectionResult.Failed)?.error?.message)
+                    val message = when (result) {
+                        com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired -> "The API key was rejected."
+                        is com.cinetrack.data.sync.ConnectionResult.Failed -> "Couldn’t reach this Floppy server."
+                        else -> "Couldn’t connect to this Floppy server."
+                    }
+                    _state.value = _state.value.copy(floppyConnecting = false, floppyConnectionError = message)
                 }
             }
         }
@@ -917,7 +923,18 @@ class CineTrackViewModel(
     fun setFloppyAllowInsecureLocalHttp(enabled: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
             repository.preferences.setFloppyAllowInsecureLocalHttp(enabled)
-            refresh()
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(floppyAllowInsecureLocalHttp = enabled)
+            }
+        }
+    }
+
+    fun retryFloppyInitialSync() {
+        viewModelScope.launch(Dispatchers.IO) {
+            _state.value = _state.value.copy(floppyConnecting = true, floppyConnectionError = null)
+            runCatching { repository.retryFloppyBootstrap() }
+                .onSuccess { withContext(Dispatchers.Main) { _state.value = readCachedState().copy(floppyConnecting = false, floppyConnectionError = null) } }
+                .onFailure { error -> withContext(Dispatchers.Main) { _state.value = _state.value.copy(floppyConnecting = false, floppyConnectionError = error.message ?: "Couldn’t complete initial sync.") } }
         }
     }
 

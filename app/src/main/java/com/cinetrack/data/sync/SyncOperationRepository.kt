@@ -69,6 +69,12 @@ interface SyncOperationRepository {
     suspend fun failProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider instance changed") {}
     /** Terminally cancels deliveries targeted at an old provider instance. */
     suspend fun cancelProviderInstanceDeliveries(provider: TrackingProviderId, reason: String = "Provider instance changed") {}
+    /** Idempotently terminal-cancels pending/failed rows not targeting the current instance. */
+    suspend fun repairProviderInstanceTargets(
+        provider: TrackingProviderId,
+        currentInstanceId: String,
+        reason: String = "Floppy connection changed; stale delivery target cancelled",
+    ) {}
 
     /** Binds only current, never-targeted local intents after initial MAIN setup. */
     suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {}
@@ -422,6 +428,18 @@ class RoomSyncOperationRepository(
     override suspend fun cancelProviderInstanceDeliveries(provider: TrackingProviderId, reason: String) {
         database.withTransaction {
             database.syncDao().cancelInstanceDeliveries(provider.name, reason)
+            retireTerminalOperations(database.syncDao().syncOperations().map(SyncOperationEntity::operationId).toSet())
+        }
+    }
+
+    override suspend fun repairProviderInstanceTargets(
+        provider: TrackingProviderId,
+        currentInstanceId: String,
+        reason: String,
+    ) {
+        if (currentInstanceId.isBlank()) return
+        database.withTransaction {
+            database.syncDao().repairInstanceDeliveries(provider.name, currentInstanceId, reason)
             retireTerminalOperations(database.syncDao().syncOperations().map(SyncOperationEntity::operationId).toSet())
         }
     }

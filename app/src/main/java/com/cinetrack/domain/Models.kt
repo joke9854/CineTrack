@@ -196,6 +196,9 @@ data class ViewingPeopleInsights(
 
 enum class SyncOperationStatus { PENDING, FAILED, PARTIAL, CONFLICT }
 
+/** Presentation-only state for the Floppy settings/integrations surfaces. */
+enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY, NEEDS_ATTENTION }
+
 enum class SyncConflictChoice { KEEP_LOCAL, USE_REMOTE }
 
 @Immutable
@@ -255,6 +258,9 @@ data class AppUiState(
     val floppyServerVersion: String? = null,
     val floppyBaseUrl: String? = null,
     val floppyAllowInsecureLocalHttp: Boolean = false,
+    val floppyUiState: FloppyUiState = FloppyUiState.NOT_CONNECTED,
+    val floppyConnecting: Boolean = false,
+    val floppyConnectionError: String? = null,
     val trackingProviders: List<TrackingProviderState> = emptyList(),
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,

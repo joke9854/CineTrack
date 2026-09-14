@@ -258,6 +258,7 @@
     <string name="sync_delivery_pending">Pending</string>
     <string name="sync_delivery_skipped">Not supported</string>
     <string name="sync_delivery_cancelled">Provider removed</string>
+    <string name="sync_delivery_cancelled_instance">Cancelled — Floppy connection changed</string>
     <string name="loading">Loading…</string>
     <string name="error_generic">Something went wrong. Cached content remains available.</string>
     <string name="api_key_missing">Configure the API value in local.properties.</string>
@@ -509,5 +510,23 @@
     <string name="floppy_role">Role</string>
     <string name="floppy_bootstrap">Bootstrap</string>
     <string name="floppy_self_hosted_description">Self-hosted tracking with X-API-Key</string>
+    <string name="floppy_self_hosted_tracking">Self-hosted tracking</string>
+    <string name="floppy_connected_inactive">Connected · Inactive</string>
+    <string name="floppy_setting_up">Secondary · Setting up…</string>
+    <string name="floppy_ready">Secondary · Ready</string>
+    <string name="floppy_needs_attention">Secondary · Needs attention</string>
+    <string name="floppy_not_connected">Not connected</string>
+    <string name="floppy_initial_sync">Initial sync</string>
+    <string name="floppy_initial_sync_running">Copying your CineTrack library and watch history to Floppy…</string>
+    <string name="floppy_initial_sync_failed">Failed</string>
+    <string name="floppy_retry_initial_sync">Retry initial sync</string>
+    <string name="floppy_change_connection">Change connection</string>
+    <string name="floppy_saved_securely">Saved securely</string>
+    <string name="floppy_advanced">Advanced</string>
+    <string name="floppy_allow_http_local_network">Allow HTTP on local network</string>
+    <string name="floppy_http_local_supporting">Allows unencrypted connections only to private/local Floppy servers. HTTPS remains recommended.</string>
+    <string name="floppy_reason_main_required">A main tracking service is required</string>
+    <string name="floppy_error_inline">Couldn&apos;t reach this Floppy server.</string>
+    <string name="connecting">Connecting…</string>
 </resources>
 

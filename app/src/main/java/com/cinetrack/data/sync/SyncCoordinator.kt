@@ -10,6 +10,8 @@ class SyncCoordinator(
     private val registry: TrackingProviderRegistry,
     private val operations: SyncOperationRepository,
     private val reconciler: SyncReconciler = SyncReconciler(),
+    private val routingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
+    private val secondaryDeliveryObserver: SecondaryProviderDeliveryObserver? = null,
 ) {
     private val fullSyncMutex = Mutex()
     /** Serializes all provider network traffic, including immediate pushes. */
@@ -34,6 +36,7 @@ class SyncCoordinator(
     suspend fun sync(onProgress: (SyncProgress) -> Unit): Result<SyncCoordinatorOutcome> = fullSyncMutex.withLock {
         providerIoMutex.withLock {
         resultOf {
+        repairCurrentFloppyInstance()
         val configuration = registry.configuration()
         val mainId = configuration.mainProvider
             ?: throw IllegalStateException("Select a MAIN tracking provider")
@@ -77,6 +80,7 @@ class SyncCoordinator(
                     requireAuthenticated(secondary)
                     pushTo(secondary, deliverable)
                 }.onSuccess { operations.acknowledge(secondary.id, deliverable) }
+                    .onSuccess { secondaryDeliveryObserver?.onSecondaryDeliveryPassCompleted(secondary.id) }
                     .onFailure { error ->
                         operations.failDelivery(secondary.id, deliverable, error)
                         operations.fail(deliverable, error)
@@ -119,6 +123,7 @@ class SyncCoordinator(
      * the non-reentrant provider mutex.
      */
     internal suspend fun pushPendingWhileProviderIoQuiesced(operationIds: Set<String>? = null): Result<Unit> = resultOf {
+        repairCurrentFloppyInstance()
         val pending = operations.pending(operationIds)
         if (pending.isEmpty()) return@resultOf Unit
         val configuration = registry.configuration()
@@ -144,6 +149,9 @@ class SyncCoordinator(
                 requireAuthenticated(provider)
                 pushTo(provider, deliverable)
                 operations.acknowledge(provider.id, deliverable)
+                if (provider.id != configuration.mainProvider) {
+                    secondaryDeliveryObserver?.onSecondaryDeliveryPassCompleted(provider.id)
+                }
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 operations.failDelivery(provider.id, deliverable, error)
@@ -250,6 +258,13 @@ class SyncCoordinator(
     private suspend fun requireAuthenticated(provider: TrackingProvider) {
         if (!provider.isAuthenticated()) throw TrackingSyncError.AuthenticationRequired(provider.id)
     }
+
+    private suspend fun repairCurrentFloppyInstance() {
+        val instance = routingMutex.withLock {
+            registry.getProvider(TrackingProviderId.FLOPPY)?.currentDeliveryInstanceId()
+        } ?: return
+        operations.repairProviderInstanceTargets(TrackingProviderId.FLOPPY, instance)
+    }
 }
 
 private suspend inline fun <T> resultOf(crossinline block: suspend () -> T): Result<T> = try {
@@ -259,3 +274,4 @@ private suspend inline fun <T> resultOf(crossinline block: suspend () -> T): Res
 } catch (error: Throwable) {
     Result.failure(error)
 }
+

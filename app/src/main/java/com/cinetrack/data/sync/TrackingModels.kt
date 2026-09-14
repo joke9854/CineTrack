@@ -91,6 +91,12 @@ enum class DeliveryStatus {
 
 enum class TrackingRole { MAIN, SECONDARY }
 
+/** Provider-neutral lifecycle notification emitted after a successful
+ * outbound SECONDARY delivery pass. */
+fun interface SecondaryProviderDeliveryObserver {
+    suspend fun onSecondaryDeliveryPassCompleted(providerId: TrackingProviderId)
+}
+
 data class SyncOperationDelivery(
     val operationId: String,
     val operationVersion: Long,

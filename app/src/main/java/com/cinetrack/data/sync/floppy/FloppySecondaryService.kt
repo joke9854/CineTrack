@@ -32,15 +32,26 @@ class FloppySecondaryService(
                     ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error))
             }
         return coordinator.withProviderIoQuiesced {
-            provider.activateConnection(candidate.settings, candidate.apiKey)
-            val current = configuration.current()
-            if (current.mainProvider == null) {
+            val activation = configuration.withRoutingLock {
+                val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
+                // This repair is intentionally ordered after persisting B. It
+                // is idempotent and also covers a crash between those steps.
+                preferences.floppySettingsNow()?.connectionId?.let { instance ->
+                    configurationRepair(instance)
+                }
+                if (result.identityChanged) {
+                    bootstrap().resetForInstanceChange(candidate.settings.connectionId)
+                }
+                val current = configuration.current()
+                if (current.mainProvider != null && current.secondaryProvider != com.cinetrack.data.sync.TrackingProviderId.FLOPPY) {
+                    configuration.setProvidersLocked(current.mainProvider, com.cinetrack.data.sync.TrackingProviderId.FLOPPY)
+                }
+                current
+            }
+            if (activation.mainProvider == null) {
                 // A connected provider is not falsely presented as an active
                 // SECONDARY when there is no MAIN authority.
                 return@withProviderIoQuiesced ConnectionResult.Connected
-            }
-            if (current.secondaryProvider != com.cinetrack.data.sync.TrackingProviderId.FLOPPY) {
-                configuration.setProviders(current.mainProvider, com.cinetrack.data.sync.TrackingProviderId.FLOPPY)
             }
             when (preferences.providerBootstrapStateNow(com.cinetrack.data.sync.TrackingProviderId.FLOPPY)) {
                 ProviderBootstrapState.NOT_STARTED,
@@ -55,7 +66,14 @@ class FloppySecondaryService(
         }
     }
 
+    private suspend fun configurationRepair(instanceId: String) {
+        // The service owns the provider-I/O quiescence and routing lock while
+        // invoking this helper; repository repair never retargets rows.
+        configuration.repairProviderInstanceTargets(instanceId)
+    }
+
     suspend fun disconnect() = coordinator.withProviderIoQuiesced {
         provider.disconnect()
     }
 }
+

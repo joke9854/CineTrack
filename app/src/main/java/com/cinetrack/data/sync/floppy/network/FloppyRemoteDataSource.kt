@@ -22,6 +22,7 @@ import com.cinetrack.data.sync.floppy.FloppySession
 import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
+import com.cinetrack.data.sync.floppy.FloppyVerificationProjection
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import java.time.Instant
@@ -110,6 +111,14 @@ class FloppyRemoteDataSource(
         val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         val completed = linkedSetOf<String>()
         try {
+            val episodeIndex = if (operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+                paginateEpisodeHistory(api).mapNotNull { entry ->
+                    val show = entry.mediaId?.toLongOrNull() ?: return@mapNotNull null
+                    val season = entry.season ?: return@mapNotNull null
+                    val episode = entry.episode ?: return@mapNotNull null
+                    if (entry.watched == true || entry.endDate != null) EpisodeKey(show, season, episode) else null
+                }.toMutableSet()
+            } else null
             val byMovieGeneration = operations
                 .filter { it.mediaType == MediaType.MOVIE }
                 .groupBy { it.mediaId to it.sourceVersion }
@@ -122,13 +131,13 @@ class FloppyRemoteDataSource(
                 }
                 val watched = pair.firstOrNull { it.type == SyncOperationType.MOVIE_WATCHED }
                 if (library != null && watched != null) {
-                    pushMovieWatched(api, watched, "tmdb", watched.mediaId.toString())
+                    pushMovieCompleted(api, library, watched, "tmdb", watched.mediaId.toString())
                     completed += library.id
                     completed += watched.id
                     consumed += library.id
                     consumed += watched.id
                 } else {
-                    pushOne(api, operation)
+                    pushOne(api, operation, episodeIndex)
                     completed += operation.id
                     consumed += operation.id
                 }
@@ -158,14 +167,54 @@ class FloppyRemoteDataSource(
         }
     }
 
-    private suspend fun pushOne(api: FloppyApi, operation: SyncOperation) {
+    /** Fetches Floppy's active consumptions and completed history without
+     * collapsing the two semantic dimensions into TrackingSnapshot. */
+    suspend fun verificationProjection(session: FloppySession): FloppyVerificationProjection {
+        val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
+        try {
+            val movies = paginate(api, "movie").groupBy { (it.item?.get("media_id")?.jsonPrimitive?.contentOrNull ?: it.itemId) ?: "" }
+                .mapNotNull { (id, rows) -> id.toLongOrNull()?.let { tmdb ->
+                    val consumptions = rows.mapNotNull { it.toConsumption() }
+                    val resolved = resolver.resolve(consumptions)
+                    tmdb to FloppyVerificationProjection.Movie(
+                        resolved.active?.status.toLibraryStatus(),
+                        resolved.completed.mapNotNull { it.endDate.toInstantOrNull() }.toSet(),
+                        resolved.completed.size,
+                    )
+                } }.toMap()
+            val shows = paginate(api, "tv").groupBy { (it.item?.get("media_id")?.jsonPrimitive?.contentOrNull ?: it.itemId) ?: "" }
+                .mapNotNull { (id, rows) -> id.toLongOrNull()?.let { tmdb ->
+                    val consumptions = rows.mapNotNull { it.toConsumption() }
+                    val resolved = resolver.resolve(consumptions)
+                    tmdb to FloppyVerificationProjection.Show(
+                        resolved.active?.status.toLibraryStatus(), resolved.completed.size,
+                    )
+                } }.toMap()
+            val episodes = paginate(api, "episode").mapNotNull { row ->
+                row.toEpisode()?.let { state ->
+                    FloppyVerificationProjection.Episode(
+                        state.showIds.tmdb ?: return@let null,
+                        state.season,
+                        state.episode,
+                        state.watched,
+                        state.watchedAt,
+                    )
+                }
+            }.toSet()
+            return FloppyVerificationProjection(movies, shows, episodes)
+        } catch (error: Throwable) {
+            throw FloppyApiErrorMapper.map(error)
+        }
+    }
+
+    private suspend fun pushOne(api: FloppyApi, operation: SyncOperation, episodeIndex: MutableSet<EpisodeKey>? = null) {
         val source = "tmdb"
         val mediaId = operation.mediaId.toString()
         when (operation.type) {
             SyncOperationType.LIBRARY_STATUS -> pushLibrary(api, operation, source, mediaId)
             SyncOperationType.MOVIE_WATCHED -> pushMovieWatched(api, operation, source, mediaId)
             SyncOperationType.MOVIE_UNWATCHED -> removeExactMovieHistory(api, operation, source, mediaId)
-            SyncOperationType.EPISODE_WATCHED -> pushEpisodeWatched(api, operation, source, mediaId)
+            SyncOperationType.EPISODE_WATCHED -> pushEpisodeWatched(api, operation, source, mediaId, episodeIndex)
             SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeDrop(api, operation, source, mediaId)
             SyncOperationType.MEDIA_HISTORY_REMOVE -> removeExactMovieHistory(api, operation, source, mediaId)
             SyncOperationType.SET_RATING -> throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operation.type)
@@ -217,6 +266,31 @@ class FloppyRemoteDataSource(
         api.track("movie", FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3, endDate = watchedAt.toString()))
     }
 
+    /** Coupled completion effect: establish the exact play, then remove only
+     * the currently active consumption.  Both steps are independently
+     * idempotent so an ambiguous timeout is safe to retry. */
+    private suspend fun pushMovieCompleted(
+        api: FloppyApi,
+        library: SyncOperation,
+        watched: SyncOperation,
+        source: String,
+        mediaId: String,
+    ) {
+        val watchedAt = watched.payload.toInstantOrNull()
+            ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
+        var history = loadHistory(api, "movie", source, mediaId)
+        if (resolver.findExactWatch(history, watchedAt) == null) {
+            api.track("movie", FloppyTrackMediaRequest(source, mediaId, watched.title, status = 3, endDate = watchedAt.toString()))
+        }
+        history = loadHistory(api, "movie", source, mediaId)
+        val active = resolver.resolve(history).active
+        active?.let { deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId) }
+        val remaining = loadHistory(api, "movie", source, mediaId)
+        check(resolver.resolve(remaining).active == null) {
+            "Floppy retained an active movie consumption after completion"
+        }
+    }
+
     private suspend fun removeExactMovieHistory(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
         require(operation.mediaType == MediaType.MOVIE) { "Movie history removal must target a movie" }
         val context = MovieHistoryMutationContext.parse(operation.payload)
@@ -229,12 +303,21 @@ class FloppyRemoteDataSource(
         deleteConsumptionSafely(api, "movie", source, mediaId, intended.consumptionId)
     }
 
-    private suspend fun pushEpisodeWatched(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
+    private suspend fun pushEpisodeWatched(
+        api: FloppyApi,
+        operation: SyncOperation,
+        source: String,
+        mediaId: String,
+        episodeIndex: MutableSet<EpisodeKey>? = null,
+    ) {
         val (season, episode, watchedAt) = operation.episodeParts()
-        val existing = historyOrEmptyOnNotFound(api)
-            .firstOrNull { it.mediaType == "episode" && it.mediaId == mediaId && it.season == season && it.episode == episode && (it.watched == true || it.endDate != null) }
-        if (existing != null) return
+        val key = EpisodeKey(mediaId.toLongOrNull() ?: -1L, season, episode)
+        if (episodeIndex?.contains(key) == true) return
+        if (episodeIndex == null && paginateEpisodeHistory(api).any {
+                it.mediaType == "episode" && it.mediaId == mediaId && it.season == season && it.episode == episode && (it.watched == true || it.endDate != null)
+            }) return
         api.watchEpisode("tv", source, mediaId, season, episode, FloppyEpisodeWatchRequest(watchedAt = watchedAt?.toString()))
+        episodeIndex?.add(key)
     }
 
     private suspend fun pushEpisodeDrop(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
@@ -259,10 +342,20 @@ class FloppyRemoteDataSource(
         if (error.code() == 404) null else throw error
     }
 
-    private suspend fun historyOrEmptyOnNotFound(api: FloppyApi): List<com.cinetrack.data.sync.floppy.FloppyHistoryEntry> = try {
-        api.history(flat = "1", limit = 200, offset = 0, types = "episode").results
-    } catch (error: HttpException) {
-        if (error.code() == 404) emptyList() else throw error
+    private suspend fun paginateEpisodeHistory(api: FloppyApi): List<com.cinetrack.data.sync.floppy.FloppyHistoryEntry> {
+        val all = mutableListOf<com.cinetrack.data.sync.floppy.FloppyHistoryEntry>()
+        var offset = 0
+        while (true) {
+            val page = try {
+                api.history(flat = "1", limit = 200, offset = offset, types = "episode")
+            } catch (error: HttpException) {
+                if (error.code() == 404) return all else throw error
+            }
+            all += page.results
+            if (page.results.isEmpty() || page.pagination.next == null) break
+            offset += page.results.size
+        }
+        return all
     }
 
     private suspend fun deleteConsumptionSafely(api: FloppyApi, mediaType: String, source: String, mediaId: String, consumptionId: Int) {
@@ -341,6 +434,8 @@ class FloppyRemoteDataSource(
         )
     }
 }
+
+private data class EpisodeKey(val showTmdbId: Long, val season: Int, val episode: Int)
 
 private fun MediaType.floppyType() = when (this) {
     MediaType.MOVIE -> "movie"
