@@ -25,7 +25,7 @@ class AppDatabaseMigrationTest {
     @Test fun migration7To10PreservesProviderId() = migrateAndValidate(7)
     @Test fun migration8To10PreservesEpisodeCoordinates() = migrateAndValidate(8)
     @Test fun migration9To10PreservesDeliveryGeneration() = migrateAndValidate(9)
-    @Test fun migration10To11AddsOperationPayload() = migrateAndValidate(10)
+    @Test fun migration10To12AddsOperationPayloadAndInstanceBinding() = migrateAndValidate(10)
 
     @Test
     fun migration5To6IsDeclaredForLegacyInstallations() {
@@ -37,14 +37,14 @@ class AppDatabaseMigrationTest {
             seedCanonicalRows(db, version)
         }
         val migrations = when (version) {
-            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
-            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
-            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
-            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11)
-            9 -> arrayOf(AppDatabase.migration9To10, AppDatabase.migration10To11)
-            else -> arrayOf(AppDatabase.migration10To11)
+            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
+            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
+            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
+            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
+            9 -> arrayOf(AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
+            else -> arrayOf(AppDatabase.migration10To11, AppDatabase.migration11To12)
         }
-        helper.runMigrationsAndValidate("migration-$version", 11, true, *migrations).use { migrated ->
+        helper.runMigrationsAndValidate("migration-$version", 12, true, *migrations).use { migrated ->
             assertEquals(1, count(migrated, "media"))
             assertEquals(1, count(migrated, "user_media_state"))
             assertEquals(1, count(migrated, "playback"))
@@ -68,6 +68,20 @@ class AppDatabaseMigrationTest {
                     while (cursor.moveToNext()) if (cursor.getString(1) == "payload") foundPayload = true
                     assertTrue(foundPayload)
                 }
+            }
+        }
+    }
+
+    @Test
+    fun migration11To12CancelsUnknownLegacyFloppyDelivery() {
+        helper.createDatabase("migration-11-floppy", 11).use { db ->
+            db.execSQL("INSERT INTO sync_operation_deliveries(operationId,operationVersion,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('legacy-floppy',1,'FLOPPY','PENDING',1,'SECONDARY',0,NULL,1,1)")
+        }
+        helper.runMigrationsAndValidate("migration-11-floppy", 12, true, AppDatabase.migration11To12).use { migrated ->
+            migrated.query("SELECT providerInstanceId,status FROM sync_operation_deliveries WHERE operationId='legacy-floppy'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertTrue(cursor.isNull(0))
+                assertEquals("CANCELLED_PROVIDER_INSTANCE_CHANGED", cursor.getString(1))
             }
         }
     }
@@ -111,3 +125,4 @@ class AppDatabaseMigrationTest {
             cursor.getInt(0)
         }
 }
+

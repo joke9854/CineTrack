@@ -5,10 +5,10 @@ import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
 schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
-for version in (5, 6, 7, 8, 9, 10, 11):
+for version in (5, 6, 7, 8, 9, 10, 11, 12):
     assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
-assert "version = 11" in source, "Room database version must be 11"
-for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11"):
+assert "version = 12" in source, "Room database version must be 12"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12"):
     assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
 migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
@@ -105,7 +105,7 @@ assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "tit
 # Validate the current Room entities independently of the historical 5->6
 # fixture above. This catches drift in the generation-aware delivery schema.
 assert 'primaryKeys = ["operationId", "operationVersion", "providerId"]' in source
-for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "attemptCount", "lastError", "createdAt", "updatedAt"):
+for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "providerInstanceId", "attemptCount", "lastError", "createdAt", "updatedAt"):
     assert re.search(rf"val {column}\s*:", source), f"Missing delivery column {column}"
 for column in ("operationId", "operation", "mediaType", "mediaId", "title", "status", "providerId", "season", "episode", "payload"):
     assert re.search(rf"data class SyncOperationEntity[\s\S]*?val {column}\s*:", source), f"Missing sync-operation column {column}"
@@ -116,4 +116,7 @@ for index in (
 ):
     assert index in source, f"Missing delivery index {index}"
 assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
+assert "Migration(11, 12)" in source, "12 must have an explicit 11->12 migration"
+assert "CANCELLED_PROVIDER_INSTANCE_CHANGED" in source, "Unknown legacy Floppy deliveries must be terminally cancelled"
 print("PASS: static schema, delivery indexes, migration declarations, and 5-11 fixtures verified; MigrationTestHelper remains authoritative for execution.")
+

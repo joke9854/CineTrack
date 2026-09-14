@@ -47,12 +47,14 @@ class DurableTrackingQueue(
         return providers.mapNotNull { providerId ->
             if (providerId != configuration.secondaryProvider) return@mapNotNull null
             val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+            val instanceId = providerInstanceId(providerId)
             SyncOperationDelivery(
                 operationId = operation.id,
                 operationVersion = operation.sourceVersion,
                 providerId = providerId,
                 required = supported,
                 roleAtEnqueue = TrackingRole.SECONDARY,
+                providerInstanceId = instanceId,
                 status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
                 createdAt = operation.sourceVersion,
                 updatedAt = operation.sourceVersion,
@@ -64,12 +66,14 @@ class DurableTrackingQueue(
     internal suspend fun snapshotSecondaryUnlocked(operation: SyncOperation): SyncOperationDelivery? {
         val providerId = providerRegistry.configuration().secondaryProvider ?: return null
         val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+        val instanceId = providerInstanceId(providerId)
         return SyncOperationDelivery(
             operationId = operation.id,
             operationVersion = operation.sourceVersion,
             providerId = providerId,
             required = supported,
             roleAtEnqueue = TrackingRole.SECONDARY,
+            providerInstanceId = instanceId,
             status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
             createdAt = operation.sourceVersion,
             updatedAt = operation.sourceVersion,
@@ -81,6 +85,7 @@ class DurableTrackingQueue(
         val configuration = providerRegistry.configuration()
         return buildList {
             configuration.mainProvider?.let { provider ->
+                val instanceId = providerInstanceId(provider)
                 add(
                     SyncOperationDelivery(
                         operationId = operation.id,
@@ -88,6 +93,7 @@ class DurableTrackingQueue(
                         providerId = provider,
                         required = true,
                         roleAtEnqueue = TrackingRole.MAIN,
+                        providerInstanceId = instanceId,
                         createdAt = operation.sourceVersion,
                         updatedAt = operation.sourceVersion,
                     ),
@@ -95,6 +101,7 @@ class DurableTrackingQueue(
             }
             configuration.secondaryProvider?.let { providerId ->
                 val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+                val instanceId = providerInstanceId(providerId)
                 add(
                     SyncOperationDelivery(
                         operationId = operation.id,
@@ -102,6 +109,7 @@ class DurableTrackingQueue(
                         providerId = providerId,
                         required = supported,
                         roleAtEnqueue = TrackingRole.SECONDARY,
+                        providerInstanceId = instanceId,
                         status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
                         createdAt = operation.sourceVersion,
                         updatedAt = operation.sourceVersion,
@@ -109,6 +117,14 @@ class DurableTrackingQueue(
                 )
             }
         }
+    }
+
+    private suspend fun providerInstanceId(providerId: TrackingProviderId): String? {
+        val instance = providerRegistry.getProvider(providerId)?.currentDeliveryInstanceId()
+        if (providerId == TrackingProviderId.FLOPPY && instance.isNullOrBlank()) {
+            throw IllegalStateException("Floppy is not connected as a valid delivery target")
+        }
+        return instance
     }
 }
 
@@ -219,3 +235,4 @@ class DurableSyncOperationWriter(
         operation
     }
 }
+

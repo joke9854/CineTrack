@@ -125,6 +125,7 @@ class AppPreferences(private val context: Context) {
         val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
         val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
         val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
+        val floppyAllowInsecureLocalHttp = booleanPreferencesKey("floppy_allow_insecure_local_http")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
@@ -269,6 +270,7 @@ class AppPreferences(private val context: Context) {
             connectedAt = values[Keys.floppyConnectedAt],
             connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
             credentialAlias = values[Keys.floppyCredentialAlias] ?: "floppy_api_key",
+            allowInsecureLocalHttp = values[Keys.floppyAllowInsecureLocalHttp] ?: false,
         )
     }
 
@@ -305,6 +307,7 @@ class AppPreferences(private val context: Context) {
                 values.remove(Keys.floppyCapabilities)
                 values.remove(Keys.floppyConnectedAt)
                 values.remove(Keys.floppyBootstrapPlan)
+                values.remove(Keys.floppyAllowInsecureLocalHttp)
                 values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
                 values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
                 values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
@@ -326,6 +329,7 @@ class AppPreferences(private val context: Context) {
                 }
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
+                values[Keys.floppyAllowInsecureLocalHttp] = settings.allowInsecureLocalHttp
                 if (identityChanged) {
                     values.remove(Keys.floppyBootstrapPlan)
                     values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
@@ -338,6 +342,13 @@ class AppPreferences(private val context: Context) {
         // a valid old alias or a valid new active alias after restart.
         if (settings == null || identityChanged) setSecureCredential(oldAlias, null)
     }
+
+    suspend fun setFloppyAllowInsecureLocalHttp(enabled: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.floppyAllowInsecureLocalHttp] = enabled }
+    }
+
+    suspend fun floppyAllowInsecureLocalHttpNow(): Boolean =
+        context.cineTrackDataStore.data.first()[Keys.floppyAllowInsecureLocalHttp] ?: false
 
     suspend fun syncReportNow(): SyncReport {
         val values = context.cineTrackDataStore.data.first()[Keys.syncReport].orEmpty().split('|')
@@ -397,6 +408,14 @@ class AppPreferences(private val context: Context) {
         val instance = raw.substring(0, separator).takeIf(String::isNotBlank) ?: return null
         val count = raw.substring(separator + 1).toIntOrNull()?.takeIf { it >= 0 } ?: return null
         return instance to count
+    }
+
+    suspend fun floppyBootstrapPlanRawNow(): String? =
+        context.cineTrackDataStore.data.first()[Keys.floppyBootstrapPlan]
+
+    suspend fun setFloppyBootstrapPlanRaw(raw: String) {
+        require(raw.isNotBlank()) { "Floppy bootstrap plan cannot be blank" }
+        context.cineTrackDataStore.edit { it[Keys.floppyBootstrapPlan] = raw }
     }
 
     suspend fun setFloppyBootstrapPlan(instanceId: String, operationCount: Int) {
@@ -745,3 +764,4 @@ class AppPreferences(private val context: Context) {
         throw cause
     }
 }
+

@@ -11,6 +11,7 @@ import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.data.sync.floppy.FloppyCapabilities
 import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.FloppyConsumption
@@ -49,9 +50,9 @@ class FloppyRemoteDataSource(
         throw FloppyApiErrorMapper.map(error)
     }
 
-    suspend fun connect(baseUrl: String, apiKey: String): FloppyConnectionSettings = try {
-        val identity = FloppyUrlNormalizer.normalize(baseUrl)
-        val api = factory.get(identity.baseUrl, apiKey)
+    suspend fun connect(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean = false): FloppyConnectionSettings = try {
+        val identity = FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp)
+        val api = factory.get(identity.baseUrl, apiKey, allowInsecureLocalHttp)
         val info = api.info()
         val preferences = api.preferences()
         val account = preferences["username"]?.jsonPrimitive?.contentOrNull
@@ -75,14 +76,15 @@ class FloppyRemoteDataSource(
             capabilities = capabilities,
             connectedAt = System.currentTimeMillis(),
             connectionId = UUID.randomUUID().toString(),
+            allowInsecureLocalHttp = allowInsecureLocalHttp,
         )
     } catch (error: Throwable) {
         throw FloppyApiErrorMapper.map(error)
     }
 
-    suspend fun test(baseUrl: String, apiKey: String?): ConnectionResult = try {
-        val identity = FloppyUrlNormalizer.normalize(baseUrl)
-        val api = factory.get(identity.baseUrl, apiKey)
+    suspend fun test(baseUrl: String, apiKey: String?, allowInsecureLocalHttp: Boolean = false): ConnectionResult = try {
+        val identity = FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp)
+        val api = factory.get(identity.baseUrl, apiKey, allowInsecureLocalHttp)
         api.info()
         if (apiKey.isNullOrBlank()) ConnectionResult.AuthenticationRequired
         else {
@@ -96,17 +98,40 @@ class FloppyRemoteDataSource(
     }
 
     /** Compatibility overload; production calls use one immutable session. */
-    suspend fun push(baseUrl: String, apiKey: String, operations: List<SyncOperation>): ProviderPushResult =
-        push(session(baseUrl, apiKey), operations)
+    suspend fun push(
+        baseUrl: String,
+        apiKey: String,
+        operations: List<SyncOperation>,
+        allowInsecureLocalHttp: Boolean = false,
+    ): ProviderPushResult = push(session(baseUrl, apiKey, allowInsecureLocalHttp), operations)
 
     suspend fun push(session: FloppySession, operations: List<SyncOperation>): ProviderPushResult {
         if (operations.isEmpty()) return ProviderPushResult(emptySet())
-        val api = factory.get(session.baseUrl, session.apiKey)
+        val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         val completed = linkedSetOf<String>()
         try {
+            val byMovieGeneration = operations
+                .filter { it.mediaType == MediaType.MOVIE }
+                .groupBy { it.mediaId to it.sourceVersion }
+            val consumed = mutableSetOf<String>()
             operations.forEach { operation ->
-                pushOne(api, operation)
-                completed += operation.id
+                if (operation.id in consumed) return@forEach
+                val pair = byMovieGeneration[operation.mediaId to operation.sourceVersion].orEmpty()
+                val library = pair.firstOrNull {
+                    it.type == SyncOperationType.LIBRARY_STATUS && it.value == LibraryStatus.COMPLETED.name
+                }
+                val watched = pair.firstOrNull { it.type == SyncOperationType.MOVIE_WATCHED }
+                if (library != null && watched != null) {
+                    pushMovieWatched(api, watched, "tmdb", watched.mediaId.toString())
+                    completed += library.id
+                    completed += watched.id
+                    consumed += library.id
+                    consumed += watched.id
+                } else {
+                    pushOne(api, operation)
+                    completed += operation.id
+                    consumed += operation.id
+                }
             }
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
@@ -114,10 +139,14 @@ class FloppyRemoteDataSource(
         return ProviderPushResult(completed)
     }
 
-    suspend fun snapshot(baseUrl: String, apiKey: String): TrackingSnapshot = snapshot(session(baseUrl, apiKey))
+    suspend fun snapshot(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean = false,
+    ): TrackingSnapshot = snapshot(session(baseUrl, apiKey, allowInsecureLocalHttp))
 
     suspend fun snapshot(session: FloppySession): TrackingSnapshot {
-        val api = factory.get(session.baseUrl, session.apiKey)
+        val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         try {
             val movies = aggregateMovies(paginate(api, "movie"))
             val shows = aggregateShows(paginate(api, "tv"))
@@ -148,8 +177,23 @@ class FloppyRemoteDataSource(
             ?: throw TrackingSyncError.InvalidRemoteData("Missing Floppy library status")
         val detail = mediaDetailOrNull(api, operation.mediaType.floppyType(), source, mediaId)
         val active = resolver.resolve(detail?.consumptions.orEmpty()).active
+        val latestCompleted = resolver.resolve(detail?.consumptions.orEmpty()).latestCompleted
         if (desired == LibraryStatus.NONE) {
             active?.let { deleteConsumptionSafely(api, operation.mediaType.floppyType(), source, mediaId, it.consumptionId) }
+            return
+        }
+        if (desired == LibraryStatus.COMPLETED) {
+            if (latestCompleted != null) return
+            // A standalone completed movie mutation has no trustworthy local
+            // timestamp. Do not invent one or create a history row merely to
+            // satisfy a legacy library-only operation; the paired
+            // MOVIE_WATCHED operation owns movie completion. TV has no paired
+            // movie timestamp and can use one idempotent status-3 entry.
+            if (operation.mediaType == MediaType.MOVIE) return
+            api.track(
+                operation.mediaType.floppyType(),
+                FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3),
+            )
             return
         }
         val targetStatus = desired.toFloppyStatus()
@@ -175,8 +219,11 @@ class FloppyRemoteDataSource(
 
     private suspend fun removeExactMovieHistory(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
         require(operation.mediaType == MediaType.MOVIE) { "Movie history removal must target a movie" }
-        val watchedAt = operation.payload.toInstantOrNull()
-            ?: throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operation.type)
+        val context = MovieHistoryMutationContext.parse(operation.payload)
+        if (context?.previousWatched == false) return
+        val watchedAt = context?.previousWatchedAt
+            ?: operation.payload.toInstantOrNull()
+            ?: return // Legacy LibraryStatus-only rows are handled conservatively.
         val history = loadHistory(api, "movie", source, mediaId)
         val intended = resolver.findExactWatch(history, watchedAt) ?: return
         deleteConsumptionSafely(api, "movie", source, mediaId, intended.consumptionId)
@@ -280,9 +327,18 @@ class FloppyRemoteDataSource(
         FloppyConsumption(it, created = createdAt, score = score, progress = progress, progressedAt = progressedAt, status = status, startDate = startDate, endDate = endDate)
     }
 
-    private fun session(baseUrl: String, apiKey: String): FloppySession {
-        val identity = FloppyUrlNormalizer.normalize(baseUrl)
-        return FloppySession(identity.baseUrl, identity.baseUrl, null, "floppy_api_key", apiKey, FloppyCapabilities(), null)
+    private fun session(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean = false): FloppySession {
+        val identity = FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp)
+        return FloppySession(
+            instanceId = identity.baseUrl,
+            baseUrl = identity.baseUrl,
+            accountIdentity = null,
+            credentialAlias = "floppy_api_key",
+            apiKey = apiKey,
+            capabilities = FloppyCapabilities(),
+            serverVersion = null,
+            allowInsecureLocalHttp = allowInsecureLocalHttp,
+        )
     }
 }
 
@@ -325,3 +381,4 @@ private fun SyncOperation.episodeParts(): Triple<Int, Int, Instant?> {
 }
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
+

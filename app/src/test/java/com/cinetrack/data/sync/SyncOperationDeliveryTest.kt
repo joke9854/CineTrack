@@ -76,6 +76,7 @@ private class DeliveryProvider(override val id: TrackingProviderId) : TrackingPr
     var calls = 0
     val sentIds = mutableListOf<String>()
     override suspend fun isAuthenticated() = true
+    override suspend fun currentDeliveryInstanceId(): String? = if (id == TrackingProviderId.FLOPPY) "floppy-instance" else null
     override suspend fun push(operations: List<SyncOperation>): ProviderPushResult { calls++; if (fail) error("offline"); sentIds += operations.map(SyncOperation::id); return ProviderPushResult(operations.mapTo(linkedSetOf(), SyncOperation::id)) }
     override suspend fun syncBidirectionally(operations: List<SyncOperation>, onProgress: (SyncProgress) -> Unit) = ProviderSyncOutcome(false, acknowledgedOperationIds = operations.mapTo(linkedSetOf(), SyncOperation::id))
     override suspend fun testConnection() = ConnectionResult.Connected

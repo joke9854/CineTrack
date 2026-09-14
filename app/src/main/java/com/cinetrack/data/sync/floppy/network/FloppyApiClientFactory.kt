@@ -10,6 +10,8 @@ import retrofit2.converter.kotlinx.serialization.asConverterFactory
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import java.net.URI
+import java.net.Inet6Address
+import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 
@@ -47,7 +49,18 @@ object FloppyUrlNormalizer {
     private fun isPrivateHost(rawHost: String): Boolean {
         val host = rawHost.trim('[', ']').lowercase()
         if (host == "localhost" || host.endsWith(".local")) return true
-        if (host == "::1" || host.startsWith("fe80:") || host.startsWith("fc") || host.startsWith("fd")) return true
+        if (host.contains(':')) {
+            val address = runCatching { InetAddress.getByName(host) }.getOrNull()
+            if (address is Inet6Address) {
+                val bytes = address.address
+                val first = bytes.firstOrNull()?.toInt()?.and(0xff) ?: return false
+                val second = bytes.getOrNull(1)?.toInt()?.and(0xff) ?: return false
+                val ula = first and 0xfe == 0xfc
+                val linkLocal = first == 0xfe && second and 0xc0 == 0x80
+                return address.isLoopbackAddress || ula || linkLocal
+            }
+            return false
+        }
         val octets = host.split('.')
         if (octets.size != 4) return false
         val values = octets.mapNotNull(String::toIntOrNull)
@@ -129,3 +142,4 @@ class FloppyApiClientFactory {
         return bytes.joinToString("") { "%02x".format(it) }
     }
 }
+

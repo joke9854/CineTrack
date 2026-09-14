@@ -85,6 +85,8 @@ enum class DeliveryStatus {
     SUPERSEDED,
     /** Terminal when a configured provider is explicitly removed. */
     CANCELLED_PROVIDER_REMOVED,
+    /** Terminal when a self-hosted provider instance is replaced. */
+    CANCELLED_PROVIDER_INSTANCE_CHANGED,
 }
 
 enum class TrackingRole { MAIN, SECONDARY }
@@ -96,6 +98,8 @@ data class SyncOperationDelivery(
     val status: DeliveryStatus = DeliveryStatus.PENDING,
     val required: Boolean = true,
     val roleAtEnqueue: TrackingRole = TrackingRole.MAIN,
+    /** Opaque immutable provider target identity captured at enqueue time. */
+    val providerInstanceId: String? = null,
     val attemptCount: Int = 0,
     val lastError: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -209,6 +213,9 @@ interface TrackingProvider {
     val id: TrackingProviderId
     val capabilities: TrackingCapabilities
 
+    /** Stable target identity for durable deliveries, when the provider has one. */
+    suspend fun currentDeliveryInstanceId(): String? = null
+
     suspend fun isAuthenticated(): Boolean
     suspend fun push(operations: List<SyncOperation>): ProviderPushResult
 
@@ -226,3 +233,4 @@ interface TrackingProvider {
 
     suspend fun testConnection(): ConnectionResult
 }
+

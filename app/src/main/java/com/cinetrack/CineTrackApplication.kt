@@ -30,6 +30,8 @@ import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
 import com.cinetrack.data.sync.floppy.FloppyBootstrapCoordinator
+import com.cinetrack.data.sync.floppy.FloppyBootstrapVerifier
+import com.cinetrack.data.sync.floppy.FloppySecondaryService
 import com.cinetrack.data.sync.simkl.SimklTrackingProvider
 import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
@@ -107,6 +109,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val trackingProviderRegistry: TrackingProviderRegistry
     val syncCoordinator: SyncCoordinator
     lateinit var floppyBootstrapCoordinator: FloppyBootstrapCoordinator
+    lateinit var floppySecondaryService: FloppySecondaryService
     val repository: CineTrackRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
@@ -127,7 +130,14 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
-            onIdentityChanged = { syncOperationRepository.failProviderDeliveries(com.cinetrack.data.sync.TrackingProviderId.FLOPPY, "Floppy instance changed; retrying on the new connection") },
+            onIdentityChanged = {
+                trackingRoutingMutex.withLock {
+                    syncOperationRepository.cancelProviderInstanceDeliveries(
+                        com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
+                        "Floppy provider instance changed; bootstrap the new target",
+                    )
+                }
+            },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, floppy),
@@ -135,6 +145,13 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         )
         val syncReconciler = SyncReconciler()
         syncCoordinator = SyncCoordinator(trackingProviderRegistry, syncOperationRepository, syncReconciler)
+        floppySecondaryService = FloppySecondaryService(
+            provider = floppy,
+            preferences = preferences,
+            configuration = trackingConfigurationService,
+            coordinator = syncCoordinator,
+            bootstrap = { floppyBootstrapCoordinator },
+        )
         val durableOperationWriter = DurableSyncOperationWriter(
             operationRepository = syncOperationRepository,
             durableQueue = DurableTrackingQueue(trackingProviderRegistry, trackingRoutingMutex),
@@ -170,6 +187,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
+            floppySecondaryService = floppySecondaryService,
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))
@@ -182,8 +200,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             operationRepository = syncOperationRepository,
             operationWriter = durableOperationWriter,
             canonicalSnapshot = { repository.canonicalTrackingSnapshot() },
-            verifyRemote = {
-                runCatching { floppy.pullSnapshot(); true }.getOrDefault(false)
+            verifyRemote = { expected ->
+                runCatching { FloppyBootstrapVerifier().verify(expected, floppy.pullSnapshot()) }.getOrDefault(false)
             },
         )
 
@@ -243,3 +261,4 @@ private data class StartupPreferences(
     val metadataRegion: String,
     val metadataTimezone: String,
 )
+

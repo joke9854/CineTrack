@@ -18,6 +18,7 @@ import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.data.sync.logicalField
 import com.cinetrack.data.sync.MutationGeneration
+import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -78,6 +79,10 @@ class RoomLibraryRepository(
             val mutationVersion = nextMutationGenerationLocked()
             val ids = mutableSetOf("state:${media.type.name}:${media.id}")
             val previous = database.stateDao().get(media.type.name, media.id)
+            val previousMovieHistory = if (media.type == MediaType.MOVIE) {
+                database.timelineDao().movieHistory(MediaType.MOVIE.name, media.id)
+            } else emptyList()
+            val previousMovieWatched = previous?.watched == true || previousMovieHistory.isNotEmpty()
             val shouldClearHistory = media.type == MediaType.TV &&
                 (status == LibraryStatus.NONE || (previous?.watched == true && status != LibraryStatus.COMPLETED))
             val episodeHistoryToClear = if (shouldClearHistory) {
@@ -97,7 +102,14 @@ class RoomLibraryRepository(
             )
             queueStateOperation(media, status)
             if (media.type == MediaType.MOVIE) {
-                queueMovieWatchedOperation(media, status == LibraryStatus.COMPLETED, mutationVersion, status)
+                queueMovieWatchedOperation(
+                    media,
+                    status == LibraryStatus.COMPLETED,
+                    mutationVersion,
+                    status,
+                    previousMovieWatched,
+                    previousMovieHistory.firstOrNull()?.watchedAt,
+                )
             }
             if (status == LibraryStatus.COMPLETED && previous?.watched != true) {
                 if (media.type == MediaType.MOVIE) database.timelineDao().deleteMediaHistory(media.type.name, media.id)
@@ -316,6 +328,8 @@ class RoomLibraryRepository(
         watched: Boolean,
         mutationVersion: Long,
         desiredLibraryStatus: LibraryStatus,
+        previousWatched: Boolean = false,
+        previousWatchedAt: String? = null,
     ) {
         persistOperation(
             SyncOperation(
@@ -325,7 +339,15 @@ class RoomLibraryRepository(
                 mediaId = media.id,
                 title = media.title,
                 value = watched.toString(),
-                payload = if (watched) Instant.ofEpochMilli(mutationVersion).toString() else desiredLibraryStatus.name,
+                payload = if (watched) {
+                    Instant.ofEpochMilli(mutationVersion).toString()
+                } else {
+                    MovieHistoryMutationContext(
+                        desiredLibraryStatus = desiredLibraryStatus,
+                        previousWatched = previousWatched,
+                        previousWatchedAt = previousWatchedAt?.let { runCatching { Instant.parse(it) }.getOrNull() },
+                    ).encode()
+                },
                 sourceVersion = mutationVersion,
             ),
         )
@@ -382,7 +404,7 @@ class RoomLibraryRepository(
                 database.syncDao().deleteOperationIfGeneration(id, entity.createdAt)
                 return@forEach
             }
-            if (required.isEmpty() || required.any { it.status !in setOf("ACKNOWLEDGED", "SKIPPED_UNSUPPORTED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED") }) return@forEach
+            if (required.isEmpty() || required.any { it.status !in setOf("ACKNOWLEDGED", "SKIPPED_UNSUPPORTED", "CANCELLED_PROVIDER_REMOVED", "CANCELLED_PROVIDER_INSTANCE_CHANGED", "SUPERSEDED") }) return@forEach
             val entity = database.syncDao().syncOperation(id) ?: return@forEach
             id.removePrefix("write:").toLongOrNull()?.let { database.syncDao().deletePendingWriteIfGeneration(it, entity.createdAt) }
             database.syncDao().deleteDeliveriesForGeneration(id, entity.createdAt)
@@ -408,6 +430,7 @@ class RoomLibraryRepository(
                 status = delivery.status.name,
                 required = delivery.required,
                 roleAtEnqueue = delivery.roleAtEnqueue.name,
+                providerInstanceId = delivery.providerInstanceId,
                 attemptCount = delivery.attemptCount,
                 lastError = delivery.lastError,
                 createdAt = delivery.createdAt,
@@ -515,3 +538,4 @@ class RoomLibraryRepository(
         )
     }
 }
+

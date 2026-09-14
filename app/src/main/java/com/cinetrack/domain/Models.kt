@@ -254,6 +254,7 @@ data class AppUiState(
     val floppyConnected: Boolean = false,
     val floppyServerVersion: String? = null,
     val floppyBaseUrl: String? = null,
+    val floppyAllowInsecureLocalHttp: Boolean = false,
     val trackingProviders: List<TrackingProviderState> = emptyList(),
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
@@ -322,3 +323,4 @@ object RailIds {
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"
 }
+

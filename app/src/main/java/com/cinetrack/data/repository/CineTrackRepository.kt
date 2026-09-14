@@ -33,6 +33,7 @@ import com.cinetrack.data.sync.DurableSyncOperationWriter
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
+import com.cinetrack.data.sync.floppy.FloppySecondaryService
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
@@ -153,14 +154,17 @@ class CineTrackRepository(
     override val syncReconciler: SyncReconciler = SyncReconciler(),
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
+    private val floppySecondaryService: FloppySecondaryService? = null,
 ) : SimklSyncHost {
     suspend fun connectFloppy(baseUrl: String, apiKey: String): com.cinetrack.data.sync.ConnectionResult =
-        (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
-            ?.connect(baseUrl, apiKey)
+        floppySecondaryService?.connect(baseUrl, apiKey)
+            ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
+                ?.connect(baseUrl, apiKey)
             ?: com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired
 
     suspend fun disconnectFloppy() {
-        (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
+        floppySecondaryService?.disconnect()
+            ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
     }
     suspend fun awaitStartup() {
         awaitStartupReady()
@@ -808,6 +812,7 @@ class CineTrackRepository(
         val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
         val introductionCompletedDeferred = async { preferences.introductionCompleted.first() }
         val floppySettingsDeferred = async { preferences.floppySettingsNow() }
+        val floppyAllowInsecureHttpDeferred = async { preferences.floppyAllowInsecureLocalHttpNow() }
         val providerStatesDeferred = async { buildTrackingProviderStates() }
 
         val snapshot = snapshotDeferred.await()
@@ -1037,6 +1042,7 @@ class CineTrackRepository(
             floppyConnected = floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null,
             floppyServerVersion = floppySettingsDeferred.await()?.serverVersion,
             floppyBaseUrl = floppySettingsDeferred.await()?.baseUrl,
+            floppyAllowInsecureLocalHttp = floppyAllowInsecureHttpDeferred.await(),
             trackingProviders = providerStatesDeferred.await(),
             backgroundSync = backgroundSyncDeferred.await(),
             wifiOnly = wifiOnlyDeferred.await(),
@@ -3382,3 +3388,4 @@ class CineTrackRepository(
     private fun String.fromCineTrackStatus(): LibraryStatus =
         runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
 }
+

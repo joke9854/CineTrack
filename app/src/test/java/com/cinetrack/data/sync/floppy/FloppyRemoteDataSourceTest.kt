@@ -2,13 +2,16 @@ package com.cinetrack.data.sync.floppy
 
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.LibraryStatus
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.Instant
@@ -140,6 +143,82 @@ class FloppyRemoteDataSourceTest {
         assertEquals("/proxy/api/v1/media/tv/tmdb/42/2/episodes/3/drop/", request.path)
     }
 
+    @Test
+    fun coupledMovieCompletionInEitherOrderCreatesExactlyOneConsumption() = runBlocking {
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+        server.enqueue(json("{}"))
+        val watched = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString()).copy(id = "watched")
+        val completed = operation(SyncOperationType.LIBRARY_STATUS, value = "COMPLETED").copy(id = "completed")
+
+        val result = remote.push(session, listOf(watched, completed))
+
+        assertEquals(setOf("watched", "completed"), result.completedOperationIds)
+        assertEquals("/proxy/api/v1/media/movie/tmdb/42/history/?limit=200&offset=0", server.takeRequest().path)
+        val post = server.takeRequest()
+        assertEquals("POST", post.method)
+        assertEquals("/proxy/api/v1/media/movie/", post.path)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun coupledMovieCompletionRetryAfterRemoteCommitDoesNotAppendAgain() = runBlocking {
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val watched = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString()).copy(id = "watched")
+        val completed = operation(SyncOperationType.LIBRARY_STATUS, value = "COMPLETED").copy(id = "completed")
+        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+        server.enqueue(json("{}"))
+        remote.push(session, listOf(completed, watched))
+        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
+
+        remote.push(session, listOf(watched, completed))
+
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun standaloneCompletedTvIsIdempotent() = runBlocking {
+        server.enqueue(json("{\"consumptions\":[]}"))
+        server.enqueue(json("{}"))
+        val operation = operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "COMPLETED")
+        remote.push(session, listOf(operation))
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":3}]}"))
+
+        remote.push(session, listOf(operation))
+
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun knownNeverWatchedUnwatchIsSuccessfulNoOp() = runBlocking {
+        val operation = operation(
+            SyncOperationType.MOVIE_UNWATCHED,
+            payload = MovieHistoryMutationContext(LibraryStatus.PLAN_TO_WATCH, false, null).encode(),
+        )
+
+        val result = remote.push(session, listOf(operation))
+
+        assertEquals(setOf(operation.id), result.completedOperationIds)
+        assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun structuredUnwatchDeletesOnlyTheExactPreviousTimestamp() = runBlocking {
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        server.enqueue(json("{\"pagination\":{\"total\":2,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"},{\"consumption_id\":8,\"status\":3,\"end_date\":\"2025-01-01T00:00:00Z\"}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        val operation = operation(
+            SyncOperationType.MOVIE_UNWATCHED,
+            payload = MovieHistoryMutationContext(LibraryStatus.WATCHING, true, watchedAt).encode(),
+        )
+
+        remote.push(session, listOf(operation))
+
+        server.takeRequest()
+        val delete = server.takeRequest()
+        assertTrue(delete.path?.endsWith("/history/7/") == true)
+    }
+
     private fun operation(
         type: SyncOperationType,
         mediaType: MediaType = MediaType.MOVIE,
@@ -160,3 +239,4 @@ class FloppyRemoteDataSourceTest {
         .addHeader("Content-Type", "application/json")
         .setBody(body)
 }
+

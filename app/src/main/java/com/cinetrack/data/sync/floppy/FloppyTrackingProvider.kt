@@ -25,6 +25,10 @@ class FloppyTrackingProvider(
     private val onDisconnect: (suspend () -> Unit)? = null,
     private val onIdentityChanged: (suspend () -> Unit)? = null,
 ) : TrackingProvider {
+    data class ConnectionCandidate(
+        val settings: FloppyConnectionSettings,
+        val apiKey: String,
+    )
     override val id = TrackingProviderId.FLOPPY
 
     @Volatile private var discovered = FloppyCapabilities()
@@ -32,6 +36,9 @@ class FloppyTrackingProvider(
     private val connectionGeneration = AtomicLong(0)
     override val capabilities: TrackingCapabilities
         get() = discovered.toTrackingCapabilities(bootstrapReady)
+
+    override suspend fun currentDeliveryInstanceId(): String? =
+        preferences?.floppySettingsNow()?.connectionId?.takeIf(String::isNotBlank)
 
     override suspend fun isAuthenticated(): Boolean {
         val settings = preferences?.floppySettingsNow() ?: return false
@@ -43,27 +50,40 @@ class FloppyTrackingProvider(
     }
 
     /** Performs the staged public-info then authenticated-preferences flow. */
-    suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult {
+    suspend fun validateConnection(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean = false,
+    ): Result<ConnectionCandidate> {
+        val previousKey = preferences?.floppyApiKeyNow()
+        val resolvedKey = apiKey.takeIf(String::isNotBlank) ?: previousKey
+        if (resolvedKey.isNullOrBlank()) return Result.failure(TrackingSyncError.AuthenticationRequired(id))
+        return runCatching {
+            ConnectionCandidate(remote.connect(baseUrl.trim(), resolvedKey, allowInsecureLocalHttp), resolvedKey)
+        }.map { it }
+    }
+
+    suspend fun activateConnection(settings: FloppyConnectionSettings, apiKey: String) {
         val previous = preferences?.floppySettingsNow()
         val previousKey = preferences?.floppyApiKeyNow()
-        val resolvedKey = apiKey.takeIf(String::isNotBlank) ?: preferences?.floppyApiKeyNow()
-        if (resolvedKey.isNullOrBlank()) return ConnectionResult.AuthenticationRequired
-        return runCatching { remote.connect(baseUrl.trim(), resolvedKey) }.fold(
-            onSuccess = { settings ->
-                val identityChanged = previous != null &&
-                    (previous.serverIdentity != settings.serverIdentity ||
-                        previous.accountIdentity != settings.accountIdentity ||
-                        previousKey != resolvedKey)
-                if (identityChanged) {
-                    connectionGeneration.incrementAndGet()
-                    onIdentityChanged?.invoke()
-                }
-                preferences?.setFloppyConnection(settings, resolvedKey)
-                if (identityChanged) {
-                    previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
-                }
-                discovered = settings.capabilities
-                bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+        val identityChanged = previous != null &&
+            (previous.serverIdentity != settings.serverIdentity ||
+                previous.accountIdentity != settings.accountIdentity ||
+                previousKey != apiKey)
+        if (identityChanged) {
+            connectionGeneration.incrementAndGet()
+            onIdentityChanged?.invoke()
+        }
+        preferences?.setFloppyConnection(settings, apiKey)
+        if (identityChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
+        discovered = settings.capabilities
+        bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+    }
+
+    suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult =
+        validateConnection(baseUrl, apiKey, preferences?.floppyAllowInsecureLocalHttpNow() ?: false).fold(
+            onSuccess = { candidate ->
+                activateConnection(candidate.settings, candidate.apiKey)
                 ConnectionResult.Connected
             },
             onFailure = { error ->
@@ -72,7 +92,6 @@ class FloppyTrackingProvider(
                 else ConnectionResult.Failed(mapped)
             },
         )
-    }
 
     suspend fun disconnect() {
         val previous = preferences?.floppySettingsNow()
@@ -119,7 +138,7 @@ class FloppyTrackingProvider(
 
     override suspend fun testConnection(): ConnectionResult {
         val settings = preferences?.floppySettingsNow() ?: return ConnectionResult.AuthenticationRequired
-        return remote.test(settings.baseUrl, preferences.floppyApiKeyNow()).also {
+        return remote.test(settings.baseUrl, preferences.floppyApiKeyNow(), settings.allowInsecureLocalHttp).also {
             if (it is ConnectionResult.Connected) {
                 discovered = settings.capabilities
                 bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
@@ -141,6 +160,7 @@ class FloppyTrackingProvider(
             apiKey = apiKey,
             capabilities = settings.capabilities,
             serverVersion = settings.serverVersion,
+            allowInsecureLocalHttp = settings.allowInsecureLocalHttp,
         )
     }
 
@@ -186,3 +206,4 @@ private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) =
         }
     },
 )
+

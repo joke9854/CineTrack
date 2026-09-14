@@ -96,6 +96,22 @@ class SyncCoordinatorRoutingTest {
     }
 
     @Test
+    fun `delivery for old floppy instance is never sent to current instance`() = runTest {
+        val operation = operation()
+        val queue = PersistedQueue(operation).apply {
+            rows += delivery(TrackingProviderId.SIMKL, TrackingRole.MAIN).copy(status = DeliveryStatus.ACKNOWLEDGED)
+            rows += delivery(TrackingProviderId.FLOPPY, TrackingRole.SECONDARY).copy(providerInstanceId = "instance-a")
+        }
+        val simkl = RecordingProvider(TrackingProviderId.SIMKL)
+        val floppy = RecordingProvider(TrackingProviderId.FLOPPY).apply { instanceId = "instance-b" }
+        val registry = MutableRoutingRegistry(simkl, floppy)
+
+        assertTrue(SyncCoordinator(registry, queue).pushPending().isSuccess)
+        assertEquals(0, floppy.pushes)
+        assertEquals(DeliveryStatus.PENDING, queue.rows.single { it.providerId == TrackingProviderId.FLOPPY }.status)
+    }
+
+    @Test
     fun `secondary-only configuration never completes a persisted operation`() = runTest {
         val operation = operation()
         val queue = PersistedQueue(operation)
@@ -178,6 +194,7 @@ class SyncCoordinatorRoutingTest {
         operationVersion = 1L,
         providerId = provider,
         roleAtEnqueue = role,
+        providerInstanceId = if (provider == TrackingProviderId.FLOPPY) "floppy-instance" else null,
     )
 }
 
@@ -198,9 +215,13 @@ private class MutableRoutingRegistry(
 private class RecordingProvider(override val id: TrackingProviderId) : TrackingProvider {
     override val capabilities = TrackingCapabilities()
     var pushes = 0
+    var instanceId: String? = if (id == TrackingProviderId.FLOPPY) "floppy-instance" else null
     var beforeSync: suspend () -> Unit = {}
 
     override suspend fun isAuthenticated(): Boolean = true
+
+    override suspend fun currentDeliveryInstanceId(): String? =
+        instanceId
 
     override suspend fun push(operations: List<SyncOperation>): ProviderPushResult {
         pushes++
@@ -278,6 +299,7 @@ private class PersistedQueue(vararg initial: SyncOperation) : SyncOperationRepos
                         DeliveryStatus.ACKNOWLEDGED,
                         DeliveryStatus.SKIPPED_UNSUPPORTED,
                         DeliveryStatus.CANCELLED_PROVIDER_REMOVED,
+                        DeliveryStatus.CANCELLED_PROVIDER_INSTANCE_CHANGED,
                     )
                 }
         }

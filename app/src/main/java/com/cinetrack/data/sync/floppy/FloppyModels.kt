@@ -165,6 +165,8 @@ data class FloppyConnectionSettings(
     val connectionId: String = serverIdentity,
     /** Active secure-store alias for the API key. */
     val credentialAlias: String = "floppy_api_key",
+    /** Explicit opt-in for private-LAN cleartext HTTP. */
+    val allowInsecureLocalHttp: Boolean = false,
 )
 
 /** Immutable credentials and capabilities captured for one provider pass. */
@@ -176,6 +178,7 @@ data class FloppySession(
     val apiKey: String,
     val capabilities: FloppyCapabilities,
     val serverVersion: String?,
+    val allowInsecureLocalHttp: Boolean = false,
 )
 
 data class FloppyCapabilities(
@@ -187,3 +190,4 @@ data class FloppyCapabilities(
     val canRemoveHistory: Boolean = false,
     val canReadCompleteSnapshot: Boolean = false,
 )
+

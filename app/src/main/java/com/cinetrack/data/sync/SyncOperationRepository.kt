@@ -67,6 +67,8 @@ interface SyncOperationRepository {
     suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider removed") {}
     /** Keeps deliveries retryable when only the provider instance changed. */
     suspend fun failProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider instance changed") {}
+    /** Terminally cancels deliveries targeted at an old provider instance. */
+    suspend fun cancelProviderInstanceDeliveries(provider: TrackingProviderId, reason: String = "Provider instance changed") {}
 
     /** Binds only current, never-targeted local intents after initial MAIN setup. */
     suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {}
@@ -275,6 +277,7 @@ class RoomSyncOperationRepository(
                         status = DeliveryStatus.PENDING.name,
                         required = true,
                         roleAtEnqueue = TrackingRole.MAIN.name,
+                        providerInstanceId = null,
                         createdAt = sourceVersion,
                         updatedAt = System.currentTimeMillis(),
                     )
@@ -351,6 +354,7 @@ class RoomSyncOperationRepository(
                 it.status == DeliveryStatus.ACKNOWLEDGED ||
                     it.status == DeliveryStatus.SKIPPED_UNSUPPORTED ||
                     it.status == DeliveryStatus.CANCELLED_PROVIDER_REMOVED ||
+                    it.status == DeliveryStatus.CANCELLED_PROVIDER_INSTANCE_CHANGED ||
                     it.status == DeliveryStatus.SUPERSEDED
             }
         }
@@ -415,6 +419,13 @@ class RoomSyncOperationRepository(
         }
     }
 
+    override suspend fun cancelProviderInstanceDeliveries(provider: TrackingProviderId, reason: String) {
+        database.withTransaction {
+            database.syncDao().cancelInstanceDeliveries(provider.name, reason)
+            retireTerminalOperations(database.syncDao().syncOperations().map(SyncOperationEntity::operationId).toSet())
+        }
+    }
+
     override suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {
         val operations = database.syncDao().syncOperations().filter { operation ->
             operation.status in setOf(SyncOperationStatus.PENDING.name, SyncOperationStatus.FAILED.name) &&
@@ -456,6 +467,7 @@ class RoomSyncOperationRepository(
                             providerId = provider,
                             required = true,
                             roleAtEnqueue = TrackingRole.MAIN,
+                            providerInstanceId = null,
                             createdAt = operation.sourceVersion,
                             updatedAt = operation.sourceVersion,
                         ),
@@ -504,6 +516,7 @@ class RoomSyncOperationRepository(
                         DeliveryStatus.ACKNOWLEDGED.name,
                         DeliveryStatus.SKIPPED_UNSUPPORTED.name,
                         DeliveryStatus.CANCELLED_PROVIDER_REMOVED.name,
+                        DeliveryStatus.CANCELLED_PROVIDER_INSTANCE_CHANGED.name,
                         DeliveryStatus.SUPERSEDED.name,
                     )
                 }) return@forEach
@@ -597,6 +610,7 @@ private fun SyncOperationDelivery.toEntity(now: Long) = SyncOperationDeliveryEnt
     status = status.name,
     required = required,
     roleAtEnqueue = roleAtEnqueue.name,
+    providerInstanceId = providerInstanceId,
     attemptCount = attemptCount,
     lastError = lastError,
     createdAt = createdAt,
@@ -614,6 +628,7 @@ private fun SyncOperationDeliveryEntity.toDomainOrNull(): SyncOperationDelivery?
     status = parsedStatus,
     required = required,
     roleAtEnqueue = role,
+    providerInstanceId = providerInstanceId,
     attemptCount = attemptCount,
     lastError = lastError,
     createdAt = createdAt,
@@ -691,3 +706,4 @@ private fun SyncOperationStatus.aggregateWith(deliveries: List<SyncOperationDeli
     val hasAcknowledged = required.any { it.status == DeliveryStatus.ACKNOWLEDGED }
     return if (hasFailed && hasAcknowledged) SyncOperationStatus.PARTIAL else this
 }
+

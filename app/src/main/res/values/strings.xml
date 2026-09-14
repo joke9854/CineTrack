@@ -496,6 +496,8 @@
     <string name="floppy_connected">Connected</string>
     <string name="floppy_server_version">Server version</string>
     <string name="floppy_role_secondary">Role: Secondary</string>
+    <string name="floppy_role_connected_inactive">Connected / inactive (a MAIN provider is required)</string>
+    <string name="floppy_allow_insecure_local_http">Allow insecure local HTTP</string>
     <string name="floppy_bootstrap_not_started">Bootstrap: Not started</string>
     <string name="floppy_bootstrap_running">Bootstrap: Syncing</string>
     <string name="floppy_bootstrap_ready">Bootstrap: Ready</string>
@@ -508,3 +510,4 @@
     <string name="floppy_bootstrap">Bootstrap</string>
     <string name="floppy_self_hosted_description">Self-hosted tracking with X-API-Key</string>
 </resources>
+

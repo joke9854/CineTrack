@@ -14,6 +14,16 @@ class SyncCoordinator(
     private val fullSyncMutex = Mutex()
     /** Serializes all provider network traffic, including immediate pushes. */
     private val providerIoMutex = Mutex()
+
+    /** Serializes connection activation with every provider network pass. */
+    suspend fun <T> withProviderIoQuiesced(block: suspend () -> T): T {
+        providerIoMutex.lock()
+        return try {
+            block()
+        } finally {
+            providerIoMutex.unlock()
+        }
+    }
     /** Exposes the pure policy for provider adapters and deterministic tests. */
     fun reconcile(
         local: LocalTrackingSnapshot,
@@ -171,7 +181,15 @@ class SyncCoordinator(
         val ids = all.mapTo(linkedSetOf(), SyncOperation::id)
         val rows = operations.deliveries(ids)
         if (rows.isEmpty()) return if (operations.requiresPersistedDeliveryRows) emptyList() else all
-        val byId = rows.filter { it.providerId == provider }.associateBy { "${it.operationId}:${it.operationVersion}" }
+        val currentInstance = registry.getProvider(provider)?.currentDeliveryInstanceId()
+        val byId = rows.filter {
+            it.providerId == provider &&
+                if (provider == TrackingProviderId.FLOPPY) {
+                    !currentInstance.isNullOrBlank() && it.providerInstanceId == currentInstance
+                } else {
+                    it.providerInstanceId == currentInstance
+                }
+        }.associateBy { "${it.operationId}:${it.operationVersion}" }
         return all.filter { byId["${it.id}:${it.sourceVersion}"]?.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED) }
     }
 
@@ -202,15 +220,20 @@ class SyncCoordinator(
         }
     }
 
-    private fun buildTargets(
+    private suspend fun buildTargets(
         pending: List<SyncOperation>,
         main: TrackingProvider?,
         secondary: TrackingProvider?,
     ): List<SyncOperationDelivery> = buildList {
         val now = System.currentTimeMillis()
         pending.forEach { operation ->
-            main?.let { add(SyncOperationDelivery(operation.id, operation.sourceVersion, it.id, createdAt = now, updatedAt = now)) }
-            secondary?.let { add(SyncOperationDelivery(operation.id, operation.sourceVersion, it.id, required = it.capabilities.supports(operation), roleAtEnqueue = TrackingRole.SECONDARY, status = if (it.capabilities.supports(operation)) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now)) }
+            main?.let { provider ->
+                add(SyncOperationDelivery(operation.id, operation.sourceVersion, provider.id, providerInstanceId = provider.currentDeliveryInstanceId(), createdAt = now, updatedAt = now))
+            }
+            secondary?.let { provider ->
+                val supported = provider.capabilities.supports(operation)
+                add(SyncOperationDelivery(operation.id, operation.sourceVersion, provider.id, required = supported, roleAtEnqueue = TrackingRole.SECONDARY, providerInstanceId = provider.currentDeliveryInstanceId(), status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now))
+            }
         }
     }
 
@@ -226,3 +249,4 @@ private suspend inline fun <T> resultOf(crossinline block: suspend () -> T): Res
 } catch (error: Throwable) {
     Result.failure(error)
 }
+

@@ -900,8 +900,9 @@ class CineTrackViewModel(
         }
     }
 
-    fun connectFloppy(baseUrl: String, apiKey: String) {
+    fun connectFloppy(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp) {
         viewModelScope.launch(Dispatchers.IO) {
+            repository.preferences.setFloppyAllowInsecureLocalHttp(allowInsecureLocalHttp)
             val result = repository.connectFloppy(baseUrl, apiKey)
             withContext(Dispatchers.Main) {
                 if (result is com.cinetrack.data.sync.ConnectionResult.Connected) {
@@ -910,6 +911,13 @@ class CineTrackViewModel(
                     _state.value = _state.value.copy(error = (result as? com.cinetrack.data.sync.ConnectionResult.Failed)?.error?.message)
                 }
             }
+        }
+    }
+
+    fun setFloppyAllowInsecureLocalHttp(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.preferences.setFloppyAllowInsecureLocalHttp(enabled)
+            refresh()
         }
     }
 
@@ -1324,3 +1332,4 @@ class CineTrackViewModel(
             ) as T
     }
 }
+

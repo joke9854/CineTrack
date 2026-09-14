@@ -192,6 +192,7 @@ data class SyncOperationDeliveryEntity(
     val status: String,
     val required: Boolean,
     val roleAtEnqueue: String,
+    val providerInstanceId: String? = null,
     val attemptCount: Int = 0,
     val lastError: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
@@ -419,6 +420,9 @@ interface TimelineDao {
     @Query("SELECT * FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season IS NOT NULL AND episodeNumber IS NOT NULL")
     suspend fun episodeHistoryForShow(mediaType: String, mediaId: Int): List<WatchHistoryEntity>
 
+    @Query("SELECT * FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season IS NULL AND episodeNumber IS NULL ORDER BY watchedAt DESC")
+    suspend fun movieHistory(mediaType: String, mediaId: Int): List<WatchHistoryEntity>
+
     @Query("DELETE FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season = :season AND episodeNumber = :episodeNumber")
     suspend fun deleteEpisodeHistory(mediaType: String, mediaId: Int, season: Int, episodeNumber: Int)
 
@@ -553,6 +557,9 @@ interface SyncDao {
     @Query("UPDATE sync_operation_deliveries SET status = 'FAILED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
     suspend fun failOutstandingDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun cancelInstanceDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
     @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
     suspend fun supersedeDeliveries(providerId: String, operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
 
@@ -592,7 +599,7 @@ interface PeopleDao {
         SyncOperationEntity::class,
         SyncOperationDeliveryEntity::class,
     ],
-    version = 11,
+    version = 12,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -724,12 +731,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val migration11To12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operation_deliveries ADD COLUMN providerInstanceId TEXT")
+                // Legacy Floppy rows have no trustworthy target identity and
+                // must never be replayed against a newly connected server.
+                database.execSQL("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = 'Legacy Floppy target instance is unknown' WHERE providerId = 'FLOPPY' AND providerInstanceId IS NULL AND status IN ('PENDING','FAILED')")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12).build().also { instance = it }
         }
     }
 }
@@ -767,3 +783,4 @@ fun MediaCard.toEntity() = MediaEntity(
     providers = providers.joinToString("|"),
     collectionId = collectionId,
 )
+

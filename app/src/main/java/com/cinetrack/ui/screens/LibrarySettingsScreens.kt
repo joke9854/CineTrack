@@ -899,6 +899,10 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         Spacer(Modifier.height(8.dp))
         OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (state.floppyConnected) R.string.floppy_api_key_keep else R.string.floppy_api_key)) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
+        ToggleRow(
+            stringResource(R.string.floppy_allow_insecure_local_http),
+            state.floppyAllowInsecureLocalHttp,
+        ) { enabled -> viewModel.setFloppyAllowInsecureLocalHttp(enabled) }
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             PrimaryAction(stringResource(if (state.floppyConnected) R.string.floppy_reconnect else R.string.floppy_connect), Icons.Filled.Link, Modifier.weight(1f)) {
                 if (url.isNotBlank() && (key.isNotBlank() || state.floppyConnected)) viewModel.connectFloppy(url, key)
@@ -909,7 +913,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
     if (state.floppyConnected) {
         SettingsSection("Floppy") {
             ValueRow(stringResource(R.string.floppy_status), stringResource(R.string.floppy_connected), true)
-            ValueRow(stringResource(R.string.floppy_role), stringResource(R.string.floppy_role_secondary))
+            val role = floppyState?.role ?: "NONE"
+            ValueRow(
+                stringResource(R.string.floppy_role),
+                when (role) {
+                    "SECONDARY" -> stringResource(R.string.floppy_role_secondary)
+                    else -> stringResource(R.string.floppy_role_connected_inactive)
+                },
+            )
             state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
             state.floppyBaseUrl?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_url), it) }
             floppyState?.let {
@@ -1552,3 +1563,4 @@ internal fun ChoiceRow(title: String, selected: Boolean, description: String? = 
         }
     }
 }
+
