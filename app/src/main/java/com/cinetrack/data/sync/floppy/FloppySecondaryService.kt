@@ -49,7 +49,7 @@ class FloppySecondaryService(
                 ProviderBootstrapState.FAILED -> Unit
                 ProviderBootstrapState.READY -> Unit
             }
-            coordinator.pushPending()
+            coordinator.pushPendingWhileProviderIoQuiesced()
             bootstrap().markReadyIfComplete()
             ConnectionResult.Connected
         }
@@ -59,4 +59,3 @@ class FloppySecondaryService(
         provider.disconnect()
     }
 }
-

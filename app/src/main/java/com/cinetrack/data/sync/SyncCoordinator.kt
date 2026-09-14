@@ -108,7 +108,17 @@ class SyncCoordinator(
         }
     }
 
-    suspend fun pushPending(operationIds: Set<String>? = null): Result<Unit> = providerIoMutex.withLock { resultOf {
+    suspend fun pushPending(operationIds: Set<String>? = null): Result<Unit> = providerIoMutex.withLock {
+        pushPendingWhileProviderIoQuiesced(operationIds)
+    }
+
+    /**
+     * Dispatches pending work while the caller already owns providerIoMutex.
+     * Connection activation uses this boundary so it can keep activation,
+     * bootstrap and the first queue pass atomic without recursively locking
+     * the non-reentrant provider mutex.
+     */
+    internal suspend fun pushPendingWhileProviderIoQuiesced(operationIds: Set<String>? = null): Result<Unit> = resultOf {
         val pending = operations.pending(operationIds)
         if (pending.isEmpty()) return@resultOf Unit
         val configuration = registry.configuration()
@@ -144,7 +154,7 @@ class SyncCoordinator(
         }
         secondaryFailure?.let { throw it }
         operations.completeReady(pending)
-    } }
+    }
 
     suspend fun retry(operationId: String): Result<Unit> = pushPending(setOf(operationId))
 
@@ -249,4 +259,3 @@ private suspend inline fun <T> resultOf(crossinline block: suspend () -> T): Res
 } catch (error: Throwable) {
     Result.failure(error)
 }
-
