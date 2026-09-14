@@ -15,6 +15,7 @@ import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.domain.SyncProgress
+import java.util.concurrent.atomic.AtomicLong
 
 /** Runtime-configured Floppy transport and provider-neutral mapping adapter. */
 class FloppyTrackingProvider(
@@ -28,6 +29,7 @@ class FloppyTrackingProvider(
 
     @Volatile private var discovered = FloppyCapabilities()
     @Volatile private var bootstrapReady = false
+    private val connectionGeneration = AtomicLong(0)
     override val capabilities: TrackingCapabilities
         get() = discovered.toTrackingCapabilities(bootstrapReady)
 
@@ -42,14 +44,24 @@ class FloppyTrackingProvider(
 
     /** Performs the staged public-info then authenticated-preferences flow. */
     suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult {
-        if (apiKey.isBlank()) return ConnectionResult.AuthenticationRequired
-        return runCatching { remote.connect(baseUrl.trim(), apiKey) }.fold(
+        val previous = preferences?.floppySettingsNow()
+        val previousKey = preferences?.floppyApiKeyNow()
+        val resolvedKey = apiKey.takeIf(String::isNotBlank) ?: preferences?.floppyApiKeyNow()
+        if (resolvedKey.isNullOrBlank()) return ConnectionResult.AuthenticationRequired
+        return runCatching { remote.connect(baseUrl.trim(), resolvedKey) }.fold(
             onSuccess = { settings ->
-                val previous = preferences?.floppySettingsNow()
-                if (previous != null && (previous.serverIdentity != settings.serverIdentity || previous.accountIdentity != settings.accountIdentity)) {
+                val identityChanged = previous != null &&
+                    (previous.serverIdentity != settings.serverIdentity ||
+                        previous.accountIdentity != settings.accountIdentity ||
+                        previousKey != resolvedKey)
+                if (identityChanged) {
+                    connectionGeneration.incrementAndGet()
                     onIdentityChanged?.invoke()
                 }
-                preferences?.setFloppyConnection(settings, apiKey)
+                preferences?.setFloppyConnection(settings, resolvedKey)
+                if (identityChanged) {
+                    previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
+                }
                 discovered = settings.capabilities
                 bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
                 ConnectionResult.Connected
@@ -63,36 +75,46 @@ class FloppyTrackingProvider(
     }
 
     suspend fun disconnect() {
+        val previous = preferences?.floppySettingsNow()
+        val previousKey = preferences?.floppyApiKeyNow()
+        connectionGeneration.incrementAndGet()
         onDisconnect?.invoke()
+        previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
         preferences?.setFloppyConnection(null, null)
         discovered = FloppyCapabilities()
         bootstrapReady = false
     }
 
     override suspend fun push(operations: List<SyncOperation>): ProviderPushResult {
-        val settings = requireSettings()
-        val key = preferences?.floppyApiKeyNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
+        val generation = connectionGeneration.get()
+        val session = captureSession()
+        checkGeneration(generation)
         // Never query Room here: the coordinator's immutable delivery set is
         // the complete authority for this provider pass.
-        return remote.push(settings.baseUrl, key, operations)
+        val result = remote.push(session, operations)
+        checkGeneration(generation)
+        checkSessionStillCurrent(session)
+        return result
     }
 
     override suspend fun pullSnapshot(): TrackingSnapshot {
-        val settings = requireSettings()
-        val key = preferences?.floppyApiKeyNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
-        return remote.snapshot(settings.baseUrl, key)
+        val generation = connectionGeneration.get()
+        val session = captureSession()
+        checkGeneration(generation)
+        val snapshot = remote.snapshot(session)
+        checkGeneration(generation)
+        checkSessionStillCurrent(session)
+        return snapshot
     }
 
     override suspend fun syncBidirectionally(
         operations: List<SyncOperation>,
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
-        requireSettings()
-        syncPass?.let { return it(operations, onProgress) }
-        val pushed = push(operations)
-        onProgress(SyncProgress(running = true, stage = com.cinetrack.domain.SyncStage.PROCESSING, message = "Fetching Floppy changes"))
-        pullSnapshot()
-        return ProviderSyncOutcome(itemsChanged = false, acknowledgedOperationIds = pushed.completedOperationIds)
+        // Floppy exposes useful read endpoints, but no authoritative
+        // provider-neutral reconciliation engine yet. Never pretend a push
+        // followed by a discarded snapshot is bidirectional synchronization.
+        throw TrackingSyncError.UnsupportedOperation(id, com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS)
     }
 
     override suspend fun testConnection(): ConnectionResult {
@@ -105,12 +127,37 @@ class FloppyTrackingProvider(
         }
     }
 
-    private suspend fun requireSettings(): FloppyConnectionSettings {
+    private suspend fun captureSession(): FloppySession {
         val settings = preferences?.floppySettingsNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
-        if (preferences.floppyApiKeyNow().isNullOrBlank()) throw TrackingSyncError.AuthenticationRequired(id)
+        val apiKey = preferences.floppyApiKeyNow(settings.credentialAlias)?.takeIf(String::isNotBlank)
+            ?: throw TrackingSyncError.AuthenticationRequired(id)
         discovered = settings.capabilities
         bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
-        return settings
+        return FloppySession(
+            instanceId = settings.connectionId,
+            baseUrl = settings.baseUrl,
+            accountIdentity = settings.accountIdentity,
+            credentialAlias = settings.credentialAlias,
+            apiKey = apiKey,
+            capabilities = settings.capabilities,
+            serverVersion = settings.serverVersion,
+        )
+    }
+
+    private suspend fun checkSessionStillCurrent(session: FloppySession) {
+        val current = preferences?.floppySettingsNow()
+        if (current?.connectionId != session.instanceId) {
+            throw TrackingSyncError.ProviderUnavailable(
+                id,
+                IllegalStateException("Floppy connection changed while the request was in flight"),
+            )
+        }
+    }
+
+    private fun checkGeneration(expected: Long) {
+        check(connectionGeneration.get() == expected) {
+            "Floppy connection changed before the request could be attributed safely"
+        }
     }
 }
 
@@ -120,7 +167,9 @@ private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) =
     supportsWatchHistory = canReadHistory || canWriteMovieHistory || canWriteEpisodeHistory,
     supportsRatings = false,
     supportsLibrary = canReadLibrary || canWriteLibrary,
-    supportsTwoWaySync = bootstrapReady && canReadCompleteSnapshot && canReadLibrary && canReadHistory,
+    // A real Floppy MAIN reconciler is deliberately out of scope for this
+    // milestone, regardless of bootstrap state or read endpoint availability.
+    supportsTwoWaySync = false,
     supported = buildSet {
         if (canReadLibrary) add(TrackingCapability.PULL_LIBRARY)
         if (canWriteLibrary) add(TrackingCapability.PUSH_LIBRARY)

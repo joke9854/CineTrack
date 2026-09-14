@@ -18,6 +18,7 @@ object FloppyApiErrorMapper {
 
     fun map(error: Throwable): TrackingSyncError = when (error) {
         is TrackingSyncError -> error
+        is IllegalArgumentException -> TrackingSyncError.InvalidUrl(error.message ?: "Invalid Floppy URL", error)
         is SocketTimeoutException -> TrackingSyncError.Timeout(error)
         is UnknownHostException -> TrackingSyncError.DnsFailure(error)
         is SSLException -> TrackingSyncError.TlsFailure(error)

@@ -65,6 +65,8 @@ interface SyncOperationRepository {
 
     /** Terminates pending deliveries when a provider is explicitly removed. */
     suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider removed") {}
+    /** Keeps deliveries retryable when only the provider instance changed. */
+    suspend fun failProviderDeliveries(provider: TrackingProviderId, reason: String = "Provider instance changed") {}
 
     /** Binds only current, never-targeted local intents after initial MAIN setup. */
     suspend fun bindUnboundCurrentIntents(provider: TrackingProviderId) {}
@@ -404,6 +406,12 @@ class RoomSyncOperationRepository(
     override suspend fun cancelProviderDeliveries(provider: TrackingProviderId, reason: String) {
         database.withTransaction {
             database.syncDao().cancelOutstandingDeliveries(provider.name, reason)
+        }
+    }
+
+    override suspend fun failProviderDeliveries(provider: TrackingProviderId, reason: String) {
+        database.withTransaction {
+            database.syncDao().failOutstandingDeliveries(provider.name, reason)
         }
     }
 

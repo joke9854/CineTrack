@@ -120,8 +120,11 @@ class AppPreferences(private val context: Context) {
         val floppyServerVersion = stringPreferencesKey("floppy_server_version")
         val floppyServerIdentity = stringPreferencesKey("floppy_server_identity")
         val floppyAccountIdentity = stringPreferencesKey("floppy_account_identity")
+        val floppyConnectionId = stringPreferencesKey("floppy_connection_id")
+        val floppyCredentialAlias = stringPreferencesKey("floppy_credential_alias")
         val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
         val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
+        val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
@@ -238,7 +241,12 @@ class AppPreferences(private val context: Context) {
 
     val floppyBaseUrl: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.floppyBaseUrl] }
 
-    suspend fun floppyApiKeyNow(): String? = secureCredential("floppy_api_key")?.takeIf(String::isNotBlank)
+    suspend fun floppyApiKeyNow(): String? {
+        val alias = context.cineTrackDataStore.data.first()[Keys.floppyCredentialAlias] ?: "floppy_api_key"
+        return secureCredential(alias)?.takeIf(String::isNotBlank)
+    }
+
+    suspend fun floppyApiKeyNow(alias: String): String? = secureCredential(alias)?.takeIf(String::isNotBlank)
 
     suspend fun floppySettingsNow(): FloppyConnectionSettings? {
         val values = context.cineTrackDataStore.data.first()
@@ -259,23 +267,44 @@ class AppPreferences(private val context: Context) {
                 canReadCompleteSnapshot = "complete_snapshot" in capabilities,
             ),
             connectedAt = values[Keys.floppyConnectedAt],
+            connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
+            credentialAlias = values[Keys.floppyCredentialAlias] ?: "floppy_api_key",
         )
     }
 
     suspend fun setFloppyConnection(settings: FloppyConnectionSettings?, apiKey: String? = null) {
         settings?.let { require(it.baseUrl == it.baseUrl.trim()) { "Floppy URL must be normalized before saving" } }
         val previous = floppySettingsNow()
+        val oldAlias = previous?.credentialAlias ?: "floppy_api_key"
         val identityChanged = settings != null && previous != null &&
-            (previous.serverIdentity != settings.serverIdentity || previous.accountIdentity != settings.accountIdentity)
-        setSecureCredential("floppy_api_key", apiKey)
+            (previous.baseUrl != settings.baseUrl || previous.accountIdentity != settings.accountIdentity ||
+                (apiKey != null && apiKey != floppyApiKeyNow()))
+        val effectiveAlias = when {
+            settings == null -> oldAlias
+            identityChanged -> "floppy_api_key_${UUID.randomUUID()}"
+            else -> previous?.credentialAlias ?: settings.credentialAlias.takeIf(String::isNotBlank)
+                ?: "floppy_api_key_${UUID.randomUUID()}"
+        }
+        // Stage credentials under an immutable alias before changing the
+        // active metadata pointer. A crash before the DataStore edit leaves
+        // the old URL + old alias fully usable.
+        if (settings != null && !apiKey.isNullOrBlank()) setSecureCredential(effectiveAlias, apiKey)
+        val effectiveConnectionId = when {
+            settings == null -> null
+            !identityChanged && previous != null -> previous.connectionId
+            else -> settings.connectionId.ifBlank { UUID.randomUUID().toString() }
+        }
         context.cineTrackDataStore.edit { values ->
             if (settings == null) {
                 values.remove(Keys.floppyBaseUrl)
                 values.remove(Keys.floppyServerVersion)
                 values.remove(Keys.floppyServerIdentity)
                 values.remove(Keys.floppyAccountIdentity)
+                values.remove(Keys.floppyConnectionId)
+                values.remove(Keys.floppyCredentialAlias)
                 values.remove(Keys.floppyCapabilities)
                 values.remove(Keys.floppyConnectedAt)
+                values.remove(Keys.floppyBootstrapPlan)
                 values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
                 values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
                 values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
@@ -284,6 +313,8 @@ class AppPreferences(private val context: Context) {
                 settings.serverVersion?.let { values[Keys.floppyServerVersion] = it } ?: values.remove(Keys.floppyServerVersion)
                 values[Keys.floppyServerIdentity] = settings.serverIdentity
                 settings.accountIdentity?.let { values[Keys.floppyAccountIdentity] = it } ?: values.remove(Keys.floppyAccountIdentity)
+                values[Keys.floppyConnectionId] = effectiveConnectionId!!
+                values[Keys.floppyCredentialAlias] = effectiveAlias
                 val capabilities = buildList {
                     if (settings.capabilities.canReadLibrary) add("read_library")
                     if (settings.capabilities.canWriteLibrary) add("write_library")
@@ -296,12 +327,16 @@ class AppPreferences(private val context: Context) {
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
                 if (identityChanged) {
+                    values.remove(Keys.floppyBootstrapPlan)
                     values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
                     values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
                     values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
                 }
             }
         }
+        // Cleanup is intentionally last: an interrupted replacement still has
+        // a valid old alias or a valid new active alias after restart.
+        if (settings == null || identityChanged) setSecureCredential(oldAlias, null)
     }
 
     suspend fun syncReportNow(): SyncReport {
@@ -353,6 +388,25 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setProviderBootstrapState(provider: TrackingProviderId, state: ProviderBootstrapState) {
         context.cineTrackDataStore.edit { it[providerBootstrapKey(provider)] = state.name }
+    }
+
+    suspend fun floppyBootstrapPlanNow(): Pair<String, Int>? {
+        val raw = context.cineTrackDataStore.data.first()[Keys.floppyBootstrapPlan] ?: return null
+        val separator = raw.lastIndexOf('|')
+        if (separator <= 0) return null
+        val instance = raw.substring(0, separator).takeIf(String::isNotBlank) ?: return null
+        val count = raw.substring(separator + 1).toIntOrNull()?.takeIf { it >= 0 } ?: return null
+        return instance to count
+    }
+
+    suspend fun setFloppyBootstrapPlan(instanceId: String, operationCount: Int) {
+        require(instanceId.isNotBlank()) { "Floppy bootstrap instance is required" }
+        require(operationCount >= 0) { "Floppy bootstrap operation count cannot be negative" }
+        context.cineTrackDataStore.edit { it[Keys.floppyBootstrapPlan] = "$instanceId|$operationCount" }
+    }
+
+    suspend fun clearFloppyBootstrapPlan() {
+        context.cineTrackDataStore.edit { it.remove(Keys.floppyBootstrapPlan) }
     }
 
     suspend fun syncBaselineNow(provider: TrackingProviderId = TrackingProviderId.SIMKL): TrackingSnapshot? {

@@ -620,7 +620,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.Language -> stringResource(R.string.italian)
         SettingsPages.Ratings -> "IMDb · TMDB · Metacritic · Rotten Tomatoes"
         SettingsPages.ServiceSimkl -> stringResource(R.string.simkl_description)
-        SettingsPages.ServiceFloppy -> "Self-hosted tracking with X-API-Key"
+        SettingsPages.ServiceFloppy -> stringResource(R.string.floppy_self_hosted_description)
         SettingsPages.ServiceTmdb -> stringResource(R.string.tmdb_description)
         SettingsPages.ServiceMdblist -> stringResource(R.string.mdblist_description)
         SettingsPages.Logs -> stringResource(R.string.logs_summary)
@@ -885,7 +885,7 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
         GlassDivider()
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
         GlassDivider()
-        ProviderRow("Floppy", "Self-hosted tracking", state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
+        ProviderRow("Floppy", stringResource(R.string.floppy_role_secondary), state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
     }
 }
 
@@ -893,23 +893,35 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
     var url by remember { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
     var key by remember { mutableStateOf("") }
-    SettingsSection("Connection") {
-        OutlinedTextField(url, { url = it }, label = { Text("Server URL") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+    val floppyState = state.trackingProviders.firstOrNull { it.providerId == "FLOPPY" }
+    SettingsSection(stringResource(R.string.floppy_connection)) {
+        OutlinedTextField(url, { url = it }, label = { Text(stringResource(R.string.floppy_server_url)) }, singleLine = true, modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
-        OutlinedTextField(key, { key = it }, label = { Text(if (state.floppyConnected) "API key (leave blank to keep)" else "API key") }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(key, { key = it }, label = { Text(stringResource(if (state.floppyConnected) R.string.floppy_api_key_keep else R.string.floppy_api_key)) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            PrimaryAction("${if (state.floppyConnected) "Reconnect" else "Connect"}", Icons.Filled.Link, Modifier.weight(1f)) {
-                if (url.isNotBlank() && key.isNotBlank()) viewModel.connectFloppy(url, key)
+            PrimaryAction(stringResource(if (state.floppyConnected) R.string.floppy_reconnect else R.string.floppy_connect), Icons.Filled.Link, Modifier.weight(1f)) {
+                if (url.isNotBlank() && (key.isNotBlank() || state.floppyConnected)) viewModel.connectFloppy(url, key)
             }
-            if (state.floppyConnected) Button(onClick = viewModel::disconnectFloppy) { Text("Disconnect") }
+            if (state.floppyConnected) Button(onClick = viewModel::disconnectFloppy) { Text(stringResource(R.string.floppy_disconnect)) }
         }
     }
     if (state.floppyConnected) {
         SettingsSection("Floppy") {
-            ValueRow("Status", "Connected", true)
-            state.floppyServerVersion?.let { GlassDivider(); ValueRow("Server version", it) }
-            state.floppyBaseUrl?.let { GlassDivider(); ValueRow("Server", it) }
+            ValueRow(stringResource(R.string.floppy_status), stringResource(R.string.floppy_connected), true)
+            ValueRow(stringResource(R.string.floppy_role), stringResource(R.string.floppy_role_secondary))
+            state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
+            state.floppyBaseUrl?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_url), it) }
+            floppyState?.let {
+                GlassDivider()
+                val bootstrapText = when (it.bootstrapState) {
+                    "READY" -> stringResource(R.string.floppy_bootstrap_ready)
+                    "RUNNING" -> stringResource(R.string.floppy_bootstrap_running)
+                    "FAILED" -> stringResource(R.string.floppy_bootstrap_failed)
+                    else -> stringResource(R.string.floppy_bootstrap_not_started)
+                }
+                ValueRow(stringResource(R.string.floppy_bootstrap), bootstrapText)
+            }
         }
     }
 }

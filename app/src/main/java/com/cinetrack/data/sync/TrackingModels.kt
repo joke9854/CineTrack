@@ -31,6 +31,8 @@ data class TrackingConfiguration(
         fun normalized(mainProvider: TrackingProviderId?, secondaryProvider: TrackingProviderId?): TrackingConfiguration =
             when {
                 mainProvider == null -> TrackingConfiguration(mainProvider = null, secondaryProvider = null)
+                mainProvider == TrackingProviderId.FLOPPY ->
+                    TrackingConfiguration(mainProvider = null, secondaryProvider = null)
                 mainProvider == secondaryProvider -> TrackingConfiguration(mainProvider = mainProvider, secondaryProvider = null)
                 else -> TrackingConfiguration(mainProvider, secondaryProvider)
             }
@@ -47,6 +49,9 @@ fun validateTrackingConfigurationTransition(
     next: TrackingConfiguration,
     promotedBootstrapState: ProviderBootstrapState? = null,
 ) {
+    require(next.mainProvider != TrackingProviderId.FLOPPY) {
+        "Floppy two-way synchronization is not available yet."
+    }
     if (previous.mainProvider != null &&
         next.mainProvider != null &&
         previous.mainProvider != next.mainProvider

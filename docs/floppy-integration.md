@@ -1,31 +1,63 @@
 # Floppy integration
 
-CineTrack connects to a self-hosted Floppy instance from Settings. Use the
-server URL including any reverse-proxy prefix (for example
-`https://media.example/floppy`) and an API token generated in Floppy under
-Settings → Integrations.
+CineTrack integrates with the current Floppy API described by the running
+instance at `/api/docs/` and `/api/schema/`. The checked-in DTOs follow the
+current media, Consumption, history, and episode routes; they do not assume a
+historical API version.
 
-CineTrack uses Floppy's reviewed OpenAPI 1.0.0 contract: `/api/v1/info/` for
-public discovery, `/api/v1/user/preferences/` for authenticated validation,
-the paginated `/api/v1/media/{media_type}/` and `/api/v1/history/` reads, and
-the documented media/episode tracking routes. Authentication is the
-`X-API-Key` header. The token is stored only in the Android Keystore-backed
-credential store; the server URL and non-secret capability metadata are kept
-in DataStore.
+## Role and bootstrap
 
-Floppy starts as a SECONDARY provider. CineTrack sends a durable canonical
-bootstrap targeted only to Floppy and resumes it after interruption. A Floppy
-server can be promoted to MAIN only after the bootstrap is READY and the
-server exposes complete library/history reads; a server with write-only or
-incomplete pull support remains SECONDARY.
+Floppy is currently a SECONDARY, outbound-only provider. Floppy MAIN is not
+enabled yet: its read endpoints are useful for connection checks, bootstrap
+verification, and retry reconciliation, but CineTrack does not advertise a
+bidirectional MAIN capability and rejects attempts to persist Floppy as MAIN.
 
-Changing the server URL or authenticated account invalidates Floppy's
-baseline, cursor/check state, and bootstrap. Outstanding deliveries for the
-old instance are cancelled and a fresh canonical bootstrap is created for the
-new instance. Disconnecting Floppy removes its token, role, and provider
-deliveries without changing CineTrack's local library or history.
+When Floppy is configured as SECONDARY, bootstrap seeds the current canonical
+CineTrack state through durable Floppy-only deliveries. Bootstrap operation IDs
+are tied to the provider connection generation, so process restart does not
+create a second completed Consumption. The milestone uses merge/seed semantics;
+it does not claim that remote history absent from a partial read was deleted.
 
-For connection failures, check that the URL is reachable, uses an explicit
-`http://` or `https://` scheme, and that the token is valid. TLS verification
-is never bypassed; plain HTTP is intended only for a deliberately configured
-trusted local network.
+## Authentication and transport
+
+The API key is stored in Android Keystore-backed secure storage and is sent only
+as `X-API-Key` to the configured Floppy origin. Public `/api/v1/info/` requests
+do not include the key. Redirects are disabled, TLS uses Android's normal
+certificate verification, and logs redact authentication headers.
+
+HTTPS is the default and recommended transport. Plain HTTP is rejected unless a
+caller explicitly opts in and the host is a private/local destination
+(RFC1918, loopback, link-local/private IPv6, or `.local`). Public HTTP is never
+accepted and CineTrack never downgrades HTTPS automatically.
+
+Changing the URL, account, or credential creates a new CineTrack connection
+generation. The active credential is referenced by an alias, so a crash during
+replacement cannot combine old metadata with a new token. Old HTTP clients are
+invalidated when a credential or connection changes.
+
+## Consumption semantics
+
+Floppy permits multiple Consumptions for one media item. CineTrack keeps each
+Consumption's ID, status, dates, progress, score, and creation metadata. A
+resolver selects the active library Consumption separately from completed play
+history and chooses the latest completed play deterministically.
+
+Library status updates read the media detail first. Existing active rows are
+patched through the exact history-entry route; a new Consumption is created only
+when no suitable active row exists. `NONE` removes only the active row and
+preserves completed plays. Movie watched operations read history before the
+append and use the operation timestamp, making retries after an ambiguous
+timeout idempotent. Movie unwatch and legacy history removal delete only an
+identifiable exact Consumption; ambiguous legacy rows are reported unsupported
+instead of deleting a whole title.
+
+Episode watched uses `POST .../{season}/episodes/{episode}/watch/` after a
+read/verify check. Episode unwatched uses the documented `POST .../drop/`
+route, never the old DELETE shortcut.
+
+## Provider boundary
+
+Floppy DTOs remain inside `data.sync.floppy`. The provider receives only the
+immutable operations selected by `SyncCoordinator`, captures one immutable
+connection session for each pass, and never creates a second provider queue.
+Provider errors are mapped to structured `TrackingSyncError` values.

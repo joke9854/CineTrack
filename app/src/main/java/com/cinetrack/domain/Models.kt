@@ -234,6 +234,7 @@ data class TrackingProviderState(
     val connectionStatus: String = "UNKNOWN",
     val lastSuccessfulSync: Long? = null,
     val lastError: String? = null,
+    val bootstrapState: String = "NOT_STARTED",
 )
 
 @Immutable

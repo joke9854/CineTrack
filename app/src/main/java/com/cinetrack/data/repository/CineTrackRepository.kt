@@ -190,6 +190,44 @@ class CineTrackRepository(
     override fun stateOperationId(type: String, id: Int) = "state:$type:$id"
     override fun writeOperationId(id: Long) = "write:$id"
 
+    /** Provider-neutral canonical state used by a SECONDARY bootstrap plan. */
+    suspend fun canonicalTrackingSnapshot(): TrackingSnapshot {
+        val snapshot = database.snapshotDao().snapshot()
+        val states = snapshot.states.associateBy { it.mediaType to it.mediaId }
+        val movieHistory = snapshot.history.filter { it.mediaType == MediaType.MOVIE.name }
+            .groupBy { it.mediaId }
+        val episodeHistory = snapshot.history.filter { it.mediaType == MediaType.TV.name && it.season != null && it.episodeNumber != null }
+        val movies = snapshot.media.filter { it.mediaType == MediaType.MOVIE.name }.map { media ->
+            val state = states[MediaType.MOVIE.name to media.tmdbId]
+            val latest = movieHistory[media.tmdbId].orEmpty().maxByOrNull { it.watchedAt }
+            TrackedMovieState(
+                ids = MediaIds(tmdb = media.tmdbId.toLong()),
+                libraryState = state?.status?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() },
+                watched = state?.watched == true || latest != null,
+                watchedAt = latest?.watchedAt?.let { runCatching { Instant.parse(it) }.getOrNull() },
+                updatedAt = state?.updatedAt?.let { Instant.ofEpochMilli(it) },
+            )
+        }
+        val shows = snapshot.media.filter { it.mediaType == MediaType.TV.name }.map { media ->
+            val state = states[MediaType.TV.name to media.tmdbId]
+            TrackedShowState(
+                ids = MediaIds(tmdb = media.tmdbId.toLong()),
+                libraryState = state?.status?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() },
+                updatedAt = state?.updatedAt?.let { Instant.ofEpochMilli(it) },
+            )
+        }
+        val episodes = episodeHistory.map { history ->
+            TrackedEpisodeState(
+                showIds = MediaIds(tmdb = history.mediaId.toLong()),
+                season = history.season!!,
+                episode = history.episodeNumber!!,
+                watched = true,
+                watchedAt = runCatching { Instant.parse(history.watchedAt) }.getOrNull(),
+            )
+        }.distinctBy { Triple(it.showIds.tmdb, it.season, it.episode) }
+        return TrackingSnapshot(movies, shows, episodes, Instant.now(), completeHistory = true)
+    }
+
     private suspend fun persistedGenerationFloor(): Long? {
         val values = buildList {
             addAll(database.stateDao().stateSnapshot().map(UserMediaStateEntity::updatedAt))
@@ -1053,6 +1091,7 @@ class CineTrackRepository(
                     else -> "DISCONNECTED"
                 },
                 lastSuccessfulSync = preferences.trackingLastCheckAt(id),
+                bootstrapState = preferences.providerBootstrapStateNow(id).name,
             )
         }
     }

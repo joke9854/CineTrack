@@ -24,9 +24,12 @@ import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingConfigurationService
 import com.cinetrack.data.sync.TrackingRoutingMutex
+import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.SyncReconciler
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
+import com.cinetrack.data.sync.floppy.FloppyBootstrapCoordinator
 import com.cinetrack.data.sync.simkl.SimklTrackingProvider
 import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
@@ -103,6 +106,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val trackingConfigurationService = TrackingConfigurationService(preferences, syncOperationRepository, trackingRoutingMutex)
     val trackingProviderRegistry: TrackingProviderRegistry
     val syncCoordinator: SyncCoordinator
+    lateinit var floppyBootstrapCoordinator: FloppyBootstrapCoordinator
     val repository: CineTrackRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
@@ -123,7 +127,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
-            onIdentityChanged = { syncOperationRepository.cancelProviderDeliveries(com.cinetrack.data.sync.TrackingProviderId.FLOPPY, "Floppy instance changed") },
+            onIdentityChanged = { syncOperationRepository.failProviderDeliveries(com.cinetrack.data.sync.TrackingProviderId.FLOPPY, "Floppy instance changed; retrying on the new connection") },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, floppy),
@@ -173,6 +177,16 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         peopleRepository = DefaultPeopleRepository(mediaRepository)
         watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)
 
+        floppyBootstrapCoordinator = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = syncOperationRepository,
+            operationWriter = durableOperationWriter,
+            canonicalSnapshot = { repository.canonicalTrackingSnapshot() },
+            verifyRemote = {
+                runCatching { floppy.pullSnapshot(); true }.getOrDefault(false)
+            },
+        )
+
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
                 trackingConfigurationService.repair()
@@ -201,6 +215,22 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 metadataTimezone.set(startup.metadataTimezone)
                 startupReady.complete(Unit)
             }.onFailure { startupReady.completeExceptionally(it) }
+        }
+        applicationScope.launch(Dispatchers.IO) {
+            runCatching {
+                startupReady.await()
+                if (settingsRepository.trackingConfigurationNow().secondaryProvider == TrackingProviderId.FLOPPY) {
+                    when (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)) {
+                        ProviderBootstrapState.NOT_STARTED,
+                        ProviderBootstrapState.RUNNING,
+                        -> floppyBootstrapCoordinator.start()
+                        ProviderBootstrapState.FAILED,
+                        ProviderBootstrapState.READY -> Unit
+                    }
+                    syncCoordinator.pushPending()
+                    floppyBootstrapCoordinator.markReadyIfComplete()
+                }
+            }
         }
     }
 }

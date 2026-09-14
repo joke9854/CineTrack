@@ -486,5 +486,25 @@
     <string name="discover_more_failed">Impossibile caricare altri titoli. L’elenco attuale resta disponibile.</string>
     <string name="discover_load_more">Carica altri titoli</string>
     <string name="discover_list_end">Hai raggiunto la fine dell’elenco.</string>
+    <string name="floppy_connection">Connessione</string>
+    <string name="floppy_server_url">URL del server</string>
+    <string name="floppy_api_key">Chiave API</string>
+    <string name="floppy_api_key_keep">Chiave API (lascia vuoto per mantenere)</string>
+    <string name="floppy_connect">Collega</string>
+    <string name="floppy_reconnect">Ricollega</string>
+    <string name="floppy_disconnect">Disconnetti</string>
+    <string name="floppy_connected">Connesso</string>
+    <string name="floppy_server_version">Versione server</string>
+    <string name="floppy_role_secondary">Ruolo: Secondario</string>
+    <string name="floppy_bootstrap_not_started">Bootstrap: non avviato</string>
+    <string name="floppy_bootstrap_running">Bootstrap: sincronizzazione</string>
+    <string name="floppy_bootstrap_ready">Bootstrap: pronto</string>
+    <string name="floppy_bootstrap_failed">Bootstrap non riuscito</string>
+    <string name="floppy_insecure_http_warning">HTTP semplice è consentito solo per indirizzi LAN privati. HTTPS è consigliato.</string>
+    <string name="floppy_error_authentication">Autenticazione Floppy non riuscita. Controlla la chiave API.</string>
+    <string name="floppy_error_unavailable">Floppy non è disponibile. Controlla URL e connessione.</string>
+    <string name="floppy_status">Stato</string>
+    <string name="floppy_role">Ruolo</string>
+    <string name="floppy_bootstrap">Bootstrap</string>
+    <string name="floppy_self_hosted_description">Monitoraggio self-hosted con X-API-Key</string>
 </resources>
-

@@ -23,9 +23,7 @@ class TrackingConfigurationService(
         routingMutex.withLock {
             val previous = current()
             if (next.mainProvider == TrackingProviderId.FLOPPY) {
-                require(preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY) {
-                    "Floppy must complete bootstrap before it can become MAIN"
-                }
+                error("Floppy two-way synchronization is not available yet.")
             }
             val promotedBootstrapState = if (
                 previous.mainProvider != null &&
@@ -91,7 +89,14 @@ class TrackingConfigurationService(
     }
 
     suspend fun repair(configuration: TrackingConfiguration? = null) = routingMutex.withLock {
-        val resolved = configuration ?: current()
+        // Older builds could persist Floppy as MAIN. Clear that invalid role
+        // before normal startup repair so it can never become authoritative.
+        if (preferences.mainTrackingProvider.first() == TrackingProviderId.FLOPPY) {
+            preferences.setTrackingProviders(null, null)
+            operations.cancelProviderDeliveries(TrackingProviderId.FLOPPY, "Floppy MAIN mode is unsupported")
+        }
+        val requested = configuration ?: current()
+        val resolved = TrackingConfiguration.normalized(requested.mainProvider, requested.secondaryProvider)
         val configured = setOfNotNull(resolved.mainProvider, resolved.secondaryProvider)
         // Bind first so a process dying after the MAIN DataStore write cannot
         // strand current local intents without an immutable target row.

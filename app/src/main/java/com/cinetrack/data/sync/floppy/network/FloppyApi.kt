@@ -1,8 +1,11 @@
 package com.cinetrack.data.sync.floppy.network
 
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyConsumption
+import com.cinetrack.data.sync.floppy.FloppyConsumptionPage
 import com.cinetrack.data.sync.floppy.FloppyHistoryEnvelope
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
+import com.cinetrack.data.sync.floppy.FloppyMediaDetail
 import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaEnvelope
@@ -23,6 +26,39 @@ interface FloppyApi {
 
     @GET("api/v1/user/preferences/")
     suspend fun preferences(): JsonObject
+
+    @GET("api/v1/media/{mediaType}/{source}/{mediaId}/")
+    suspend fun mediaDetail(
+        @Path("mediaType") mediaType: String,
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+    ): FloppyMediaDetail
+
+    @GET("api/v1/media/{mediaType}/{source}/{mediaId}/history/")
+    suspend fun mediaHistory(
+        @Path("mediaType") mediaType: String,
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+        @Query("limit") limit: Int = 200,
+        @Query("offset") offset: Int = 0,
+    ): FloppyConsumptionPage
+
+    @PATCH("api/v1/media/{mediaType}/{source}/{mediaId}/history/{consumptionId}/")
+    suspend fun updateConsumption(
+        @Path("mediaType") mediaType: String,
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+        @Path("consumptionId") consumptionId: Int,
+        @Body request: FloppyTrackedMediaUpdateRequest,
+    ): FloppyConsumption
+
+    @DELETE("api/v1/media/{mediaType}/{source}/{mediaId}/history/{consumptionId}/")
+    suspend fun deleteConsumption(
+        @Path("mediaType") mediaType: String,
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+        @Path("consumptionId") consumptionId: Int,
+    )
 
     @GET("api/v1/media/{mediaType}/")
     suspend fun media(
@@ -45,13 +81,6 @@ interface FloppyApi {
         @Body request: FloppyTrackedMediaUpdateRequest,
     ): FloppyTrackedMedia
 
-    @DELETE("api/v1/media/{mediaType}/{source}/{mediaId}/")
-    suspend fun delete(
-        @Path("mediaType") mediaType: String,
-        @Path("source") source: String,
-        @Path("mediaId") mediaId: String,
-    )
-
     @POST("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/episodes/{episode}/watch/")
     suspend fun watchEpisode(
         @Path("mediaType") mediaType: String = "tv",
@@ -62,14 +91,15 @@ interface FloppyApi {
         @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
     ): FloppyTrackedMedia
 
-    @DELETE("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/{episode}/")
-    suspend fun deleteEpisode(
+    @POST("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/episodes/{episode}/drop/")
+    suspend fun dropEpisode(
         @Path("mediaType") mediaType: String = "tv",
         @Path("source") source: String,
         @Path("mediaId") mediaId: String,
         @Path("season") season: Int,
         @Path("episode") episode: Int,
-    )
+        @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
+    ): FloppyTrackedMedia
 
     @GET("api/v1/history/")
     suspend fun history(

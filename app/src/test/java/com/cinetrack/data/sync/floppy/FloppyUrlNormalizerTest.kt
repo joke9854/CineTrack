@@ -22,4 +22,14 @@ class FloppyUrlNormalizerTest {
         assertThrows(IllegalArgumentException::class.java) { FloppyUrlNormalizer.normalize("https://u:p@example.com/floppy") }
         assertThrows(IllegalArgumentException::class.java) { FloppyUrlNormalizer.normalize("https://example.com/floppy?x=1") }
     }
+
+    @Test fun publicHttpIsRejectedButExplicitPrivateHttpIsAllowed() {
+        assertThrows(IllegalArgumentException::class.java) {
+            FloppyUrlNormalizer.normalize("http://floppy.example.com")
+        }
+        assertEquals(
+            "http://192.168.1.20/floppy/",
+            FloppyUrlNormalizer.normalize("http://192.168.1.20/floppy", allowInsecureLocalHttp = true).baseUrl,
+        )
+    }
 }

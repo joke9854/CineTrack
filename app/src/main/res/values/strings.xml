@@ -486,5 +486,25 @@
     <string name="discover_more_failed">Could not load more titles. Your current list is still available.</string>
     <string name="discover_load_more">Load more titles</string>
     <string name="discover_list_end">You have reached the end of this list.</string>
+    <string name="floppy_connection">Connection</string>
+    <string name="floppy_server_url">Server URL</string>
+    <string name="floppy_api_key">API key</string>
+    <string name="floppy_api_key_keep">API key (leave blank to keep)</string>
+    <string name="floppy_connect">Connect</string>
+    <string name="floppy_reconnect">Reconnect</string>
+    <string name="floppy_disconnect">Disconnect</string>
+    <string name="floppy_connected">Connected</string>
+    <string name="floppy_server_version">Server version</string>
+    <string name="floppy_role_secondary">Role: Secondary</string>
+    <string name="floppy_bootstrap_not_started">Bootstrap: Not started</string>
+    <string name="floppy_bootstrap_running">Bootstrap: Syncing</string>
+    <string name="floppy_bootstrap_ready">Bootstrap: Ready</string>
+    <string name="floppy_bootstrap_failed">Bootstrap failed</string>
+    <string name="floppy_insecure_http_warning">Plain HTTP is allowed only for private LAN addresses. HTTPS is recommended.</string>
+    <string name="floppy_error_authentication">Floppy authentication failed. Check the API key.</string>
+    <string name="floppy_error_unavailable">Floppy is unavailable. Check the server URL and connection.</string>
+    <string name="floppy_status">Status</string>
+    <string name="floppy_role">Role</string>
+    <string name="floppy_bootstrap">Bootstrap</string>
+    <string name="floppy_self_hosted_description">Self-hosted tracking with X-API-Key</string>
 </resources>
-

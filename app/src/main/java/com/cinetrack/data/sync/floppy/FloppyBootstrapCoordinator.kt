@@ -2,6 +2,7 @@ package com.cinetrack.data.sync.floppy
 
 import com.cinetrack.data.sync.DurableSyncOperationWriter
 import com.cinetrack.data.sync.ProviderBootstrapState
+import com.cinetrack.data.sync.DeliveryStatus
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationRepository
 import com.cinetrack.data.sync.SyncOperationType
@@ -11,7 +12,6 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import java.time.Instant
-import java.util.UUID
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -21,59 +21,90 @@ class FloppyBootstrapCoordinator(
     private val operationRepository: SyncOperationRepository,
     private val operationWriter: DurableSyncOperationWriter,
     private val canonicalSnapshot: suspend () -> TrackingSnapshot,
+    private val instanceId: suspend () -> String = {
+        preferences.floppySettingsNow()?.connectionId ?: "unknown"
+    },
+    private val verifyRemote: suspend () -> Boolean = { true },
 ) {
     private val mutex = Mutex()
 
     suspend fun start(): Int = mutex.withLock {
-        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
-        val snapshot = canonicalSnapshot()
-        val operations = buildList {
-            snapshot.movies.forEach { movie ->
-                movie.libraryState?.let { status -> movie.ids.tmdb?.let { add(movieLibrary(it, status)) } }
-                if (movie.watched) add(movieWatched(movie.ids.tmdb ?: return@forEach, movie.watchedAt))
+        try {
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+            val instance = instanceId()
+            val snapshot = canonicalSnapshot()
+            val operations = buildList {
+                snapshot.movies.forEach { movie ->
+                    movie.ids.tmdb?.let { id ->
+                        movie.libraryState?.let { add(movieLibrary(instance, id, it)) }
+                        if (movie.watched) add(movieWatched(instance, id, movie.watchedAt))
+                    }
+                }
+                snapshot.shows.forEach { show ->
+                    show.ids.tmdb?.let { id -> show.libraryState?.let { add(showLibrary(instance, id, it)) } }
+                }
+                snapshot.episodes.filter { it.watched }.forEach { episode ->
+                    episode.showIds.tmdb?.let { id -> add(episodeWatched(instance, id, episode.season, episode.episode, episode.watchedAt)) }
+                }
             }
-            snapshot.shows.forEach { show ->
-                show.libraryState?.let { add(showLibrary(show.ids.tmdb ?: return@let, it)) }
+            // Keep the plan after Room retires acknowledged rows. The marker
+            // is written before enqueueing so a restart can reconstruct the
+            // same deterministic operation ids.
+            preferences.setFloppyBootstrapPlan(instance, operations.size)
+            operations.chunked(CHUNK_SIZE).forEach { chunk ->
+                chunk.forEach { operation ->
+                    val existing = operationRepository.deliveries(setOf(operation.id))
+                    if (existing.isEmpty()) operationWriter.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
+                }
             }
-            snapshot.episodes.filter { it.watched }.forEach { episode ->
-                episode.showIds.tmdb?.let { add(episodeWatched(it, episode.season, episode.episode, episode.watchedAt)) }
+            if (operations.isEmpty() && verifyRemote()) {
+                preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+                preferences.clearFloppyBootstrapPlan()
             }
+            operations.size
+        } catch (error: Throwable) {
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+            throw error
         }
-        operations.chunked(CHUNK_SIZE).forEach { chunk ->
-            chunk.forEach { operation ->
-                operationWriter.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
-            }
-        }
-        if (operations.isEmpty()) preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
-        operations.size
     }
 
     suspend fun markReadyIfComplete() = mutex.withLock {
         val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
         if (state != ProviderBootstrapState.RUNNING) return@withLock
-        val pending = operationRepository.pending().filter { operation ->
-            operationRepository.deliveries(setOf(operation.id)).any { it.providerId == TrackingProviderId.FLOPPY }
+        val instance = instanceId()
+        val plan = preferences.floppyBootstrapPlanNow()
+        if (plan?.first != instance) return@withLock
+        val prefix = "bootstrap:$instance:"
+        val planned = operationRepository.pending().filter { it.id.startsWith(prefix) }
+        val incomplete = planned.any { operation ->
+            operationRepository.deliveries(setOf(operation.id)).any { delivery ->
+                delivery.providerId == TrackingProviderId.FLOPPY &&
+                    delivery.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED)
+            }
         }
-        if (pending.isEmpty()) preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        if (!incomplete && verifyRemote()) {
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+            preferences.clearFloppyBootstrapPlan()
+        }
     }
 
-    private fun movieLibrary(id: Long, status: LibraryStatus) = SyncOperation(
-        id = "bootstrap:movie:$id:library:${UUID.randomUUID()}", type = SyncOperationType.LIBRARY_STATUS,
+    private fun movieLibrary(instance: String, id: Long, status: LibraryStatus) = SyncOperation(
+        id = "bootstrap:$instance:movie:$id:library", type = SyncOperationType.LIBRARY_STATUS,
         mediaType = MediaType.MOVIE, mediaId = id.toInt(), title = "", value = status.name,
         sourceVersion = MutationGeneration.next(),
     )
-    private fun showLibrary(id: Long, status: LibraryStatus) = SyncOperation(
-        id = "bootstrap:show:$id:library:${UUID.randomUUID()}", type = SyncOperationType.LIBRARY_STATUS,
-        mediaType = MediaType.TV, mediaId = id.toInt(), title = "", value = status.name,
+    private fun showLibrary(instance: String, id: Long, status: LibraryStatus?) = SyncOperation(
+        id = "bootstrap:$instance:show:$id:library", type = SyncOperationType.LIBRARY_STATUS,
+        mediaType = MediaType.TV, mediaId = id.toInt(), title = "", value = status?.name ?: LibraryStatus.NONE.name,
         sourceVersion = MutationGeneration.next(),
     )
-    private fun movieWatched(id: Long, at: Instant?) = SyncOperation(
-        id = "bootstrap:movie:$id:watched:${UUID.randomUUID()}", type = SyncOperationType.MOVIE_WATCHED,
+    private fun movieWatched(instance: String, id: Long, at: Instant?) = SyncOperation(
+        id = "bootstrap:$instance:movie:$id:watched", type = SyncOperationType.MOVIE_WATCHED,
         mediaType = MediaType.MOVIE, mediaId = id.toInt(), title = "", payload = at?.toString(),
         sourceVersion = MutationGeneration.next(),
     )
-    private fun episodeWatched(id: Long, season: Int, episode: Int, at: Instant?) = SyncOperation(
-        id = "bootstrap:episode:$id:$season:$episode:${UUID.randomUUID()}", type = SyncOperationType.EPISODE_WATCHED,
+    private fun episodeWatched(instance: String, id: Long, season: Int, episode: Int, at: Instant?) = SyncOperation(
+        id = "bootstrap:$instance:episode:$id:$season:$episode", type = SyncOperationType.EPISODE_WATCHED,
         mediaType = MediaType.TV, mediaId = id.toInt(), title = "", payload = "$season:$episode:${at ?: Instant.now()}",
         sourceVersion = MutationGeneration.next(),
     )
