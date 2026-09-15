@@ -66,5 +66,18 @@ class PlaybackOrderingTest {
         val ordered = listOf(distant, active).sortedWith { a, b -> compareProgressAttention(a, b, emptyMap(), now) }
         assertEquals("Active", ordered.first().media.title)
     }
+
+    @Test
+    fun recentlyAiredEpisodeSurfacesUntilNewerViewingActivityArrives() {
+        val now = Instant.parse("2026-09-16T12:00:00Z").toEpochMilli()
+        val aired = PlaybackCard(media = media.copy(id = 1, title = "Ted"), progress = 0f, episodeAirDate = "2026-09-16T11:55:00Z")
+        val stale = PlaybackCard(media = media.copy(id = 2, title = "Older"), progress = 0f, progressUpdatedAtMillis = now - 2 * 86_400_000L)
+        val first = listOf(stale, aired).sortedWith { a, b -> compareProgressAttention(a, b, emptyMap(), now) }
+        assertEquals("Ted", first.first().media.title)
+
+        val activelyWatched = aired.copy(media = aired.media.copy(title = "Active"), episodeAirDate = null, progress = .3f, progressUpdatedAtMillis = now - 60_000L)
+        val second = listOf(aired, activelyWatched).sortedWith { a, b -> compareProgressAttention(a, b, emptyMap(), now) }
+        assertEquals("Active", second.first().media.title)
+    }
 }
 

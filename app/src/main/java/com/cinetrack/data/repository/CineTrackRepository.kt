@@ -146,8 +146,14 @@ internal fun compareProgressAttention(
         val air = if (item.media.type == MediaType.TV) {
             releaseDateTime(item.episodeAirDate, zone)?.toInstant()?.toEpochMilli()
         } else null
-        val upcoming = air?.takeIf { it > nowMillis && it - nowMillis <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L }
-        val event = upcoming ?: activity
+        val attentionWindow = UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+        val upcoming = air?.takeIf { it > nowMillis && it - nowMillis <= attentionWindow }
+        // A newly aired selected episode is still meaningful attention for a
+        // short window. Once it is older than that window, ordinary viewing
+        // activity regains priority. This lets an episode airing now surface
+        // without allowing schedule metadata to permanently dominate.
+        val recentAir = air?.takeIf { it <= nowMillis && nowMillis - it <= attentionWindow }
+        val event = upcoming ?: recentAir ?: activity
         return Triple(kotlin.math.abs(event - nowMillis), upcoming != null, event)
     }
     val a = key(left)
