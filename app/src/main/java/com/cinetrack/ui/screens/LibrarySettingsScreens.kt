@@ -796,6 +796,7 @@ private fun SyncSettings(
 @Composable
 internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
+    val bootstrap by viewModel.managedBootstrapSummary.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
     val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }
     val failed = operations.filter { it.status in setOf(SyncOperationStatus.FAILED, SyncOperationStatus.PARTIAL) }
@@ -807,6 +808,24 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
         ValueRow(stringResource(R.string.failed_actions), failed.size.toString(), failed.isEmpty())
         GlassDivider()
         ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
+    }
+
+    bootstrap?.let { summary ->
+        SettingsSection("Floppy initial synchronization") {
+            val stateLabel = when (summary.state) {
+                com.cinetrack.data.sync.ProviderBootstrapState.READY -> "Ready"
+                com.cinetrack.data.sync.ProviderBootstrapState.FAILED -> "Needs attention"
+                com.cinetrack.data.sync.ProviderBootstrapState.RUNNING -> "Syncing"
+                com.cinetrack.data.sync.ProviderBootstrapState.NOT_STARTED -> "Preparing"
+            }
+            ValueRow("Floppy initial sync", "$stateLabel · ${summary.completed} / ${summary.total}", summary.state == com.cinetrack.data.sync.ProviderBootstrapState.READY)
+            summary.lastError?.takeIf(String::isNotBlank)?.let { error ->
+                Text("Floppy · $error", color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
+            }
+            if (summary.state != com.cinetrack.data.sync.ProviderBootstrapState.READY) {
+                PrimaryAction("Retry initial sync", Icons.Filled.Refresh, onClick = viewModel::retryFloppyInitialSync)
+            }
+        }
     }
 
     if (operations.isEmpty()) {
@@ -883,7 +902,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
             Text(message, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         }
-        if (operation.deliveries.size > 1 || operation.status == SyncOperationStatus.PARTIAL) {
+        if (operation.deliveries.isNotEmpty()) {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
             operation.deliveries.forEach { delivery -> SyncDeliveryRow(delivery) }
         }
@@ -951,6 +970,9 @@ private fun SyncDeliveryRow(delivery: SyncDeliveryCard) {
         Text(provider, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         Text(label, color = color, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
     }
+    delivery.lastError?.takeIf(String::isNotBlank)?.let { error ->
+        Text(error, color = if (delivery.status == "FAILED") androidx.compose.material3.MaterialTheme.colorScheme.error else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+    }
 }
 
 @Composable
@@ -999,6 +1021,7 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 @Composable
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
     val connectionUiState by viewModel.floppyConnectionUiState.collectAsStateWithLifecycle()
+    val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
     SettingsSection(stringResource(R.string.floppy_status)) {
         ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
@@ -1009,7 +1032,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
             })
-            val bootstrapProgress = state.floppyBootstrapProgress
+            val bootstrapProgress = observedBootstrapProgress ?: state.floppyBootstrapProgress
             if (bootstrapProgress != null && state.floppyUiState != FloppyUiState.READY) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                     val determinate = bootstrapProgress.total > 0 && bootstrapProgress.stage == FloppyBootstrapStage.SYNCING
@@ -1021,6 +1044,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                         when (bootstrapProgress.stage) {
                             FloppyBootstrapStage.PREPARING -> "Preparing initial sync…"
                             FloppyBootstrapStage.QUEUED -> "Waiting to sync with Floppy…"
+                            FloppyBootstrapStage.WAITING_FOR_SERVER -> "Waiting for Floppy server…"
                             FloppyBootstrapStage.SYNCING -> "Syncing with Floppy · ${bootstrapProgress.processed} / ${bootstrapProgress.total}"
                             FloppyBootstrapStage.VERIFYING -> "Verifying Floppy…"
                             FloppyBootstrapStage.COMPLETE -> "Initial sync complete"

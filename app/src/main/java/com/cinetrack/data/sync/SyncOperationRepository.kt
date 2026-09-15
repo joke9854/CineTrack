@@ -32,6 +32,7 @@ interface SyncOperationRepository {
         enqueue(operations)
     }
     suspend fun cards(): List<SyncOperationCard>
+    suspend fun managedBootstrapSummary(): ManagedBootstrapSummary? = null
     suspend fun complete(operations: List<SyncOperation>)
     suspend fun fail(operations: List<SyncOperation>, error: Throwable)
 
@@ -89,6 +90,25 @@ class RoomSyncOperationRepository(
     private val preferences: AppPreferences,
 ) : SyncOperationRepository {
     override val requiresPersistedDeliveryRows: Boolean = true
+
+    override suspend fun managedBootstrapSummary(): ManagedBootstrapSummary? {
+        val connectionId = preferences.floppySettingsNow()?.connectionId ?: return null
+        val entities = database.syncDao().syncOperations().filter { it.operationId.startsWith("bootstrap:$connectionId:") }
+        if (entities.isEmpty()) return null
+        val rows = database.syncDao().deliveries(entities.map { it.operationId })
+            .filter { it.providerId == TrackingProviderId.FLOPPY.name && it.operationVersion == entities.firstOrNull { entity -> entity.operationId == it.operationId }?.createdAt }
+        val completed = rows.count { it.status == DeliveryStatus.ACKNOWLEDGED.name || it.status == DeliveryStatus.SKIPPED_UNSUPPORTED.name }
+        val failedRows = rows.filter { it.status == DeliveryStatus.FAILED.name }
+        val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
+        return ManagedBootstrapSummary(
+            connectionId = connectionId,
+            total = entities.size,
+            completed = completed.coerceAtMost(entities.size),
+            failed = failedRows.size,
+            state = state,
+            lastError = failedRows.firstOrNull()?.lastError,
+        )
+    }
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
         backfillLegacyDeliveries()
         ensureLegacyOperationsMaterialized()
@@ -113,7 +133,12 @@ class RoomSyncOperationRepository(
         ensureLegacyOperationsMaterialized()
         repairDeliveryRows()
         repairBlankTitles()
-        val cards = database.syncDao().syncOperations().mapNotNull(SyncOperationEntity::toCard)
+        // Bootstrap intents stay durable for retry/recovery, but are rendered
+        // as one managed Floppy job summary rather than hundreds of user
+        // actions. Normal queue cards remain focused on interactive changes.
+        val cards = database.syncDao().syncOperations()
+            .filterNot { it.operationId.startsWith("bootstrap:") }
+            .mapNotNull(SyncOperationEntity::toCard)
         val currentGenerations = cards.associate { it.id to it.createdAt }
         val deliveryRows = if (cards.isEmpty()) emptyList() else database.syncDao().deliveries(cards.map(SyncOperationCard::id))
             .filter { row -> currentGenerations[row.operationId] == row.operationVersion }
@@ -717,11 +742,18 @@ private fun SyncOperationEntity.toCard(): SyncOperationCard? {
     )
 }
 
-private fun SyncOperationStatus.aggregateWith(deliveries: List<SyncOperationDelivery>): SyncOperationStatus {
+internal fun SyncOperationStatus.aggregateWith(deliveries: List<SyncOperationDelivery>): SyncOperationStatus {
     if (this == SyncOperationStatus.CONFLICT) return this
     val required = deliveries.filter(SyncOperationDelivery::required)
-    val hasFailed = required.any { it.status == DeliveryStatus.FAILED }
-    val hasAcknowledged = required.any { it.status == DeliveryStatus.ACKNOWLEDGED }
-    return if (hasFailed && hasAcknowledged) SyncOperationStatus.PARTIAL else this
+    if (required.isEmpty()) return this
+    val failed = required.any { it.status == DeliveryStatus.FAILED }
+    val acknowledged = required.any { it.status == DeliveryStatus.ACKNOWLEDGED }
+    val pending = required.any { it.status == DeliveryStatus.PENDING }
+    return when {
+        acknowledged && (pending || failed) -> SyncOperationStatus.PARTIAL
+        failed && !acknowledged -> SyncOperationStatus.FAILED
+        pending && !failed && !acknowledged -> SyncOperationStatus.PENDING
+        else -> this
+    }
 }
 

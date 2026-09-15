@@ -20,6 +20,7 @@ import androidx.work.workDataOf
 import com.cinetrack.CineTrackApplication
 import com.cinetrack.R
 import com.cinetrack.data.sync.ProviderBootstrapState
+import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.domain.FloppyBootstrapProgress
@@ -110,9 +111,34 @@ class FloppyBootstrapWorker(
         val plan = coordinator.ensurePlan()
         val total = plan.size
         if (total > 100) setForeground(createForegroundInfo(initialPlan.copy(total = total)))
-        val chunkSize = 40
+        val chunkSize = 15
         var processed = (total - application.container.syncCoordinator.pendingOperationCount(plan.map { it.id }.toSet())).coerceIn(0, total)
         var failed = 0
+        // A cheap authenticated reachability check prevents a transient
+        // private-DNS/VPN outage from poisoning an entire batch of durable
+        // delivery rows. It runs once per WorkManager attempt, not per item.
+        val provider = application.container.trackingProviderRegistry.getProvider(TrackingProviderId.FLOPPY)
+        when (val connection = provider?.testConnection()) {
+            ConnectionResult.Connected -> Unit
+            ConnectionResult.AuthenticationRequired -> {
+                val error = TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
+                application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
+                return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
+            }
+            is ConnectionResult.Failed -> {
+                if (!isCurrent(application, expected)) return Result.success()
+                val error = connection.error
+                val waiting = FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)
+                setProgress(progressData(waiting))
+                return terminalResult(error, progressData(waiting))
+            }
+            null -> {
+                val error = TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
+                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
+                return terminalResult(error)
+            }
+        }
         while (true) {
             if (!isCurrent(application, expected)) return Result.success()
             val pending = application.container.syncCoordinator.pendingOperationIds(plan.map { it.id }.toSet())
@@ -135,7 +161,7 @@ class FloppyBootstrapWorker(
                     application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
                     setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
                 } else {
-                    setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected)))
+                    setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
                 }
                 return terminalResult(
                     error,
@@ -166,6 +192,7 @@ class FloppyBootstrapWorker(
 
     private fun terminalResult(error: Throwable, failureData: Data? = null): Result = when (error) {
         is TrackingSyncError.NetworkUnavailable,
+        is TrackingSyncError.DnsFailure,
         is TrackingSyncError.Timeout,
         is TrackingSyncError.RateLimited,
         is IOException,
@@ -175,6 +202,7 @@ class FloppyBootstrapWorker(
 
     private fun isRetryable(error: Throwable): Boolean = when (error) {
         is TrackingSyncError.NetworkUnavailable,
+        is TrackingSyncError.DnsFailure,
         is TrackingSyncError.Timeout,
         is TrackingSyncError.RateLimited,
         is IOException,

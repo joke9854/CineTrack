@@ -14,6 +14,39 @@ import kotlinx.coroutines.sync.withPermit
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicInteger
 
+/** Future schedule events only get attention priority when they are imminent. */
+internal const val UPCOMING_PROGRESS_ATTENTION_DAYS: Long = 7L
+
+internal fun selectNextProgressEpisode(
+    showId: Int,
+    episodes: List<EpisodeCard>,
+    watched: Set<Triple<Int, Int, Int>>,
+    now: java.time.Instant,
+    zone: ZoneId,
+    excludeSpecials: Boolean,
+): EpisodeCard? {
+    val lastWatched = watched.asSequence()
+        .filter { it.first == showId && it.second > 0 }
+        .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
+    val candidates = episodes.asSequence()
+        .filter { it.showId == showId && (!excludeSpecials || it.season > 0) }
+        .filterNot { Triple(showId, it.season, it.number) in watched }
+        .filter { episode ->
+            lastWatched == null || episode.season > lastWatched.second ||
+                (episode.season == lastWatched.second && episode.number > lastWatched.third)
+        }
+        .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+        .toList()
+    val aired = candidates.filter { episode ->
+        releaseDateTime(episode.airDate, zone)?.toInstant()?.let { !it.isAfter(now) } == true
+    }
+    // Only a fully caught-up show reaches this branch. Future episodes remain
+    // selectable/cacheable, but are not confused with an aired unwatched item.
+    return aired.firstOrNull() ?: candidates.firstOrNull { episode ->
+        releaseDateTime(episode.airDate, zone)?.toInstant()?.isAfter(now) == true
+    }
+}
+
 /**
  * Owns the expensive, cache-backed derivation of the next episode for each show.
  * Network writes and the surrounding Room transaction remain coordinated by the
@@ -52,21 +85,8 @@ internal class ProgressCacheRepository(
                                 .filter { it.second > 0 }
                                 .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
 
-                            fun nextFrom(source: List<EpisodeCard>): EpisodeCard? {
-                                val candidates = source.asSequence()
-                                    .filter { !excludeSpecials || it.season > 0 }
-                                    .filter { episode ->
-                                        releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
-                                    }
-                                    .filterNot { Triple(show.id, it.season, it.number) in watched }
-                                    .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
-                                    .toList()
-                                return lastWatched?.let { last ->
-                                    candidates.firstOrNull {
-                                        it.season > last.second || (it.season == last.second && it.number > last.third)
-                                    }
-                                } ?: candidates.firstOrNull()
-                            }
+                            fun nextFrom(source: List<EpisodeCard>): EpisodeCard? =
+                                selectNextProgressEpisode(show.id, source, watched, releaseNow, releaseZone, excludeSpecials)
 
                             var candidates = cachedByShow[show.id].orEmpty()
                             var episode = nextFrom(candidates)
@@ -114,3 +134,4 @@ private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(
     stillUrl = stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
     runtimeMinutes = runtimeMinutes,
 )
+

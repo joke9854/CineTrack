@@ -127,6 +127,12 @@ class CineTrackViewModel(
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
     private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
     val syncOperations: StateFlow<List<SyncOperationCard>> = _syncOperations.asStateFlow()
+    private val _managedBootstrapSummary = MutableStateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?>(null)
+    val managedBootstrapSummary: StateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?> = _managedBootstrapSummary.asStateFlow()
+    /** WorkManager-owned progress is kept outside Room-derived AppUiState so
+     * delivery invalidations cannot erase an active Floppy bootstrap. */
+    private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
+    val floppyBootstrapProgress: StateFlow<com.cinetrack.domain.FloppyBootstrapProgress?> = _floppyBootstrapProgress.asStateFlow()
     private val _floppyConnectionUiState = MutableStateFlow(FloppyConnectionUiState())
     val floppyConnectionUiState: StateFlow<FloppyConnectionUiState> = _floppyConnectionUiState.asStateFlow()
 
@@ -251,26 +257,30 @@ class CineTrackViewModel(
             }
         }
         viewModelScope.launch {
-            floppyBootstrapWorkManager.progress.collectLatest { progress ->
-                _state.update { current ->
-                    if (progress?.providerInstanceId != null && current.floppyConnectionId != null && progress.providerInstanceId != current.floppyConnectionId) return@update current
-                    val ui = when (progress?.stage) {
-                        FloppyBootstrapStage.COMPLETE -> com.cinetrack.domain.FloppyUiState.READY
-                        FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
-                        FloppyBootstrapStage.PREPARING,
-                        FloppyBootstrapStage.QUEUED,
-                        FloppyBootstrapStage.SYNCING,
-                        FloppyBootstrapStage.VERIFYING,
-                        -> if (current.floppyConnected) com.cinetrack.domain.FloppyUiState.SETTING_UP else current.floppyUiState
-                        null -> current.floppyUiState
+            _state.map { it.floppyConnectionId }.distinctUntilChanged().collectLatest { connectionId ->
+                floppyBootstrapWorkManager.progressFor(connectionId).collectLatest { progress ->
+                    _floppyBootstrapProgress.value = progress
+                    _state.update { current ->
+                        val ui = when (progress?.stage) {
+                            FloppyBootstrapStage.COMPLETE -> com.cinetrack.domain.FloppyUiState.READY
+                            FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
+                            FloppyBootstrapStage.PREPARING,
+                            FloppyBootstrapStage.QUEUED,
+                            FloppyBootstrapStage.WAITING_FOR_SERVER,
+                            FloppyBootstrapStage.SYNCING,
+                            FloppyBootstrapStage.VERIFYING,
+                            -> if (current.floppyConnected) com.cinetrack.domain.FloppyUiState.SETTING_UP else current.floppyUiState
+                            null -> current.floppyUiState
+                        }
+                        current.copy(floppyBootstrapProgress = progress, floppyUiState = ui)
                     }
-                    current.copy(floppyBootstrapProgress = progress, floppyUiState = ui)
                 }
             }
         }
         viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             state
                 .map { uiState: AppUiState -> uiState.error }
                 .filterNotNull()
@@ -304,6 +314,7 @@ class CineTrackViewModel(
                     people = current.people,
                     sync = latestSync,
                 )
+                _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             }
         }
         viewModelScope.launch {
@@ -318,7 +329,7 @@ class CineTrackViewModel(
             // finished. Re-read both durable jobs after the cached projection
             // is published so process recreation cannot lose visible progress.
             val restoredArtwork = withContext(Dispatchers.IO) { libraryArtworkRefreshManager.progress.first() }
-            val restoredBootstrap = withContext(Dispatchers.IO) { floppyBootstrapWorkManager.progress.first() }
+            val restoredBootstrap = withContext(Dispatchers.IO) { floppyBootstrapWorkManager.progressFor(cached.floppyConnectionId).first() }
             _state.update { current ->
                 val bootstrapMatches = restoredBootstrap?.providerInstanceId.isNullOrBlank() ||
                     current.floppyConnectionId.isNullOrBlank() ||
@@ -328,6 +339,7 @@ class CineTrackViewModel(
                     floppyBootstrapProgress = if (bootstrapMatches) restoredBootstrap ?: current.floppyBootstrapProgress else current.floppyBootstrapProgress,
                 )
             }
+            _floppyBootstrapProgress.value = restoredBootstrap
             val mainProviderConnected = withContext(Dispatchers.IO) { syncCoordinator.isMainProviderConnected() }
             val coldSync = if (mainProviderConnected) {
                 // Keep the cached UI stable while a cold-start delta check runs.
@@ -851,6 +863,14 @@ class CineTrackViewModel(
 
     fun sync() {
         if (_syncProgress.value.running) return
+        val queued = syncMutex.isLocked
+        val starting = _syncProgress.value.copy(
+            running = true,
+            stage = com.cinetrack.domain.SyncStage.PROCESSING,
+            message = if (queued) "Waiting for current Simkl operation…" else "Starting synchronization…",
+        )
+        _syncProgress.value = starting
+        _state.update { it.copy(sync = starting) }
         viewModelScope.launch { performTrackingSync(force = true) }
     }
 
@@ -859,6 +879,15 @@ class CineTrackViewModel(
         publishResult: Boolean = true,
         exposeProgress: Boolean = true,
     ): Result<SyncCoordinatorOutcome> = syncMutex.withLock {
+        if (exposeProgress) {
+            val started = _syncProgress.value.copy(
+                running = true,
+                stage = com.cinetrack.domain.SyncStage.AUTH,
+                message = null,
+            )
+            _syncProgress.value = started
+            _state.update { it.copy(sync = started) }
+        }
         if (!syncCoordinator.isMainProviderConnected()) {
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
@@ -900,10 +929,15 @@ class CineTrackViewModel(
     fun refreshSyncOperations() {
         viewModelScope.launch {
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
         }
     }
 
     fun retrySyncOperation(operationId: String) {
+        if (operationId.startsWith("bootstrap:")) {
+            retryFloppyInitialSync()
+            return
+        }
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { repository.retrySyncOperation(operationId) }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }

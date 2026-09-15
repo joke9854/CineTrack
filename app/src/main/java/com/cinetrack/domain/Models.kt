@@ -203,7 +203,15 @@ enum class SyncOperationStatus { PENDING, FAILED, PARTIAL, CONFLICT }
 enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY, NEEDS_ATTENTION }
 
 /** Durable stages reported by the Floppy bootstrap WorkManager job. */
-enum class FloppyBootstrapStage { PREPARING, QUEUED, SYNCING, VERIFYING, COMPLETE, NEEDS_ATTENTION }
+enum class FloppyBootstrapStage {
+    PREPARING,
+    QUEUED,
+    WAITING_FOR_SERVER,
+    SYNCING,
+    VERIFYING,
+    COMPLETE,
+    NEEDS_ATTENTION,
+}
 
 @Immutable
 data class FloppyBootstrapProgress(

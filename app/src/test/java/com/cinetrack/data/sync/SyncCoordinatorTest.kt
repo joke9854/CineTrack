@@ -31,6 +31,58 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun `generic pending dispatch excludes managed Floppy bootstrap rows`() = runTest {
+        val normal = operation()
+        val bootstrap = normal.copy(id = "bootstrap:instance:movie:42")
+        val queue = FakeOperationRepository(normal, bootstrap)
+        val simkl = FakeProvider(TrackingProviderId.SIMKL)
+        val floppy = FakeProvider(TrackingProviderId.FLOPPY)
+        val coordinator = SyncCoordinator(MutableRegistry(simkl, floppy), queue)
+
+        assertTrue(coordinator.pushPending().isSuccess)
+        assertEquals(listOf(normal.id), simkl.pushed.single().map(SyncOperation::id))
+        assertEquals(listOf(normal.id), floppy.pushed.single().map(SyncOperation::id))
+    }
+
+    @Test
+    fun `full sync never steals a large Floppy bootstrap queue`() = runTest {
+        val normal = (1..3).map { index -> operation().copy(id = "state:MOVIE:$index", mediaId = index) }
+        val bootstrap = (1..900).map { index -> operation().copy(id = "bootstrap:instance:movie:$index", mediaId = index) }
+        val queue = FakeOperationRepository(*(normal + bootstrap).toTypedArray())
+        val simkl = FakeProvider(TrackingProviderId.SIMKL)
+        val floppy = FakeProvider(TrackingProviderId.FLOPPY)
+        val result = SyncCoordinator(MutableRegistry(simkl, floppy), queue).sync { }
+
+        assertTrue(result.isSuccess)
+        assertEquals(3, simkl.pushed.single().size)
+        assertEquals(3, floppy.pushed.single().size)
+        assertTrue(floppy.pushed.single().none { it.isManagedBootstrapOperation() })
+    }
+
+    @Test
+    fun `provider lanes allow Simkl and Floppy network calls concurrently`() = runTest {
+        val simklStarted = CompletableDeferred<Unit>()
+        val floppyStarted = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val simkl = FakeProvider(TrackingProviderId.SIMKL).apply {
+            beforePush = { simklStarted.complete(Unit); release.await() }
+        }
+        val floppy = FakeProvider(TrackingProviderId.FLOPPY).apply {
+            beforePush = { floppyStarted.complete(Unit); release.await() }
+        }
+        val queue = FakeOperationRepository(operation(), operation().copy(id = "state:MOVIE:43", mediaId = 43))
+        val coordinator = SyncCoordinator(MutableRegistry(simkl, floppy), queue)
+
+        val main = async { coordinator.pushPendingForProvider(TrackingProviderId.SIMKL, setOf("state:MOVIE:42")) }
+        simklStarted.await()
+        val secondary = async { coordinator.pushPendingForProvider(TrackingProviderId.FLOPPY, setOf("state:MOVIE:43")) }
+        floppyStarted.await()
+        release.complete(Unit)
+        assertTrue(main.await().isSuccess)
+        assertTrue(secondary.await().isSuccess)
+    }
+
+    @Test
     fun `secondary is outbound only during a full sync`() = runTest {
         val operation = operation()
         val queue = FakeOperationRepository(operation)
@@ -228,6 +280,7 @@ private class FakeProvider(
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
         bidirectionalSyncs++
+        if (operations.isNotEmpty()) pushed += operations
         return ProviderSyncOutcome(
             itemsChanged = false,
             acknowledgedOperationIds = operations.mapTo(linkedSetOf(), SyncOperation::id),
@@ -257,3 +310,4 @@ private class FakeOperationRepository(vararg initial: SyncOperation) : SyncOpera
         failed += operations
     }
 }
+

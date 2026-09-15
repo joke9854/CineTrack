@@ -134,6 +134,38 @@ internal fun playbackActivityRecency(item: PlaybackCard): Long = maxOf(
     item.progressUpdatedAtMillis,
 )
 
+internal fun compareProgressAttention(
+    left: PlaybackCard,
+    right: PlaybackCard,
+    latestWatchedAtByShow: Map<Int, Long>,
+    nowMillis: Long,
+    zone: ZoneId = ZoneId.systemDefault(),
+): Int {
+    fun key(item: PlaybackCard): Triple<Long, Boolean, Long> {
+        val activity = maxOf(latestWatchedAtByShow[item.media.id] ?: 0L, playbackActivityRecency(item))
+        val air = if (item.media.type == MediaType.TV) {
+            releaseDateTime(item.episodeAirDate, zone)?.toInstant()?.toEpochMilli()
+        } else null
+        val upcoming = air?.takeIf { it > nowMillis && it - nowMillis <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L }
+        val event = upcoming ?: activity
+        return Triple(kotlin.math.abs(event - nowMillis), upcoming != null, event)
+    }
+    val a = key(left)
+    val b = key(right)
+    val distanceDelta = a.first - b.first
+    // A near tie between a past viewing event and an imminent future episode
+    // favors the upcoming attention signal, without allowing distant air dates
+    // to dominate real viewing activity.
+    if (kotlin.math.abs(distanceDelta) <= 5 * 60_000L && a.second != b.second) {
+        return if (a.second) -1 else 1
+    }
+    if (distanceDelta != 0L) return distanceDelta.compareTo(0L)
+    if (a.second != b.second) return if (a.second) -1 else 1
+    val eventDelta = b.third - a.third
+    if (eventDelta != 0L) return eventDelta.compareTo(0L)
+    return left.media.title.lowercase().compareTo(right.media.title.lowercase())
+}
+
 private sealed interface RemoteConflictPlan {
     data class Library(val status: LibraryStatus) : RemoteConflictPlan
     data class MovieWatched(val watched: Boolean) : RemoteConflictPlan
@@ -981,9 +1013,14 @@ class CineTrackRepository(
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.TV && it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED) }
             .mapNotNull { show ->
-                val session = playbackByShow[show.stableKey]?.takeUnless {
-                    Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
+                // Only an unfinished playback session is allowed to override
+                // the episode schedule. A zero-progress placeholder is not an
+                // active session and may yield to an aired/future next episode.
+                val session = playbackByShow[show.stableKey]?.takeIf {
+                    it.progress > 0f && it.season != null && it.episodeNumber != null &&
+                        Triple(show.id, it.season, it.episodeNumber) !in watchedNumbers
                 }
+                if (session != null) return@mapNotNull session
                 val cachedRow = durableUpNext[show.id]
                 val stored = cachedRow?.takeUnless {
                     Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
@@ -1001,22 +1038,16 @@ class CineTrackRepository(
                     )
                 } ?: if (!durableUpNextReady || (cachedRow != null && stored == null)) {
                     // One-time compatibility path while migration/startup builds
-                    // the durable cache. Once marked ready an empty row correctly
-                    // means that the show has no aired unwatched episode.
-                    val candidates = cachedEpisodes.asSequence()
-                        .filter { it.showId == show.id && (!excludeSpecials || it.season > 0) }
-                        .filter { episode ->
-                            releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
-                        }
-                        .filterNot { Triple(show.id, it.season, it.number) in watchedNumbers }
-                        .sortedWith(compareBy(EpisodeEntity::season, EpisodeEntity::number))
-                        .toList()
-                    val lastWatched = watchedNumbers.asSequence().filter { it.first == show.id && it.second > 0 }
-                        .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
-                    val legacyNext = lastWatched?.let { last ->
-                        candidates.firstOrNull { it.season > last.second || (it.season == last.second && it.number > last.third) }
-                    } ?: candidates.firstOrNull()
-                    legacyNext?.toDomain()
+                    // the durable cache. The same aired-then-future selection is
+                    // used so a caught-up show can surface its next episode.
+                    selectNextProgressEpisode(
+                        show.id,
+                        cachedEpisodes.map { it.toDomain() },
+                        watchedNumbers,
+                        releaseNow,
+                        releaseZone,
+                        excludeSpecials,
+                    )
                 } else null
                 if (next == null) return@mapNotNull session
                 val sameEpisode = session?.season == next.season && session.episodeNumber == next.number
@@ -1034,12 +1065,9 @@ class CineTrackRepository(
                     progressUpdatedAtMillis = if (sameEpisode) session?.progressUpdatedAtMillis ?: 0L else 0L,
                 )
             }
-            .sortedWith(
-                compareByDescending<PlaybackCard> { item ->
-                    maxOf(latestWatchedAtByShow[item.media.id] ?: 0L, playbackActivityRecency(item))
-                }
-                    .thenBy { it.media.title.lowercase() },
-            )
+            .sortedWith { left, right ->
+                compareProgressAttention(left, right, latestWatchedAtByShow, releaseNow.toEpochMilli(), releaseZone)
+            }
         val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
         val movieKeys = moviePlayback.map { it.media.stableKey }.toSet()
         moviePlayback += rails[RailIds.LIBRARY].orEmpty()
@@ -1456,6 +1484,8 @@ class CineTrackRepository(
 
     /** Returns every durable local write, including rows created by older app versions. */
     suspend fun loadSyncOperations(): List<SyncOperationCard> = syncOperationRepository.cards()
+
+    suspend fun loadManagedBootstrapSummary() = syncOperationRepository.managedBootstrapSummary()
 
     suspend fun retrySyncOperation(operationId: String): Result<Unit> = syncCoordinator.retry(operationId)
 

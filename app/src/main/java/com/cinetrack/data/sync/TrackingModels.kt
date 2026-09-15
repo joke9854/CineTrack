@@ -112,6 +112,16 @@ data class SyncOperationDelivery(
     val updatedAt: Long = System.currentTimeMillis(),
 )
 
+/** Compact presentation for the durable Floppy bootstrap queue. */
+data class ManagedBootstrapSummary(
+    val connectionId: String,
+    val total: Int,
+    val completed: Int,
+    val failed: Int,
+    val state: ProviderBootstrapState,
+    val lastError: String? = null,
+)
+
 enum class TrackingCapability {
     PULL_LIBRARY,
     PUSH_LIBRARY,
@@ -136,6 +146,10 @@ data class SyncOperation(
     val payload: String? = null,
     val sourceVersion: Long,
 )
+
+/** Bootstrap intents are durable, but owned exclusively by Floppy's
+ * WorkManager worker. Generic synchronization must never dispatch them. */
+fun SyncOperation.isManagedBootstrapOperation(): Boolean = id.startsWith("bootstrap:")
 
 data class TrackingCapabilities(
     val supportsMovies: Boolean = true,
