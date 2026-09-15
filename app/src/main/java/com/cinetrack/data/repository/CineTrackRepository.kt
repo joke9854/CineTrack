@@ -108,6 +108,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.security.MessageDigest
 import java.util.Locale
+import java.io.IOException
 
 data class ProgressRefreshRequest(
     val tvLibraryChanged: Boolean = false,
@@ -2514,8 +2515,9 @@ class CineTrackRepository(
         var unchanged = 0
         var failed = 0
         val requestSlots = Semaphore(permits = 5)
+        preferences.appendErrorLog("Artwork refresh started: ${targets.size} targets")
         onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.PREPARING, total = targets.size))
-        targets.chunked(20).forEach { batch ->
+        targets.chunked(20).forEachIndexed { batchIndex, batch ->
             val outcomes = coroutineScope {
                 batch.map { current ->
                     async(Dispatchers.IO) {
@@ -2553,6 +2555,10 @@ class CineTrackRepository(
                     }
                 }.awaitAll()
             }
+            if (outcomes.isNotEmpty() && outcomes.all { it.entity == null && it.errorType == "NETWORK" }) {
+                preferences.appendErrorLog("Artwork refresh paused: TMDB network unavailable at ${processed}/${targets.size}")
+                throw IOException("TMDB network unavailable")
+            }
             val updates = outcomes.mapNotNull { it.entity.takeIf { _ -> it.changed } }
             if (updates.isNotEmpty()) {
                 onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.APPLYING, processed, targets.size, changed, unchanged, failed))
@@ -2577,9 +2583,15 @@ class CineTrackRepository(
                     ),
                 )
             }
+            if ((batchIndex + 1) % 4 == 0 || processed == targets.size) {
+                preferences.appendErrorLog("Artwork refresh: batch ${batchIndex + 1}, processed $processed/${targets.size}")
+            }
         }
         val finalStage = if (failed == 0) LibraryArtworkRefreshStage.COMPLETE else LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS
-        return LibraryArtworkRefreshProgress(finalStage, processed, targets.size, changed, unchanged, failed).also { onProgress(it) }
+        return LibraryArtworkRefreshProgress(finalStage, processed, targets.size, changed, unchanged, failed).also {
+            preferences.appendErrorLog("Artwork refresh complete: changed=$changed unchanged=$unchanged failed=$failed")
+            onProgress(it)
+        }
     }
 
     private data class ArtworkRefreshOutcome(
