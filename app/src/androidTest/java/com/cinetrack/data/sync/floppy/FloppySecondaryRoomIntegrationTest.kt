@@ -285,6 +285,7 @@ class FloppySecondaryRoomIntegrationTest {
         // while exercising the real validation -> activation path.
         preferences.setTrackingProviders(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY)
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        main.authenticated = true
         server.enqueue(json("{\"version\":\"26.1\"}"))
         server.enqueue(json("{\"username\":\"integration-user\"}"))
 
