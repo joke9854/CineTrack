@@ -53,6 +53,7 @@ class SyncCoordinator(
         // forced sync must never steal that work.
         val pending = operations.pending().filterNot(SyncOperation::isManagedBootstrapOperation)
         var attemptedMain = emptyList<SyncOperation>()
+        var mainPassCompleted = false
         try {
             val secondary = configuration.secondaryProvider?.let(registry::getProvider)
             prepareDeliveryRows(pending, main, secondary, configuration)
@@ -80,6 +81,7 @@ class SyncCoordinator(
             // Configuration may change while the network request is running;
             // its result must never be attributed to the new MAIN provider.
             acknowledge(main.id, mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
+            mainPassCompleted = true
             // A retry may have had only SECONDARY work left after MAIN was
             // acknowledged by an earlier attempt. Re-evaluate the complete
             // operation against every persisted delivery, not just this pass.
@@ -108,8 +110,14 @@ class SyncCoordinator(
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
-            operations.failDelivery(main.id, attemptedMain, error)
-            if (!operations.requiresPersistedDeliveryRows) operations.fail(attemptedMain, error)
+            // A SECONDARY transport failure is reported after MAIN has
+            // already acknowledged its current-generation deliveries. Never
+            // overwrite that successful MAIN result just because the mirror
+            // failed; delivery rows are the provider-specific authority.
+            if (!mainPassCompleted) {
+                operations.failDelivery(main.id, attemptedMain, error)
+                if (!operations.requiresPersistedDeliveryRows) operations.fail(attemptedMain, error)
+            }
             throw error
         }
     }

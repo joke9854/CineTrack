@@ -11,6 +11,40 @@ import org.junit.Test
 /** Exercises the durable per-provider state machine rather than no-op test hooks. */
 class SyncOperationDeliveryTest {
     @Test
+    fun `full sync keeps acknowledged main delivery when secondary fails`() = runTest {
+        val op = operation(1L)
+        val queue = DeliveryAwareRepository(op)
+        queue.persisted = true
+        queue.rows += SyncOperationDelivery(
+            operationId = op.id,
+            operationVersion = op.sourceVersion,
+            providerId = TrackingProviderId.SIMKL,
+            required = true,
+            roleAtEnqueue = TrackingRole.MAIN,
+            createdAt = 1L,
+            updatedAt = 1L,
+        )
+        queue.rows += SyncOperationDelivery(
+            operationId = op.id,
+            operationVersion = op.sourceVersion,
+            providerId = TrackingProviderId.FLOPPY,
+            required = true,
+            roleAtEnqueue = TrackingRole.SECONDARY,
+            providerInstanceId = "floppy-instance",
+            createdAt = 1L,
+            updatedAt = 1L,
+        )
+        val main = DeliveryProvider(TrackingProviderId.SIMKL)
+        val secondary = DeliveryProvider(TrackingProviderId.FLOPPY).apply { fail = true }
+
+        val result = SyncCoordinator(DeliveryRegistry(main, secondary), queue).sync { }
+
+        assertTrue(result.isFailure)
+        assertEquals(DeliveryStatus.ACKNOWLEDGED, queue.rows.single { it.providerId == TrackingProviderId.SIMKL }.status)
+        assertEquals(DeliveryStatus.FAILED, queue.rows.single { it.providerId == TrackingProviderId.FLOPPY }.status)
+    }
+
+    @Test
     fun `secondary failure is retried without resending acknowledged main`() = runTest {
         val op = operation(1L)
         val queue = DeliveryAwareRepository(op)
@@ -50,6 +84,8 @@ class SyncOperationDeliveryTest {
 }
 
 private class DeliveryAwareRepository(vararg initial: SyncOperation) : SyncOperationRepository {
+    var persisted = false
+    override val requiresPersistedDeliveryRows: Boolean get() = persisted
     val values = initial.toMutableList()
     val rows = mutableListOf<SyncOperationDelivery>()
 
