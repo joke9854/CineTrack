@@ -264,10 +264,12 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     when (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)) {
                         ProviderBootstrapState.NOT_STARTED,
                         ProviderBootstrapState.RUNNING,
-                        ProviderBootstrapState.FAILED,
                         -> preferences.floppySettingsNow()?.connectionId?.let { instance ->
                             FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first())
                         }
+                        // Leave a permanent failure visible as NEEDS_ATTENTION;
+                        // the settings Retry action explicitly enqueues it.
+                        ProviderBootstrapState.FAILED -> Unit
                         ProviderBootstrapState.READY -> Unit
                     }
                 }
