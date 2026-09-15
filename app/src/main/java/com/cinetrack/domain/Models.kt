@@ -202,6 +202,33 @@ enum class SyncOperationStatus { PENDING, FAILED, PARTIAL, CONFLICT }
 /** Presentation-only state for the Floppy settings/integrations surfaces. */
 enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY, NEEDS_ATTENTION }
 
+/** Durable stages reported by the Floppy bootstrap WorkManager job. */
+enum class FloppyBootstrapStage { PREPARING, QUEUED, SYNCING, VERIFYING, COMPLETE, NEEDS_ATTENTION }
+
+@Immutable
+data class FloppyBootstrapProgress(
+    val stage: FloppyBootstrapStage = FloppyBootstrapStage.PREPARING,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val succeeded: Int = 0,
+    val failed: Int = 0,
+    val providerInstanceId: String? = null,
+)
+
+/** Durable stages reported by the library artwork/metadata refresh job. */
+enum class LibraryArtworkRefreshStage { PREPARING, REFRESHING, APPLYING, COMPLETE, COMPLETE_WITH_ERRORS, FAILED }
+
+@Immutable
+data class LibraryArtworkRefreshProgress(
+    val stage: LibraryArtworkRefreshStage = LibraryArtworkRefreshStage.PREPARING,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val changed: Int = 0,
+    val unchanged: Int = 0,
+    val failed: Int = 0,
+    val currentTitle: String? = null,
+)
+
 enum class FloppyConnectionStage {
     IDLE,
     CHECKING_SERVER,
@@ -286,6 +313,8 @@ data class AppUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
     val libraryArtworkRefreshing: Boolean = false,
+    val libraryArtworkProgress: LibraryArtworkRefreshProgress? = null,
+    val libraryArtworkProgressVisible: Boolean = false,
     val error: String? = null,
     val rails: Map<String, List<MediaCard>> = emptyMap(),
     val playbackTv: List<PlaybackCard> = emptyList(),
@@ -299,6 +328,8 @@ data class AppUiState(
     val floppyConnected: Boolean = false,
     val floppyServerVersion: String? = null,
     val floppyBaseUrl: String? = null,
+    val floppyConnectionId: String? = null,
+    val floppyBootstrapProgress: FloppyBootstrapProgress? = null,
     val floppyAllowInsecureLocalHttp: Boolean = false,
     val floppyUiState: FloppyUiState = FloppyUiState.NOT_CONNECTED,
     val trackingProviders: List<TrackingProviderState> = emptyList(),

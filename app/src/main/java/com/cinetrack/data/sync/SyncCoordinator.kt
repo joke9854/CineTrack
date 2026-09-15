@@ -117,6 +117,79 @@ class SyncCoordinator(
     }
 
     /**
+     * Delivers only one provider's current-generation rows while retaining the
+     * same provider-I/O serialization and delivery validation as normal sync.
+     * This narrow boundary is used by the durable Floppy bootstrap worker so a
+     * bootstrap batch cannot accidentally dispatch to MAIN or retarget rows.
+     */
+    suspend fun pushPendingForProvider(
+        providerId: TrackingProviderId,
+        operationIds: Set<String>,
+        expectedInstanceId: String? = null,
+    ): Result<Unit> = providerIoMutex.withLock {
+        resultOf {
+            if (operationIds.isEmpty()) return@resultOf Unit
+            repairCurrentFloppyInstance()
+            val provider = registry.getProvider(providerId)
+                ?: throw TrackingSyncError.ProviderUnavailable(providerId)
+            val configuration = registry.configuration()
+            val actualInstanceId = provider.currentDeliveryInstanceId()
+            if (!expectedInstanceId.isNullOrBlank() && actualInstanceId != expectedInstanceId) {
+                throw TrackingSyncError.ProviderUnavailable(
+                    providerId,
+                    IllegalStateException("Provider instance changed while delivering a batch"),
+                )
+            }
+            val pending = operations.pending(operationIds)
+            if (pending.isEmpty()) return@resultOf Unit
+            if (!operations.requiresPersistedDeliveryRows) {
+                operations.ensureDeliveries(
+                    pending,
+                    pending.map {
+                        SyncOperationDelivery(
+                            operationId = it.id,
+                            operationVersion = it.sourceVersion,
+                            providerId = providerId,
+                            required = true,
+                            roleAtEnqueue = if (providerId == configuration.mainProvider) TrackingRole.MAIN else TrackingRole.SECONDARY,
+                            providerInstanceId = actualInstanceId,
+                            createdAt = System.currentTimeMillis(),
+                            updatedAt = System.currentTimeMillis(),
+                        )
+                    },
+                )
+            }
+            val deliverable = pendingFor(pending, providerId)
+            val unsupported = deliverable.filterNot(provider.capabilities::supports)
+            if (unsupported.isNotEmpty()) {
+                if (providerId == configuration.mainProvider) {
+                    throw TrackingSyncError.UnsupportedOperation(providerId, unsupported.first().type)
+                }
+                operations.skipUnsupported(providerId, unsupported)
+            }
+            val supported = deliverable.filter { it !in unsupported }
+            if (supported.isEmpty()) {
+                operations.completeReady(pending)
+                return@resultOf Unit
+            }
+            requireAuthenticated(provider)
+            pushTo(provider, supported)
+            operations.acknowledge(providerId, supported)
+            if (providerId != configuration.mainProvider) {
+                secondaryDeliveryObserver?.onSecondaryDeliveryPassCompleted(providerId)
+            }
+            operations.completeReady(pending)
+        }
+    }
+
+    /** Durable queue projection used by bounded background delivery workers. */
+    suspend fun pendingOperationIds(operationIds: Set<String>): Set<String> =
+        operations.pending(operationIds).mapTo(linkedSetOf(), SyncOperation::id)
+
+    suspend fun pendingOperationCount(operationIds: Set<String>): Int =
+        pendingOperationIds(operationIds).size
+
+    /**
      * Dispatches pending work while the caller already owns providerIoMutex.
      * Connection activation uses this boundary so it can keep activation,
      * bootstrap and the first queue pass atomic without recursively locking

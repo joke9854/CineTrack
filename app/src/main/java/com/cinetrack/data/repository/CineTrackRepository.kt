@@ -71,6 +71,8 @@ import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.domain.TrackingProviderState
 import com.cinetrack.domain.SyncReport
+import com.cinetrack.domain.LibraryArtworkRefreshProgress
+import com.cinetrack.domain.LibraryArtworkRefreshStage
 import com.cinetrack.domain.SyncStage
 import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.TimelineCard
@@ -1063,6 +1065,7 @@ class CineTrackRepository(
             floppyConnected = floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null,
             floppyServerVersion = floppySettingsDeferred.await()?.serverVersion,
             floppyBaseUrl = floppySettingsDeferred.await()?.baseUrl,
+            floppyConnectionId = floppySettingsDeferred.await()?.connectionId,
             floppyAllowInsecureLocalHttp = floppyAllowInsecureHttpDeferred.await(),
             floppyUiState = providerStatesDeferred.await().firstOrNull { it.providerId == TrackingProviderId.FLOPPY.name }
                 .toFloppyUiState(floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null),
@@ -2488,7 +2491,9 @@ class CineTrackRepository(
      * playback, history, sync generations and provider deliveries remain
      * completely independent of artwork enrichment.
      */
-    suspend fun refreshLibraryArtwork() {
+    suspend fun refreshLibraryArtwork(
+        onProgress: suspend (LibraryArtworkRefreshProgress) -> Unit = {},
+    ): LibraryArtworkRefreshProgress {
         check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
         val snapshot = database.snapshotDao().snapshot()
         val states = snapshot.states.associateBy { it.mediaType to it.mediaId }
@@ -2499,34 +2504,95 @@ class CineTrackRepository(
             .filter { (it.mediaType to it.tmdbId) in libraryKeys }
             .filter { states[it.mediaType to it.tmdbId]?.status !in setOf(LibraryStatus.NONE.name, LibraryStatus.DROPPED.name) }
             .distinctBy { "${it.mediaType}:${it.tmdbId}" }
-        if (targets.isEmpty()) return
-        val requests = Semaphore(permits = 8)
-        val refreshed = coroutineScope {
-            targets.map { current ->
-                async(Dispatchers.IO) {
-                    requests.withPermit {
-                        runCatching {
-                            val type = MediaType.valueOf(current.mediaType)
-                            val details = if (type == MediaType.TV) services.tmdb.show(current.tmdbId, append = "")
-                            else services.tmdb.movie(current.tmdbId, append = "")
-                            details.toEntity(type).copy(
-                                title = details.title?.ifBlank { current.title } ?: details.name?.ifBlank { current.title } ?: current.title,
-                                overview = details.overview.ifBlank { current.overview },
-                                posterPath = details.posterPath ?: current.posterPath,
-                                backdropPath = details.backdropPath ?: current.backdropPath,
-                                releaseDate = details.releaseDate ?: details.firstAirDate ?: current.releaseDate,
-                                score = details.voteAverage ?: current.score,
-                                runtimeMinutes = details.runtime ?: details.episodeRunTime.firstOrNull() ?: current.runtimeMinutes,
-                                genres = details.genres.let { genres -> if (genres.isEmpty()) current.genres else genres.joinToString("|") { it.name } },
-                                providers = details.watchProviders?.results?.get("IT")?.let { (it.flatrate + it.rent + it.buy).distinctBy { p -> p.id }.joinToString("|") { p -> p.name } }?.takeIf(String::isNotBlank) ?: current.providers,
-                                collectionId = details.collection?.id ?: current.collectionId,
-                            )
-                        }.getOrNull()
-                    }
-                }
-            }.awaitAll().filterNotNull()
+        if (targets.isEmpty()) {
+            val empty = LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.COMPLETE)
+            onProgress(empty)
+            return empty
         }
-        if (refreshed.isNotEmpty()) database.mediaDao().upsertMedia(refreshed)
+        var processed = 0
+        var changed = 0
+        var unchanged = 0
+        var failed = 0
+        val requestSlots = Semaphore(permits = 5)
+        onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.PREPARING, total = targets.size))
+        targets.chunked(20).forEach { batch ->
+            val outcomes = coroutineScope {
+                batch.map { current ->
+                    async(Dispatchers.IO) {
+                        requestSlots.withPermit {
+                            try {
+                                kotlinx.coroutines.withTimeout(45_000L) {
+                                val type = MediaType.valueOf(current.mediaType)
+                                val details = if (type == MediaType.TV) services.tmdb.show(current.tmdbId, append = "")
+                                else services.tmdb.movie(current.tmdbId, append = "")
+                                val merged = details.toEntity(type).copy(
+                                    title = details.title?.ifBlank { current.title } ?: details.name?.ifBlank { current.title } ?: current.title,
+                                    overview = details.overview.ifBlank { current.overview },
+                                    posterPath = details.posterPath ?: current.posterPath,
+                                    backdropPath = details.backdropPath ?: current.backdropPath,
+                                    releaseDate = details.releaseDate ?: details.firstAirDate ?: current.releaseDate,
+                                    score = details.voteAverage ?: current.score,
+                                    runtimeMinutes = details.runtime ?: details.episodeRunTime.firstOrNull() ?: current.runtimeMinutes,
+                                    genres = details.genres.let { genres -> if (genres.isEmpty()) current.genres else genres.joinToString("|") { it.name } },
+                                    providers = details.watchProviders?.results?.get("IT")?.let { (it.flatrate + it.rent + it.buy).distinctBy { p -> p.id }.joinToString("|") { p -> p.name } }?.takeIf(String::isNotBlank) ?: current.providers,
+                                    collectionId = details.collection?.id ?: current.collectionId,
+                                )
+                                    ArtworkRefreshOutcome(current, merged, merged.presentationFingerprint() != current.presentationFingerprint(), null)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                ArtworkRefreshOutcome(current, null, false, errorCategory(error))
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            val updates = outcomes.mapNotNull { it.entity.takeIf { _ -> it.changed } }
+            if (updates.isNotEmpty()) {
+                onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.APPLYING, processed, targets.size, changed, unchanged, failed))
+                database.mediaDao().upsertMedia(updates)
+            }
+            outcomes.forEach { outcome ->
+                processed++
+                if (outcome.entity == null) {
+                    failed++
+                    preferences.appendErrorLog("Artwork refresh: ${outcome.current.mediaType}:${outcome.current.tmdbId} failed ${outcome.errorType ?: "UNKNOWN"}")
+                }
+                else if (outcome.changed) changed++ else unchanged++
+                onProgress(
+                    LibraryArtworkRefreshProgress(
+                        stage = LibraryArtworkRefreshStage.REFRESHING,
+                        processed = processed,
+                        total = targets.size,
+                        changed = changed,
+                        unchanged = unchanged,
+                        failed = failed,
+                        currentTitle = outcome.current.title,
+                    ),
+                )
+            }
+        }
+        val finalStage = if (failed == 0) LibraryArtworkRefreshStage.COMPLETE else LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS
+        return LibraryArtworkRefreshProgress(finalStage, processed, targets.size, changed, unchanged, failed).also { onProgress(it) }
+    }
+
+    private data class ArtworkRefreshOutcome(
+        val current: MediaEntity,
+        val entity: MediaEntity?,
+        val changed: Boolean,
+        val errorType: String?,
+    )
+
+    private fun MediaEntity.presentationFingerprint(): String = listOf(
+        title, overview, posterPath, backdropPath, releaseDate, score, runtimeMinutes, genres, providers, collectionId,
+    ).joinToString("|")
+
+    private fun errorCategory(error: Throwable): String = when (error) {
+        is kotlinx.coroutines.TimeoutCancellationException -> "TIMEOUT"
+        is retrofit2.HttpException -> "HTTP_${error.code()}"
+        is java.io.IOException -> "NETWORK"
+        else -> error::class.java.simpleName.take(48)
     }
 
     /** Resolve an episode title from the local Room cache without a network request. */

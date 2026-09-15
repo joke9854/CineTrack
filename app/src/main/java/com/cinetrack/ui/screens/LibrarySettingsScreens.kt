@@ -77,6 +77,7 @@ import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
@@ -108,6 +109,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.appcompat.app.AppCompatDelegate
@@ -125,6 +127,9 @@ import com.cinetrack.domain.FloppyConnectionError
 import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.FloppyConnectionUiState
 import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.LibraryArtworkRefreshProgress
+import com.cinetrack.domain.LibraryArtworkRefreshStage
+import com.cinetrack.domain.FloppyBootstrapStage
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
@@ -190,6 +195,7 @@ fun LibraryScreen(
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
     onRefreshArtwork: () -> Unit,
+    onDismissArtworkProgress: () -> Unit = {},
     onCompactNav: (Boolean) -> Unit,
 ) {
     var type by rememberSaveable { mutableStateOf(MediaType.TV) }
@@ -247,6 +253,11 @@ fun LibraryScreen(
                     }
                     IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(48.dp).glassIcon()) {
                         Icon(Icons.Filled.Sort, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(21.dp))
+                    }
+                    if (state.libraryArtworkProgress != null && !state.libraryArtworkProgressVisible) {
+                        IconButton(onClick = rememberUiAction(onRefreshArtwork), modifier = Modifier.size(48.dp).glassIcon()) {
+                            Icon(Icons.Filled.Refresh, stringResource(R.string.refresh), tint = AccentLight, modifier = Modifier.size(21.dp))
+                        }
                     }
                 }
             }
@@ -376,6 +387,52 @@ fun LibraryScreen(
             selectedKeys = emptySet()
             bulkMode = false
             showBulkSheet = false
+        }
+    }
+    if (state.libraryArtworkProgressVisible && state.libraryArtworkProgress != null) {
+        LibraryArtworkProgressDialog(state.libraryArtworkProgress, onDismissArtworkProgress)
+    }
+}
+
+@Composable
+private fun LibraryArtworkProgressDialog(
+    progress: LibraryArtworkRefreshProgress,
+    onDismiss: () -> Unit,
+) {
+    Dialog(onDismissRequest = onDismiss) {
+        Column(
+            Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).padding(com.cinetrack.ui.theme.Spacing.xl),
+        ) {
+            Text("Refresh library artwork", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text("Refreshing posters and metadata from TMDB", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
+            Spacer(Modifier.height(18.dp))
+            val determinate = progress.total > 0 && progress.stage in setOf(LibraryArtworkRefreshStage.REFRESHING, LibraryArtworkRefreshStage.APPLYING, LibraryArtworkRefreshStage.COMPLETE, LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS)
+            if (determinate) LinearProgressIndicator(progress = { (progress.processed.toFloat() / progress.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = AccentLight)
+            else LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AccentLight)
+            Spacer(Modifier.height(10.dp))
+            if (progress.total > 0) Text("${progress.processed} / ${progress.total}", color = TextPrimary, fontWeight = FontWeight.Bold)
+            progress.currentTitle?.takeIf(String::isNotBlank)?.let {
+                Text("Currently: $it", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Spacer(Modifier.height(12.dp))
+            Text("Updated  ${progress.changed}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            Text("Unchanged  ${progress.unchanged}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            Text("Failed  ${progress.failed}", color = if (progress.failed > 0) androidx.compose.material3.MaterialTheme.colorScheme.error else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.height(14.dp))
+            val complete = progress.stage in setOf(LibraryArtworkRefreshStage.COMPLETE, LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS, LibraryArtworkRefreshStage.FAILED)
+            Text(
+                when (progress.stage) {
+                    LibraryArtworkRefreshStage.COMPLETE -> if (progress.changed > 0) "Library artwork has been updated." else "Your library artwork is already up to date."
+                    LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS -> "Some titles couldn't be refreshed."
+                    LibraryArtworkRefreshStage.FAILED -> "Refresh failed."
+                    else -> "You can close this window. The refresh will continue in the background."
+                },
+                color = TextMuted,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDismiss) { Text(if (complete) "Close" else "Run in background", color = AccentLight) }
+            }
         }
     }
 }
@@ -952,12 +1009,28 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
             })
-            if (state.floppyUiState == FloppyUiState.SETTING_UP) {
+            val bootstrapProgress = state.floppyBootstrapProgress
+            if (bootstrapProgress != null && state.floppyUiState != FloppyUiState.READY) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    val determinate = bootstrapProgress.total > 0 && bootstrapProgress.stage == FloppyBootstrapStage.SYNCING
+                    if (determinate) {
+                        LinearProgressIndicator(progress = { (bootstrapProgress.processed.toFloat() / bootstrapProgress.total).coerceIn(0f, 1f) }, color = AccentLight, modifier = Modifier.weight(1f))
+                    } else CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
                     Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
-                    Text(stringResource(R.string.floppy_initial_sync_running), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                    Text(
+                        when (bootstrapProgress.stage) {
+                            FloppyBootstrapStage.PREPARING -> "Preparing initial sync…"
+                            FloppyBootstrapStage.QUEUED -> "Waiting to sync with Floppy…"
+                            FloppyBootstrapStage.SYNCING -> "Syncing with Floppy · ${bootstrapProgress.processed} / ${bootstrapProgress.total}"
+                            FloppyBootstrapStage.VERIFYING -> "Verifying Floppy…"
+                            FloppyBootstrapStage.COMPLETE -> "Initial sync complete"
+                            FloppyBootstrapStage.NEEDS_ATTENTION -> "Initial sync needs attention"
+                        },
+                        color = TextMuted,
+                        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    )
                 }
+                Text("You can leave this screen. Synchronization will continue in the background.", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
             }
         }
         if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) {

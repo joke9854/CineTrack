@@ -21,6 +21,8 @@ import com.cinetrack.data.sync.SyncCoordinatorOutcome
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.watchprovider.WatchProviderRepository
+import com.cinetrack.data.work.LibraryArtworkRefreshManager
+import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
 import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.data.update.GitHubAppUpdater
@@ -37,6 +39,9 @@ import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.StreamingProvider
+import com.cinetrack.domain.LibraryArtworkRefreshStage
+import com.cinetrack.domain.LibraryArtworkRefreshProgress
+import com.cinetrack.domain.FloppyBootstrapStage
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
@@ -52,6 +57,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
@@ -84,6 +90,8 @@ class CineTrackViewModel(
     private val peopleRepository: PeopleRepository,
     private val watchProviderRepository: WatchProviderRepository,
     private val syncCoordinator: SyncCoordinator,
+    private val libraryArtworkRefreshManager: LibraryArtworkRefreshManager,
+    private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -238,6 +246,29 @@ class CineTrackViewModel(
         observeSearch()
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         viewModelScope.launch {
+            libraryArtworkRefreshManager.progress.collectLatest { progress ->
+                _state.update { current -> current.copy(libraryArtworkProgress = progress, libraryArtworkRefreshing = false) }
+            }
+        }
+        viewModelScope.launch {
+            floppyBootstrapWorkManager.progress.collectLatest { progress ->
+                _state.update { current ->
+                    if (progress?.providerInstanceId != null && current.floppyConnectionId != null && progress.providerInstanceId != current.floppyConnectionId) return@update current
+                    val ui = when (progress?.stage) {
+                        FloppyBootstrapStage.COMPLETE -> com.cinetrack.domain.FloppyUiState.READY
+                        FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
+                        FloppyBootstrapStage.PREPARING,
+                        FloppyBootstrapStage.QUEUED,
+                        FloppyBootstrapStage.SYNCING,
+                        FloppyBootstrapStage.VERIFYING,
+                        -> if (current.floppyConnected) com.cinetrack.domain.FloppyUiState.SETTING_UP else current.floppyUiState
+                        null -> current.floppyUiState
+                    }
+                    current.copy(floppyBootstrapProgress = progress, floppyUiState = ui)
+                }
+            }
+        }
+        viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
             state
@@ -267,6 +298,8 @@ class CineTrackViewModel(
                 _state.value = cached.copy(
                     refreshing = current.refreshing,
                     libraryArtworkRefreshing = current.libraryArtworkRefreshing,
+                    libraryArtworkProgress = current.libraryArtworkProgress,
+                    libraryArtworkProgressVisible = current.libraryArtworkProgressVisible,
                     error = current.error,
                     people = current.people,
                     sync = latestSync,
@@ -352,26 +385,28 @@ class CineTrackViewModel(
 
     /** Refresh all cached library metadata/artwork without touching tracking data. */
     fun refreshLibraryArtwork() {
-        if (!_state.value.tmdbApiConfigured || !libraryArtworkRefreshMutex.tryLock()) return
-        _state.value = _state.value.copy(libraryArtworkRefreshing = true, error = null)
+        if (!_state.value.tmdbApiConfigured) return
+        _state.value = _state.value.copy(
+            libraryArtworkRefreshing = true,
+            libraryArtworkProgress = LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.PREPARING),
+            libraryArtworkProgressVisible = true,
+            error = null,
+        )
         viewModelScope.launch {
             try {
-                withContext(Dispatchers.IO) { repository.refreshLibraryArtwork() }
-                val current = _state.value
-                _state.value = readCachedState().copy(
-                    libraryArtworkRefreshing = false,
-                    refreshing = current.refreshing,
-                    sync = _syncProgress.value,
-                    people = current.people,
-                )
+                val wifiOnly = repository.preferences.wifiOnly.first()
+                withContext(Dispatchers.IO) { libraryArtworkRefreshManager.enqueue(wifiOnly) }
+                _state.value = _state.value.copy(libraryArtworkRefreshing = false)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
                 _state.value = _state.value.copy(libraryArtworkRefreshing = false, error = error.message)
-            } finally {
-                libraryArtworkRefreshMutex.unlock()
             }
         }
+    }
+
+    fun dismissLibraryArtworkProgress() {
+        _state.update { it.copy(libraryArtworkProgressVisible = false) }
     }
 
     fun search(query: String) {
@@ -1494,6 +1529,8 @@ class CineTrackViewModel(
         private val peopleRepository: PeopleRepository,
         private val watchProviderRepository: WatchProviderRepository,
         private val syncCoordinator: SyncCoordinator,
+        private val libraryArtworkRefreshManager: LibraryArtworkRefreshManager,
+        private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -1505,6 +1542,8 @@ class CineTrackViewModel(
                 peopleRepository,
                 watchProviderRepository,
                 syncCoordinator,
+                libraryArtworkRefreshManager,
+                floppyBootstrapWorkManager,
             ) as T
     }
 }

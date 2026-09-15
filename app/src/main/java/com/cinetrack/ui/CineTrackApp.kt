@@ -82,6 +82,7 @@ import com.cinetrack.ui.screens.SearchScreen
 import com.cinetrack.ui.screens.ActorSheet
 import com.cinetrack.ui.screens.SettingsDetailScreen
 import com.cinetrack.ui.screens.SettingsScreen
+import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
@@ -129,6 +130,8 @@ fun CineTrackApp(
             application.container.peopleRepository,
             application.container.watchProviderRepository,
             application.container.syncCoordinator,
+            application.container.libraryArtworkRefreshManager,
+            application.container.floppyBootstrapWorkManager,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -289,7 +292,7 @@ fun CineTrackApp(
                 )
             }
             composable(Routes.Library) {
-                LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = viewModel::refreshLibraryArtwork, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = viewModel::refreshLibraryArtwork, onDismissArtworkProgress = viewModel::dismissLibraryArtworkProgress, onCompactNav = { compactNav = it })
             }
             composable(Routes.Settings) {
                 SettingsScreen(

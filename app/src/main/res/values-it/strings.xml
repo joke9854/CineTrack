@@ -540,6 +540,7 @@
     <string name="floppy_error_inline">Impossibile raggiungere questo server Floppy.</string>
     <string name="connecting">Connessione…</string>
     <string name="floppy_stage_checking_server">Controllo del server…</string>
+    <string name="refresh">Aggiorna</string>
     <string name="floppy_stage_authenticating">Autenticazione…</string>
     <string name="floppy_stage_activating">Attivazione di Floppy…</string>
     <string name="floppy_stage_initial_sync">Preparazione della sincronizzazione iniziale…</string>

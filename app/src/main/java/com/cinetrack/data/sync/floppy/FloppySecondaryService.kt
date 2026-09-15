@@ -1,11 +1,13 @@
 package com.cinetrack.data.sync.floppy
 
+import android.content.Context
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingConfigurationService
 import com.cinetrack.data.sync.TrackingSyncError
+import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.domain.FloppyConnectionStage
 import kotlinx.coroutines.CancellationException
 
@@ -20,6 +22,8 @@ class FloppySecondaryService(
     private val configuration: TrackingConfigurationService,
     private val coordinator: SyncCoordinator,
     private val bootstrap: () -> FloppyBootstrapCoordinator,
+    private val context: Context? = null,
+    private val wifiOnly: suspend () -> Boolean = { false },
 ) {
     suspend fun connect(
         baseUrl: String,
@@ -38,8 +42,8 @@ class FloppySecondaryService(
         }
         var activated = false
         return try {
-            coordinator.withProviderIoQuiesced {
-            val activation = configuration.withRoutingLock {
+            val transition = coordinator.withProviderIoQuiesced {
+            configuration.withRoutingLock {
                 onStage(FloppyConnectionStage.ACTIVATING, candidate.settings.serverVersion)
                 val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
                 activated = true
@@ -55,40 +59,41 @@ class FloppySecondaryService(
                 if (current.mainProvider != null && current.secondaryProvider != com.cinetrack.data.sync.TrackingProviderId.FLOPPY) {
                     configuration.setProvidersLocked(current.mainProvider, com.cinetrack.data.sync.TrackingProviderId.FLOPPY)
                 }
-                current
+                result to configuration.current()
             }
-            if (activation.mainProvider == null) {
-                // A connected provider is not falsely presented as an active
-                // SECONDARY when there is no MAIN authority.
+            }
+            val activation = transition.first
+            val routing = transition.second
+            activation.previous?.connectionId
+                ?.takeIf { activation.instanceChanged }
+                ?.let { context?.let { appContext -> FloppyBootstrapWorkScheduler.cancel(appContext, it) } }
+            if (routing.mainProvider == null) {
                 onStage(FloppyConnectionStage.COMPLETE, candidate.settings.serverVersion)
-                return@withProviderIoQuiesced ConnectionResult.Connected
+                return ConnectionResult.Connected
             }
             onStage(FloppyConnectionStage.INITIAL_SYNC, candidate.settings.serverVersion)
-            when (preferences.providerBootstrapStateNow(com.cinetrack.data.sync.TrackingProviderId.FLOPPY)) {
+            val bootstrapState = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
+            when (bootstrapState) {
                 ProviderBootstrapState.NOT_STARTED,
                 ProviderBootstrapState.RUNNING,
                 ProviderBootstrapState.FAILED,
                 -> bootstrap().start()
                 ProviderBootstrapState.READY -> Unit
             }
-            val deliveryResult = coordinator.pushPendingWhileProviderIoQuiesced()
-            if (deliveryResult.isFailure) {
-                // Keep the validated connection and durable plan. A failed
-                // first delivery is actionable, but it is still retryable
-                // without reconnecting or regenerating bootstrap operations.
-                preferences.setProviderBootstrapState(
-                    com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
-                    ProviderBootstrapState.FAILED,
-                )
-                val error = deliveryResult.exceptionOrNull()
-                val mapped = error as? com.cinetrack.data.sync.TrackingSyncError
-                    ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error ?: IllegalStateException("Floppy delivery failed"))
-                return@withProviderIoQuiesced ConnectionResult.Failed(mapped)
+            val instance = activation.committed.connectionId
+            if (context == null) {
+                // Source-compatible path for lightweight Room integration
+                // tests that do not provide an Android WorkManager context.
+                val delivery = coordinator.pushPending()
+                if (delivery.isFailure) throw delivery.exceptionOrNull() ?: IllegalStateException("Floppy delivery failed")
+                if (!bootstrap().markReadyIfComplete()) throw TrackingSyncError.BootstrapFailure(IllegalStateException("Bootstrap verification failed"))
+            } else if (bootstrapState != ProviderBootstrapState.READY) {
+                context.let { appContext ->
+                    FloppyBootstrapWorkScheduler.enqueue(appContext, instance, wifiOnly())
+                }
             }
-            bootstrap().markReadyIfComplete()
             onStage(FloppyConnectionStage.COMPLETE, candidate.settings.serverVersion)
             ConnectionResult.Connected
-            }
         } catch (error: Throwable) {
             if (error is CancellationException) throw error
             // Bootstrap construction/queue failures happen after the

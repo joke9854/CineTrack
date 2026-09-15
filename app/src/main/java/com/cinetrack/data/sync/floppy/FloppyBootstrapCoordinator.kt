@@ -11,6 +11,8 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.FloppyBootstrapProgress
+import com.cinetrack.domain.FloppyBootstrapStage
 import java.time.Instant
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -76,12 +78,48 @@ class FloppyBootstrapCoordinator(
         }
     }
 
-    suspend fun markReadyIfComplete() = mutex.withLock {
+    /** Returns the immutable operation plan, creating it once when necessary. */
+    suspend fun ensurePlan(): List<SyncOperation> = mutex.withLock {
+        val instance = instanceId()
+        val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
+            ?.takeIf { it.instanceId == instance }
+        if (existing != null) return@withLock existing.operations.map(::toOperation)
+        val operations = buildFloppyBootstrapOperations(instance, canonicalSnapshot())
+        preferences.setFloppyBootstrapPlanRaw(encodePlan(PersistedPlan(instance, operations.map(::toPersisted))))
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+        operations
+    }
+
+    /** Snapshot used by WorkManager for durable item-count progress. */
+    suspend fun progress(instance: String): FloppyBootstrapProgress = mutex.withLock {
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
+            ?.takeIf { it.instanceId == instance }
+        val total = plan?.operations?.size ?: 0
+        val pending = if (plan == null) emptyList() else operationRepository.pending(plan.operations.mapTo(linkedSetOf()) { it.id })
+        val pendingIds = pending.mapTo(linkedSetOf(), SyncOperation::id)
+        val processed = (total - pendingIds.size).coerceIn(0, total)
         val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
-        if (state !in setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)) return@withLock
+        val stage = when (state) {
+            ProviderBootstrapState.READY -> FloppyBootstrapStage.COMPLETE
+            ProviderBootstrapState.FAILED -> FloppyBootstrapStage.NEEDS_ATTENTION
+            else -> if (processed > 0) FloppyBootstrapStage.SYNCING else FloppyBootstrapStage.PREPARING
+        }
+        FloppyBootstrapProgress(
+            stage = stage,
+            processed = processed,
+            total = total,
+            succeeded = processed,
+            failed = 0,
+            providerInstanceId = instance,
+        )
+    }
+
+    suspend fun markReadyIfComplete(): Boolean = mutex.withLock {
+        val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
+        if (state !in setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)) return@withLock state == ProviderBootstrapState.READY
         val instance = instanceId()
         val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
-        if (plan?.instanceId != instance) return@withLock
+        if (plan?.instanceId != instance) return@withLock false
         val prefix = "bootstrap:$instance:"
         val planned = operationRepository.pending().filter { it.id.startsWith(prefix) }
         val incomplete = planned.any { operation ->
@@ -93,7 +131,9 @@ class FloppyBootstrapCoordinator(
         if (!incomplete && verifyRemote(canonicalSnapshot())) {
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
             preferences.clearFloppyBootstrapPlan()
+            return@withLock true
         }
+        false
     }
 
     @Serializable

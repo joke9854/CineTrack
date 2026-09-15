@@ -33,6 +33,9 @@ import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
 import com.cinetrack.data.sync.floppy.FloppyBootstrapCoordinator
 import com.cinetrack.data.sync.floppy.FloppyBootstrapVerifier
 import com.cinetrack.data.sync.floppy.FloppySecondaryService
+import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkScheduler
+import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
+import com.cinetrack.data.work.LibraryArtworkRefreshManager
 import com.cinetrack.data.sync.simkl.SimklTrackingProvider
 import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
@@ -111,6 +114,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val syncCoordinator: SyncCoordinator
     lateinit var floppyBootstrapCoordinator: FloppyBootstrapCoordinator
     lateinit var floppySecondaryService: FloppySecondaryService
+    lateinit var libraryArtworkRefreshManager: LibraryArtworkRefreshManager
+    lateinit var floppyBootstrapWorkManager: FloppyBootstrapWorkManager
     val repository: CineTrackRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
@@ -154,6 +159,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             configuration = trackingConfigurationService,
             coordinator = syncCoordinator,
             bootstrap = { floppyBootstrapCoordinator },
+            context = application,
+            wifiOnly = { preferences.wifiOnly.first() },
         )
         val durableOperationWriter = DurableSyncOperationWriter(
             operationRepository = syncOperationRepository,
@@ -192,9 +199,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingRoutingMutex = trackingRoutingMutex,
             floppySecondaryService = floppySecondaryService,
             floppyRetryBootstrap = {
-                floppyBootstrapCoordinator.start()
-                syncCoordinator.pushPending()
-                floppyBootstrapCoordinator.markReadyIfComplete()
+                preferences.floppySettingsNow()?.connectionId?.let { instance ->
+                    FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first())
+                }
             },
         )
         libraryRepository = localLibrary
@@ -202,6 +209,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
         peopleRepository = DefaultPeopleRepository(mediaRepository)
         watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)
+
+        libraryArtworkRefreshManager = LibraryArtworkRefreshManager(application)
+        floppyBootstrapWorkManager = FloppyBootstrapWorkManager(application)
 
         floppyBootstrapCoordinator = FloppyBootstrapCoordinator(
             preferences = preferences,
@@ -255,11 +265,11 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                         ProviderBootstrapState.NOT_STARTED,
                         ProviderBootstrapState.RUNNING,
                         ProviderBootstrapState.FAILED,
-                        -> floppyBootstrapCoordinator.start()
+                        -> preferences.floppySettingsNow()?.connectionId?.let { instance ->
+                            FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first())
+                        }
                         ProviderBootstrapState.READY -> Unit
                     }
-                    syncCoordinator.pushPending()
-                    floppyBootstrapCoordinator.markReadyIfComplete()
                 }
             }
         }
