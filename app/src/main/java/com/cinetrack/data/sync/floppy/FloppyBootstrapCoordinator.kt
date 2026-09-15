@@ -46,6 +46,12 @@ class FloppyBootstrapCoordinator(
     suspend fun start(): Int = mutex.withLock {
         try {
             val instance = instanceId()
+            // A stale queued WorkManager record can outlive a successful
+            // empty-plan bootstrap. Never rebuild a new plan for an instance
+            // that is already semantically READY.
+            if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
+                decodePlan(preferences.floppyBootstrapPlanRawNow()) == null
+            ) return@withLock 0
             val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
                 ?.takeIf {
                     it.instanceId == instance &&
