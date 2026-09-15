@@ -128,7 +128,10 @@ class FloppyBootstrapWorker(
         // private-DNS/VPN outage from poisoning an entire batch of durable
         // delivery rows. It runs once per WorkManager attempt, not per item.
         val provider = application.container.trackingProviderRegistry.getProvider(TrackingProviderId.FLOPPY)
-        when (val connection = provider?.testConnection()) {
+        val preflight = provider?.let {
+            application.container.syncCoordinator.withProviderIoQuiesced { it.testConnection() }
+        }
+        when (val connection = preflight) {
             ConnectionResult.Connected -> Unit
             ConnectionResult.AuthenticationRequired -> {
                 val error = TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
