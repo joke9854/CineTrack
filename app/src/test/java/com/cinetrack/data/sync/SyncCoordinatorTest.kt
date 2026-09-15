@@ -83,6 +83,14 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun `generic retry refuses to own Floppy bootstrap`() = runTest {
+        val coordinator = SyncCoordinator(MutableRegistry(FakeProvider(TrackingProviderId.SIMKL)), FakeOperationRepository(operation()))
+        val result = coordinator.retry("bootstrap:instance-a:movie:42")
+        assertTrue(result.isFailure)
+        assertTrue(result.exceptionOrNull()?.message.orEmpty().contains("WorkManager"))
+    }
+
+    @Test
     fun `secondary is outbound only during a full sync`() = runTest {
         val operation = operation()
         val queue = FakeOperationRepository(operation)
