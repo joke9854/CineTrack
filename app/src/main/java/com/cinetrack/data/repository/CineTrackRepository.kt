@@ -2541,6 +2541,11 @@ class CineTrackRepository(
                                 }
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
+                            } catch (error: retrofit2.HttpException) {
+                                if (error.code() == 401 || error.code() == 403) {
+                                    throw IllegalStateException("TMDB credential was rejected")
+                                }
+                                ArtworkRefreshOutcome(current, null, false, errorCategory(error))
                             } catch (error: Throwable) {
                                 ArtworkRefreshOutcome(current, null, false, errorCategory(error))
                             }
