@@ -16,6 +16,7 @@ import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.domain.SyncProgress
 import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 
 /** Runtime-configured Floppy transport and provider-neutral mapping adapter. */
 class FloppyTrackingProvider(
@@ -30,7 +31,9 @@ class FloppyTrackingProvider(
     )
     data class ActivationResult(
         val previous: FloppyConnectionSettings?,
-        val identityChanged: Boolean,
+        val committed: FloppyConnectionSettings,
+        val instanceChanged: Boolean,
+        val sessionChanged: Boolean,
     )
     override val id = TrackingProviderId.FLOPPY
 
@@ -42,6 +45,10 @@ class FloppyTrackingProvider(
 
     override suspend fun currentDeliveryInstanceId(): String? =
         preferences?.floppySettingsNow()?.connectionId?.takeIf(String::isNotBlank)
+
+    /** Exposed to same-module regression tests; this is transport-session
+     * state, deliberately distinct from the persisted provider instance ID. */
+    internal fun transportSessionGeneration(): Long = connectionGeneration.get()
 
     override suspend fun isAuthenticated(): Boolean {
         val settings = preferences?.floppySettingsNow() ?: return false
@@ -81,18 +88,37 @@ class FloppyTrackingProvider(
     ): ActivationResult {
         val previous = preferences?.floppySettingsNow()
         val previousKey = preferences?.floppyApiKeyNow()
-        val identityChanged = previous != null &&
-            (previous.serverIdentity != settings.serverIdentity ||
-                previous.accountIdentity != settings.accountIdentity ||
-                previousKey != apiKey)
-        if (identityChanged) {
+        val sameTarget = previous?.let {
+            sameFloppyRemoteTarget(it, settings, previousKey, apiKey)
+        } == true
+        val resolvedConnectionId = when {
+            previous == null -> UUID.randomUUID().toString()
+            sameTarget -> previous.connectionId
+            else -> UUID.randomUUID().toString()
+        }
+        val resolvedSettings = settings.copy(connectionId = resolvedConnectionId)
+        val sessionChanged = previous != null && (
+            previous.baseUrl != resolvedSettings.baseUrl ||
+                previous.serverIdentity != resolvedSettings.serverIdentity ||
+                previous.accountIdentity != resolvedSettings.accountIdentity ||
+                previousKey != apiKey ||
+                previous.allowInsecureLocalHttp != resolvedSettings.allowInsecureLocalHttp ||
+                previous.connectionId != resolvedSettings.connectionId
+            )
+        if (sessionChanged) {
             connectionGeneration.incrementAndGet()
         }
-        preferences?.setFloppyConnection(settings, apiKey)
-        if (identityChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
-        discovered = settings.capabilities
+        preferences?.setFloppyConnection(resolvedSettings, apiKey)
+        if (sessionChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
+        val committed = preferences?.floppySettingsNow() ?: resolvedSettings
+        discovered = committed.capabilities
         bootstrapReady = preferences?.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
-        return ActivationResult(previous, identityChanged)
+        return ActivationResult(
+            previous = previous,
+            committed = committed,
+            instanceChanged = previous?.connectionId != committed.connectionId,
+            sessionChanged = sessionChanged,
+        )
     }
 
     suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult =

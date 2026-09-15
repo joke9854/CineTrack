@@ -13,6 +13,7 @@ import com.cinetrack.data.sync.DurableTrackingQueue
 import com.cinetrack.data.sync.ProviderPushResult
 import com.cinetrack.data.sync.ProviderSyncOutcome
 import com.cinetrack.data.sync.ProviderBootstrapState
+import com.cinetrack.data.sync.DeliveryStatus
 import com.cinetrack.data.sync.RoomSyncOperationRepository
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.SyncOperation
@@ -48,6 +49,7 @@ import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -274,6 +276,93 @@ class FloppySecondaryRoomIntegrationTest {
         recreated.start()
 
         assertEquals(before, preferences.floppyBootstrapPlanRawNow())
+    }
+
+    @Test
+    fun sameTargetReconnectPreservesDeliveryInstanceAndRetriesFailedOperation() = runBlocking {
+        // Start with no saved Floppy connection so this exercises the real
+        // validation -> activation -> routing path, not a hand-built session.
+        preferences.setFloppyConnection(null, null)
+        preferences.setTrackingProviders(TrackingProviderId.SIMKL, null)
+        main.authenticated = true
+        server.enqueue(json("{\"version\":\"26.1\"}"))
+        server.enqueue(json("{\"username\":\"integration-user\"}"))
+
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(emptyList(), emptyList(), emptyList(), Instant.now()) },
+            verifyRemote = { true },
+        )
+        val service = FloppySecondaryService(
+            provider = floppy,
+            preferences = preferences,
+            configuration = TrackingConfigurationService(preferences, repository, routingMutex),
+            coordinator = coordinator,
+            bootstrap = { bootstrap },
+        )
+        val baseUrl = server.url("/").toString()
+        assertEquals(ConnectionResult.Connected, service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true))
+        val beforeSettings = requireNotNull(preferences.floppySettingsNow())
+        val operation = SyncOperation(
+            id = "same-target-operation",
+            type = SyncOperationType.LIBRARY_STATUS,
+            mediaType = MediaType.MOVIE,
+            mediaId = 42,
+            title = "Integration movie",
+            value = LibraryStatus.PLAN_TO_WATCH.name,
+            sourceVersion = 99L,
+        )
+        writer.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
+        val beforeDelivery = repository.deliveries(setOf(operation.id)).single()
+        assertEquals(beforeSettings.connectionId, beforeDelivery.providerInstanceId)
+        assertEquals(DeliveryStatus.PENDING, beforeDelivery.status)
+
+        // Same-target reconnect keeps the instance, but the first delivery
+        // attempt fails after activation so the row remains retryable.
+        server.enqueue(json("{\"version\":\"26.1\"}"))
+        server.enqueue(json("{\"username\":\"integration-user\"}"))
+        server.enqueue(MockResponse().setResponseCode(500))
+        val failed = service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true)
+        assertTrue(failed is ConnectionResult.Failed)
+        val afterFailedReconnect = requireNotNull(preferences.floppySettingsNow())
+        val failedDelivery = repository.deliveries(setOf(operation.id)).single()
+        assertEquals(beforeSettings.connectionId, afterFailedReconnect.connectionId)
+        assertEquals(beforeDelivery.operationVersion, failedDelivery.operationVersion)
+        assertEquals(beforeDelivery.providerInstanceId, failedDelivery.providerInstanceId)
+        assertEquals(DeliveryStatus.FAILED, failedDelivery.status)
+
+        // A later normal retry succeeds against the same instance and only
+        // then acknowledges the exact durable operation.
+        server.enqueue(json("{\"consumptions\":[]}"))
+        server.enqueue(json("{}"))
+        assertTrue(coordinator.pushPending().isSuccess)
+        assertEquals(DeliveryStatus.ACKNOWLEDGED, repository.deliveries(setOf(operation.id)).single().status)
+    }
+
+    @Test
+    fun sameAccountApiKeyRotationKeepsInstanceButChangesTransportGeneration() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val generationBefore = floppy.transportSessionGeneration()
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(connectionId = "candidate"),
+            "rotated-secret",
+        )
+
+        assertFalse(activation.instanceChanged)
+        assertTrue(activation.sessionChanged)
+        assertEquals(previous.connectionId, activation.committed.connectionId)
+        assertTrue(floppy.transportSessionGeneration() > generationBefore)
+        assertEquals(previous.connectionId, preferences.floppySettingsNow()?.connectionId)
+        assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
     }
 
     private fun json(body: String) = MockResponse()

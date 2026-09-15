@@ -169,6 +169,30 @@ data class FloppyConnectionSettings(
     val allowInsecureLocalHttp: Boolean = false,
 )
 
+/**
+ * Resolves whether two validated connections address the same logical Floppy
+ * dataset.  A credential rotation is not a provider-instance change when the
+ * authenticated account proves that the remote dataset is unchanged.  If an
+ * account identity is unavailable, matching the key is the conservative
+ * fallback; a changed key is treated as a new target rather than risking a
+ * delivery to an unknown account.
+ */
+internal fun sameFloppyRemoteTarget(
+    previous: FloppyConnectionSettings,
+    candidate: FloppyConnectionSettings,
+    previousApiKey: String?,
+    candidateApiKey: String?,
+): Boolean {
+    if (previous.serverIdentity != candidate.serverIdentity) return false
+    val previousAccount = previous.accountIdentity?.trim().orEmpty()
+    val candidateAccount = candidate.accountIdentity?.trim().orEmpty()
+    return if (previousAccount.isNotBlank() && candidateAccount.isNotBlank()) {
+        previousAccount == candidateAccount
+    } else {
+        previousApiKey?.takeIf(String::isNotBlank) == candidateApiKey?.takeIf(String::isNotBlank)
+    }
+}
+
 /** Immutable credentials and capabilities captured for one provider pass. */
 data class FloppySession(
     val instanceId: String,

@@ -26,7 +26,6 @@ import com.cinetrack.data.sync.floppy.FloppyVerificationProjection
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import java.time.Instant
-import java.util.UUID
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -76,7 +75,6 @@ class FloppyRemoteDataSource(
             accountIdentity = account,
             capabilities = capabilities,
             connectedAt = System.currentTimeMillis(),
-            connectionId = UUID.randomUUID().toString(),
             allowInsecureLocalHttp = allowInsecureLocalHttp,
         )
     } catch (error: Throwable) {

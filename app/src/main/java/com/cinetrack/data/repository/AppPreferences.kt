@@ -25,6 +25,7 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingWorkScheduler
 import com.cinetrack.data.sync.floppy.FloppyCapabilities
 import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
+import com.cinetrack.data.sync.floppy.sameFloppyRemoteTarget
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.domain.SyncReport
 import kotlinx.coroutines.flow.Flow
@@ -279,8 +280,7 @@ class AppPreferences(private val context: Context) {
         val previous = floppySettingsNow()
         val oldAlias = previous?.credentialAlias ?: "floppy_api_key"
         val identityChanged = settings != null && previous != null &&
-            (previous.baseUrl != settings.baseUrl || previous.accountIdentity != settings.accountIdentity ||
-                (apiKey != null && apiKey != floppyApiKeyNow()))
+            !sameFloppyRemoteTarget(previous, settings, floppyApiKeyNow(), apiKey)
         val effectiveAlias = when {
             settings == null -> oldAlias
             identityChanged -> "floppy_api_key_${UUID.randomUUID()}"

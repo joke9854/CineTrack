@@ -42,8 +42,8 @@ class FloppySecondaryService(
                 preferences.floppySettingsNow()?.connectionId?.let { instance ->
                     configurationRepair(instance)
                 }
-                if (result.identityChanged) {
-                    bootstrap().resetForInstanceChange(candidate.settings.connectionId)
+                if (result.instanceChanged) {
+                    bootstrap().resetForInstanceChange(result.committed.connectionId)
                 }
                 val current = configuration.current()
                 if (current.mainProvider != null && current.secondaryProvider != com.cinetrack.data.sync.TrackingProviderId.FLOPPY) {
