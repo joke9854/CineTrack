@@ -280,11 +280,11 @@ class FloppySecondaryRoomIntegrationTest {
 
     @Test
     fun sameTargetReconnectPreservesDeliveryInstanceAndRetriesFailedOperation() = runBlocking {
-        // Start with no saved Floppy connection so this exercises the real
-        // validation -> activation -> routing path, not a hand-built session.
-        preferences.setFloppyConnection(null, null)
-        preferences.setTrackingProviders(TrackingProviderId.SIMKL, null)
-        main.authenticated = true
+        // Start from a persisted target, then validate it twice. This keeps
+        // the Room delivery target independent from the transport session
+        // while exercising the real validation -> activation path.
+        preferences.setTrackingProviders(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY)
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         server.enqueue(json("{\"version\":\"26.1\"}"))
         server.enqueue(json("{\"username\":\"integration-user\"}"))
 
@@ -301,15 +301,18 @@ class FloppySecondaryRoomIntegrationTest {
             canonicalSnapshot = { TrackingSnapshot(emptyList(), emptyList(), emptyList(), Instant.now()) },
             verifyRemote = { true },
         )
+        val trackingConfiguration = TrackingConfigurationService(preferences, repository, routingMutex)
         val service = FloppySecondaryService(
             provider = floppy,
             preferences = preferences,
-            configuration = TrackingConfigurationService(preferences, repository, routingMutex),
+            configuration = trackingConfiguration,
             coordinator = coordinator,
             bootstrap = { bootstrap },
         )
         val baseUrl = server.url("/").toString()
         assertEquals(ConnectionResult.Connected, service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true))
+        assertEquals(TrackingProviderId.SIMKL, trackingConfiguration.current().mainProvider)
+        assertEquals(TrackingProviderId.FLOPPY, trackingConfiguration.current().secondaryProvider)
         val beforeSettings = requireNotNull(preferences.floppySettingsNow())
         val operation = SyncOperation(
             id = "same-target-operation",
@@ -363,6 +366,25 @@ class FloppySecondaryRoomIntegrationTest {
         assertTrue(floppy.transportSessionGeneration() > generationBefore)
         assertEquals(previous.connectionId, preferences.floppySettingsNow()?.connectionId)
         assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+    }
+
+    @Test
+    fun differentServerAllocatesNewInstanceAndResetsBootstrap() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(
+                baseUrl = "https://other-floppy.example/",
+                serverIdentity = "https://other-floppy.example/",
+                connectionId = "candidate",
+            ),
+            "integration-secret",
+        )
+
+        assertTrue(activation.instanceChanged)
+        assertTrue(activation.sessionChanged)
+        assertTrue(activation.committed.connectionId != previous.connectionId)
+        assertEquals(ProviderBootstrapState.NOT_STARTED, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
     }
 
     private fun json(body: String) = MockResponse()

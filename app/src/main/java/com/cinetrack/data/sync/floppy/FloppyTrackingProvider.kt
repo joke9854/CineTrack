@@ -116,7 +116,7 @@ class FloppyTrackingProvider(
         return ActivationResult(
             previous = previous,
             committed = committed,
-            instanceChanged = previous?.connectionId != committed.connectionId,
+            instanceChanged = previous != null && previous.connectionId != committed.connectionId,
             sessionChanged = sessionChanged,
         )
     }

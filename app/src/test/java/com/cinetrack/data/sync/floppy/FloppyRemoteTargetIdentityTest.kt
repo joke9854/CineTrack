@@ -19,7 +19,7 @@ class FloppyRemoteTargetIdentityTest {
 
     @Test
     fun normalizedUrlVariantsPreserveTargetIdentity() {
-        val candidate = base.copy(baseUrl = "https://floppy.example/", serverIdentity = base.serverIdentity)
+        val candidate = base.copy(baseUrl = "https://FLOPPY.example", serverIdentity = base.serverIdentity)
         assertTrue(sameFloppyRemoteTarget(base, candidate, "key", "key"))
     }
 
