@@ -56,17 +56,25 @@ class FloppyBootstrapCoordinator(
                 ?.takeIf {
                     it.instanceId == instance &&
                         preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) in
-                            setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)
+                            setOf(
+                                ProviderBootstrapState.NOT_STARTED,
+                                ProviderBootstrapState.RUNNING,
+                                ProviderBootstrapState.FAILED,
+                            )
                 }
             val snapshot = canonicalSnapshot()
             val operations = existing?.operations?.map(::toOperation) ?: buildFloppyBootstrapOperations(instance, snapshot)
-            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
             // Keep the plan after Room retires acknowledged rows. The marker
             // is written before enqueueing so a restart can reconstruct the
             // same deterministic operation ids.
             if (existing == null) {
                 preferences.setFloppyBootstrapPlanRaw(encodePlan(PersistedPlan(instance, operations.map(::toPersisted))))
             }
+            // Persist the immutable plan before advertising RUNNING. If the
+            // process dies between these writes, the next attempt sees the
+            // plan even while the state is still NOT_STARTED and reuses its
+            // exact operation ids/generations instead of rebuilding them.
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
             operations.chunked(CHUNK_SIZE).forEach { chunk ->
                 chunk.forEach { operation ->
                     val existing = operationRepository.deliveries(setOf(operation.id))
