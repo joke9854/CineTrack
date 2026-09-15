@@ -325,7 +325,10 @@ class FloppySecondaryRoomIntegrationTest {
             sourceVersion = 99L,
         )
         writer.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
-        val beforeDelivery = repository.deliveries(setOf(operation.id)).single()
+        assertTrue("Floppy must support the library-status operation", floppy.capabilities.supports(operation))
+        val beforeDeliveries = repository.deliveries(setOf(operation.id))
+        assertEquals("one Floppy delivery should be persisted", 1, beforeDeliveries.size)
+        val beforeDelivery = beforeDeliveries.single()
         assertEquals(beforeSettings.connectionId, beforeDelivery.providerInstanceId)
         assertEquals(DeliveryStatus.PENDING, beforeDelivery.status)
 
@@ -337,7 +340,9 @@ class FloppySecondaryRoomIntegrationTest {
         val failed = service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true)
         assertTrue(failed is ConnectionResult.Failed)
         val afterFailedReconnect = requireNotNull(preferences.floppySettingsNow())
-        val failedDelivery = repository.deliveries(setOf(operation.id)).single()
+        val failedDeliveries = repository.deliveries(setOf(operation.id))
+        assertEquals("the failed Floppy delivery must remain retryable", 1, failedDeliveries.size)
+        val failedDelivery = failedDeliveries.single()
         assertEquals(beforeSettings.connectionId, afterFailedReconnect.connectionId)
         assertEquals(beforeDelivery.operationVersion, failedDelivery.operationVersion)
         assertEquals(beforeDelivery.providerInstanceId, failedDelivery.providerInstanceId)
@@ -348,7 +353,9 @@ class FloppySecondaryRoomIntegrationTest {
         server.enqueue(json("{\"consumptions\":[]}"))
         server.enqueue(json("{}"))
         assertTrue(coordinator.pushPending().isSuccess)
-        assertEquals(DeliveryStatus.ACKNOWLEDGED, repository.deliveries(setOf(operation.id)).single().status)
+        val acknowledgedDeliveries = repository.deliveries(setOf(operation.id))
+        assertEquals(1, acknowledgedDeliveries.size)
+        assertEquals(DeliveryStatus.ACKNOWLEDGED, acknowledgedDeliveries.single().status)
     }
 
     @Test
