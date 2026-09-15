@@ -40,6 +40,7 @@ object FloppyBootstrapWorkScheduler {
         val request = OneTimeWorkRequestBuilder<FloppyBootstrapWorker>()
             .setInputData(workDataOf(FloppyBootstrapWorker.EXPECTED_CONNECTION_ID to connectionId))
             .addTag("floppy-bootstrap")
+            .addTag("floppy-bootstrap:$connectionId")
             .setConstraints(
                 Constraints.Builder()
                     .setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED)
@@ -58,14 +59,26 @@ object FloppyBootstrapWorkScheduler {
 /** WorkManager observation boundary for Floppy settings and startup restoration. */
 class FloppyBootstrapWorkManager(context: Context) {
     private val workManager = WorkManager.getInstance(context.applicationContext)
-    val progress: Flow<FloppyBootstrapProgress?> = workManager
+    private val allProgress: Flow<List<WorkInfo>> = workManager
         .getWorkInfosByTagFlow("floppy-bootstrap")
-        .map { infos ->
-            infos.firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
-                ?.toFloppyProgress()
-                ?: infos.firstOrNull()?.toFloppyProgress()
-        }
+
+    /** Compatibility view for callers that do not yet know the active instance. */
+    val progress: Flow<FloppyBootstrapProgress?> = allProgress.map { infos -> infos.selectFloppyWork()?.toFloppyProgress() }
+
+    /** Selects only WorkInfo belonging to the requested immutable provider instance. */
+    fun progressFor(connectionId: String?): Flow<FloppyBootstrapProgress?> = allProgress.map { infos ->
+        if (connectionId.isNullOrBlank()) null
+        else infos.filter { info ->
+            "floppy-bootstrap:$connectionId" in info.tags ||
+                info.progress.getString("providerInstanceId") == connectionId ||
+                info.outputData.getString("providerInstanceId") == connectionId
+        }.selectFloppyWork()?.toFloppyProgress()
+    }
 }
+
+private fun List<WorkInfo>.selectFloppyWork(): WorkInfo? =
+    firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        ?: firstOrNull()
 
 class FloppyBootstrapWorker(
     appContext: Context,
