@@ -203,14 +203,27 @@ class FloppyBootstrapWorker(
     private suspend fun isCurrent(application: CineTrackApplication, expected: String): Boolean =
         application.container.preferences.floppySettingsNow()?.connectionId == expected
 
-    private fun terminalResult(error: Throwable, failureData: Data? = null): Result = when (error) {
-        is TrackingSyncError.NetworkUnavailable,
-        is TrackingSyncError.DnsFailure,
-        is TrackingSyncError.Timeout,
-        is TrackingSyncError.RateLimited,
-        is IOException,
-        -> if (runAttemptCount < MAX_RETRIES) Result.retry() else Result.failure(failureData ?: Data.EMPTY)
-        else -> Result.failure(failureData ?: Data.EMPTY)
+    private suspend fun terminalResult(error: Throwable, failureData: Data? = null): Result {
+        val retryable = isFloppyBootstrapRetryable(error)
+        if (retryable && runAttemptCount < MAX_RETRIES) return Result.retry()
+        val data = failureData ?: Data.EMPTY
+        if (retryable) {
+            (applicationContext as? CineTrackApplication)?.container?.preferences?.setProviderBootstrapState(
+                TrackingProviderId.FLOPPY,
+                ProviderBootstrapState.FAILED,
+            )
+            val attention = workDataOf(
+                "stage" to FloppyBootstrapStage.NEEDS_ATTENTION.name,
+                "processed" to data.getInt("processed", 0),
+                "total" to data.getInt("total", 0),
+                "succeeded" to data.getInt("succeeded", data.getInt("processed", 0)),
+                "failed" to data.getInt("failed", 0),
+                "providerInstanceId" to data.getString("providerInstanceId"),
+            )
+            setProgress(attention)
+            return Result.failure(attention)
+        }
+        return Result.failure(data)
     }
 
     private fun isRetryable(error: Throwable): Boolean = isFloppyBootstrapRetryable(error)
