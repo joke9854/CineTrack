@@ -832,6 +832,10 @@ class CineTrackViewModel(
             } else null
         }.toSet()
         _state.value = cached.copy(
+            libraryArtworkRefreshing = current.libraryArtworkRefreshing,
+            libraryArtworkProgress = current.libraryArtworkProgress,
+            libraryArtworkProgressVisible = current.libraryArtworkProgressVisible,
+            floppyBootstrapProgress = current.floppyBootstrapProgress,
             sync = _syncProgress.value,
             people = current.people,
             playbackTv = cached.playbackTv.let { items ->
