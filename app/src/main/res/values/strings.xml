@@ -494,8 +494,6 @@
     <string name="discover_load_more">Load more titles</string>
     <string name="discover_list_end">You have reached the end of this list.</string>
     <string name="floppy_connection">Connection</string>
-    <string name="floppy_connection_sheet_title">Connect Floppy</string>
-    <string name="floppy_connection_sheet_description">Connect your self-hosted Floppy server</string>
     <string name="floppy_error_invalid_url">This server URL isn’t valid.</string>
     <string name="floppy_server_url">Server URL</string>
     <string name="floppy_api_key">API key</string>
@@ -529,7 +527,6 @@
     <string name="floppy_initial_sync_running">Copying your CineTrack library and watch history to Floppy…</string>
     <string name="floppy_initial_sync_failed">Failed</string>
     <string name="floppy_retry_initial_sync">Retry initial sync</string>
-    <string name="floppy_change_connection">Change connection</string>
     <string name="floppy_saved_securely">Saved securely</string>
     <string name="floppy_advanced">Advanced</string>
     <string name="floppy_allow_http_local_network">Allow HTTP on local network</string>
