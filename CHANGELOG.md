@@ -1,3 +1,9 @@
+# CineTrack 0.99.11 beta
+
+- Fixed real-device Floppy Connect taps with a direct Material3 action, synchronous staged feedback, lifecycle-safe serialization, and explicit failure diagnostics.
+- Hardened Floppy validation and persistence, private-LAN HTTP policy propagation, v26.9.10 response compatibility, and malformed-response classification.
+- Added handshake and Compose instrumentation coverage for public info, authenticated preferences, and the Connect/PrimaryAction tap paths.
+
 # CineTrack 0.99.10 beta
 
 - Added pull-to-refresh artwork and metadata updates for active TMDB library titles without changing tracking state.
@@ -133,3 +139,4 @@ Debug and release APK builds, unit tests, lint, baseline-profile compilation, re
 - Clear stale results while switching queries and show a proper empty state after searches complete.
 
 Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
+
