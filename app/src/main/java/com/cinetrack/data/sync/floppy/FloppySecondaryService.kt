@@ -73,21 +73,25 @@ class FloppySecondaryService(
             }
             onStage(FloppyConnectionStage.INITIAL_SYNC, candidate.settings.serverVersion)
             val bootstrapState = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
-            when (bootstrapState) {
-                ProviderBootstrapState.NOT_STARTED,
-                ProviderBootstrapState.RUNNING,
-                ProviderBootstrapState.FAILED,
-                -> bootstrap().start()
-                ProviderBootstrapState.READY -> Unit
-            }
             val instance = activation.committed.connectionId
             if (context == null) {
                 // Source-compatible path for lightweight Room integration
                 // tests that do not provide an Android WorkManager context.
+                when (bootstrapState) {
+                    ProviderBootstrapState.NOT_STARTED,
+                    ProviderBootstrapState.RUNNING,
+                    ProviderBootstrapState.FAILED,
+                    -> bootstrap().start()
+                    ProviderBootstrapState.READY -> Unit
+                }
                 val delivery = coordinator.pushPending()
                 if (delivery.isFailure) throw delivery.exceptionOrNull() ?: IllegalStateException("Floppy delivery failed")
                 if (!bootstrap().markReadyIfComplete()) throw TrackingSyncError.BootstrapFailure(IllegalStateException("Bootstrap verification failed"))
             } else if (bootstrapState != ProviderBootstrapState.READY) {
+                // Plan creation is a bounded local/DataStore operation. Do
+                // not materialize every delivery row on the interactive
+                // settings coroutine; WorkManager owns that long operation.
+                bootstrap().ensurePlan()
                 context.let { appContext ->
                     FloppyBootstrapWorkScheduler.enqueue(appContext, instance, wifiOnly())
                 }
