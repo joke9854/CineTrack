@@ -889,9 +889,19 @@ class CineTrackViewModel(
             _state.update { it.copy(sync = started) }
         }
         if (!syncCoordinator.isMainProviderConnected()) {
+            if (exposeProgress) {
+                val idle = SyncProgress(running = false, stage = com.cinetrack.domain.SyncStage.IDLE)
+                _syncProgress.value = idle
+                _state.update { it.copy(sync = idle) }
+            }
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
         if (!force && !repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) {
+            if (exposeProgress) {
+                val idle = _syncProgress.value.copy(running = false, stage = com.cinetrack.domain.SyncStage.IDLE, message = null)
+                _syncProgress.value = idle
+                _state.update { it.copy(sync = idle) }
+            }
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
         var completedSync = _syncProgress.value
@@ -902,6 +912,19 @@ class CineTrackViewModel(
                     _syncProgress.value = progress
                 }
             }
+        }
+        completedSync = when {
+            result.isFailure -> completedSync.copy(
+                running = false,
+                stage = com.cinetrack.domain.SyncStage.ERROR,
+                message = result.exceptionOrNull()?.message ?: completedSync.message,
+            )
+            completedSync.running -> completedSync.copy(
+                running = false,
+                stage = com.cinetrack.domain.SyncStage.COMPLETE,
+                message = null,
+            )
+            else -> completedSync
         }
         _syncProgress.value = completedSync
         _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }

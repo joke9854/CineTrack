@@ -31,6 +31,16 @@ import kotlinx.coroutines.flow.map
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
+internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error) {
+    is TrackingSyncError.NetworkUnavailable,
+    is TrackingSyncError.DnsFailure,
+    is TrackingSyncError.Timeout,
+    is TrackingSyncError.RateLimited,
+    is IOException,
+    -> true
+    else -> false
+}
+
 object FloppyBootstrapWorkScheduler {
     private const val PREFIX = "floppy-bootstrap:"
 
@@ -200,15 +210,7 @@ class FloppyBootstrapWorker(
         else -> Result.failure(failureData ?: Data.EMPTY)
     }
 
-    private fun isRetryable(error: Throwable): Boolean = when (error) {
-        is TrackingSyncError.NetworkUnavailable,
-        is TrackingSyncError.DnsFailure,
-        is TrackingSyncError.Timeout,
-        is TrackingSyncError.RateLimited,
-        is IOException,
-        -> true
-        else -> false
-    }
+    private fun isRetryable(error: Throwable): Boolean = isFloppyBootstrapRetryable(error)
 
     private fun progressData(progress: FloppyBootstrapProgress): Data = workDataOf(
         "stage" to progress.stage.name,
