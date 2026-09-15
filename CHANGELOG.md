@@ -1,3 +1,9 @@
+# CineTrack 0.99.12 beta
+
+- Moved Floppy SECONDARY initial synchronization into durable, instance-safe WorkManager batches with real syncing and verification progress.
+- Added durable TMDB library artwork refresh with incremental Room updates, bounded requests, exact changed/unchanged/failed accounting, and a background progress popup.
+- Preserved existing provider delivery generations, retry safety, and tracking-state isolation.
+
 # CineTrack 0.99.11 beta
 
 - Fixed real-device Floppy Connect taps with a direct Material3 action, synchronous staged feedback, lifecycle-safe serialization, and explicit failure diagnostics.
