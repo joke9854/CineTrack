@@ -1,3 +1,9 @@
+# CineTrack 0.99.10 beta
+
+- Added pull-to-refresh artwork and metadata updates for active TMDB library titles without changing tracking state.
+- Ordered progress by real playback activity timestamps and stabilized release notifications with structured episode titles and localized formatting.
+- Refined inline Floppy configuration, API guidance, retry states, and provider-key links for English and Italian.
+
 # CineTrack 0.99.04 beta
 
 - Added the runtime-configured Floppy tracking provider with secure API-key storage, reverse-proxy-safe URL handling, capability discovery, paginated library/history sync, provider identity reset, and Floppy settings controls.

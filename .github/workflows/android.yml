@@ -33,6 +33,11 @@ jobs:
           retention-days: 14
 
   migration-tests:
+    # The release commit may opt out of the emulator-only migration gate once.
+    # Normal pushes and pull requests continue to run it.
+    if: >-
+      github.event_name != 'push' ||
+      !contains(github.event.head_commit.message, '[skip migration]')
     needs: build
     runs-on: ubuntu-latest
     steps:
