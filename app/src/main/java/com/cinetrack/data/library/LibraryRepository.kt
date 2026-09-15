@@ -28,6 +28,10 @@ import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 
@@ -52,6 +56,9 @@ class RoomLibraryRepository(
     private val routingMutex: TrackingRoutingMutex,
 ) : LibraryRepository {
     private val durableQueue = DurableTrackingQueue(providerRegistry, routingMutex)
+    /** Network delivery is best-effort background work. Local Room mutations
+     * must return immediately even when Floppy's lane is occupied by bootstrap. */
+    private val deliveryScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /** Reads every persisted queue/state generation while routing is locked. */
     private suspend fun nextMutationGenerationLocked(): Long {
@@ -176,8 +183,8 @@ class RoomLibraryRepository(
             ids
         } }
         onLocalStateChanged()
-        if (syncCoordinator.isMainProviderConnected()) {
-            syncCoordinator.pushPending(operationIds)
+        deliveryScope.launch {
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds)
         }
     }
 
@@ -213,8 +220,8 @@ class RoomLibraryRepository(
             }
         } }
         onLocalStateChanged()
-        if (syncCoordinator.isMainProviderConnected()) {
-            syncCoordinator.pushPending(operationIds)
+        deliveryScope.launch {
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds)
         }
     }
 
@@ -248,7 +255,9 @@ class RoomLibraryRepository(
             "write:$writeId"
         } }
         onLocalStateChanged()
-        if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
+        deliveryScope.launch {
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
+        }
     }
 
     override suspend fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
@@ -271,7 +280,9 @@ class RoomLibraryRepository(
             "write:$writeId"
         } }
         onLocalStateChanged()
-        if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
+        deliveryScope.launch {
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
+        }
     }
 
     override suspend fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
@@ -305,7 +316,9 @@ class RoomLibraryRepository(
             ids
         } }
         onLocalStateChanged()
-        if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds.toSet())
+        deliveryScope.launch {
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds.toSet())
+        }
     }
 
     private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
