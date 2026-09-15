@@ -314,6 +314,20 @@ class CineTrackViewModel(
             val cached = readCachedState()
             _syncProgress.value = cached.sync
             _state.value = cached
+            // WorkManager may have emitted before Room/DataStore startup
+            // finished. Re-read both durable jobs after the cached projection
+            // is published so process recreation cannot lose visible progress.
+            val restoredArtwork = withContext(Dispatchers.IO) { libraryArtworkRefreshManager.progress.first() }
+            val restoredBootstrap = withContext(Dispatchers.IO) { floppyBootstrapWorkManager.progress.first() }
+            _state.update { current ->
+                val bootstrapMatches = restoredBootstrap?.providerInstanceId.isNullOrBlank() ||
+                    current.floppyConnectionId.isNullOrBlank() ||
+                    restoredBootstrap?.providerInstanceId == current.floppyConnectionId
+                current.copy(
+                    libraryArtworkProgress = restoredArtwork ?: current.libraryArtworkProgress,
+                    floppyBootstrapProgress = if (bootstrapMatches) restoredBootstrap ?: current.floppyBootstrapProgress else current.floppyBootstrapProgress,
+                )
+            }
             val mainProviderConnected = withContext(Dispatchers.IO) { syncCoordinator.isMainProviderConnected() }
             val coldSync = if (mainProviderConnected) {
                 // Keep the cached UI stable while a cold-start delta check runs.
