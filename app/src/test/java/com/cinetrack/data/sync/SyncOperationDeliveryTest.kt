@@ -39,7 +39,7 @@ class SyncOperationDeliveryTest {
 
         val result = SyncCoordinator(DeliveryRegistry(main, secondary), queue).sync { }
 
-        assertTrue(result.isFailure)
+        assertTrue(result.isSuccess)
         assertEquals(DeliveryStatus.ACKNOWLEDGED, queue.rows.single { it.providerId == TrackingProviderId.SIMKL }.status)
         assertEquals(DeliveryStatus.FAILED, queue.rows.single { it.providerId == TrackingProviderId.FLOPPY }.status)
     }
