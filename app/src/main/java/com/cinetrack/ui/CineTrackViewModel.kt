@@ -81,6 +81,7 @@ class CineTrackViewModel(
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
+    private val libraryArtworkRefreshMutex = Mutex()
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
     private var pendingProgressRefresh = ProgressRefreshRequest()
@@ -256,6 +257,7 @@ class CineTrackViewModel(
                 _syncProgress.value = latestSync
                 _state.value = cached.copy(
                     refreshing = current.refreshing,
+                    libraryArtworkRefreshing = current.libraryArtworkRefreshing,
                     error = current.error,
                     people = current.people,
                     sync = latestSync,
@@ -335,6 +337,30 @@ class CineTrackViewModel(
             } finally {
                 _state.value = _state.value.copy(refreshing = false)
                 refreshMutex.unlock()
+            }
+        }
+    }
+
+    /** Refresh all cached library metadata/artwork without touching tracking data. */
+    fun refreshLibraryArtwork() {
+        if (!_state.value.tmdbApiConfigured || !libraryArtworkRefreshMutex.tryLock()) return
+        _state.value = _state.value.copy(libraryArtworkRefreshing = true, error = null)
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { repository.refreshLibraryArtwork() }
+                val current = _state.value
+                _state.value = readCachedState().copy(
+                    libraryArtworkRefreshing = false,
+                    refreshing = current.refreshing,
+                    sync = _syncProgress.value,
+                    people = current.people,
+                )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(libraryArtworkRefreshing = false, error = error.message)
+            } finally {
+                libraryArtworkRefreshMutex.unlock()
             }
         }
     }
@@ -911,7 +937,9 @@ class CineTrackViewModel(
                 } else {
                     val message = when (result) {
                         com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired -> "The API key was rejected."
-                        is com.cinetrack.data.sync.ConnectionResult.Failed -> "Couldn’t reach this Floppy server."
+                        is com.cinetrack.data.sync.ConnectionResult.Failed -> if (_state.value.floppyConnected || repository.preferences.floppySettingsNow() != null) {
+                            "Connected, but the initial synchronization needs attention."
+                        } else "Couldn’t reach this Floppy server."
                         else -> "Couldn’t connect to this Floppy server."
                     }
                     // Validation may have committed the connection before an

@@ -123,6 +123,13 @@ data class ProgressRefreshRequest(
     )
 }
 
+/** Canonical activity ordering for a progress card. Air dates are schedule
+ * metadata and intentionally never contribute to viewing recency. */
+internal fun playbackActivityRecency(item: PlaybackCard): Long = maxOf(
+    item.media.libraryUpdatedAt ?: 0L,
+    item.progressUpdatedAtMillis,
+)
+
 private sealed interface RemoteConflictPlan {
     data class Library(val status: LibraryStatus) : RemoteConflictPlan
     data class MovieWatched(val watched: Boolean) : RemoteConflictPlan
@@ -504,10 +511,9 @@ class CineTrackRepository(
         releaseDateTime(value, ZoneId.systemDefault())?.toInstant()?.toEpochMilli()
     } ?: 0L
 
-    private fun playbackRecency(item: PlaybackCard): Long = maxOf(
-        item.media.libraryUpdatedAt ?: 0L,
-        scheduleTime(item.episodeAirDate),
-    )
+    private fun playbackTimestamp(raw: String?): Long = raw?.trim()?.takeIf(String::isNotBlank)?.let {
+        runCatching { Instant.parse(it).toEpochMilli() }.getOrDefault(0L)
+    } ?: 0L
 
     private val castCache = BoundedLruCache<String, List<PersonCard>>(32)
     private val recommendationCandidatesCache = BoundedLruCache<String, List<TmdbMediaDto>>(32)
@@ -865,6 +871,7 @@ class CineTrackRepository(
                 durationMinutes = item.durationSeconds.takeIf { it > 0 }?.let { (it / 60).toInt().coerceAtLeast(1) }
                     ?: media.runtimeMinutes,
                 episodeAirDate = cachedEpisode?.airDate,
+                progressUpdatedAtMillis = playbackTimestamp(item.updatedAt),
             )
         }
         val history = snapshot.history
@@ -890,6 +897,7 @@ class CineTrackRepository(
                 label = item.watchedAt.take(10),
                 timestamp = item.watchedAt,
                 episodeLabel = episodeLabel,
+                episodeTitle = item.episodeTitle?.takeIf(String::isNotBlank) ?: cachedTitle,
                 episodeId = item.episodeId,
                 season = item.season,
                 episodeNumber = item.episodeNumber,
@@ -935,6 +943,7 @@ class CineTrackRepository(
                 episodeId = episode.tmdbId,
                 season = episode.season,
                 episodeNumber = episode.number,
+                episodeTitle = episode.title,
             )
         }
         val calendar = (movieCalendar + episodeCalendar)
@@ -956,7 +965,8 @@ class CineTrackRepository(
             .filter { it.media.type == MediaType.TV }
             .groupBy { it.media.id }
             .mapValues { (_, events) -> events.maxOfOrNull { scheduleTime(it.timestamp) } ?: 0L }
-        val playbackByShow = playback.filter { it.media.type == MediaType.TV }.associateBy { it.media.stableKey }
+        val playbackByShow = playback.filter { it.media.type == MediaType.TV }.groupBy { it.media.stableKey }
+            .mapValues { (_, items) -> items.maxByOrNull(::playbackActivityRecency) }
         val durableUpNext = snapshot.upNext.associateBy(UpNextEntity::showId)
         val durableUpNextReady = snapshot.syncStates.any { it.area == "up_next_cache_v1" }
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
@@ -1012,11 +1022,12 @@ class CineTrackRepository(
                     remainingMinutes = if (sameEpisode && (session?.progress ?: 0f) > 0f) session?.remainingMinutes else null,
                     durationMinutes = next.runtimeMinutes ?: session?.durationMinutes ?: show.runtimeMinutes,
                     episodeAirDate = next.airDate,
+                    progressUpdatedAtMillis = if (sameEpisode) session?.progressUpdatedAtMillis ?: 0L else 0L,
                 )
             }
             .sortedWith(
                 compareByDescending<PlaybackCard> { item ->
-                    maxOf(latestWatchedAtByShow[item.media.id] ?: 0L, playbackRecency(item))
+                    maxOf(latestWatchedAtByShow[item.media.id] ?: 0L, playbackActivityRecency(item))
                 }
                     .thenBy { it.media.title.lowercase() },
             )
@@ -1025,6 +1036,7 @@ class CineTrackRepository(
         moviePlayback += rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.MOVIE && it.status == LibraryStatus.WATCHING && it.stableKey !in movieKeys }
             .map { media -> PlaybackCard(media = media, progress = 0f, remainingMinutes = media.runtimeMinutes, durationMinutes = media.runtimeMinutes) }
+        moviePlayback.sortWith(compareByDescending<PlaybackCard>(::playbackActivityRecency).thenBy { it.media.title.lowercase() })
 
         AppUiState(
             rails = rails,
@@ -2463,6 +2475,57 @@ class CineTrackRepository(
         }
         if (enriched.isNotEmpty()) database.mediaDao().upsertMedia(enriched)
     }
+
+    /**
+     * Explicit user-requested metadata refresh for every active library item.
+     * This deliberately touches only MediaEntity rows: tracking state,
+     * playback, history, sync generations and provider deliveries remain
+     * completely independent of artwork enrichment.
+     */
+    suspend fun refreshLibraryArtwork() {
+        check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
+        val snapshot = database.snapshotDao().snapshot()
+        val states = snapshot.states.associateBy { it.mediaType to it.mediaId }
+        val libraryKeys = snapshot.rails.filter { it.railId == RailIds.LIBRARY }
+            .map { it.mediaType to it.mediaId }
+            .toSet()
+        val targets = snapshot.media
+            .filter { (it.mediaType to it.tmdbId) in libraryKeys }
+            .filter { states[it.mediaType to it.tmdbId]?.status !in setOf(LibraryStatus.NONE.name, LibraryStatus.DROPPED.name) }
+            .distinctBy { "${it.mediaType}:${it.tmdbId}" }
+        if (targets.isEmpty()) return
+        val requests = Semaphore(permits = 8)
+        val refreshed = coroutineScope {
+            targets.map { current ->
+                async(Dispatchers.IO) {
+                    requests.withPermit {
+                        runCatching {
+                            val type = MediaType.valueOf(current.mediaType)
+                            val details = if (type == MediaType.TV) services.tmdb.show(current.tmdbId, append = "")
+                            else services.tmdb.movie(current.tmdbId, append = "")
+                            details.toEntity(type).copy(
+                                title = details.title?.ifBlank { current.title } ?: details.name?.ifBlank { current.title } ?: current.title,
+                                overview = details.overview.ifBlank { current.overview },
+                                posterPath = details.posterPath ?: current.posterPath,
+                                backdropPath = details.backdropPath ?: current.backdropPath,
+                                releaseDate = details.releaseDate ?: details.firstAirDate ?: current.releaseDate,
+                                score = details.voteAverage ?: current.score,
+                                runtimeMinutes = details.runtime ?: details.episodeRunTime.firstOrNull() ?: current.runtimeMinutes,
+                                genres = details.genres.let { genres -> if (genres.isEmpty()) current.genres else genres.joinToString("|") { it.name } },
+                                providers = details.watchProviders?.results?.get("IT")?.let { (it.flatrate + it.rent + it.buy).distinctBy { p -> p.id }.joinToString("|") { p -> p.name } }?.takeIf(String::isNotBlank) ?: current.providers,
+                                collectionId = details.collection?.id ?: current.collectionId,
+                            )
+                        }.getOrNull()
+                    }
+                }
+            }.awaitAll().filterNotNull()
+        }
+        if (refreshed.isNotEmpty()) database.mediaDao().upsertMedia(refreshed)
+    }
+
+    /** Resolve an episode title from the local Room cache without a network request. */
+    suspend fun cachedEpisodeTitle(showId: Int, season: Int, episode: Int): String? =
+        database.mediaDao().episode(showId, season, episode)?.title?.takeIf(String::isNotBlank)
 
     suspend fun loadUpcomingEpisodes(
         shows: List<MediaCard>,

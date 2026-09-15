@@ -289,7 +289,7 @@ fun CineTrackApp(
                 )
             }
             composable(Routes.Library) {
-                LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = viewModel::refreshLibraryArtwork, onCompactNav = { compactNav = it })
             }
             composable(Routes.Settings) {
                 SettingsScreen(

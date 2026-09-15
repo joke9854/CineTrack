@@ -97,7 +97,9 @@ object ReleaseNotifier {
                         workDataOf(
                             "key" to key,
                             "title" to event.media.title,
-                            "text" to releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel),
+                            "text" to releaseNotificationText(context, event.season, event.episodeNumber, event.episodeTitle, event.episodeLabel),
+                            "episodeTitle" to (event.episodeTitle ?: extractEpisodeTitle(event.episodeLabel).orEmpty()),
+                            "episodeLabel" to event.episodeLabel.orEmpty(),
                             "deepLink" to deepLink,
                             "mediaType" to event.media.type.name,
                             "mediaId" to event.media.id,
@@ -115,7 +117,12 @@ object ReleaseNotifier {
     }
 
     @SuppressLint("MissingPermission")
-    suspend fun notifyScheduledRelease(context: Context, preferences: AppPreferences, data: androidx.work.Data) {
+    suspend fun notifyScheduledRelease(
+        context: Context,
+        preferences: AppPreferences,
+        data: androidx.work.Data,
+        repository: CineTrackRepository? = null,
+    ) {
         val type = data.getString("mediaType")?.let { runCatching { MediaType.valueOf(it) }.getOrNull() } ?: return
         if (type == MediaType.TV && !preferences.notificationEpisodes.first()) return
         if (type == MediaType.MOVIE && !preferences.notificationMovies.first()) return
@@ -123,9 +130,23 @@ object ReleaseNotifier {
         val key = data.getString("key") ?: return
         if (!preferences.markReleaseNotified(key)) return
         val deepLink = data.getString("deepLink") ?: return
+        val season = data.getInt("season", -1)
+        val episode = data.getInt("episode", -1)
+        val rawTitle = data.getString("episodeTitle")?.takeIf(String::isNotBlank)
+            ?: extractEpisodeTitle(data.getString("episodeLabel"))
+            ?: repository?.let {
+                if (type == MediaType.TV && season >= 0 && episode > 0) it.cachedEpisodeTitle(data.getInt("mediaId", 0), season, episode) else null
+            }
+        val text = releaseNotificationText(
+            context,
+            season.takeIf { it >= 0 },
+            episode.takeIf { it > 0 },
+            rawTitle,
+            data.getString("text"),
+        )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_cinetrack)
-            .setStableTextLayout(data.getString("title").orEmpty(), data.getString("text").orEmpty())
+            .setStableTextLayout(data.getString("title").orEmpty(), text)
             .setAutoCancel(true)
             .setContentIntent(
                 PendingIntent.getActivity(
@@ -135,14 +156,12 @@ object ReleaseNotifier {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
                 ),
             )
-        val season = data.getInt("season", -1)
-        val episode = data.getInt("episode", -1)
         if (type == MediaType.TV && season >= 0 && episode > 0) {
             val actionIntent = Intent(context, MarkEpisodeWatchedReceiver::class.java).apply {
                 putExtra("showId", data.getInt("mediaId", 0))
                 putExtra("season", season)
                 putExtra("episode", episode)
-                putExtra("title", data.getString("text").orEmpty())
+                putExtra("title", rawTitle.orEmpty())
             }
             builder.addAction(
                 0,
@@ -218,14 +237,14 @@ object ReleaseNotifier {
                 .setSmallIcon(R.drawable.ic_notification_cinetrack)
                 .setStableTextLayout(
                     event.media.title,
-                    releaseNotificationText(context, event.season, event.episodeNumber, event.episodeLabel),
+                    releaseNotificationText(context, event.season, event.episodeNumber, event.episodeTitle, event.episodeLabel),
                 )
                 .setAutoCancel(true)
                 .setContentIntent(contentIntent)
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
                 val actionIntent = Intent(context, MarkEpisodeWatchedReceiver::class.java).apply {
                     putExtra("showId", event.media.id); putExtra("season", event.season); putExtra("episode", event.episodeNumber)
-                    putExtra("title", event.episodeLabel.orEmpty())
+                    putExtra("title", event.episodeTitle ?: extractEpisodeTitle(event.episodeLabel).orEmpty())
                 }
                 builder.addAction(
                     0,
@@ -284,12 +303,27 @@ private fun NotificationCompat.Builder.setStableTextLayout(title: String, text: 
                 .bigText(text),
         )
 
-private fun releaseNotificationText(context: Context, season: Int?, episode: Int?, fallback: String?): String =
+internal fun extractEpisodeTitle(episodeLabel: String?): String? {
+    val raw = episodeLabel?.trim().orEmpty()
+    if (raw.isBlank()) return null
+    val title = raw.substringAfter(" · ", "").trim()
+    return title.takeIf { it.isNotBlank() && it != raw }
+}
+
+internal fun releaseNotificationText(
+    context: Context,
+    season: Int?,
+    episode: Int?,
+    episodeTitle: String? = null,
+    legacyLabel: String? = null,
+): String {
     if (season != null && season >= 0 && episode != null && episode > 0) {
-        context.getString(R.string.episode_available_notification, season, episode)
-    } else {
-        fallback ?: context.getString(R.string.available_today)
+        val title = episodeTitle?.takeIf(String::isNotBlank) ?: extractEpisodeTitle(legacyLabel)
+        return if (title != null) context.getString(R.string.episode_available_named_notification, season, episode, title)
+        else context.getString(R.string.episode_available_unnamed_notification, season, episode)
     }
+    return legacyLabel?.takeIf(String::isNotBlank) ?: context.getString(R.string.available_today)
+}
 
 internal fun isQuietHour(hour: Int, start: Int, end: Int): Boolean =
     if (start == end) true else if (start < end) hour in start until end else hour >= start || hour < end
@@ -298,7 +332,7 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
-        ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData)
+        ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
         return Result.success()
     }
 }
@@ -320,3 +354,4 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
         }
     }
 }
+

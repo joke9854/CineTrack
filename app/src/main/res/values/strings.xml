@@ -185,6 +185,8 @@
     <string name="release_notifications">Release notifications</string>
     <string name="available_today">Available today</string>
     <string name="episode_available_notification">S%1$02dE%2$02d is now available!</string>
+    <string name="episode_available_named_notification">S%1$02d E%2$02d · %3$s is now available.</string>
+    <string name="episode_available_unnamed_notification">S%1$02d E%2$02d is now available.</string>
     <string name="restore_hidden_upcoming">Restore hidden upcoming (%1$d)</string>
     <string name="hidden_upcoming">Hidden upcoming episodes</string>
     <string name="hide_upcoming_title">Hide this upcoming episode?</string>
@@ -300,6 +302,10 @@
     <string name="api_credential_saved_securely">The saved value is masked here and encrypted on this device. It is never added to the source code or a backup.</string>
     <string name="tmdb_api_help">Enter a TMDB v3 API key or v4 read-access token. It enables Discover, search, metadata, artwork, episodes and regional streaming providers.</string>
     <string name="mdblist_api_help">Enter your personal MDBList API key. It enables aggregated ratings from supported external sources.</string>
+    <string name="get_tmdb_api_key">Get a TMDB API key</string>
+    <string name="tmdb_api_link_help">Create or sign in to TMDB, then open the API section in Account Settings to request or view your credential.</string>
+    <string name="get_mdblist_api_key">Get an MDBList API key</string>
+    <string name="mdblist_api_link_help">Sign in to MDBList and copy the API key from Preferences.</string>
     <string name="api_credential_verifying">Verifying %1$s with the service…</string>
     <string name="api_credential_invalid">%1$s rejected this credential: %2$s</string>
     <string name="use_build_credential">Use build credential</string>
@@ -528,6 +534,11 @@
     <string name="floppy_advanced">Advanced</string>
     <string name="floppy_allow_http_local_network">Allow HTTP on local network</string>
     <string name="floppy_http_local_supporting">Allows unencrypted connections only to private/local Floppy servers. HTTPS remains recommended.</string>
+    <string name="floppy_how_to_connect">How to connect</string>
+    <string name="floppy_how_to_connect_steps">1. Open your Floppy web interface.\n2. Go to Settings → Integrations.\n3. Find API Token and copy it.\n4. Enter your Floppy base URL here.\n5. Paste the token and connect.</string>
+    <string name="floppy_connection_security">The base URL is the address used to open Floppy; include any URL prefix. Your API token grants full account access, so do not share it. Keep HTTP disabled unless this is a trusted private/local-network instance.</string>
+    <string name="floppy_api_guide">Floppy API guide</string>
+    <string name="floppy_connected_attention">Connected, but the initial synchronization needs attention.</string>
     <string name="floppy_reason_main_required">A main tracking service is required</string>
     <string name="floppy_error_inline">Unable to reach this Floppy server.</string>
     <string name="connecting">Connecting…</string>

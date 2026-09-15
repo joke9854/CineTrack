@@ -185,6 +185,8 @@
     <string name="release_notifications">Notifiche delle uscite</string>
     <string name="available_today">Disponibile oggi</string>
     <string name="episode_available_notification">S%1$02dE%2$02d è ora disponibile!</string>
+    <string name="episode_available_named_notification">S%1$02d E%2$02d · %3$s è ora disponibile.</string>
+    <string name="episode_available_unnamed_notification">S%1$02d E%2$02d è ora disponibile.</string>
     <string name="restore_hidden_upcoming">Ripristina uscite nascoste (%1$d)</string>
     <string name="hidden_upcoming">Episodi in arrivo nascosti</string>
     <string name="hide_upcoming_title">Nascondere questo episodio in arrivo?</string>
@@ -300,6 +302,10 @@
     <string name="api_credential_saved_securely">Il valore salvato è mascherato qui e cifrato sul dispositivo. Non viene mai aggiunto al codice sorgente o ai backup.</string>
     <string name="tmdb_api_help">Inserisci una chiave API TMDB v3 o un token di lettura v4. Abilita Scopri, ricerca, metadati, immagini, episodi e provider streaming regionali.</string>
     <string name="mdblist_api_help">Inserisci la tua chiave API personale MDBList. Abilita le valutazioni aggregate delle fonti esterne supportate.</string>
+    <string name="get_tmdb_api_key">Ottieni una chiave API TMDB</string>
+    <string name="tmdb_api_link_help">Crea un account TMDB o accedi, poi apri la sezione API nelle Impostazioni account per richiedere o vedere la credenziale.</string>
+    <string name="get_mdblist_api_key">Ottieni una chiave API MDBList</string>
+    <string name="mdblist_api_link_help">Accedi a MDBList e copia la chiave API da Preferenze.</string>
     <string name="api_credential_verifying">Verifica di %1$s con il servizio…</string>
     <string name="api_credential_invalid">%1$s ha rifiutato questa credenziale: %2$s</string>
     <string name="use_build_credential">Usa credenziale della build</string>
@@ -528,6 +534,11 @@
     <string name="floppy_advanced">Avanzate</string>
     <string name="floppy_allow_http_local_network">Consenti HTTP sulla rete locale</string>
     <string name="floppy_http_local_supporting">Consente connessioni non cifrate solo a server Floppy privati/locali. HTTPS resta consigliato.</string>
+    <string name="floppy_how_to_connect">Come collegarsi</string>
+    <string name="floppy_how_to_connect_steps">1. Apri l’interfaccia web di Floppy.\n2. Vai a Impostazioni → Integrazioni.\n3. Trova API Token e copialo.\n4. Inserisci qui l’URL di base Floppy.\n5. Incolla il token e collega.</string>
+    <string name="floppy_connection_security">L’URL di base è l’indirizzo con cui apri Floppy; includi eventuali prefissi. Il token API dà pieno accesso all’account, quindi non condividerlo. Lascia HTTP disabilitato salvo server privati/locali affidabili.</string>
+    <string name="floppy_api_guide">Guida API Floppy</string>
+    <string name="floppy_connected_attention">Connesso, ma la sincronizzazione iniziale richiede attenzione.</string>
     <string name="floppy_reason_main_required">È richiesto un servizio di tracking principale</string>
     <string name="floppy_error_inline">Impossibile raggiungere questo server Floppy.</string>
     <string name="connecting">Connessione…</string>

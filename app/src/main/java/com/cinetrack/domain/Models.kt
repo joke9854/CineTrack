@@ -87,6 +87,8 @@ data class PlaybackCard(
     val remainingMinutes: Int? = null,
     val durationMinutes: Int? = null,
     val episodeAirDate: String? = null,
+    /** Remote playback activity timestamp, in epoch milliseconds. */
+    val progressUpdatedAtMillis: Long = 0L,
 )
 
 @Immutable
@@ -147,6 +149,7 @@ data class TimelineCard(
     val episodeId: Int? = null,
     val season: Int? = null,
     val episodeNumber: Int? = null,
+    val episodeTitle: String? = null,
 )
 
 enum class SyncStage {
@@ -244,6 +247,7 @@ data class TrackingProviderState(
 data class AppUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
+    val libraryArtworkRefreshing: Boolean = false,
     val error: String? = null,
     val rails: Map<String, List<MediaCard>> = emptyMap(),
     val playbackTv: List<PlaybackCard> = emptyList(),
