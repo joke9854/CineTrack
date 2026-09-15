@@ -1009,7 +1009,7 @@ class CineTrackRepository(
         val playbackByShow = playback.filter { it.media.type == MediaType.TV }.groupBy { it.media.stableKey }
             .mapValues { (_, items) -> items.maxByOrNull(::playbackActivityRecency) }
         val durableUpNext = snapshot.upNext.associateBy(UpNextEntity::showId)
-        val durableUpNextReady = snapshot.syncStates.any { it.area == "up_next_cache_v1" }
+        val cachedEpisodeCards = cachedEpisodes.map { it.toDomain() }
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.TV && it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED) }
             .mapNotNull { show ->
@@ -1024,8 +1024,7 @@ class CineTrackRepository(
                 val cachedRow = durableUpNext[show.id]
                 val stored = cachedRow?.takeUnless {
                     Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
-                }
-                val next = stored?.let { row ->
+                }?.let { row ->
                     EpisodeCard(
                         id = row.episodeId ?: 0,
                         showId = row.showId,
@@ -1036,19 +1035,20 @@ class CineTrackRepository(
                         airDate = row.episodeAirDate,
                         runtimeMinutes = row.durationMinutes,
                     )
-                } ?: if (!durableUpNextReady || (cachedRow != null && stored == null)) {
-                    // One-time compatibility path while migration/startup builds
-                    // the durable cache. The same aired-then-future selection is
-                    // used so a caught-up show can surface its next episode.
-                    selectNextProgressEpisode(
-                        show.id,
-                        cachedEpisodes.map { it.toDomain() },
-                        watchedNumbers,
-                        releaseNow,
-                        releaseZone,
-                        excludeSpecials,
-                    )
-                } else null
+                }
+                // Re-evaluate the local schedule on every projection. This
+                // prevents a durable future row from masking an episode that
+                // has since aired; the persisted row remains a fallback when
+                // the cache is incomplete during startup.
+                val computed = selectNextProgressEpisode(
+                    show.id,
+                    cachedEpisodeCards,
+                    watchedNumbers,
+                    releaseNow,
+                    releaseZone,
+                    excludeSpecials,
+                )
+                val next = computed ?: stored
                 if (next == null) return@mapNotNull session
                 val sameEpisode = session?.season == next.season && session.episodeNumber == next.number
                 PlaybackCard(
