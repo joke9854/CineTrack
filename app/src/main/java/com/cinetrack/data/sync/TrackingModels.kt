@@ -193,6 +193,7 @@ sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exce
     class DnsFailure(cause: Throwable) : TrackingSyncError("Server address could not be resolved", cause)
     class TlsFailure(cause: Throwable) : TrackingSyncError("Secure connection to the provider failed", cause)
     class WrongApi(provider: TrackingProviderId) : TrackingSyncError("${provider.name} API endpoint was not found")
+    class BootstrapFailure(cause: Throwable) : TrackingSyncError("Floppy initial synchronization failed", cause)
     class RateLimited(val retryAfterSeconds: Long? = null) : TrackingSyncError("Provider is rate limiting requests")
     class Validation(message: String) : TrackingSyncError(message)
     class Unknown(cause: Throwable) : TrackingSyncError(cause.message ?: cause::class.java.simpleName, cause)

@@ -6,6 +6,7 @@ import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingConfigurationService
 import com.cinetrack.data.sync.TrackingSyncError
+import com.cinetrack.domain.FloppyConnectionStage
 import kotlinx.coroutines.CancellationException
 
 /**
@@ -24,19 +25,24 @@ class FloppySecondaryService(
         baseUrl: String,
         apiKey: String,
         allowInsecureLocalHttp: Boolean? = null,
+        onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
     ): ConnectionResult {
         val allowHttp = allowInsecureLocalHttp ?: preferences.floppyAllowInsecureLocalHttpNow()
-        val candidate = provider.validateConnection(baseUrl, apiKey, allowHttp)
+        onStage(FloppyConnectionStage.CHECKING_SERVER, null)
+        val candidate = provider.validateConnection(baseUrl.trim(), apiKey.trim(), allowHttp, onStage)
             .getOrElse { error ->
                 return if (error is com.cinetrack.data.sync.TrackingSyncError.AuthenticationRequired) {
                     ConnectionResult.AuthenticationRequired
                 } else ConnectionResult.Failed(error as? com.cinetrack.data.sync.TrackingSyncError
                     ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error))
-            }
+        }
+        var activated = false
         return try {
             coordinator.withProviderIoQuiesced {
             val activation = configuration.withRoutingLock {
+                onStage(FloppyConnectionStage.ACTIVATING, candidate.settings.serverVersion)
                 val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
+                activated = true
                 // This repair is intentionally ordered after persisting B. It
                 // is idempotent and also covers a crash between those steps.
                 preferences.floppySettingsNow()?.connectionId?.let { instance ->
@@ -54,8 +60,10 @@ class FloppySecondaryService(
             if (activation.mainProvider == null) {
                 // A connected provider is not falsely presented as an active
                 // SECONDARY when there is no MAIN authority.
+                onStage(FloppyConnectionStage.COMPLETE, candidate.settings.serverVersion)
                 return@withProviderIoQuiesced ConnectionResult.Connected
             }
+            onStage(FloppyConnectionStage.INITIAL_SYNC, candidate.settings.serverVersion)
             when (preferences.providerBootstrapStateNow(com.cinetrack.data.sync.TrackingProviderId.FLOPPY)) {
                 ProviderBootstrapState.NOT_STARTED,
                 ProviderBootstrapState.RUNNING,
@@ -78,6 +86,7 @@ class FloppySecondaryService(
                 return@withProviderIoQuiesced ConnectionResult.Failed(mapped)
             }
             bootstrap().markReadyIfComplete()
+            onStage(FloppyConnectionStage.COMPLETE, candidate.settings.serverVersion)
             ConnectionResult.Connected
             }
         } catch (error: Throwable) {
@@ -91,7 +100,7 @@ class FloppySecondaryService(
                 ProviderBootstrapState.FAILED,
             )
             val mapped = error as? TrackingSyncError ?: TrackingSyncError.Unknown(error)
-            ConnectionResult.Failed(mapped)
+            ConnectionResult.Failed(if (activated && mapped !is TrackingSyncError.BootstrapFailure) TrackingSyncError.BootstrapFailure(mapped) else mapped)
         }
     }
 

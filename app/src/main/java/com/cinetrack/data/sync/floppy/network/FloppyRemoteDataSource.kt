@@ -25,6 +25,7 @@ import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
 import com.cinetrack.data.sync.floppy.FloppyVerificationProjection
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.FloppyConnectionStage
 import java.time.Instant
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
@@ -50,10 +51,16 @@ class FloppyRemoteDataSource(
         throw FloppyApiErrorMapper.map(error)
     }
 
-    suspend fun connect(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean = false): FloppyConnectionSettings = try {
+    suspend fun connect(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean = false,
+        onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
+    ): FloppyConnectionSettings = try {
         val identity = FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp)
         val api = factory.get(identity.baseUrl, apiKey, allowInsecureLocalHttp)
         val info = api.info()
+        onStage(FloppyConnectionStage.AUTHENTICATING, info.version)
         val preferences = api.preferences()
         val account = preferences["username"]?.jsonPrimitive?.contentOrNull
             ?: preferences["user_name"]?.jsonPrimitive?.contentOrNull

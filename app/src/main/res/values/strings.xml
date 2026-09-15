@@ -511,7 +511,7 @@
     <string name="floppy_bootstrap_ready">Bootstrap: Ready</string>
     <string name="floppy_bootstrap_failed">Bootstrap failed</string>
     <string name="floppy_insecure_http_warning">Plain HTTP is allowed only for private LAN addresses. HTTPS is recommended.</string>
-    <string name="floppy_error_authentication">Floppy authentication failed. Check the API key.</string>
+    <string name="floppy_error_authentication">The Floppy API token was rejected.</string>
     <string name="floppy_error_unavailable">Floppy is unavailable. Check the server URL and connection.</string>
     <string name="floppy_status">Status</string>
     <string name="floppy_role">Role</string>
@@ -539,5 +539,17 @@
     <string name="floppy_reason_main_required">A main tracking service is required</string>
     <string name="floppy_error_inline">Unable to reach this Floppy server.</string>
     <string name="connecting">Connecting…</string>
+    <string name="floppy_stage_checking_server">Checking server…</string>
+    <string name="floppy_stage_authenticating">Authenticating…</string>
+    <string name="floppy_stage_activating">Activating Floppy…</string>
+    <string name="floppy_stage_initial_sync">Preparing initial sync…</string>
+    <string name="floppy_stage_complete">Connected</string>
+    <string name="floppy_connection_failed">Connection failed</string>
+    <string name="floppy_error_dns">The Floppy server address couldn’t be resolved.</string>
+    <string name="floppy_error_timeout">The Floppy server didn’t respond in time.</string>
+    <string name="floppy_error_tls">CineTrack couldn’t establish a secure connection to this server.</string>
+    <string name="floppy_error_network">CineTrack couldn’t reach this Floppy server.</string>
+    <string name="floppy_error_wrong_api">A Floppy API wasn’t found at this address.</string>
+    <string name="floppy_error_invalid_response">The server responded, but CineTrack couldn’t recognize its Floppy API.</string>
 </resources>
 

@@ -511,7 +511,7 @@
     <string name="floppy_bootstrap_ready">Bootstrap: pronto</string>
     <string name="floppy_bootstrap_failed">Bootstrap non riuscito</string>
     <string name="floppy_insecure_http_warning">HTTP semplice è consentito solo per indirizzi LAN privati. HTTPS è consigliato.</string>
-    <string name="floppy_error_authentication">Autenticazione Floppy non riuscita. Controlla la chiave API.</string>
+    <string name="floppy_error_authentication">Il token API Floppy è stato rifiutato.</string>
     <string name="floppy_error_unavailable">Floppy non è disponibile. Controlla URL e connessione.</string>
     <string name="floppy_status">Stato</string>
     <string name="floppy_role">Ruolo</string>
@@ -539,5 +539,17 @@
     <string name="floppy_reason_main_required">È richiesto un servizio di tracking principale</string>
     <string name="floppy_error_inline">Impossibile raggiungere questo server Floppy.</string>
     <string name="connecting">Connessione…</string>
+    <string name="floppy_stage_checking_server">Controllo del server…</string>
+    <string name="floppy_stage_authenticating">Autenticazione…</string>
+    <string name="floppy_stage_activating">Attivazione di Floppy…</string>
+    <string name="floppy_stage_initial_sync">Preparazione della sincronizzazione iniziale…</string>
+    <string name="floppy_stage_complete">Connesso</string>
+    <string name="floppy_connection_failed">Connessione non riuscita</string>
+    <string name="floppy_error_dns">Non è stato possibile risolvere l’indirizzo del server Floppy.</string>
+    <string name="floppy_error_timeout">Il server Floppy non ha risposto in tempo.</string>
+    <string name="floppy_error_tls">CineTrack non ha potuto stabilire una connessione sicura a questo server.</string>
+    <string name="floppy_error_network">CineTrack non ha potuto raggiungere questo server Floppy.</string>
+    <string name="floppy_error_wrong_api">A questo indirizzo non è stata trovata un’API Floppy.</string>
+    <string name="floppy_error_invalid_response">Il server ha risposto, ma CineTrack non riconosce la sua API Floppy.</string>
 </resources>
 

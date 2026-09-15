@@ -7,6 +7,7 @@ import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.FloppyConnectionStage
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -273,6 +274,29 @@ class FloppyRemoteDataSourceTest {
 
         assertEquals(setOf(operation.id), result.completedOperationIds)
         assertEquals(0, server.requestCount)
+    }
+
+    @Test
+    fun connectUsesPublicInfoThenAuthenticatedPreferencesAndReportsServerVersion() = runBlocking {
+        server.enqueue(json("{\"version\":\"v26.9.10\",\"frontend_url\":\"https://frontend.example\"}"))
+        server.enqueue(json("{\"preferences\":{},\"choices\":{}}"))
+        val stages = mutableListOf<Pair<FloppyConnectionStage, String?>>()
+
+        val settings = remote.connect(
+            baseUrl = server.url("/proxy/").toString(),
+            apiKey = "secret-token",
+            allowInsecureLocalHttp = true,
+            onStage = { stage, version -> stages += stage to version },
+        )
+
+        assertEquals("v26.9.10", settings.serverVersion)
+        assertEquals(listOf(FloppyConnectionStage.AUTHENTICATING to "v26.9.10"), stages)
+        val infoRequest = server.takeRequest()
+        assertEquals("/proxy/api/v1/info/", infoRequest.path)
+        assertTrue(infoRequest.getHeader("X-API-Key").isNullOrBlank())
+        val preferencesRequest = server.takeRequest()
+        assertEquals("/proxy/api/v1/user/preferences/", preferencesRequest.path)
+        assertEquals("secret-token", preferencesRequest.getHeader("X-API-Key"))
     }
 
     @Test

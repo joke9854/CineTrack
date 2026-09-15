@@ -96,7 +96,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.painterResource
@@ -119,6 +121,9 @@ import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.FloppyUiState
+import com.cinetrack.domain.FloppyConnectionError
+import com.cinetrack.domain.FloppyConnectionStage
+import com.cinetrack.domain.FloppyConnectionUiState
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -936,6 +941,7 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 
 @Composable
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
+    val connectionUiState by viewModel.floppyConnectionUiState.collectAsStateWithLifecycle()
     SettingsSection(stringResource(R.string.floppy_status)) {
         ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
@@ -958,33 +964,29 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             PrimaryAction(stringResource(R.string.floppy_retry_initial_sync), Icons.Filled.Refresh) { viewModel.retryFloppyInitialSync() }
         }
     }
-    FloppyConnectionSettingsForm(state, viewModel)
+    FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)
     if (state.floppyConnected) {
         PrimaryAction(stringResource(R.string.floppy_disconnect), Icons.Filled.Link, Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs), containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error, onClick = viewModel::disconnectFloppy)
     }
 }
 
 @Composable
-private fun FloppyConnectionSettingsForm(
+internal fun FloppyConnectionSettingsForm(
     state: AppUiState,
-    viewModel: CineTrackViewModel,
+    connectionUiState: FloppyConnectionUiState = FloppyConnectionUiState(),
+    onConnectRequested: (String, String, Boolean) -> Unit = { _, _, _ -> },
 ) {
     var url by rememberSaveable(state.floppyBaseUrl) { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
     var apiKey by rememberSaveable { mutableStateOf("") }
     var showApiKey by rememberSaveable { mutableStateOf(false) }
     var allowLocalHttp by rememberSaveable(state.floppyAllowInsecureLocalHttp) { mutableStateOf(state.floppyAllowInsecureLocalHttp) }
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
-    var submitted by rememberSaveable { mutableStateOf(false) }
     val editing = state.floppyConnected
     val validUrl = isFloppyUrlValid(url)
-    val canSubmit = validUrl && (apiKey.isNotBlank() || editing) && !state.floppyConnecting
+    val canSubmit = validUrl && (apiKey.isNotBlank() || editing) && !connectionUiState.running
 
     val uriHandler = LocalUriHandler.current
-    fun submit() {
-        if (!canSubmit) return
-        submitted = true
-        viewModel.connectFloppy(url.trim(), apiKey, allowLocalHttp)
-    }
+    val focusManager = LocalFocusManager.current
 
     SettingsSection(stringResource(R.string.floppy_connection)) {
         Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md)) {
@@ -999,10 +1001,10 @@ private fun FloppyConnectionSettingsForm(
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.lg))
             OutlinedTextField(
                 value = url,
-                onValueChange = { url = it.trimStart(); submitted = false },
-                modifier = Modifier.fillMaxWidth(),
+                onValueChange = { url = it },
+                modifier = Modifier.fillMaxWidth().testTag("floppy_server_url_field"),
                 singleLine = true,
-                enabled = !state.floppyConnecting,
+                enabled = !connectionUiState.running,
                 label = { Text(stringResource(R.string.floppy_server_url)) },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 colors = credentialFieldColors(),
@@ -1012,17 +1014,20 @@ private fun FloppyConnectionSettingsForm(
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             OutlinedTextField(
                 value = apiKey,
-                onValueChange = { apiKey = if (apiKey.isEmpty() && editing) it.replace("•", "") else it; submitted = false },
-                modifier = Modifier.fillMaxWidth(),
+                 onValueChange = { apiKey = if (apiKey.isEmpty() && editing) it.replace("•", "") else it },
+                modifier = Modifier.fillMaxWidth().testTag("floppy_api_key_field"),
                 singleLine = true,
-                enabled = !state.floppyConnecting,
+                enabled = !connectionUiState.running,
                 label = { Text(stringResource(if (editing) R.string.floppy_api_key_keep else R.string.floppy_api_key)) },
                 placeholder = { if (editing) Text(stringResource(R.string.floppy_saved_securely), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
                 visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { submit() }),
+                keyboardActions = KeyboardActions(onDone = {
+                    focusManager.clearFocus()
+                    onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
+                }),
                 trailingIcon = {
-                    IconButton(onClick = { showApiKey = !showApiKey }, enabled = !state.floppyConnecting) {
+                    IconButton(onClick = { showApiKey = !showApiKey }, enabled = !connectionUiState.running) {
                         Icon(if (showApiKey) Icons.Filled.VisibilityOff else Icons.Filled.Visibility, contentDescription = stringResource(if (showApiKey) R.string.hide_api_key else R.string.show_api_key), tint = TextSecondary)
                     }
                 },
@@ -1038,25 +1043,72 @@ private fun FloppyConnectionSettingsForm(
                 ToggleRow(stringResource(R.string.floppy_allow_http_local_network), allowLocalHttp) { allowLocalHttp = it }
                 Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm))
             }
-            state.floppyConnectionError?.takeIf { submitted && it.isNotBlank() }?.let { error ->
-                Text(error, color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(vertical = com.cinetrack.ui.theme.Spacing.sm))
+            if (connectionUiState.stage != FloppyConnectionStage.IDLE) {
+                Text(
+                    floppyConnectionStageLabel(connectionUiState.stage, state.floppyUiState),
+                    color = if (connectionUiState.stage == FloppyConnectionStage.FAILED) androidx.compose.material3.MaterialTheme.colorScheme.error else TextMuted,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(vertical = com.cinetrack.ui.theme.Spacing.sm),
+                )
             }
-            PrimaryAction(
-                stringResource(if (editing) R.string.floppy_reconnect else R.string.floppy_connect),
-                Icons.Filled.Link,
-                Modifier.fillMaxWidth(),
+            connectionUiState.error?.let { error ->
+                Text(
+                    floppyConnectionErrorMessage(error),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm),
+                )
+            }
+            Button(
+                onClick = {
+                    focusManager.clearFocus()
+                    onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
+                },
                 enabled = canSubmit,
-                onClick = ::submit,
-            )
-            if (state.floppyConnecting) {
-                Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.sm), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floppy_connect_button"),
+                shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+            ) {
+                if (connectionUiState.running) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
-                    Text(stringResource(R.string.connecting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                } else {
+                    Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
                 }
+                Text(stringResource(if (editing) R.string.floppy_reconnect else R.string.floppy_connect), fontWeight = FontWeight.ExtraBold)
             }
         }
     }
+}
+
+@Composable
+private fun floppyConnectionStageLabel(stage: FloppyConnectionStage, persistentState: FloppyUiState): String = when (stage) {
+    FloppyConnectionStage.CHECKING_SERVER -> stringResource(R.string.floppy_stage_checking_server)
+    FloppyConnectionStage.AUTHENTICATING -> stringResource(R.string.floppy_stage_authenticating)
+    FloppyConnectionStage.ACTIVATING -> stringResource(R.string.floppy_stage_activating)
+    FloppyConnectionStage.INITIAL_SYNC -> stringResource(R.string.floppy_stage_initial_sync)
+    FloppyConnectionStage.COMPLETE -> when (persistentState) {
+        FloppyUiState.READY -> stringResource(R.string.floppy_ready)
+        FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_connected_inactive)
+        else -> stringResource(R.string.floppy_stage_complete)
+    }
+    FloppyConnectionStage.FAILED -> stringResource(R.string.floppy_connection_failed)
+    FloppyConnectionStage.IDLE -> ""
+}
+
+@Composable
+private fun floppyConnectionErrorMessage(error: FloppyConnectionError): String = when (error) {
+    FloppyConnectionError.INVALID_REQUEST -> stringResource(R.string.floppy_error_invalid_url)
+    FloppyConnectionError.AUTHENTICATION -> stringResource(R.string.floppy_error_authentication)
+    FloppyConnectionError.DNS -> stringResource(R.string.floppy_error_dns)
+    FloppyConnectionError.TIMEOUT -> stringResource(R.string.floppy_error_timeout)
+    FloppyConnectionError.TLS -> stringResource(R.string.floppy_error_tls)
+    FloppyConnectionError.NETWORK -> stringResource(R.string.floppy_error_network)
+    FloppyConnectionError.WRONG_API -> stringResource(R.string.floppy_error_wrong_api)
+    FloppyConnectionError.INVALID_RESPONSE -> stringResource(R.string.floppy_error_invalid_response)
+    FloppyConnectionError.BOOTSTRAP -> stringResource(R.string.floppy_connected_attention)
+    FloppyConnectionError.UNKNOWN -> stringResource(R.string.floppy_error_unavailable)
 }
 
 @Composable

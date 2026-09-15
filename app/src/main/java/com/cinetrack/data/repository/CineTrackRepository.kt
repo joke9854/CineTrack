@@ -56,6 +56,7 @@ import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.FloppyUiState
+import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PersonCard
@@ -165,10 +166,15 @@ class CineTrackRepository(
     private val floppySecondaryService: FloppySecondaryService? = null,
     private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
 ) : SimklSyncHost {
-    suspend fun connectFloppy(baseUrl: String, apiKey: String): com.cinetrack.data.sync.ConnectionResult =
-        floppySecondaryService?.connect(baseUrl, apiKey)
+    suspend fun connectFloppy(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean? = null,
+        onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
+    ): com.cinetrack.data.sync.ConnectionResult =
+        floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
-                ?.connect(baseUrl, apiKey)
+                ?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
             ?: com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired
 
     suspend fun disconnectFloppy() {

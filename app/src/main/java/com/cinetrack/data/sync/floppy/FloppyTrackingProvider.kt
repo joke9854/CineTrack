@@ -15,6 +15,7 @@ import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.domain.SyncProgress
+import com.cinetrack.domain.FloppyConnectionStage
 import java.util.concurrent.atomic.AtomicLong
 import java.util.UUID
 
@@ -64,12 +65,15 @@ class FloppyTrackingProvider(
         baseUrl: String,
         apiKey: String,
         allowInsecureLocalHttp: Boolean = false,
+        onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
     ): Result<ConnectionCandidate> {
+        val normalizedUrl = baseUrl.trim()
+        val normalizedApiKey = apiKey.trim()
         val previousKey = preferences?.floppyApiKeyNow()
-        val resolvedKey = apiKey.takeIf(String::isNotBlank) ?: previousKey
+        val resolvedKey = normalizedApiKey.takeIf(String::isNotBlank) ?: previousKey?.trim()
         if (resolvedKey.isNullOrBlank()) return Result.failure(TrackingSyncError.AuthenticationRequired(id))
         return runCatching {
-            ConnectionCandidate(remote.connect(baseUrl.trim(), resolvedKey, allowInsecureLocalHttp), resolvedKey)
+            ConnectionCandidate(remote.connect(normalizedUrl, resolvedKey, allowInsecureLocalHttp, onStage), resolvedKey)
         }.map { it }
     }
 
@@ -121,8 +125,13 @@ class FloppyTrackingProvider(
         )
     }
 
-    suspend fun connect(baseUrl: String, apiKey: String): ConnectionResult =
-        validateConnection(baseUrl, apiKey, preferences?.floppyAllowInsecureLocalHttpNow() ?: false).fold(
+    suspend fun connect(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean? = null,
+        onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
+    ): ConnectionResult =
+        validateConnection(baseUrl, apiKey, allowInsecureLocalHttp ?: preferences?.floppyAllowInsecureLocalHttpNow() ?: false, onStage).fold(
             onSuccess = { candidate ->
                 activateConnection(candidate.settings, candidate.apiKey)
                 ConnectionResult.Connected
