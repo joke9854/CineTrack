@@ -57,28 +57,23 @@ class FloppyConnectionUiTest {
     @Test
     fun primaryActionInvokesEnabledClickAndSuppressesDisabledClick() {
         var clickCount = 0
+        var enabled by mutableStateOf(true)
         composeRule.setContent {
             MaterialTheme {
                 PrimaryAction(
                     text = "Connect",
                     modifier = Modifier.testTag("primary_action_test"),
+                    enabled = enabled,
                     onClick = { clickCount += 1 },
                 )
             }
         }
         composeRule.onNodeWithTag("primary_action_test").performClick()
-        composeRule.runOnIdle { assertEquals(1, clickCount) }
-
-        composeRule.setContent {
-            MaterialTheme {
-                PrimaryAction(
-                    text = "Connect",
-                    modifier = Modifier.testTag("primary_action_test"),
-                    enabled = false,
-                    onClick = { clickCount += 1 },
-                )
-            }
+        composeRule.runOnIdle {
+            assertEquals(1, clickCount)
+            enabled = false
         }
+        composeRule.waitForIdle()
         composeRule.onNodeWithTag("primary_action_test").assertIsNotEnabled()
         composeRule.runOnIdle { assertEquals(1, clickCount) }
     }

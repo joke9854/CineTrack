@@ -18,11 +18,14 @@ object FloppyApiErrorMapper {
 
     fun map(error: Throwable): TrackingSyncError = when (error) {
         is TrackingSyncError -> error
+        // SerializationException inherits IllegalArgumentException; keep it
+        // ahead of URL validation so malformed provider JSON is actionable as
+        // an invalid response rather than being reported as a bad URL.
+        is SerializationException -> TrackingSyncError.InvalidRemoteData("Floppy returned malformed JSON")
         is IllegalArgumentException -> TrackingSyncError.InvalidUrl(error.message ?: "Invalid Floppy URL", error)
         is SocketTimeoutException -> TrackingSyncError.Timeout(error)
         is UnknownHostException -> TrackingSyncError.DnsFailure(error)
         is SSLException -> TrackingSyncError.TlsFailure(error)
-        is SerializationException -> TrackingSyncError.InvalidRemoteData("Floppy returned malformed JSON")
         is ConnectException, is IOException -> TrackingSyncError.NetworkUnavailable(error)
         is HttpException -> when (error.code()) {
             401, 403 -> TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
@@ -43,3 +46,4 @@ object FloppyApiErrorMapper {
         }
     }.getOrNull()
 }
+

@@ -1,6 +1,9 @@
 package com.cinetrack.data.sync.floppy
 
+import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
+import com.cinetrack.data.sync.floppy.network.FloppyApiErrorMapper
+import kotlinx.serialization.SerializationException
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
@@ -24,4 +27,10 @@ class FloppyApiClientTest {
         api.preferences()
         assertEquals("secret-token", server.takeRequest().getHeader("X-API-Key"))
     }
+
+    @Test fun malformedJsonMapsToInvalidRemoteDataInsteadOfInvalidUrl() {
+        val mapped = FloppyApiErrorMapper.map(SerializationException("malformed"))
+        assertEquals(true, mapped is TrackingSyncError.InvalidRemoteData)
+    }
 }
+
