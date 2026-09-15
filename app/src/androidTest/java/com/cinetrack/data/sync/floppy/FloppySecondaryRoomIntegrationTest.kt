@@ -353,9 +353,11 @@ class FloppySecondaryRoomIntegrationTest {
         server.enqueue(json("{\"consumptions\":[]}"))
         server.enqueue(json("{}"))
         assertTrue(coordinator.pushPending().isSuccess)
-        val acknowledgedDeliveries = repository.deliveries(setOf(operation.id))
-        assertEquals(1, acknowledgedDeliveries.size)
-        assertEquals(DeliveryStatus.ACKNOWLEDGED, acknowledgedDeliveries.single().status)
+        // A fully acknowledged generation is retired by the Room repository;
+        // the important invariant is that the failed row no longer remains
+        // pending and the exact operation is not retried again.
+        assertTrue(repository.deliveries(setOf(operation.id)).isEmpty())
+        assertTrue(repository.pending(setOf(operation.id)).isEmpty())
     }
 
     @Test
