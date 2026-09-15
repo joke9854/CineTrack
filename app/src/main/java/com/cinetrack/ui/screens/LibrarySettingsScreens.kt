@@ -172,7 +172,7 @@ object SettingsPages {
     const val Logs = "logs"
 }
 
-private const val FLOPPY_API_GUIDE_URL = "https://github.com/joke9854/Floppy/wiki/API-and-MCP-Server"
+private const val FLOPPY_API_GUIDE_URL = "https://github.com/dannyvfilms/Floppy/wiki/7.-API-and-MCP-Server"
 private const val TMDB_API_KEY_URL = "https://www.themoviedb.org/settings/api"
 private const val MDBLIST_API_KEY_URL = "https://mdblist.com/preferences"
 
