@@ -170,15 +170,15 @@ class FloppyBootstrapWorker(
                 if (!isCurrent(application, expected)) return Result.success()
                 failed += batch.size
                 val retryable = isRetryable(error)
+                val terminalStage = if (retryable) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
                 if (!retryable) {
                     application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
-                    setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
-                } else {
-                    setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
                 }
+                val failureProgress = FloppyBootstrapProgress(terminalStage, processed, total, processed, failed, expected)
+                setProgress(progressData(failureProgress))
                 return terminalResult(
                     error,
-                    progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)),
+                    progressData(failureProgress),
                 )
             }
             if (!isCurrent(application, expected)) return Result.success()
