@@ -246,7 +246,7 @@ class FloppyRemoteDataSource(
                 val usedBulk = try {
                     val first = pending.first().episodeParts()
                     val last = pending.last().episodeParts()
-                    val dates = pending.mapNotNull { it.episodeParts().third }
+                    val dates = pending.mapNotNull { it.episodeParts().third?.toString() }
                     val task = api.bulkEpisodes(
                         source = "tmdb",
                         mediaId = pending.first().mediaId.toString(),
