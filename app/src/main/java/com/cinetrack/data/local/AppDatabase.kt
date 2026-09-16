@@ -576,6 +576,20 @@ interface SyncDao {
     @Query("UPDATE sync_operation_deliveries SET status = :status, attemptCount = attemptCount + 1, lastError = :lastError, updatedAt = :updatedAt WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId AND status IN ('PENDING','FAILED')")
     suspend fun updateDelivery(providerId: String, operationId: String, operationVersion: Long, status: String, lastError: String?, updatedAt: Long = System.currentTimeMillis())
 
+    /** Acknowledges exact current-generation deliveries in one set-based update. */
+    @Query("""
+        UPDATE sync_operation_deliveries
+        SET status = 'ACKNOWLEDGED', attemptCount = attemptCount + 1, lastError = NULL, updatedAt = :updatedAt
+        WHERE providerId = :providerId
+          AND operationId IN (:operationIds)
+          AND status IN ('PENDING','FAILED')
+          AND operationVersion = (
+              SELECT createdAt FROM sync_operations
+              WHERE operationId = sync_operation_deliveries.operationId
+          )
+    """)
+    suspend fun acknowledgeCurrentDeliveries(providerId: String, operationIds: List<String>, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
     suspend fun deleteDeliveries(operationIds: List<String>)
 

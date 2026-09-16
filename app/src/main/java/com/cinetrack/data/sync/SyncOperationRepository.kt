@@ -442,7 +442,13 @@ class RoomSyncOperationRepository(
     }
 
     override suspend fun acknowledge(provider: TrackingProviderId, operations: List<SyncOperation>) {
-        operations.forEach { operation -> database.syncDao().updateDelivery(provider.name, operation.id, operation.sourceVersion, DeliveryStatus.ACKNOWLEDGED.name, null) }
+        if (operations.isEmpty()) return
+        // Room validates the operationId -> current generation in SQL; stale
+        // historical delivery rows cannot be acknowledged by this fast path.
+        database.syncDao().acknowledgeCurrentDeliveries(
+            provider.name,
+            operations.mapTo(linkedSetOf(), SyncOperation::id).toList(),
+        )
     }
 
     override suspend fun failDelivery(provider: TrackingProviderId, operationIds: Set<String>, error: Throwable) {
