@@ -616,7 +616,10 @@ class FloppyRemoteDataSource(
         var history = loadHistory(api, "movie", source, mediaId, context)
         val hadActiveBefore = resolver.resolve(history).active != null
         val movieId = mediaId.toLongOrNull()
-        if (movieId == null || context?.watchedMovieIndex?.get(movieId)?.contains(watchedAt) != true) {
+        val exactHistoryAlreadyPresent = resolver.findExactWatch(history, watchedAt) != null
+        if (!exactHistoryAlreadyPresent &&
+            (movieId == null || context?.watchedMovieIndex?.get(movieId)?.contains(watchedAt) != true)
+        ) {
             api.watchMovie(
                 source = source,
                 mediaId = mediaId,
