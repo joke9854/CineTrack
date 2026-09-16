@@ -153,6 +153,13 @@ data class FloppyEpisodeWatchRequest(
     @SerialName("watched_at") val watchedAt: String? = null,
 )
 
+@Serializable
+data class FloppyMovieWatchRequest(
+    @SerialName("end_date") val endDate: String,
+    @SerialName("external_id") val externalId: String? = null,
+)
+
+
 /** Non-secret connection state. The API key is deliberately absent. */
 data class FloppyConnectionSettings(
     val baseUrl: String,
