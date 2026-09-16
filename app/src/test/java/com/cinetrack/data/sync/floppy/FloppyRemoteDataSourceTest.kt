@@ -5,6 +5,7 @@ import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
+import com.cinetrack.data.sync.floppy.network.FloppyBootstrapTransportContext
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.FloppyConnectionStage
