@@ -36,6 +36,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import kotlin.Result as SyncResult
 import java.util.concurrent.TimeUnit
 
 internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error) {
@@ -205,8 +206,9 @@ class FloppyBootstrapWorker(
         var lastProgressAt = System.currentTimeMillis()
         var stalledPublished = false
         var current: FloppyBootstrapProgress? = null
-        val loopResult: Result<*>? = coroutineScope {
-            var earlyResult: Result<*>? = null
+        var stoppedForInstanceChange = false
+        var loopError: Throwable? = null
+        coroutineScope {
             val watchdog = launch {
                 while (isActive) {
                     delay(WATCHDOG_POLL_MS)
@@ -222,7 +224,7 @@ class FloppyBootstrapWorker(
             try {
                 while (true) {
                     if (!isCurrent(application, expected)) {
-                        earlyResult = Result.success()
+                        stoppedForInstanceChange = true
                         break
                     }
                     val pendingOps = application.container.syncCoordinator.pendingOperations(planIds)
@@ -241,7 +243,7 @@ class FloppyBootstrapWorker(
                         lastProgressAtMillis = lastProgressAt,
                     )
                     setProgress(progressData(current!!))
-                    val result = try {
+                    val result: SyncResult<Unit> = try {
                         withTimeout(90_000) {
                             application.container.syncCoordinator.pushPendingForProvider(
                                 TrackingProviderId.FLOPPY,
@@ -253,12 +255,12 @@ class FloppyBootstrapWorker(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Throwable) {
-                        Result.failure<Unit>(error)
+                        SyncResult.failure(error)
                     }
                     if (result.isFailure) {
                         val error = result.exceptionOrNull() ?: IllegalStateException("Floppy bootstrap delivery failed")
                         if (!isCurrent(application, expected)) {
-                            earlyResult = Result.success()
+                            stoppedForInstanceChange = true
                             break
                         }
                         failed += unit.size
@@ -267,11 +269,11 @@ class FloppyBootstrapWorker(
                         if (!retryable) application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
                         val failure = FloppyBootstrapProgress(terminalStage, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
                         setProgress(progressData(failure))
-                        earlyResult = terminalResult(error, progressData(failure))
+                        loopError = error
                         break
                     }
                     if (!isCurrent(application, expected)) {
-                        earlyResult = Result.success()
+                        stoppedForInstanceChange = true
                         break
                     }
                     val remaining = application.container.syncCoordinator.pendingOperationCount(planIds)
@@ -285,10 +287,9 @@ class FloppyBootstrapWorker(
             } finally {
                 watchdog.cancel()
             }
-            earlyResult
         }
-        @Suppress("UNCHECKED_CAST")
-        loopResult?.let { return it as Result<Any?> }
+        if (stoppedForInstanceChange) return Result.success()
+        loopError?.let { return terminalResult(it) }
         if (!isCurrent(application, expected)) return Result.success()
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
         val ready = coordinator.markReadyIfComplete()

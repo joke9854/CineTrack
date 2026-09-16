@@ -130,6 +130,7 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.LibraryArtworkRefreshProgress
 import com.cinetrack.domain.LibraryArtworkRefreshStage
 import com.cinetrack.domain.FloppyBootstrapStage
+import com.cinetrack.domain.FloppyBootstrapProgress
 import com.cinetrack.domain.allowsRetry
 import com.cinetrack.domain.isManagedActive
 import com.cinetrack.domain.MediaCard

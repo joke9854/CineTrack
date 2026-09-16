@@ -583,7 +583,7 @@ class FloppyRemoteDataSource(
     }
 }
 
-private data class EpisodeKey(val showTmdbId: Long, val season: Int, val episode: Int)
+internal data class EpisodeKey(val showTmdbId: Long, val season: Int, val episode: Int)
 
 private fun MediaType.floppyType() = when (this) {
     MediaType.MOVIE -> "movie"
