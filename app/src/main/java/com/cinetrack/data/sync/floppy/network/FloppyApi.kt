@@ -7,7 +7,6 @@ import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
 import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionPage
-import com.cinetrack.data.sync.floppy.FloppyHistoryEnvelope
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
 import com.cinetrack.data.sync.floppy.FloppyMediaDetail
 import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
@@ -124,11 +123,4 @@ interface FloppyApi {
         @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
     ): FloppyTrackedMedia
 
-    @GET("api/v1/history/")
-    suspend fun history(
-        @Query("flat") flat: String = "1",
-        @Query("limit") limit: Int = 200,
-        @Query("offset") offset: Int = 0,
-        @Query("types") types: String? = null,
-    ): FloppyHistoryEnvelope
 }
