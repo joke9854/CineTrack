@@ -286,10 +286,12 @@ class FloppyRemoteDataSource(
             val previous = current?.lastOrNull()
             val parts = operation.episodeParts()
             val previousParts = previous?.episodeParts()
-            val contiguous = previousParts != null && (
-                (parts.first == previousParts.first && parts.second == previousParts.second + 1) ||
-                    (parts.first == previousParts.first + 1 && parts.second == 1)
-                )
+            val contiguous = previous != null &&
+                operation.mediaId == previous.mediaId &&
+                previousParts != null && (
+                    (parts.first == previousParts.first && parts.second == previousParts.second + 1) ||
+                        (parts.first == previousParts.first + 1 && parts.second == 1)
+                    )
             if (current == null || !contiguous) runs += mutableListOf(operation) else current += operation
         }
         return runs
