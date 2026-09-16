@@ -133,6 +133,15 @@ class RoomSyncOperationRepository(
         ensureLegacyOperationsMaterialized()
         repairDeliveryRows()
         repairBlankTitles()
+        // Room rows can outlive the final delivery acknowledgement when a
+        // process is killed between those two writes. Retire current-ready
+        // operations at the queue boundary so Compose never has to infer
+        // completion from a stale logical status.
+        retireTerminalOperations(
+            database.syncDao().syncOperations()
+                .filterNot { it.operationId.startsWith("bootstrap:") }
+                .mapTo(linkedSetOf(), SyncOperationEntity::operationId),
+        )
         // Bootstrap intents stay durable for retry/recovery, but are rendered
         // as one managed Floppy job summary rather than hundreds of user
         // actions. Normal queue cards remain focused on interactive changes.
@@ -196,24 +205,47 @@ class RoomSyncOperationRepository(
                     "Conflict no longer exists"
                 }
             }
+            // A bootstrap snapshot is historical seed data. A newer ordinary
+            // user mutation for the same logical field always wins and must
+            // not be superseded by queue preparation.
+            val existingOperations = database.syncDao().syncOperations()
+            val existingByField = existingOperations.mapNotNull { entity ->
+                entity.logicalField()?.let { it to entity }
+            }.groupBy({ it.first }, { it.second })
+            val blockedBootstrapIds = operations.filter { it.id.startsWith("bootstrap:") }
+                .filter { operation ->
+                    val field = operation.logicalField() ?: return@filter false
+                    existingByField[field].orEmpty().any { entity ->
+                        !entity.operationId.startsWith("bootstrap:") &&
+                            entity.createdAt > operation.sourceVersion
+                    }
+                }
+                .mapTo(linkedSetOf(), SyncOperation::id)
+            val effectiveOperations = operations.filterNot { it.id in blockedBootstrapIds }
+            val effectiveTargets = targets.filterNot { it.operationId in blockedBootstrapIds }
+
             // A new local generation makes every older intent for the same
             // logical field obsolete across every provider.  Delivery history
             // is retained; only non-terminal rows transition to SUPERSEDED.
-            val existingOperations = database.syncDao().syncOperations()
-            val staleByField = operations.flatMap { operation ->
+            val staleByField = effectiveOperations.flatMap { operation ->
                 val field = operation.logicalField() ?: return@flatMap emptyList()
-                existingOperations.filter { entity ->
-                    entity.operationId != operation.id && entity.logicalField() == field
-                }.map(SyncOperationEntity::operationId)
+                existingByField[field].orEmpty().asSequence()
+                    .filter { entity ->
+                        entity.operationId != operation.id &&
+                            entity.createdAt < operation.sourceVersion &&
+                            !(operation.id.startsWith("bootstrap:") && !entity.operationId.startsWith("bootstrap:"))
+                    }
+                    .map(SyncOperationEntity::operationId)
+                    .toList()
             }.toSet()
-            val newIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
+            val newIds = effectiveOperations.mapTo(linkedSetOf(), SyncOperation::id)
             val explicitSuperseded = supersedeOperationIds.filter { it !in newIds }.toSet()
             val supersededIds = staleByField + explicitSuperseded
             if (supersededIds.isNotEmpty()) {
                 database.syncDao().supersedeAllDeliveries(supersededIds.toList())
             }
-            database.syncDao().upsertOperations(entities)
-            ensureDeliveries(operations, targets)
+            database.syncDao().upsertOperations(entities.filterNot { it.operationId in blockedBootstrapIds })
+            ensureDeliveries(effectiveOperations, effectiveTargets)
             removeOperationId?.let { conflictId ->
                 database.syncDao().deleteOperation(conflictId)
             }
@@ -546,6 +578,7 @@ class RoomSyncOperationRepository(
         operationIds.forEach { id ->
             val entity = database.syncDao().syncOperation(id) ?: return@forEach
             val rows = database.syncDao().deliveries(listOf(id))
+                .filter { it.operationVersion == entity.createdAt }
             val required = rows.filter { it.required }
             if (rows.isEmpty()) {
                 entity.operationId.removePrefix("write:").toLongOrNull()?.let { writeId ->

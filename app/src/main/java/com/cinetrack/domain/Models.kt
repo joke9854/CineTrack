@@ -205,6 +205,8 @@ enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY,
 /** Durable stages reported by the Floppy bootstrap WorkManager job. */
 enum class FloppyBootstrapStage {
     PREPARING,
+    BUILDING_PLAN,
+    MATERIALIZING_QUEUE,
     QUEUED,
     CHECKING_REMOTE_STATE,
     WAITING_FOR_SERVER,
@@ -234,6 +236,8 @@ data class FloppyBootstrapProgress(
     val currentOperationType: String? = null,
     val currentTitle: String? = null,
     val lastProgressAtMillis: Long? = null,
+    val planningProcessed: Int = 0,
+    val planningTotal: Int = 0,
 )
 
 /** Durable stages reported by the library artwork/metadata refresh job. */

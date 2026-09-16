@@ -126,8 +126,19 @@ class FloppyBootstrapWorker(
         if (expected.isBlank() || !isCurrent(application, expected)) return Result.success()
         val coordinator = application.container.floppyBootstrapCoordinator
         val initialPlan = try {
-            setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.PREPARING, providerInstanceId = expected)))
-            coordinator.start()
+            setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.BUILDING_PLAN, providerInstanceId = expected)))
+            coordinator.start { stage, prepared, planningTotal ->
+                setProgress(
+                    progressData(
+                        FloppyBootstrapProgress(
+                            stage = stage,
+                            providerInstanceId = expected,
+                            planningProcessed = prepared,
+                            planningTotal = planningTotal,
+                        ),
+                    ),
+                )
+            }
             coordinator.progress(expected).copy(stage = FloppyBootstrapStage.QUEUED)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -356,6 +367,8 @@ class FloppyBootstrapWorker(
             progress.currentOperationType?.let { putString("currentOperationType", it) }
             progress.currentTitle?.let { putString("currentTitle", it) }
             progress.lastProgressAtMillis?.let { putLong("lastProgressAt", it) }
+            putInt("planningProcessed", progress.planningProcessed)
+            putInt("planningTotal", progress.planningTotal)
         }
         .build()
 
@@ -409,6 +422,8 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
         currentOperationType = data.getString("currentOperationType"),
         currentTitle = data.getString("currentTitle"),
         lastProgressAtMillis = data.getLong("lastProgressAt", 0L).takeIf { it > 0L },
+        planningProcessed = data.getInt("planningProcessed", 0),
+        planningTotal = data.getInt("planningTotal", 0),
     )
 }
 

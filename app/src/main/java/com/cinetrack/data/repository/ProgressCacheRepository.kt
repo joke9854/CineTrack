@@ -4,6 +4,7 @@ import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.EpisodeEntity
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -16,6 +17,7 @@ import java.util.concurrent.atomic.AtomicInteger
 
 /** Future schedule events only get attention priority when they are imminent. */
 internal const val UPCOMING_PROGRESS_ATTENTION_DAYS: Long = 7L
+private const val PLAYBACK_COMPLETION_THRESHOLD = 1f
 
 internal fun selectNextProgressEpisode(
     showId: Int,
@@ -24,26 +26,34 @@ internal fun selectNextProgressEpisode(
     now: java.time.Instant,
     zone: ZoneId,
     excludeSpecials: Boolean,
+    playbackSession: PlaybackCard? = null,
 ): EpisodeCard? {
-    val lastWatched = watched.asSequence()
-        .filter { it.first == showId && it.second > 0 }
-        .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
-    val candidates = episodes.asSequence()
+    val ordered = episodes.asSequence()
         .filter { it.showId == showId && (!excludeSpecials || it.season > 0) }
-        .filterNot { Triple(showId, it.season, it.number) in watched }
-        .filter { episode ->
-            lastWatched == null || episode.season > lastWatched.second ||
-                (episode.season == lastWatched.second && episode.number > lastWatched.third)
-        }
         .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
         .toList()
+    val active = playbackSession?.takeIf { session ->
+        session.media.id == showId &&
+            session.season != null &&
+            session.episodeNumber != null &&
+            session.progress > 0f &&
+            session.progress < PLAYBACK_COMPLETION_THRESHOLD &&
+            Triple(showId, session.season, session.episodeNumber) !in watched
+    }
+    if (active != null) {
+        ordered.firstOrNull { it.season == active.season && it.number == active.episodeNumber }
+            ?.let { return it }
+    }
+    val candidates = ordered.filterNot { Triple(showId, it.season, it.number) in watched }
     val aired = candidates.filter { episode ->
         releaseDateTime(episode.airDate, zone)?.toInstant()?.let { !it.isAfter(now) } == true
     }
-    // Only a fully caught-up show reaches this branch. Future episodes remain
-    // selectable/cacheable, but are not confused with an aired unwatched item.
-    return aired.firstOrNull() ?: candidates.firstOrNull { episode ->
-        releaseDateTime(episode.airDate, zone)?.toInstant()?.isAfter(now) == true
+    aired.firstOrNull()?.let { return it }
+    val attentionWindow = UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+    return candidates.firstOrNull { episode ->
+        val air = releaseDateTime(episode.airDate, zone)?.toInstant() ?: return@firstOrNull false
+        val distance = air.toEpochMilli() - now.toEpochMilli()
+        distance > 0L && distance <= attentionWindow
     }
 }
 
@@ -69,7 +79,6 @@ internal class ProgressCacheRepository(
         val excludeSpecials = preferences.excludeSpecials.first()
         val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toEpisodeCard() })
             .groupBy(EpisodeCard::showId)
-        val watchedByShow = watched.groupBy { it.first }
         val distinctShows = shows.distinctBy(MediaCard::stableKey)
         if (distinctShows.isEmpty()) return emptyMap()
 
@@ -81,26 +90,38 @@ internal class ProgressCacheRepository(
                 async {
                     try {
                         requestSlots.withPermit {
-                            val lastWatched = watchedByShow[show.id].orEmpty().asSequence()
-                                .filter { it.second > 0 }
-                                .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
-
                             fun nextFrom(source: List<EpisodeCard>): EpisodeCard? =
                                 selectNextProgressEpisode(show.id, source, watched, releaseNow, releaseZone, excludeSpecials)
 
                             var candidates = cachedByShow[show.id].orEmpty()
                             var episode = nextFrom(candidates)
-                            if (episode == null && tmdbApiKey().isNotBlank()) {
-                                val seasons = if (lastWatched != null) {
-                                    listOf(lastWatched.second, lastWatched.second + 1)
-                                } else {
-                                    listOf(show.seasons.firstOrNull { it.number > 0 }?.number ?: 1)
-                                }
-                                for (season in seasons.distinct().filter { it > 0 }) {
+                            if (tmdbApiKey().isNotBlank()) {
+                                val seasonCounts = show.seasons
+                                    .filter { it.number > 0 }
+                                    .associate { it.number to it.episodeCount }
+                                val seasons = (seasonCounts.keys + candidates.map { it.season })
+                                    .filter { it > 0 }
+                                    .distinct()
+                                    .sorted()
+                                for (season in seasons) {
+                                    val expected = seasonCounts[season] ?: 0
+                                    val cachedNumbers = candidates.asSequence()
+                                        .filter { it.season == season }
+                                        .map(EpisodeCard::number)
+                                        .toSet()
+                                    val incomplete = expected > 0 &&
+                                        (1..expected).any { it !in cachedNumbers }
+                                    // A sparse late episode is not evidence that
+                                    // earlier episodes do not exist. Fetch the
+                                    // minimal incomplete season before accepting
+                                    // a candidate from it.
+                                    if (episode != null && episode.season < season) break
+                                    if (episode != null && episode.season == season && !incomplete) break
+                                    if (!incomplete && episode == null) continue
                                     val fetched = runCatching { loadEpisodes(show, season) }.getOrDefault(emptyList())
                                     candidates = (candidates + fetched).distinctBy { it.season to it.number }
                                     episode = nextFrom(candidates)
-                                    if (episode != null) break
+                                    if (episode != null && episode.season <= season) break
                                 }
                             }
                             episode?.let { show.stableKey to it }
@@ -121,6 +142,7 @@ internal class ProgressCacheRepository(
         return if (configured == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(configured) }.getOrDefault(ZoneId.systemDefault())
     }
+
 }
 
 private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(

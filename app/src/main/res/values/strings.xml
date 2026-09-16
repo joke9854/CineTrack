@@ -554,6 +554,8 @@
     <string name="floppy_error_invalid_response">The server responded, but CineTrack couldn’t recognize its Floppy API.</string>
     <string name="initial_synchronization">Initial synchronization</string>
     <string name="floppy_preparing_sync_plan">Preparing sync plan…</string>
+    <string name="floppy_building_sync_plan">Building synchronization plan…</string>
+    <string name="floppy_preparing_sync_queue">Preparing sync queue</string>
     <string name="floppy_checking_existing_history">Checking existing Floppy history…</string>
     <string name="floppy_syncing_with_floppy">Syncing with Floppy</string>
     <string name="floppy_verifying_sync">Verifying Floppy…</string>

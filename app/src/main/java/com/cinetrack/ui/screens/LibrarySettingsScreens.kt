@@ -859,6 +859,7 @@ private fun ManagedFloppyBootstrapCard(
 ) {
     val stage = progress.stage
     val determinate = stage == FloppyBootstrapStage.SYNCING && progress.total > 0
+    val planningDeterminate = stage == FloppyBootstrapStage.MATERIALIZING_QUEUE && progress.planningTotal > 0
     val percent = if (determinate) (progress.processed * 100 / progress.total).coerceIn(0, 100) else 0
     val retryable = stage.allowsRetry()
     Column(
@@ -888,7 +889,9 @@ private fun ManagedFloppyBootstrapCard(
         Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
         Text(
             when (stage) {
-                FloppyBootstrapStage.PREPARING -> stringResource(R.string.floppy_preparing_sync_plan)
+                FloppyBootstrapStage.PREPARING,
+                FloppyBootstrapStage.BUILDING_PLAN -> stringResource(R.string.floppy_building_sync_plan)
+                FloppyBootstrapStage.MATERIALIZING_QUEUE -> stringResource(R.string.floppy_preparing_sync_queue)
                 FloppyBootstrapStage.CHECKING_REMOTE_STATE -> stringResource(R.string.floppy_checking_existing_history)
                 FloppyBootstrapStage.QUEUED -> stringResource(R.string.floppy_waiting_for_server)
                 FloppyBootstrapStage.SYNCING -> stringResource(R.string.floppy_syncing_with_floppy)
@@ -912,6 +915,17 @@ private fun ManagedFloppyBootstrapCard(
             Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.floppy_progress_count, progress.processed, progress.total), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Text("$percent%", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            }
+        } else if (planningDeterminate) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            LinearProgressIndicator(
+                progress = { (progress.planningProcessed.toFloat() / progress.planningTotal).coerceIn(0f, 1f) },
+                color = AccentLight,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.floppy_progress_count, progress.planningProcessed, progress.planningTotal), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                Text("${(progress.planningProcessed * 100 / progress.planningTotal).coerceIn(0, 100)}%", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         } else if (stage != FloppyBootstrapStage.COMPLETE && stage != FloppyBootstrapStage.NEEDS_ATTENTION) {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
@@ -1139,7 +1153,9 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                     Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
                     Text(
                         when (bootstrapProgress.stage) {
-                            FloppyBootstrapStage.PREPARING -> stringResource(R.string.floppy_preparing_sync_plan)
+                            FloppyBootstrapStage.PREPARING,
+                            FloppyBootstrapStage.BUILDING_PLAN -> stringResource(R.string.floppy_building_sync_plan)
+                            FloppyBootstrapStage.MATERIALIZING_QUEUE -> stringResource(R.string.floppy_preparing_sync_queue)
                             FloppyBootstrapStage.QUEUED -> stringResource(R.string.floppy_waiting_for_server)
                             FloppyBootstrapStage.CHECKING_REMOTE_STATE -> stringResource(R.string.floppy_checking_existing_history)
                             FloppyBootstrapStage.WAITING_FOR_SERVER -> stringResource(R.string.floppy_waiting_for_server)

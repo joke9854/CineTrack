@@ -265,6 +265,8 @@ class CineTrackViewModel(
                             FloppyBootstrapStage.COMPLETE -> com.cinetrack.domain.FloppyUiState.READY
                             FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
                             FloppyBootstrapStage.PREPARING,
+                            FloppyBootstrapStage.BUILDING_PLAN,
+                            FloppyBootstrapStage.MATERIALIZING_QUEUE,
                             FloppyBootstrapStage.QUEUED,
                             FloppyBootstrapStage.CHECKING_REMOTE_STATE,
                             FloppyBootstrapStage.WAITING_FOR_SERVER,

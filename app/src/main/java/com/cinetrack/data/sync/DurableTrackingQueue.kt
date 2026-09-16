@@ -43,22 +43,35 @@ class DurableTrackingQueue(
         operation: SyncOperation,
         providers: Set<TrackingProviderId>,
     ): List<SyncOperationDelivery> {
+        return snapshotForProvidersUnlocked(listOf(operation), providers)
+    }
+
+    /** Captures a provider target snapshot for a bulk plan with one config and
+     * one immutable provider-instance read per provider. */
+    internal suspend fun snapshotForProvidersUnlocked(
+        operations: List<SyncOperation>,
+        providers: Set<TrackingProviderId>,
+    ): List<SyncOperationDelivery> {
+        if (operations.isEmpty() || providers.isEmpty()) return emptyList()
         val configuration = providerRegistry.configuration()
-        return providers.mapNotNull { providerId ->
-            if (providerId != configuration.secondaryProvider) return@mapNotNull null
-            val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+        return providers.flatMap { providerId ->
+            if (providerId != configuration.secondaryProvider) return@flatMap emptyList()
+            val provider = providerRegistry.getProvider(providerId)
             val instanceId = providerInstanceId(providerId)
-            SyncOperationDelivery(
-                operationId = operation.id,
-                operationVersion = operation.sourceVersion,
-                providerId = providerId,
-                required = supported,
-                roleAtEnqueue = TrackingRole.SECONDARY,
-                providerInstanceId = instanceId,
-                status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
-                createdAt = operation.sourceVersion,
-                updatedAt = operation.sourceVersion,
-            )
+            operations.map { operation ->
+                val supported = provider?.capabilities?.supports(operation) == true
+                SyncOperationDelivery(
+                    operationId = operation.id,
+                    operationVersion = operation.sourceVersion,
+                    providerId = providerId,
+                    required = supported,
+                    roleAtEnqueue = TrackingRole.SECONDARY,
+                    providerInstanceId = instanceId,
+                    status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED,
+                    createdAt = operation.sourceVersion,
+                    updatedAt = operation.sourceVersion,
+                )
+            }
         }
     }
 
@@ -170,14 +183,23 @@ class DurableSyncOperationWriter(
         operation: SyncOperation,
         providers: Set<TrackingProviderId>,
         supersedeLogicalKey: Boolean = false,
+    ) = enqueueForProviders(listOf(operation), providers, supersedeLogicalKey)
+
+    /** Bulk bootstrap boundary. Routing/configuration is captured once, then
+     * the repository persists the bounded chunk in one Room transaction. */
+    suspend fun enqueueForProviders(
+        operations: List<SyncOperation>,
+        providers: Set<TrackingProviderId>,
+        supersedeLogicalKey: Boolean = false,
     ) {
+        if (operations.isEmpty() || providers.isEmpty()) return
         routingMutex.withLock {
-            val targets = durableQueue.snapshotForProvidersUnlocked(operation, providers)
+            val targets = durableQueue.snapshotForProvidersUnlocked(operations, providers)
             if (targets.isEmpty()) return@withLock
             operationRepository.enqueue(
-                operations = listOf(operation),
+                operations = operations,
                 targets = targets,
-                supersedeOperationIds = if (supersedeLogicalKey) setOf(operation.id) else emptySet(),
+                supersedeOperationIds = if (supersedeLogicalKey) operations.mapTo(linkedSetOf(), SyncOperation::id) else emptySet(),
             )
         }
     }

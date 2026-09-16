@@ -1026,7 +1026,21 @@ class CineTrackRepository(
                     it.progress > 0f && it.season != null && it.episodeNumber != null &&
                         Triple(show.id, it.season, it.episodeNumber) !in watchedNumbers
                 }
-                if (session != null) return@mapNotNull session
+                if (session != null) {
+                    // Pass the active session into canonical selection before
+                    // returning it. This keeps episode identity and playback
+                    // progress coupled even when a later episode has aired.
+                    selectNextProgressEpisode(
+                        show.id,
+                        cachedEpisodeCards,
+                        watchedNumbers,
+                        releaseNow,
+                        releaseZone,
+                        excludeSpecials,
+                        playbackSession = session,
+                    )
+                    return@mapNotNull session
+                }
                 val cachedRow = durableUpNext[show.id]
                 val stored = cachedRow?.takeUnless {
                     Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
@@ -1054,7 +1068,11 @@ class CineTrackRepository(
                     releaseZone,
                     excludeSpecials,
                 )
-                val next = computed ?: stored
+                val next = computed ?: stored?.takeIf { storedEpisode ->
+                    val air = releaseDateTime(storedEpisode.airDate, releaseZone)?.toInstant()
+                    air == null || !air.isAfter(releaseNow) ||
+                        air.toEpochMilli() - releaseNow.toEpochMilli() <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+                }
                 if (next == null) return@mapNotNull session
                 val sameEpisode = session?.season == next.season && session.episodeNumber == next.number
                 PlaybackCard(

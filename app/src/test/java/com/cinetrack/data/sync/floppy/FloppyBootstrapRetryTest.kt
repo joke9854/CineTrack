@@ -34,6 +34,8 @@ class FloppyBootstrapRetryTest {
 
     @Test
     fun managedCardRetryIsOnlyShownForRecoverableStages() {
+        assertFalse(FloppyBootstrapStage.BUILDING_PLAN.allowsRetry())
+        assertFalse(FloppyBootstrapStage.MATERIALIZING_QUEUE.allowsRetry())
         assertFalse(FloppyBootstrapStage.SYNCING.allowsRetry())
         assertFalse(FloppyBootstrapStage.COMPLETE.allowsRetry())
         assertTrue(FloppyBootstrapStage.STALLED.allowsRetry())

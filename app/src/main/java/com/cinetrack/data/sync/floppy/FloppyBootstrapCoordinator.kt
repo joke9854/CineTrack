@@ -43,7 +43,9 @@ class FloppyBootstrapCoordinator(
         }
     }
 
-    suspend fun start(): Int = mutex.withLock {
+    suspend fun start(
+        onPreparationProgress: suspend (stage: FloppyBootstrapStage, processed: Int, total: Int) -> Unit = { _, _, _ -> },
+    ): Int = mutex.withLock {
         try {
             val instance = instanceId()
             // A stale queued WorkManager record can outlive a successful
@@ -62,26 +64,37 @@ class FloppyBootstrapCoordinator(
                                 ProviderBootstrapState.FAILED,
                             )
                 }
-            val snapshot = canonicalSnapshot()
-            val operations = existing?.operations?.map(::toOperation) ?: buildFloppyBootstrapOperations(instance, snapshot)
+            val snapshot = if (existing == null) canonicalSnapshot() else null
+            val operations = existing?.operations?.map(::toOperation)
+                ?: buildFloppyBootstrapOperations(instance, snapshot ?: error("Bootstrap snapshot unavailable"))
             // Keep the plan after Room retires acknowledged rows. The marker
             // is written before enqueueing so a restart can reconstruct the
             // same deterministic operation ids.
             if (existing == null) {
                 preferences.setFloppyBootstrapPlanRaw(encodePlan(PersistedPlan(instance, operations.map(::toPersisted))))
             }
+            onPreparationProgress(FloppyBootstrapStage.BUILDING_PLAN, 0, operations.size)
             // Persist the immutable plan before advertising RUNNING. If the
             // process dies between these writes, the next attempt sees the
             // plan even while the state is still NOT_STARTED and reuses its
             // exact operation ids/generations instead of rebuilding them.
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
-            operations.chunked(CHUNK_SIZE).forEach { chunk ->
-                chunk.forEach { operation ->
-                    val existing = operationRepository.deliveries(setOf(operation.id))
-                    if (existing.isEmpty()) operationWriter.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
-                }
+            val operationIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
+            val existingDeliveries = operationRepository.deliveries(operationIds)
+            val materialized = existingDeliveries
+                .filter { it.providerId == TrackingProviderId.FLOPPY }
+                .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
+            val missing = operations.filterNot { operation ->
+                "${operation.id}:${operation.sourceVersion}" in materialized
             }
-            if (operations.isEmpty() && verifyRemote(snapshot)) {
+            var prepared = operations.size - missing.size
+            onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
+            missing.chunked(CHUNK_SIZE).forEach { chunk ->
+                operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
+                prepared += chunk.size
+                onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
+            }
+            if (operations.isEmpty() && verifyRemote(snapshot ?: canonicalSnapshot())) {
                 preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
                 preferences.clearFloppyBootstrapPlan()
             }
