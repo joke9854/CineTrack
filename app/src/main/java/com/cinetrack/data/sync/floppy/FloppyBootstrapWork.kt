@@ -120,10 +120,20 @@ class FloppyBootstrapWorkManager(context: Context) {
 
 private fun List<WorkInfo>.selectFloppyWork(): WorkInfo? =
     asSequence()
-        .sortedByDescending { it.inputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L) }
+        .sortedByDescending {
+            maxOf(
+                it.progress.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L),
+                it.outputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L),
+            )
+        }
         .firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
         ?: asSequence()
-            .sortedByDescending { it.inputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L) }
+            .sortedByDescending {
+                maxOf(
+                    it.progress.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L),
+                    it.outputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L),
+                )
+            }
             .firstOrNull()
 
 class FloppyBootstrapWorker(
@@ -380,6 +390,9 @@ class FloppyBootstrapWorker(
         .apply {
             progress.providerInstanceId?.let { putString("providerInstanceId", it) }
             progress.bootstrapRunId?.let { putString("bootstrapRunId", it) }
+            inputData.getLong(BOOTSTRAP_SCHEDULED_AT, 0L).takeIf { it > 0L }?.let {
+                putLong(BOOTSTRAP_SCHEDULED_AT, it)
+            }
             progress.currentOperationType?.let { putString("currentOperationType", it) }
             progress.currentTitle?.let { putString("currentTitle", it) }
             progress.lastProgressAtMillis?.let { putLong("lastProgressAt", it) }
@@ -438,8 +451,7 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
         succeeded = data.getInt("succeeded", 0),
         failed = data.getInt("failed", 0),
         providerInstanceId = data.getString("providerInstanceId"),
-        bootstrapRunId = data.getString("bootstrapRunId")
-            ?: inputData.getString(FloppyBootstrapWorker.BOOTSTRAP_RUN_ID),
+        bootstrapRunId = data.getString("bootstrapRunId"),
         currentOperationType = data.getString("currentOperationType"),
         currentTitle = data.getString("currentTitle"),
         lastProgressAtMillis = data.getLong("lastProgressAt", 0L).takeIf { it > 0L },
