@@ -1,3 +1,8 @@
+# CineTrack 0.99.19 beta
+
+- Made Floppy bootstrap delivery durable at each confirmed same-season transport unit, so later failures cannot discard earlier acknowledgements.
+- Prevented cross-season/gapped bulk ranges from creating implicit episode watches, added safe bulk-task conflict diagnostics, and aligned Sync Operations failure counts with managed bootstrap state.
+
 # CineTrack 0.99.18 beta
 
 - Restored cold-cache Progress population by deriving targeted season loads from durable watch history rather than DetailScreen-only season metadata.
