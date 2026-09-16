@@ -225,13 +225,29 @@ class FloppyBootstrapWorker(
         // Expensive remote preparation belongs to its own stage.  In
         // particular, episode history is indexed once for this worker run,
         // never once per 15-operation batch.
-        val remainingBeforeIndex = application.container.syncCoordinator.pendingBootstrapOperations(expected, total.coerceAtLeast(1))
-        if (remainingBeforeIndex.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+        // Seed remote-state preparation with one focused SQL result instead
+        // of loading the entire 9k-operation plan just to detect episodes.
+        val episodeSeed = application.container.syncCoordinator
+            .pendingBootstrapEpisodeOperations(expected, limit = 1)
+        if (episodeSeed.isNotEmpty()) {
             Log.i(TAG, "Floppy bootstrap preparing remote episode state")
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
             try {
-                withTimeout(90_000) { transport.prepare(remainingBeforeIndex) }
+                withTimeout(90_000) { transport.prepare(episodeSeed) }
             } catch (timeout: TimeoutCancellationException) {
+                val error = TrackingSyncError.Timeout(timeout)
+                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
+                return terminalResult(error)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Throwable) {
+                val stage = if (isRetryable(error)) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
+                setProgress(progressData(FloppyBootstrapProgress(stage, processed, total, processed, failed, expected)))
+                return terminalResult(error)
+            }
+        }
+
+        /*
                 val error = TrackingSyncError.Timeout(timeout)
                 setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
                 return terminalResult(error)
