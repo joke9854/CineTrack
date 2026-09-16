@@ -98,8 +98,8 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun bootstrapMovieHistoryIsPreparedOnceAndAvoidsDuplicateWatch() = runBlocking {
-        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"media_id\":\"42\",\"media_type\":\"movie\",\"watched_at\":\"2026-01-01T00:00:00Z\"}]}"))
+    fun bootstrapMovieStateUsesTypedMediaAndAvoidsDuplicateWatch() = runBlocking {
+        server.enqueue(typedPage(trackedMovie(endDate = "2026-01-01T00:00:00Z")))
         val context = FloppyBootstrapTransportContext(session.instanceId)
         val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
         val first = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString())
@@ -111,14 +111,14 @@ class FloppyRemoteDataSourceTest {
 
         assertEquals(1, server.requestCount)
         assertEquals(
-            "/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=movie",
+            "/proxy/api/v1/media/movie/?limit=200&offset=0",
             server.takeRequest().path,
         )
     }
 
     @Test
     fun preparedMovieStateAvoidsPerMoviePreflightForCompletedPair() = runBlocking {
-        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"media_id\":\"42\",\"media_type\":\"movie\",\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
+        server.enqueue(typedPage(trackedMovie(endDate = "2026-01-01T00:00:00Z")))
         val context = FloppyBootstrapTransportContext(session.instanceId)
         val watched = operation(
             SyncOperationType.MOVIE_WATCHED,
@@ -135,9 +135,40 @@ class FloppyRemoteDataSourceTest {
         assertEquals(setOf("watched", "completed"), result.completedOperationIds)
         assertEquals(1, server.requestCount)
         assertEquals(
-            "/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=movie",
+            "/proxy/api/v1/media/movie/?limit=200&offset=0",
             server.takeRequest().path,
         )
+    }
+
+    @Test
+    fun typedMoviePreparationPaginatesAndRetainsActiveConsumption() = runBlocking {
+        server.enqueue(typedPage(trackedMovie(id = 42, endDate = "2026-01-01T00:00:00Z"), next = "/next"))
+        server.enqueue(typedPage(trackedMovie(id = 43, consumptionId = 9, status = 1), offset = 1, total = 2))
+        val context = FloppyBootstrapTransportContext(session.instanceId)
+
+        remote.prepareBootstrap(session, listOf(operation(SyncOperationType.MOVIE_WATCHED)), context)
+
+        assertEquals(2, server.requestCount)
+        assertEquals("/proxy/api/v1/media/movie/?limit=200&offset=0", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/movie/?limit=200&offset=1", server.takeRequest().path)
+        assertTrue(Instant.parse("2026-01-01T00:00:00Z") in context.watchedMovieIndex.getValue(42))
+        assertEquals(9, context.activeMovieConsumptions.getValue(43).consumptionId)
+    }
+
+    @Test
+    fun retryableMoviePreparationFallsBackToIdempotentWatch() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+        server.enqueue(json("{}"))
+        val context = FloppyBootstrapTransportContext(session.instanceId)
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val operation = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString())
+
+        remote.prepareBootstrap(session, listOf(operation), context)
+        remote.push(session, listOf(operation), context)
+
+        assertTrue(context.moviePreparationUnavailable)
+        assertEquals("/proxy/api/v1/media/movie/?limit=200&offset=0", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/movie/tmdb/42/watch/", server.takeRequest().path)
     }
 
     @Test
@@ -157,8 +188,8 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun episodeWatchChecksHistoryBeforeCallingWatchRoute() = runBlocking {
-        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+    fun episodeWatchChecksTypedMediaBeforeCallingWatchRoute() = runBlocking {
+        server.enqueue(typedPage())
         server.enqueue(json("{}"))
 
         remote.push(session, listOf(operation(
@@ -167,7 +198,7 @@ class FloppyRemoteDataSourceTest {
             payload = "2:3:2026-01-01T00:00:00Z",
         )))
 
-        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=episode", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=0", server.takeRequest().path)
         val request = server.takeRequest()
         assertEquals("POST", request.method)
         assertEquals("/proxy/api/v1/media/tv/tmdb/42/2/episodes/3/watch/", request.path)
@@ -175,12 +206,12 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun episodeWatchPaginatesHistoryBeyondFirstPageBeforePosting() = runBlocking {
+    fun episodeWatchPaginatesTypedMediaBeyondFirstPageBeforePosting() = runBlocking {
         val firstPage = (1..200).joinToString(",") { episode ->
-            "{\"media_id\":\"99\",\"media_type\":\"episode\",\"season\":1,\"episode\":$episode,\"watched\":true}"
+            trackedEpisode(99, 1, episode, "2026-01-01T00:00:00Z")
         }
         server.enqueue(json("{\"pagination\":{\"total\":201,\"limit\":200,\"offset\":0,\"next\":\"/next\",\"previous\":null},\"results\":[$firstPage]}"))
-        server.enqueue(json("{\"pagination\":{\"total\":201,\"limit\":200,\"offset\":200,\"next\":null,\"previous\":\"/previous\"},\"results\":[{\"media_id\":\"42\",\"media_type\":\"episode\",\"season\":2,\"episode\":3,\"watched\":true}]}"))
+        server.enqueue(typedPage(trackedEpisode(42, 2, 3, "2026-01-01T00:00:00Z"), offset = 200, total = 201))
 
         remote.push(session, listOf(operation(
             SyncOperationType.EPISODE_WATCHED,
@@ -189,13 +220,13 @@ class FloppyRemoteDataSourceTest {
         )))
 
         assertEquals(2, server.requestCount)
-        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=episode", server.takeRequest().path)
-        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=200&types=episode", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=0", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=200", server.takeRequest().path)
     }
 
     @Test
-    fun bootstrapTransportIndexesEpisodeHistoryOnceAndUpdatesCache() = runBlocking {
-        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+    fun bootstrapTransportIndexesTypedEpisodeMediaOnceAndUpdatesCache() = runBlocking {
+        server.enqueue(typedPage())
         server.enqueue(json("{\"task_id\":\"task-1\"}"))
         server.enqueue(json("{\"status\":\"SUCCESS\"}"))
         val context = FloppyBootstrapTransportContext(session.instanceId)
@@ -206,10 +237,10 @@ class FloppyRemoteDataSourceTest {
         remote.push(session, listOf(first), context)
         remote.push(session, listOf(duplicate), context)
 
-        // One history index request and one async bulk range task; the
+        // One typed-media index request and one async bulk range task; the
         // duplicate is acknowledged from the run-scoped EpisodeKey cache.
         assertEquals(3, server.requestCount)
-        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=episode", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=0", server.takeRequest().path)
         assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/bulk/", server.takeRequest().path)
         assertEquals("/proxy/api/v1/tasks/task-1/", server.takeRequest().path)
     }
@@ -397,6 +428,29 @@ class FloppyRemoteDataSourceTest {
         payload = payload,
         sourceVersion = 1L,
     )
+
+    private fun typedPage(
+        vararg rows: String,
+        offset: Int = 0,
+        total: Int = rows.size,
+        next: String? = null,
+    ) = json(
+        "{\"pagination\":{\"total\":$total,\"limit\":200,\"offset\":$offset," +
+            "\"next\":${next?.let { "\"$it\"" } ?: "null"},\"previous\":null}," +
+            "\"results\":[${rows.joinToString(",")}]}"
+    )
+
+    private fun trackedMovie(
+        id: Int = 42,
+        consumptionId: Int = 7,
+        status: Int = 3,
+        endDate: String? = null,
+    ) = "{\"id\":$consumptionId,\"consumption_id\":$consumptionId,\"item\":{\"media_id\":\"$id\",\"source\":\"tmdb\",\"media_type\":\"movie\"},\"status\":$status," +
+        "\"end_date\":${endDate?.let { "\"$it\"" } ?: "null"}}"
+
+    private fun trackedEpisode(show: Int, season: Int, episode: Int, endDate: String?) =
+        "{\"id\":$episode,\"consumption_id\":$episode,\"item\":{\"media_id\":\"$show\",\"source\":\"tmdb\",\"season_number\":$season,\"episode_number\":$episode},\"status\":3," +
+            "\"end_date\":${endDate?.let { "\"$it\"" } ?: "null"}}"
 
     private fun json(body: String) = MockResponse()
         .addHeader("Content-Type", "application/json")
