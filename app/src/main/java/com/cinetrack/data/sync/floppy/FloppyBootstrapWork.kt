@@ -228,7 +228,7 @@ class FloppyBootstrapWorker(
             return terminalResult(error)
         }
 
-         var lastProgressAt = System.currentTimeMillis()
+        var lastProgressAt = System.currentTimeMillis()
         var stalledPublished = false
         var current: FloppyBootstrapProgress? = null
         var stoppedForInstanceChange = false
@@ -259,7 +259,7 @@ class FloppyBootstrapWorker(
                     val fetchedBatch = application.container.syncCoordinator
                         .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
                     if (fetchedBatch.isEmpty()) break
-                     val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
+                    val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
                     if (movieWave.isNotEmpty()) {
                         if (!transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
                             current = FloppyBootstrapProgress(
@@ -270,11 +270,26 @@ class FloppyBootstrapWorker(
                             )
                             setProgress(progressData(current!!))
                             try {
-                                transport.prepare(movieWave.flatten())
+                                transport.prepare(movieWave.flatten()) { loaded, remoteTotal ->
+                                    lastProgressAt = System.currentTimeMillis()
+                                    stalledPublished = false
+                                    current = current?.copy(
+                                        planningProcessed = loaded,
+                                        planningTotal = remoteTotal,
+                                        lastProgressAtMillis = lastProgressAt,
+                                    )
+                                    current?.let { setProgress(progressData(it)) }
+                                }
                                 lastProgressAt = System.currentTimeMillis()
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
                             } catch (error: Throwable) {
+                                val retryable = isRetryable(error)
+                                current = current?.copy(
+                                    stage = if (retryable) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION,
+                                    lastProgressAtMillis = lastProgressAt,
+                                )
+                                current?.let { setProgress(progressData(it)) }
                                 loopError = error
                                 break
                             }
@@ -324,11 +339,26 @@ class FloppyBootstrapWorker(
                         )
                         setProgress(progressData(current!!))
                         try {
-                            transport.prepare(batch)
+                            transport.prepare(batch) { loaded, remoteTotal ->
+                                lastProgressAt = System.currentTimeMillis()
+                                stalledPublished = false
+                                current = current?.copy(
+                                    planningProcessed = loaded,
+                                    planningTotal = remoteTotal,
+                                    lastProgressAtMillis = lastProgressAt,
+                                )
+                                current?.let { setProgress(progressData(it)) }
+                            }
                             lastProgressAt = System.currentTimeMillis()
                         } catch (cancelled: CancellationException) {
                             throw cancelled
                         } catch (error: Throwable) {
+                            val retryable = isRetryable(error)
+                            current = current?.copy(
+                                stage = if (retryable) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION,
+                                lastProgressAtMillis = lastProgressAt,
+                            )
+                            current?.let { setProgress(progressData(it)) }
                             loopError = error
                             break
                         }
@@ -492,7 +522,7 @@ class FloppyBootstrapWorker(
         const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
         private const val BOOTSTRAP_FETCH_BATCH = 200
         internal const val MAX_CONCURRENT_MOVIE_UNITS = 4
-         private const val MAX_RETRIES = 5
+        private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
         private const val CHANNEL_ID = "cinetrack_background_sync"
