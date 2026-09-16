@@ -1,3 +1,9 @@
+# CineTrack 0.99.16 beta
+
+- Restored watch-history-first Progress selection so older seasons, gaps, active playback, specials, and missing latest metadata cannot be displaced by latest-air data.
+- Added current-generation Floppy bootstrap queue queries and a bootstrap-only Room materialization path, reducing repeated global queue maintenance for large plans.
+- Stabilized WorkManager bootstrap progress identity and observation so retries and historical jobs cannot move a running counter backward.
+
 # CineTrack 0.99.15 beta
 
 - Corrected Progress episode selection for out-of-order history, active playback precedence, sparse season caches, and distant future schedules.
