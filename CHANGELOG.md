@@ -1,3 +1,9 @@
+# CineTrack 0.99.18 beta
+
+- Restored cold-cache Progress population by deriving targeted season loads from durable watch history rather than DetailScreen-only season metadata.
+- Made normal Progress eligibility require a known released episode, revalidating stale durable Up Next rows instead of allowing unknown/future metadata to surface a card.
+- Kept Floppy bulk episode ranges within one season, report safe 409 bulk context, and derive bootstrap completion from durable delivery acknowledgements.
+
 # CineTrack 0.99.17 beta
 
 - Restored watch-history-first Progress membership with real partial-playback precedence and release-aware episode eligibility.
