@@ -290,7 +290,13 @@ class FloppyBootstrapWorker(
                             supervisorScope {
                                 movieWave.map { unit ->
                                     async {
-                                        unit to runCatching { withTimeout(90_000) { transport.push(unit) } }
+                                        unit to try {
+                                            SyncResult.success(withTimeout(90_000) { transport.push(unit) })
+                                        } catch (cancelled: CancellationException) {
+                                            throw cancelled
+                                        } catch (error: Throwable) {
+                                            SyncResult.failure(error)
+                                        }
                                     }
                                 }.awaitAll()
                             }
