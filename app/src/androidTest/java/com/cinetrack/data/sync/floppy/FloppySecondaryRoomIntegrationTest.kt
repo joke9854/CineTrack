@@ -338,7 +338,10 @@ class FloppySecondaryRoomIntegrationTest {
         server.enqueue(json("{\"username\":\"integration-user\"}"))
         server.enqueue(MockResponse().setResponseCode(500))
         val failed = service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true)
-        assertTrue(failed is ConnectionResult.Failed)
+        assertTrue(
+            "a same-target reconnect must retry the ordinary failed Floppy delivery",
+            failed is ConnectionResult.Failed,
+        )
         val afterFailedReconnect = requireNotNull(preferences.floppySettingsNow())
         val failedDeliveries = repository.deliveries(setOf(operation.id))
         assertEquals("the failed Floppy delivery must remain retryable", 1, failedDeliveries.size)
