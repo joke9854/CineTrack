@@ -82,18 +82,38 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun movieWatchUsesExactHistoryBeforeCreatingAConsumption() = runBlocking {
-        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+    fun movieWatchUsesDedicatedIdempotentWatchRoute() = runBlocking {
         server.enqueue(json("{}"))
 
         val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
         remote.push(session, listOf(operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString())))
 
-        assertEquals("/proxy/api/v1/media/movie/tmdb/42/history/?limit=200&offset=0", server.takeRequest().path)
         val request = server.takeRequest()
         assertEquals("POST", request.method)
-        assertEquals("/proxy/api/v1/media/movie/", request.path)
-        assertEquals("{\"source\":\"tmdb\",\"media_id\":\"42\",\"title\":\"Movie\",\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}", request.body.readUtf8())
+        assertEquals("/proxy/api/v1/media/movie/tmdb/42/watch/", request.path)
+        assertEquals(
+            "{\"end_date\":\"2026-01-01T00:00:00Z\",\"external_id\":\"cinetrack:test-instance:MOVIE_WATCHED:1\"}",
+            request.body.readUtf8(),
+        )
+    }
+
+    @Test
+    fun bootstrapMovieHistoryIsPreparedOnceAndAvoidsDuplicateWatch() = runBlocking {
+        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"media_id\":\"42\",\"media_type\":\"movie\",\"watched_at\":\"2026-01-01T00:00:00Z\"}]}"))
+        val context = FloppyBootstrapTransportContext(session.instanceId)
+        val watchedAt = Instant.parse("2026-01-01T00:00:00Z")
+        val first = operation(SyncOperationType.MOVIE_WATCHED, payload = watchedAt.toString())
+        val duplicate = first.copy(id = "duplicate")
+
+        remote.prepareBootstrap(session, listOf(first, duplicate), context)
+        remote.push(session, listOf(first), context)
+        remote.push(session, listOf(duplicate), context)
+
+        assertEquals(1, server.requestCount)
+        assertEquals(
+            "/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=movie",
+            server.takeRequest().path,
+        )
     }
 
     @Test
@@ -199,7 +219,7 @@ class FloppyRemoteDataSourceTest {
         assertEquals("/proxy/api/v1/media/movie/tmdb/42/history/?limit=200&offset=0", server.takeRequest().path)
         val post = server.takeRequest()
         assertEquals("POST", post.method)
-        assertEquals("/proxy/api/v1/media/movie/", post.path)
+        assertEquals("/proxy/api/v1/media/movie/tmdb/42/watch/", post.path)
         assertEquals(2, server.requestCount)
     }
 
