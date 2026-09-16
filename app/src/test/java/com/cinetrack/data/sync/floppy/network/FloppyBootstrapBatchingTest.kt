@@ -35,4 +35,12 @@ class FloppyBootstrapBatchingTest {
         assertEquals(setOf("a", "b", "c"), runs.flatten().map(SyncOperation::id).toSet())
         assertTrue(runs.all { run -> run.map { it.mediaId }.toSet().size == 1 })
     }
+    @Test
+    fun crossSeasonEpisodesNeverCreateAnInclusiveRange() {
+        val runs = remote.contiguousEpisodeRuns(
+            listOf(op("s1e3", 10, 1, 3), op("s2e1", 10, 2, 1)),
+        )
+        assertEquals(listOf(listOf("s1e3"), listOf("s2e1")), runs.map { it.map(SyncOperation::id) })
+    }
+
 }
