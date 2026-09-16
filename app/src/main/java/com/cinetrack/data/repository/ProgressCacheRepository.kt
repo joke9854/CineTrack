@@ -49,12 +49,8 @@ internal fun selectNextProgressEpisode(
         releaseDateTime(episode.airDate, zone)?.toInstant()?.let { !it.isAfter(now) } == true
     }
     aired.firstOrNull()?.let { return it }
-    // Missing release metadata is not proof that an episode is in the future.
-    // Keep the sequential watch-history-first invariant and let the caller
-    // refresh the missing season metadata instead of skipping this episode.
-    candidates.firstOrNull { releaseDateTime(it.airDate, zone) == null }?.let { return it }
-    // Future episodes do not create membership. Upcoming attention is a
-    // ranking signal for cards that become eligible at their real release time.
+    // Unknown release metadata is not proof of availability. The cache loader
+    // refreshes the relevant season instead of rendering a speculative card.
     return null
 }
 
@@ -97,8 +93,9 @@ internal fun selectProgressCard(
     )
     fun storedIsEligible(candidate: EpisodeCard): Boolean {
         val air = releaseDateTime(candidate.airDate, zone)?.toInstant()
-        // A future up_next row is not a watchable Progress card yet.
-        return air == null || !air.isAfter(now)
+        // Unknown/stale release metadata must not preserve a speculative
+        // durable row after current metadata says the episode is unavailable.
+        return air != null && !air.isAfter(now)
     }
     val next = when {
         computed == null -> storedNext?.takeIf(::storedIsEligible)
@@ -146,6 +143,7 @@ internal class ProgressCacheRepository(
         val excludeSpecials = preferences.excludeSpecials.first()
         val cachedByShow = (cachedEpisodes ?: database.mediaDao().episodeSnapshot().map { it.toEpisodeCard() })
             .groupBy(EpisodeCard::showId)
+        val watchedByShow = watched.groupBy { it.first }
         val distinctShows = shows.distinctBy(MediaCard::stableKey)
         if (distinctShows.isEmpty()) return emptyMap()
 
@@ -166,7 +164,18 @@ internal class ProgressCacheRepository(
                                 val seasonCounts = show.seasons
                                     .filter { it.number > 0 }
                                     .associate { it.number to it.episodeCount }
-                                val seasons = (seasonCounts.keys + candidates.map { it.season })
+                                // Room's compact MediaEntity does not carry
+                                // SeasonCard metadata. Derive the first
+                                // required season from durable watch history
+                                // so a cold start never depends on DetailScreen.
+                                val lastWatchedSeason = watchedByShow[show.id].orEmpty()
+                                    .asSequence()
+                                    .filter { it.second > 0 }
+                                    .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
+                                    ?.second
+                                val historySeasons = lastWatchedSeason?.let { listOf(it, it + 1) }
+                                    ?: listOf(1)
+                                val seasons = (historySeasons + candidates.map { it.season } + seasonCounts.keys)
                                     .filter { it > 0 }
                                     .distinct()
                                     .sorted()
@@ -176,12 +185,10 @@ internal class ProgressCacheRepository(
                                         .filter { it.season == season }
                                         .map(EpisodeCard::number)
                                         .toSet()
-                                    val incomplete = expected > 0 &&
-                                        (1..expected).any { it !in cachedNumbers }
-                                    // A sparse late episode is not evidence that
-                                    // earlier episodes do not exist. Fetch the
-                                    // minimal incomplete season before accepting
-                                    // a candidate from it.
+                                    val incomplete = cachedNumbers.isEmpty() || (expected > 0 &&
+                                        (1..expected).any { it !in cachedNumbers })
+                                    // A sparse late episode is not evidence
+                                    // that earlier episodes do not exist.
                                     if (episode != null && episode.season < season) break
                                     if (episode != null && episode.season == season && !incomplete) break
                                     if (!incomplete && episode == null) continue
