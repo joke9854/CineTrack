@@ -50,9 +50,20 @@ class FloppyBootstrapTransportSession internal constructor(
     private val remote: FloppyRemoteDataSource,
     private val session: FloppySession,
     val context: FloppyBootstrapTransportContext,
+    private val ensureCurrent: suspend () -> Boolean = { true },
 ) {
-    suspend fun prepare(operations: List<SyncOperation>): Int = remote.prepareBootstrap(session, operations, context)
-    suspend fun push(operations: List<SyncOperation>): ProviderPushResult = remote.push(session, operations, context)
+    suspend fun prepare(operations: List<SyncOperation>): Int {
+        check(ensureCurrent()) { "Floppy connection changed before bootstrap preparation" }
+        val result = remote.prepareBootstrap(session, operations, context)
+        check(ensureCurrent()) { "Floppy connection changed during bootstrap preparation" }
+        return result
+    }
+    suspend fun push(operations: List<SyncOperation>): ProviderPushResult {
+        check(ensureCurrent()) { "Floppy connection changed before bootstrap delivery" }
+        val result = remote.push(session, operations, context)
+        check(ensureCurrent()) { "Floppy connection changed during bootstrap delivery" }
+        return result
+    }
 }
 
 /** The only class that knows Floppy endpoint paths, DTOs, and retry policy. */

@@ -183,6 +183,7 @@ class FloppyTrackingProvider(
             remote = remote,
             session = session,
             context = FloppyBootstrapTransportContext(expectedInstanceId),
+            ensureCurrent = { currentDeliveryInstanceId() == expectedInstanceId },
         )
     }
 
