@@ -41,7 +41,7 @@ import kotlinx.coroutines.delay
 private const val BULK_EPISODE_MAX = 50
 private const val BULK_TASK_POLL_ATTEMPTS = 120
 private const val BULK_TASK_POLL_DELAY_MS = 500L
- 
+
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
  * of truth and a retry reconstructs this cache from Floppy. */
@@ -50,8 +50,9 @@ class FloppyBootstrapTransportContext internal constructor(
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
-    // Typed movie media is prepared once per worker attempt. Unlike Floppy's
-    // flat HistoryView, it is server-paginated and includes consumption ids.
+    // Typed movie media is prepared once per worker attempt.  Unlike Floppy's
+    // flat HistoryView, this endpoint is paginated before the server builds a
+    // response and includes the consumption id needed for active-state cleanup.
     internal val watchedMovieIndex = ConcurrentHashMap<Long, MutableSet<Instant>>()
     internal val activeMovieConsumptions = ConcurrentHashMap<Long, FloppyConsumption>()
     internal var movieHistoryLoaded: Boolean = false
@@ -67,9 +68,12 @@ class FloppyBootstrapTransportSession internal constructor(
     val context: FloppyBootstrapTransportContext,
     private val ensureCurrent: suspend () -> Boolean = { true },
 ) {
-    suspend fun prepare(operations: List<SyncOperation>): Int {
+    suspend fun prepare(
+        operations: List<SyncOperation>,
+        onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
+    ): Int {
         check(ensureCurrent()) { "Floppy connection changed before bootstrap preparation" }
-        val result = remote.prepareBootstrap(session, operations, context)
+        val result = remote.prepareBootstrap(session, operations, context, onRemoteProgress)
         check(ensureCurrent()) { "Floppy connection changed during bootstrap preparation" }
         return result
     }
@@ -165,7 +169,7 @@ class FloppyRemoteDataSource(
     }
 
     /** Managed bootstrap overload. The context is shared by every bounded
-     * batch in one worker run, preventing typed-media pagination from being
+     * batch in one worker run, preventing typed media pagination from being
      * repeated for each batch. */
     internal suspend fun push(
         session: FloppySession,
@@ -363,12 +367,16 @@ class FloppyRemoteDataSource(
         throw TrackingSyncError.Timeout(IllegalStateException("Floppy bulk episode task timed out: task=$taskId, $safeRange"))
     }
 
-    /** Lazily prepares only the media types present in the current bootstrap
-     * unit. Flat HistoryView is deliberately not used for v26.9.10. */
+    /**
+     * Lazily prepares only the media types present in the current bootstrap
+     * unit.  Flat HistoryView is deliberately not used here: v26.9.10 builds
+     * the complete filtered history before applying its flat pagination.
+     */
     internal suspend fun prepareBootstrap(
         session: FloppySession,
         operations: List<SyncOperation>,
         context: FloppyBootstrapTransportContext,
+        onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
     ): Int {
         if (context.providerInstanceId != session.instanceId) {
             throw TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY, IllegalStateException("Floppy instance changed"))
@@ -376,22 +384,24 @@ class FloppyRemoteDataSource(
         val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         return try {
             if (!context.episodeHistoryLoaded && operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
-                context.watchedEpisodeIndex += loadEpisodeIndex(api)
+                context.watchedEpisodeIndex += loadEpisodeIndex(api, onRemoteProgress)
                 context.episodeHistoryLoaded = true
             }
             if (!context.movieHistoryLoaded && !context.moviePreparationUnavailable &&
                 operations.any { it.mediaType == MediaType.MOVIE }
             ) {
                 try {
-                    loadMovieIndex(api, context)
+                    loadMovieIndex(api, context, onRemoteProgress)
                     context.movieHistoryLoaded = true
                 } catch (error: Throwable) {
                     val mapped = FloppyApiErrorMapper.map(error)
                     if (mapped.isTransientMoviePreparationFailure()) {
-                        // /watch/ has a deterministic external_id; completed
-                        // pairs fall back to their one targeted history check.
+                        // Movie /watch/ calls are idempotent through external_id.
+                        // Completed pairs safely fall back to targeted history.
                         context.moviePreparationUnavailable = true
-                    } else throw mapped
+                    } else {
+                        throw mapped
+                    }
                 }
             }
             context.watchedEpisodeIndex.size + context.watchedMovieIndex.values.sumOf { it.size }
@@ -400,17 +410,26 @@ class FloppyRemoteDataSource(
         }
     }
 
-    private suspend fun loadEpisodeIndex(api: FloppyApi): MutableSet<EpisodeKey> =
-        paginate(api, "episode").mapNotNull { row ->
+    private suspend fun loadEpisodeIndex(
+        api: FloppyApi,
+        onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
+    ): MutableSet<EpisodeKey> =
+        paginate(api, "episode", onRemoteProgress).mapNotNull { row ->
             row.toEpisode()
                 ?.takeIf(TrackedEpisodeState::watched)
                 ?.let { EpisodeKey(it.showIds.tmdb ?: return@mapNotNull null, it.season, it.episode) }
         }.toMutableSet()
 
-    private suspend fun loadMovieIndex(api: FloppyApi, context: FloppyBootstrapTransportContext) {
+    private suspend fun loadMovieIndex(
+        api: FloppyApi,
+        context: FloppyBootstrapTransportContext,
+        onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
+    ) {
         var offset = 0
+        var loaded = 0
         while (true) {
             val page = api.media("movie", limit = 200, offset = offset)
+            loaded += page.results.size
             page.results.forEach { row ->
                 val movieId = (row.item?.get("media_id")?.jsonPrimitive?.contentOrNull ?: row.itemId)
                     ?.toLongOrNull() ?: return@forEach
@@ -423,6 +442,7 @@ class FloppyRemoteDataSource(
                     context.activeMovieConsumptions[movieId] = consumption
                 }
             }
+            onRemoteProgress(loaded, page.pagination.total)
             if (page.results.isEmpty() || page.pagination.next == null) break
             val nextOffset = offset + page.results.size
             check(nextOffset > offset) { "Floppy movie pagination did not advance" }
@@ -636,10 +656,13 @@ class FloppyRemoteDataSource(
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
         val movieId = mediaId.toLongOrNull()
         val preparedActive = movieId?.let { context?.activeMovieConsumptions?.get(it) }
-        // Typed state retains the active consumption id. The fallback is
-        // targeted history, never the global flat HistoryView.
-        var history = if (context?.movieHistoryLoaded == true) listOfNotNull(preparedActive)
-        else loadHistory(api, "movie", source, mediaId, context)
+        // Typed bootstrap state includes the active consumption id.  The
+        // fallback is deliberately targeted history, never flat HistoryView.
+        var history = if (context?.movieHistoryLoaded == true) {
+            listOfNotNull(preparedActive)
+        } else {
+            loadHistory(api, "movie", source, mediaId, context)
+        }
         val hadActiveBefore = resolver.resolve(history).active != null
         val exactHistoryAlreadyPresent = resolver.findExactWatch(history, watchedAt) != null
         if (!exactHistoryAlreadyPresent &&
@@ -742,7 +765,7 @@ class FloppyRemoteDataSource(
         }
     }
 
-     private suspend fun deleteConsumptionSafely(api: FloppyApi, mediaType: String, source: String, mediaId: String, consumptionId: Int) {
+    private suspend fun deleteConsumptionSafely(api: FloppyApi, mediaType: String, source: String, mediaId: String, consumptionId: Int) {
         try {
             api.deleteConsumption(mediaType, source, mediaId, consumptionId)
         } catch (error: HttpException) {
@@ -750,12 +773,17 @@ class FloppyRemoteDataSource(
         }
     }
 
-    private suspend fun paginate(api: FloppyApi, type: String): List<FloppyTrackedMedia> {
+    private suspend fun paginate(
+        api: FloppyApi,
+        type: String,
+        onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
+    ): List<FloppyTrackedMedia> {
         val all = mutableListOf<FloppyTrackedMedia>()
         var offset = 0
         while (true) {
             val page = api.media(type, limit = 200, offset = offset)
             all += page.results
+            onRemoteProgress(all.size, page.pagination.total)
             if (page.results.isEmpty() || page.pagination.next == null) break
             val nextOffset = offset + page.results.size
             check(nextOffset > offset) { "Floppy $type pagination did not advance" }
