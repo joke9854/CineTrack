@@ -272,9 +272,13 @@ class FloppyBootstrapWorker(
                         stoppedForInstanceChange = true
                         break
                     }
-                    val batch = application.container.syncCoordinator
+                    val fetchedBatch = application.container.syncCoordinator
                         .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
-                    if (batch.isEmpty()) break
+                    if (fetchedBatch.isEmpty()) break
+                    // A transport unit is the durable acknowledgement boundary.
+                    // Earlier bulk-task successes are committed before an
+                    // unrelated later unit can fail.
+                    val batch = fetchedBatch.bootstrapTransportUnit()
                     val first = batch.first()
                     Log.i(TAG, "Floppy bootstrap batch started: size=\${batch.size} type=\${first.type} media=\${first.mediaType}:\${first.mediaId}")
                     current = FloppyBootstrapProgress(
@@ -471,6 +475,44 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
 
 /** Keeps a completed-movie pair together while allowing every other
  * bootstrap operation to advance progress independently. */
+/** One independently-confirmable Floppy bootstrap request. Episode units are
+ * same-show, same-season, gap-free ranges capped at the server payload limit.
+ * Other operations preserve the existing completed-movie pair invariant. */
+internal fun List<SyncOperation>.bootstrapTransportUnit(): List<SyncOperation> {
+    if (isEmpty()) return emptyList()
+    val episode = filter { it.type == SyncOperationType.EPISODE_WATCHED }
+        .sortedWith(compareBy<SyncOperation> { it.mediaId }
+            .thenBy { it.episodePartsForBootstrap().first }
+            .thenBy { it.episodePartsForBootstrap().second })
+        .firstOrNull()
+    if (episode == null) return bootstrapLogicalUnit()
+    val (season, firstEpisode) = episode.episodePartsForBootstrap()
+    return filter { operation ->
+        val parts = operation.episodePartsForBootstrap()
+        operation.type == SyncOperationType.EPISODE_WATCHED &&
+            operation.mediaId == episode.mediaId &&
+            parts.first == season
+    }
+        .sortedBy { it.episodePartsForBootstrap().second }
+        .takeWhileIndexed { index, operation ->
+            index < 50 && operation.episodePartsForBootstrap().second == firstEpisode + index
+        }
+}
+
+private inline fun <T> List<T>.takeWhileIndexed(predicate: (Int, T) -> Boolean): List<T> {
+    val result = ArrayList<T>()
+    forEachIndexed { index, value ->
+        if (!predicate(index, value)) return result
+        result += value
+    }
+    return result
+}
+
+private fun SyncOperation.episodePartsForBootstrap(): Pair<Int, Int> {
+    val parts = payload?.split(':', limit = 3).orEmpty()
+    return (parts.getOrNull(0)?.toIntOrNull() ?: -1) to (parts.getOrNull(1)?.toIntOrNull() ?: -1)
+}
+
 internal fun List<SyncOperation>.bootstrapLogicalUnit(): List<SyncOperation> {
     val first = first()
     if (first.mediaType != com.cinetrack.domain.MediaType.MOVIE) return listOf(first)
