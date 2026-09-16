@@ -41,8 +41,7 @@ import kotlinx.coroutines.delay
 private const val BULK_EPISODE_MAX = 50
 private const val BULK_TASK_POLL_ATTEMPTS = 120
 private const val BULK_TASK_POLL_DELAY_MS = 500L
-private val ACTIVE_MOVIE_STATUSES = setOf(0, 1, 2, 4)
-
+ 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
  * of truth and a retry reconstructs this cache from Floppy. */
@@ -51,15 +50,12 @@ class FloppyBootstrapTransportContext internal constructor(
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
-    // Global movie history is prepared once per worker attempt. A per-movie
-    // detail lookup remains reserved for exceptional active-consumption
-    // mutations that require a consumption id.
+    // Typed movie media is prepared once per worker attempt. Unlike Floppy's
+    // flat HistoryView, it is server-paginated and includes consumption ids.
     internal val watchedMovieIndex = ConcurrentHashMap<Long, MutableSet<Instant>>()
-    // Flat global history identifies which movies still have an active
-    // consumption. The per-movie detail endpoint is only needed for those
-    // rows because it supplies the consumption id required for deletion.
-    internal val activeMovieIndex = ConcurrentHashMap.newKeySet<Long>()
+    internal val activeMovieConsumptions = ConcurrentHashMap<Long, FloppyConsumption>()
     internal var movieHistoryLoaded: Boolean = false
+    internal var moviePreparationUnavailable: Boolean = false
     internal val mediaDetailCache = Collections.synchronizedMap(mutableMapOf<String, FloppyMediaDetail?>())
     internal val historyCache = ConcurrentHashMap<String, List<FloppyConsumption>>()
 }
@@ -168,8 +164,8 @@ class FloppyRemoteDataSource(
         return push(session, operations, null)
     }
 
-    /** Managed bootstrap overload.  The context is shared by every bounded
-     * batch in one worker run, preventing episode-history pagination from being
+    /** Managed bootstrap overload. The context is shared by every bounded
+     * batch in one worker run, preventing typed-media pagination from being
      * repeated for each batch. */
     internal suspend fun push(
         session: FloppySession,
@@ -367,7 +363,8 @@ class FloppyRemoteDataSource(
         throw TrackingSyncError.Timeout(IllegalStateException("Floppy bulk episode task timed out: task=$taskId, $safeRange"))
     }
 
-    /** Index Floppy episode history once before the first bootstrap unit. */
+    /** Lazily prepares only the media types present in the current bootstrap
+     * unit. Flat HistoryView is deliberately not used for v26.9.10. */
     internal suspend fun prepareBootstrap(
         session: FloppySession,
         operations: List<SyncOperation>,
@@ -382,9 +379,20 @@ class FloppyRemoteDataSource(
                 context.watchedEpisodeIndex += loadEpisodeIndex(api)
                 context.episodeHistoryLoaded = true
             }
-            if (!context.movieHistoryLoaded && operations.any { it.mediaType == MediaType.MOVIE }) {
-                loadMovieIndex(api, context)
-                context.movieHistoryLoaded = true
+            if (!context.movieHistoryLoaded && !context.moviePreparationUnavailable &&
+                operations.any { it.mediaType == MediaType.MOVIE }
+            ) {
+                try {
+                    loadMovieIndex(api, context)
+                    context.movieHistoryLoaded = true
+                } catch (error: Throwable) {
+                    val mapped = FloppyApiErrorMapper.map(error)
+                    if (mapped.isTransientMoviePreparationFailure()) {
+                        // /watch/ has a deterministic external_id; completed
+                        // pairs fall back to their one targeted history check.
+                        context.moviePreparationUnavailable = true
+                    } else throw mapped
+                }
             }
             context.watchedEpisodeIndex.size + context.watchedMovieIndex.values.sumOf { it.size }
         } catch (error: Throwable) {
@@ -393,27 +401,32 @@ class FloppyRemoteDataSource(
     }
 
     private suspend fun loadEpisodeIndex(api: FloppyApi): MutableSet<EpisodeKey> =
-        paginateEpisodeHistory(api).mapNotNull { entry ->
-            val show = entry.mediaId?.toLongOrNull() ?: return@mapNotNull null
-            val season = entry.season ?: return@mapNotNull null
-            val episode = entry.episode ?: return@mapNotNull null
-            if (entry.watched == true || entry.endDate != null) EpisodeKey(show, season, episode) else null
+        paginate(api, "episode").mapNotNull { row ->
+            row.toEpisode()
+                ?.takeIf(TrackedEpisodeState::watched)
+                ?.let { EpisodeKey(it.showIds.tmdb ?: return@mapNotNull null, it.season, it.episode) }
         }.toMutableSet()
 
     private suspend fun loadMovieIndex(api: FloppyApi, context: FloppyBootstrapTransportContext) {
         var offset = 0
         while (true) {
-            val page = api.history(flat = "1", limit = 200, offset = offset, types = "movie")
-            page.results.forEach { entry ->
-                val movieId = entry.mediaId?.toLongOrNull() ?: return@forEach
-                val watchedAt = (entry.watchedAt ?: entry.endDate).toInstantOrNull() ?: return@forEach
-                context.watchedMovieIndex.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }.add(watchedAt)
-                if (entry.status in ACTIVE_MOVIE_STATUSES && entry.endDate == null) {
-                    context.activeMovieIndex += movieId
+            val page = api.media("movie", limit = 200, offset = offset)
+            page.results.forEach { row ->
+                val movieId = (row.item?.get("media_id")?.jsonPrimitive?.contentOrNull ?: row.itemId)
+                    ?.toLongOrNull() ?: return@forEach
+                val consumption = row.toConsumption() ?: return@forEach
+                if (resolver.isCompleted(consumption)) {
+                    consumption.endDate.toInstantOrNull()?.let { watchedAt ->
+                        context.watchedMovieIndex.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }.add(watchedAt)
+                    }
+                } else if (resolver.isActive(consumption)) {
+                    context.activeMovieConsumptions[movieId] = consumption
                 }
             }
             if (page.results.isEmpty() || page.pagination.next == null) break
-            offset += page.results.size
+            val nextOffset = offset + page.results.size
+            check(nextOffset > offset) { "Floppy movie pagination did not advance" }
+            offset = nextOffset
         }
     }
 
@@ -622,17 +635,11 @@ class FloppyRemoteDataSource(
         val watchedAt = watched.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
         val movieId = mediaId.toLongOrNull()
-        // The flat global history prepared for bootstrap is authoritative for
-        // completed watches and tells us which movies may have an active row.
-        // Avoid a per-movie history request unless an active consumption must
-        // be located and removed by its concrete id.
-        val mustResolveActiveConsumption =
-            context?.movieHistoryLoaded == true && movieId != null && movieId in context.activeMovieIndex
-        var history = if (context?.movieHistoryLoaded == true && !mustResolveActiveConsumption) {
-            emptyList()
-        } else {
-            loadHistory(api, "movie", source, mediaId, context)
-        }
+        val preparedActive = movieId?.let { context?.activeMovieConsumptions?.get(it) }
+        // Typed state retains the active consumption id. The fallback is
+        // targeted history, never the global flat HistoryView.
+        var history = if (context?.movieHistoryLoaded == true) listOfNotNull(preparedActive)
+        else loadHistory(api, "movie", source, mediaId, context)
         val hadActiveBefore = resolver.resolve(history).active != null
         val exactHistoryAlreadyPresent = resolver.findExactWatch(history, watchedAt) != null
         if (!exactHistoryAlreadyPresent &&
@@ -649,13 +656,19 @@ class FloppyRemoteDataSource(
             if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
             invalidateCaches(context, "movie", source, mediaId)
         }
+        preparedActive?.let {
+            deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId)
+            movieId?.let { context?.activeMovieConsumptions?.remove(it) }
+            invalidateCaches(context, "movie", source, mediaId)
+            return
+        }
         // When there was no active consumption, the exact completion check is
         // sufficient and avoids an unnecessary round trip on retries.
         if (!hadActiveBefore) return
         history = loadHistory(api, "movie", source, mediaId, context)
         val active = resolver.resolve(history).active
         active?.let { deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId) }
-        movieId?.let { context?.activeMovieIndex?.remove(it) }
+        movieId?.let { context?.activeMovieConsumptions?.remove(it) }
         invalidateCaches(context, "movie", source, mediaId)
         val remaining = loadHistory(api, "movie", source, mediaId, context)
         check(resolver.resolve(remaining).active == null) {
@@ -687,9 +700,7 @@ class FloppyRemoteDataSource(
         val (season, episode, watchedAt) = operation.episodeParts()
         val key = EpisodeKey(mediaId.toLongOrNull() ?: -1L, season, episode)
         if (episodeIndex?.contains(key) == true) return
-        if (episodeIndex == null && paginateEpisodeHistory(api).any {
-                it.mediaType == "episode" && it.mediaId == mediaId && it.season == season && it.episode == episode && (it.watched == true || it.endDate != null)
-            }) return
+        if (episodeIndex == null && loadEpisodeIndex(api).contains(key)) return
         api.watchEpisode("tv", source, mediaId, season, episode, FloppyEpisodeWatchRequest(watchedAt = watchedAt?.toString()))
         episodeIndex?.add(key)
     }
@@ -731,23 +742,7 @@ class FloppyRemoteDataSource(
         }
     }
 
-    private suspend fun paginateEpisodeHistory(api: FloppyApi): List<com.cinetrack.data.sync.floppy.FloppyHistoryEntry> {
-        val all = mutableListOf<com.cinetrack.data.sync.floppy.FloppyHistoryEntry>()
-        var offset = 0
-        while (true) {
-            val page = try {
-                api.history(flat = "1", limit = 200, offset = offset, types = "episode")
-            } catch (error: HttpException) {
-                if (error.code() == 404) return all else throw error
-            }
-            all += page.results
-            if (page.results.isEmpty() || page.pagination.next == null) break
-            offset += page.results.size
-        }
-        return all
-    }
-
-    private suspend fun deleteConsumptionSafely(api: FloppyApi, mediaType: String, source: String, mediaId: String, consumptionId: Int) {
+     private suspend fun deleteConsumptionSafely(api: FloppyApi, mediaType: String, source: String, mediaId: String, consumptionId: Int) {
         try {
             api.deleteConsumption(mediaType, source, mediaId, consumptionId)
         } catch (error: HttpException) {
@@ -762,7 +757,9 @@ class FloppyRemoteDataSource(
             val page = api.media(type, limit = 200, offset = offset)
             all += page.results
             if (page.results.isEmpty() || page.pagination.next == null) break
-            offset += page.results.size
+            val nextOffset = offset + page.results.size
+            check(nextOffset > offset) { "Floppy $type pagination did not advance" }
+            offset = nextOffset
         }
         return all
     }
@@ -865,4 +862,15 @@ private fun SyncOperation.episodeParts(): Triple<Int, Int, Instant?> {
 }
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+private fun TrackingSyncError.isTransientMoviePreparationFailure(): Boolean = when (this) {
+    is TrackingSyncError.NetworkUnavailable,
+    is TrackingSyncError.DnsFailure,
+    is TrackingSyncError.Timeout,
+    is TrackingSyncError.RateLimited,
+    -> true
+    is TrackingSyncError.ProviderUnavailable ->
+        (cause as? HttpException)?.code() in 500..599
+    else -> false
+}
 
