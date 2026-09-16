@@ -99,6 +99,15 @@ class FloppySecondaryService(
                     )
                     if (delivery.isFailure) throw delivery.exceptionOrNull() ?: IllegalStateException("Floppy delivery failed")
                 }
+                // Bootstrap rows are dispatched explicitly above, but a
+                // same-target reconnect must also retry ordinary durable
+                // deliveries for the unchanged provider instance. Generic
+                // routing deliberately excludes managed bootstrap rows.
+                val ordinaryDelivery = coordinator.pushPending()
+                if (ordinaryDelivery.isFailure) {
+                    throw ordinaryDelivery.exceptionOrNull()
+                        ?: IllegalStateException("Floppy delivery failed")
+                }
                 if (!bootstrap().markReadyIfComplete()) throw TrackingSyncError.BootstrapFailure(IllegalStateException("Bootstrap verification failed"))
             } else if (bootstrapState != ProviderBootstrapState.READY) {
                 // Plan creation is a bounded local/DataStore operation. Do
