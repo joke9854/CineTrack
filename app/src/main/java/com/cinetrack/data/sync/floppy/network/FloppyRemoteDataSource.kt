@@ -353,6 +353,7 @@ class FloppyRemoteDataSource(
         var resolution = resolver.resolve(detail?.consumptions.orEmpty())
         if (!alreadyCompleted && resolution.completed.isEmpty()) {
             api.track("tv", FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3))
+            invalidateCaches(context, "tv", source, mediaId)
             // A show that had an active consumption needs a reload to locate
             // that row after the new completion is committed. If it had no
             // active row, the POST itself satisfies the desired projection and
@@ -368,6 +369,7 @@ class FloppyRemoteDataSource(
         val active = resolution.active ?: initialActive
         active?.let { deleteConsumptionSafely(api, "tv", source, mediaId, it.consumptionId) }
         if (active != null) {
+            invalidateCaches(context, "tv", source, mediaId)
             val remaining = mediaDetailOrNull(api, "tv", source, mediaId, context)
             check(resolver.resolve(remaining?.consumptions.orEmpty()).active == null) {
                 "Floppy retained an active TV consumption after completion"
@@ -416,6 +418,7 @@ class FloppyRemoteDataSource(
         history = loadHistory(api, "movie", source, mediaId, context)
         val active = resolver.resolve(history).active
         active?.let { deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId) }
+        invalidateCaches(context, "movie", source, mediaId)
         val remaining = loadHistory(api, "movie", source, mediaId, context)
         check(resolver.resolve(remaining).active == null) {
             "Floppy retained an active movie consumption after completion"
