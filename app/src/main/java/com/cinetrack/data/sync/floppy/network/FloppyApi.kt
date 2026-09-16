@@ -1,6 +1,9 @@
 package com.cinetrack.data.sync.floppy.network
 
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
+import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
+import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionPage
 import com.cinetrack.data.sync.floppy.FloppyHistoryEnvelope
@@ -90,6 +93,17 @@ interface FloppyApi {
         @Path("episode") episode: Int,
         @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
     ): FloppyTrackedMedia
+
+    @POST("api/v1/media/{mediaType}/{source}/{mediaId}/episodes/bulk/")
+    suspend fun bulkEpisodes(
+        @Path("mediaType") mediaType: String = "tv",
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+        @Body request: FloppyEpisodeBulkRequest,
+    ): FloppyBulkTaskResponse
+
+    @GET("api/v1/tasks/{taskId}/")
+    suspend fun taskStatus(@Path("taskId") taskId: String): FloppyTaskStatusResponse
 
     @POST("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/episodes/{episode}/drop/")
     suspend fun dropEpisode(

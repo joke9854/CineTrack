@@ -215,3 +215,25 @@ data class FloppyCapabilities(
     val canReadCompleteSnapshot: Boolean = false,
 )
 
+
+@Serializable
+data class FloppyEpisodeBulkRequest(
+    @SerialName("first_season_number") val firstSeasonNumber: Int,
+    @SerialName("first_episode_number") val firstEpisodeNumber: Int,
+    @SerialName("last_season_number") val lastSeasonNumber: Int,
+    @SerialName("last_episode_number") val lastEpisodeNumber: Int,
+    @SerialName("start_date") val startDate: String,
+    @SerialName("end_date") val endDate: String,
+    @SerialName("write_mode") val writeMode: String = "add",
+    @SerialName("distribution_mode") val distributionMode: String = "air_date",
+)
+
+@Serializable
+data class FloppyBulkTaskResponse(
+    @SerialName("task_id") val taskId: String? = null,
+)
+
+@Serializable
+data class FloppyTaskStatusResponse(
+    @SerialName("status") val status: String? = null,
+)

@@ -32,6 +32,7 @@ import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import retrofit2.HttpException
+import kotlinx.coroutines.delay
 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
@@ -165,10 +166,18 @@ class FloppyRemoteDataSource(
                 ?: if (operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
                     loadEpisodeIndex(api)
                 } else null
+
+            // Bootstrap episode writes use the Floppy bulk endpoint when
+            // available. Runs are contiguous and show-scoped so a range cannot
+            // accidentally include an unrelated show or an unplanned episode.
+            val episodeOperations = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
+            val bulkCompleted = pushEpisodeBatches(api, episodeOperations, episodeIndex)
+            completed += bulkCompleted
+
             val byMovieGeneration = operations
                 .filter { it.mediaType == MediaType.MOVIE }
                 .groupBy { it.mediaId to it.sourceVersion }
-            val consumed = mutableSetOf<String>()
+            val consumed = bulkCompleted.toMutableSet()
             operations.forEach { operation ->
                 if (operation.id in consumed) return@forEach
                 val pair = byMovieGeneration[operation.mediaId to operation.sourceVersion].orEmpty()
@@ -192,6 +201,103 @@ class FloppyRemoteDataSource(
             throw FloppyApiErrorMapper.map(error)
         }
         return ProviderPushResult(completed)
+    }
+
+    /**
+     * Sends contiguous, same-show watched episodes through Floppy's
+     * asynchronous bulk range endpoint. The server contract is range-level
+     * (202 + task id), so a confirmed task acknowledges every child in that
+     * range; an ambiguous/failed task acknowledges none. Older Floppy builds
+     * that do not expose the route safely fall back to the existing
+     * idempotent singular endpoint.
+     */
+    private suspend fun pushEpisodeBatches(
+        api: FloppyApi,
+        operations: List<SyncOperation>,
+        episodeIndex: MutableSet<EpisodeKey>?,
+    ): Set<String> {
+        if (operations.isEmpty()) return emptySet()
+        val completed = linkedSetOf<String>()
+        operations
+            .groupBy { it.mediaId }
+            .toSortedMap()
+            .values
+            .flatMap { showOperations -> contiguousEpisodeRuns(showOperations).flatMap { it.chunked(BULK_EPISODE_MAX) } }
+            .forEach { run ->
+                val pending = run.filter { operation ->
+                    val (season, episode, _) = operation.episodeParts()
+                    episodeIndex?.contains(EpisodeKey(operation.mediaId.toLong(), season, episode)) != true
+                }
+                if (pending.isEmpty()) {
+                    completed += run.map(SyncOperation::id)
+                    return@forEach
+                }
+                val usedBulk = try {
+                    val first = pending.first().episodeParts()
+                    val last = pending.last().episodeParts()
+                    val dates = pending.mapNotNull { it.episodeParts().third }
+                    val task = api.bulkEpisodes(
+                        source = "tmdb",
+                        mediaId = pending.first().mediaId.toString(),
+                        request = FloppyEpisodeBulkRequest(
+                            firstSeasonNumber = first.first,
+                            firstEpisodeNumber = first.second,
+                            lastSeasonNumber = last.first,
+                            lastEpisodeNumber = last.second,
+                            startDate = dates.minOrNull() ?: Instant.EPOCH.toString(),
+                            endDate = dates.maxOrNull() ?: Instant.now().toString(),
+                        ),
+                    )
+                    val taskId = task.taskId ?: throw TrackingSyncError.InvalidRemoteData("Floppy bulk response did not include a task id")
+                    awaitBulkTask(api, taskId)
+                    true
+                } catch (error: HttpException) {
+                    if (error.code() == 404 || error.code() == 405) false else throw error
+                }
+                if (usedBulk) {
+                    completed += pending.map(SyncOperation::id)
+                    pending.forEach {
+                        val (season, episode, _) = it.episodeParts()
+                        episodeIndex?.add(EpisodeKey(it.mediaId.toLong(), season, episode))
+                    }
+                } else {
+                    // Compatible legacy server: preserve exact watched_at
+                    // values and idempotency, at the cost of singular calls.
+                    pending.forEach { operation ->
+                        pushEpisodeWatched(api, operation, "tmdb", operation.mediaId.toString(), episodeIndex)
+                        completed += operation.id
+                    }
+                }
+            }
+        return completed
+    }
+
+    private fun contiguousEpisodeRuns(operations: List<SyncOperation>): List<List<SyncOperation>> {
+        val sorted = operations.sortedWith(compareBy<SyncOperation> { it.episodeParts().first }.thenBy { it.episodeParts().second })
+        val runs = mutableListOf<MutableList<SyncOperation>>()
+        sorted.forEach { operation ->
+            val current = runs.lastOrNull()
+            val previous = current?.lastOrNull()
+            val parts = operation.episodeParts()
+            val previousParts = previous?.episodeParts()
+            val contiguous = previousParts != null && (
+                (parts.first == previousParts.first && parts.second == previousParts.second + 1) ||
+                    (parts.first == previousParts.first + 1 && parts.second == 1)
+                )
+            if (current == null || !contiguous) runs += mutableListOf(operation) else current += operation
+        }
+        return runs
+    }
+
+    private suspend fun awaitBulkTask(api: FloppyApi, taskId: String) {
+        repeat(BULK_TASK_POLL_ATTEMPTS) {
+            when (api.taskStatus(taskId).status?.uppercase()) {
+                "SUCCESS", "SUCCEEDED", "COMPLETED" -> return
+                "FAILURE", "FAILED", "REVOKED" -> throw TrackingSyncError.InvalidRemoteData("Floppy bulk episode task failed")
+                else -> delay(BULK_TASK_POLL_DELAY_MS)
+            }
+        }
+        throw TrackingSyncError.Timeout(IllegalStateException("Floppy bulk episode task timed out"))
     }
 
     /** Index Floppy episode history once before the first bootstrap unit. */

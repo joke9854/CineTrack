@@ -262,21 +262,16 @@ class FloppyBootstrapWorker(
                 }
             }
             try {
-                var pendingBatch = emptyList<SyncOperation>()
                 while (true) {
                     if (!isCurrent(application, expected)) {
                         stoppedForInstanceChange = true
                         break
                     }
-                    if (pendingBatch.isEmpty()) {
-                        pendingBatch = application.container.syncCoordinator.pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
-                    }
-                    if (pendingBatch.isEmpty()) break
-                    val unit = pendingBatch.bootstrapLogicalUnit()
-                    val unitIds = unit.mapTo(linkedSetOf()) { it.id }
-                    pendingBatch = pendingBatch.filterNot { it.id in unitIds }
-                    val first = unit.first()
-                    Log.i(TAG, "Floppy bootstrap unit started: type=${first.type} media=${first.mediaType}:${first.mediaId}")
+                    val batch = application.container.syncCoordinator
+                        .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
+                    if (batch.isEmpty()) break
+                    val first = batch.first()
+                    Log.i(TAG, "Floppy bootstrap batch started: size=\${batch.size} type=\${first.type} media=\${first.mediaType}:\${first.mediaId}")
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
                         processed,
@@ -293,7 +288,7 @@ class FloppyBootstrapWorker(
                         withTimeout(90_000) {
                             application.container.syncCoordinator.pushPendingForProvider(
                                 TrackingProviderId.FLOPPY,
-                                unit.mapTo(linkedSetOf()) { it.id },
+                                batch.mapTo(linkedSetOf()) { it.id },
                                 expected,
                                 transport = transport::push,
                             )
@@ -311,7 +306,7 @@ class FloppyBootstrapWorker(
                             stoppedForInstanceChange = true
                             break
                         }
-                        failed += unit.size
+                        failed += batch.size
                         val retryable = isRetryable(error)
                         val terminalStage = if (retryable) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
                         if (!retryable) application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
@@ -325,11 +320,12 @@ class FloppyBootstrapWorker(
                         break
                     }
                     val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
-                    processed = (total - remaining).coerceIn(0, total)
+                    val nextProcessed = (total - remaining).coerceIn(processed, total)
+                    processed = nextProcessed
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
-                    Log.i(TAG, "Floppy bootstrap progress: $processed/$total")
+                    Log.i(TAG, "Floppy bootstrap batch complete: \${processed}/\${total}")
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
