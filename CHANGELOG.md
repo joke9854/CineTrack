@@ -1,3 +1,9 @@
+# CineTrack 0.99.14 beta
+
+- Fixed stalled Floppy initial synchronization by indexing remote episode history once per worker run and reusing a session-scoped transport cache.
+- Added logical-unit progress, current-item diagnostics, no-progress stall detection, per-unit timeouts, and safe WorkManager retries that preserve the persisted bootstrap plan.
+- Redesigned the managed Floppy synchronization card with localized stage-specific progress, compact retry actions, and a non-contradictory empty state.
+
 # CineTrack 0.99.13 beta
 
 - Prevented generic and forced synchronization from stealing managed Floppy bootstrap operations.
