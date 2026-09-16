@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.work.BackoffPolicy
 import androidx.work.Constraints
@@ -143,6 +144,7 @@ class FloppyBootstrapWorker(
         setProgress(progressData(initialPlan))
         val plan = coordinator.ensurePlan()
         val total = plan.size
+        Log.i(TAG, "Floppy bootstrap started: plan total=$total")
         if (total > 100) setForeground(createForegroundInfo(initialPlan.copy(total = total)))
         val planIds = plan.mapTo(linkedSetOf()) { it.id }
         var processed = (total - application.container.syncCoordinator.pendingOperationCount(planIds)).coerceIn(0, total)
@@ -192,6 +194,7 @@ class FloppyBootstrapWorker(
         // never once per 15-operation batch.
         val remainingBeforeIndex = application.container.syncCoordinator.pendingOperations(planIds)
         if (remainingBeforeIndex.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+            Log.i(TAG, "Floppy bootstrap preparing remote episode state")
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
             try {
                 withTimeout(90_000) { transport.prepare(remainingBeforeIndex) }
@@ -222,6 +225,7 @@ class FloppyBootstrapWorker(
                     ) {
                         stalledPublished = true
                         val stalled = current!!.copy(stage = FloppyBootstrapStage.STALLED, lastProgressAtMillis = lastProgressAt)
+                        Log.w(TAG, "Floppy bootstrap no progress for 60s: operation=${current?.currentOperationType}")
                         setProgress(progressData(stalled))
                     }
                 }
@@ -236,6 +240,7 @@ class FloppyBootstrapWorker(
                     if (pendingOps.isEmpty()) break
                     val unit = pendingOps.bootstrapLogicalUnit()
                     val first = unit.first()
+                    Log.i(TAG, "Floppy bootstrap unit started: type=${first.type} media=${first.mediaType}:${first.mediaId}")
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
                         processed,
@@ -288,6 +293,7 @@ class FloppyBootstrapWorker(
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
+                    Log.i(TAG, "Floppy bootstrap progress: $processed/$total")
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
@@ -299,6 +305,7 @@ class FloppyBootstrapWorker(
         loopError?.let { return terminalResult(it) }
         if (!isCurrent(application, expected)) return Result.success()
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
+        Log.i(TAG, "Floppy bootstrap verifying")
         val ready = coordinator.markReadyIfComplete()
         if (!ready) {
             application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
@@ -306,6 +313,7 @@ class FloppyBootstrapWorker(
             return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
         }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
+        Log.i(TAG, "Floppy bootstrap READY: $total/$total")
         return Result.success(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
     }
 
@@ -377,6 +385,7 @@ class FloppyBootstrapWorker(
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
         private const val CHANNEL_ID = "cinetrack_background_sync"
         private const val NOTIFICATION_ID = 6011
+        private const val TAG = "FloppyBootstrap"
     }
 }
 
