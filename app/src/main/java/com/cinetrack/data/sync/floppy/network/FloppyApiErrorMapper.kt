@@ -33,7 +33,8 @@ object FloppyApiErrorMapper {
             409 -> TrackingSyncError.Conflict("Floppy returned a synchronization conflict")
             422 -> TrackingSyncError.Validation("Floppy rejected the synchronization operation")
             429 -> TrackingSyncError.RateLimited(error.response()?.headers()?.get("Retry-After")?.toLongOrNull())
-            in 500..599 -> TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
+            // Preserve the safe HTTP cause for bootstrap retry classification.
+            in 500..599 -> TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY, error)
             else -> TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
         }
         else -> TrackingSyncError.Unknown(error)
