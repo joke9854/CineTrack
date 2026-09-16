@@ -130,6 +130,8 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.LibraryArtworkRefreshProgress
 import com.cinetrack.domain.LibraryArtworkRefreshStage
 import com.cinetrack.domain.FloppyBootstrapStage
+import com.cinetrack.domain.allowsRetry
+import com.cinetrack.domain.isManagedActive
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
@@ -832,16 +834,7 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
         }
     }
 
-    val managedActive = effectiveProgress?.stage in setOf(
-        FloppyBootstrapStage.PREPARING,
-        FloppyBootstrapStage.QUEUED,
-        FloppyBootstrapStage.CHECKING_REMOTE_STATE,
-        FloppyBootstrapStage.SYNCING,
-        FloppyBootstrapStage.VERIFYING,
-        FloppyBootstrapStage.WAITING_FOR_SERVER,
-        FloppyBootstrapStage.STALLED,
-        FloppyBootstrapStage.NEEDS_ATTENTION,
-    )
+    val managedActive = effectiveProgress?.stage?.isManagedActive() == true
     if (operations.isEmpty() && !managedActive) {
         Text(
             stringResource(R.string.no_sync_operations),
@@ -866,7 +859,7 @@ private fun ManagedFloppyBootstrapCard(
     val stage = progress.stage
     val determinate = stage == FloppyBootstrapStage.SYNCING && progress.total > 0
     val percent = if (determinate) (progress.processed * 100 / progress.total).coerceIn(0, 100) else 0
-    val retryable = stage in setOf(FloppyBootstrapStage.WAITING_FOR_SERVER, FloppyBootstrapStage.STALLED, FloppyBootstrapStage.NEEDS_ATTENTION)
+    val retryable = stage.allowsRetry()
     Column(
         Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
@@ -1162,7 +1155,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                 Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
             }
         }
-        val retryableStage = observedBootstrapProgress?.stage in setOf(FloppyBootstrapStage.WAITING_FOR_SERVER, FloppyBootstrapStage.STALLED, FloppyBootstrapStage.NEEDS_ATTENTION)
+        val retryableStage = observedBootstrapProgress?.stage?.allowsRetry() == true
         if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION || retryableStage) {
             TextButton(onClick = viewModel::retryFloppyInitialSync, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))

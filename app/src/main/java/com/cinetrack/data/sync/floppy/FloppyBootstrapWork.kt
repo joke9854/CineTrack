@@ -397,7 +397,7 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
 
 /** Keeps a completed-movie pair together while allowing every other
  * bootstrap operation to advance progress independently. */
-private fun List<SyncOperation>.bootstrapLogicalUnit(): List<SyncOperation> {
+internal fun List<SyncOperation>.bootstrapLogicalUnit(): List<SyncOperation> {
     val first = first()
     if (first.mediaType != com.cinetrack.domain.MediaType.MOVIE) return listOf(first)
     val pair = filter {

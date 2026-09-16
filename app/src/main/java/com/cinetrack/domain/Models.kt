@@ -215,6 +215,14 @@ enum class FloppyBootstrapStage {
     NEEDS_ATTENTION,
 }
 
+internal fun FloppyBootstrapStage.allowsRetry(): Boolean = this in setOf(
+    FloppyBootstrapStage.WAITING_FOR_SERVER,
+    FloppyBootstrapStage.STALLED,
+    FloppyBootstrapStage.NEEDS_ATTENTION,
+)
+
+internal fun FloppyBootstrapStage.isManagedActive(): Boolean = this != FloppyBootstrapStage.COMPLETE
+
 @Immutable
 data class FloppyBootstrapProgress(
     val stage: FloppyBootstrapStage = FloppyBootstrapStage.PREPARING,
