@@ -77,15 +77,28 @@ class FloppySecondaryService(
             if (context == null) {
                 // Source-compatible path for lightweight Room integration
                 // tests that do not provide an Android WorkManager context.
-                when (bootstrapState) {
+                val plan = when (bootstrapState) {
                     ProviderBootstrapState.NOT_STARTED,
                     ProviderBootstrapState.RUNNING,
                     ProviderBootstrapState.FAILED,
-                    -> bootstrap().start()
-                    ProviderBootstrapState.READY -> Unit
+                    -> {
+                        bootstrap().start()
+                        bootstrap().ensurePlan()
+                    }
+                    ProviderBootstrapState.READY -> emptyList()
                 }
-                val delivery = coordinator.pushPending()
-                if (delivery.isFailure) throw delivery.exceptionOrNull() ?: IllegalStateException("Floppy delivery failed")
+                // The compatibility path has no WorkManager owner, so it
+                // dispatches the persisted bootstrap ids explicitly in the
+                // same bounded batches as FloppyBootstrapWorker. Generic
+                // pushPending() intentionally excludes these managed rows.
+                plan.map { it.id }.chunked(15).forEach { batch ->
+                    val delivery = coordinator.pushPendingForProvider(
+                        TrackingProviderId.FLOPPY,
+                        batch.toSet(),
+                        instance,
+                    )
+                    if (delivery.isFailure) throw delivery.exceptionOrNull() ?: IllegalStateException("Floppy delivery failed")
+                }
                 if (!bootstrap().markReadyIfComplete()) throw TrackingSyncError.BootstrapFailure(IllegalStateException("Bootstrap verification failed"))
             } else if (bootstrapState != ProviderBootstrapState.READY) {
                 // Plan creation is a bounded local/DataStore operation. Do
