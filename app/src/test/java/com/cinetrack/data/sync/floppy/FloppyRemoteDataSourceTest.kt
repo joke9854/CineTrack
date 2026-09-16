@@ -152,7 +152,8 @@ class FloppyRemoteDataSourceTest {
     @Test
     fun bootstrapTransportIndexesEpisodeHistoryOnceAndUpdatesCache() = runBlocking {
         server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
-        server.enqueue(json("{}"))
+        server.enqueue(json("{\"task_id\":\"task-1\"}"))
+        server.enqueue(json("{\"status\":\"SUCCESS\"}"))
         val context = FloppyBootstrapTransportContext(session.instanceId)
         val first = operation(SyncOperationType.EPISODE_WATCHED, mediaType = MediaType.TV, payload = "2:3:2026-01-01T00:00:00Z")
         val duplicate = first.copy(id = "duplicate")
@@ -161,11 +162,12 @@ class FloppyRemoteDataSourceTest {
         remote.push(session, listOf(first), context)
         remote.push(session, listOf(duplicate), context)
 
-        // One history index request, one watch POST; the duplicate is
-        // acknowledged from the run-scoped EpisodeKey cache.
-        assertEquals(2, server.requestCount)
-        assertEquals("GET", server.takeRequest().method)
-        assertEquals("POST", server.takeRequest().method)
+        // One history index request and one async bulk range task; the
+        // duplicate is acknowledged from the run-scoped EpisodeKey cache.
+        assertEquals(3, server.requestCount)
+        assertEquals("/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=episode", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/bulk/", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/tasks/task-1/", server.takeRequest().path)
     }
 
     @Test
