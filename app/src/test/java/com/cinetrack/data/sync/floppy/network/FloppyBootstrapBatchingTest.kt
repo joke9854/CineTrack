@@ -7,6 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class FloppyBootstrapBatchingTest {
+    private val remote = FloppyRemoteDataSource(FloppyApiClientFactory())
     private fun op(id: String, show: Int, season: Int, episode: Int) = SyncOperation(
         id = id,
         type = SyncOperationType.EPISODE_WATCHED,
@@ -19,7 +20,7 @@ class FloppyBootstrapBatchingTest {
 
     @Test
     fun contiguousEpisodesForOneShowShareOneRun() {
-        val runs = FloppyRemoteDataSource.contiguousEpisodeRuns(
+        val runs = remote.contiguousEpisodeRuns(
             listOf(op("3", 10, 1, 3), op("1", 10, 1, 1), op("2", 10, 1, 2)),
         )
         assertEquals(listOf(listOf("1", "2", "3")), runs.map { it.map(SyncOperation::id) })
