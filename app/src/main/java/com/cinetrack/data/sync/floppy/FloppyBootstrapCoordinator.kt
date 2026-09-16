@@ -122,9 +122,11 @@ class FloppyBootstrapCoordinator(
         val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
             ?.takeIf { it.instanceId == instance }
         val total = plan?.operations?.size ?: 0
-        val pending = if (plan == null) emptyList() else operationRepository.pending(plan.operations.mapTo(linkedSetOf()) { it.id })
-        val pendingIds = pending.mapTo(linkedSetOf(), SyncOperation::id)
-        val processed = (total - pendingIds.size).coerceIn(0, total)
+        // Durable delivery rows, not one WorkManager attempt's in-memory
+        // counter, are authoritative. This survives cancellation, retry, and
+        // process recreation without making the completed count regress.
+        val remaining = if (plan == null) 0 else operationRepository.bootstrapPendingCount(instance)
+        val processed = (total - remaining).coerceIn(0, total)
         val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
         val stage = when (state) {
             ProviderBootstrapState.READY -> FloppyBootstrapStage.COMPLETE
