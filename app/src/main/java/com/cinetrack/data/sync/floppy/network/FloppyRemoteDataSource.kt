@@ -41,6 +41,7 @@ import kotlinx.coroutines.delay
 private const val BULK_EPISODE_MAX = 50
 private const val BULK_TASK_POLL_ATTEMPTS = 120
 private const val BULK_TASK_POLL_DELAY_MS = 500L
+private val ACTIVE_MOVIE_STATUSES = setOf(0, 1, 2, 4)
 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
@@ -54,6 +55,10 @@ class FloppyBootstrapTransportContext internal constructor(
     // detail lookup remains reserved for exceptional active-consumption
     // mutations that require a consumption id.
     internal val watchedMovieIndex = ConcurrentHashMap<Long, MutableSet<Instant>>()
+    // Flat global history identifies which movies still have an active
+    // consumption. The per-movie detail endpoint is only needed for those
+    // rows because it supplies the consumption id required for deletion.
+    internal val activeMovieIndex = ConcurrentHashMap.newKeySet<Long>()
     internal var movieHistoryLoaded: Boolean = false
     internal val mediaDetailCache = Collections.synchronizedMap(mutableMapOf<String, FloppyMediaDetail?>())
     internal val historyCache = ConcurrentHashMap<String, List<FloppyConsumption>>()
@@ -403,6 +408,9 @@ class FloppyRemoteDataSource(
                 val movieId = entry.mediaId?.toLongOrNull() ?: return@forEach
                 val watchedAt = (entry.watchedAt ?: entry.endDate).toInstantOrNull() ?: return@forEach
                 context.watchedMovieIndex.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }.add(watchedAt)
+                if (entry.status in ACTIVE_MOVIE_STATUSES && entry.endDate == null) {
+                    context.activeMovieIndex += movieId
+                }
             }
             if (page.results.isEmpty() || page.pagination.next == null) break
             offset += page.results.size
@@ -613,9 +621,19 @@ class FloppyRemoteDataSource(
     ) {
         val watchedAt = watched.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
-        var history = loadHistory(api, "movie", source, mediaId, context)
-        val hadActiveBefore = resolver.resolve(history).active != null
         val movieId = mediaId.toLongOrNull()
+        // The flat global history prepared for bootstrap is authoritative for
+        // completed watches and tells us which movies may have an active row.
+        // Avoid a per-movie history request unless an active consumption must
+        // be located and removed by its concrete id.
+        val mustResolveActiveConsumption =
+            context?.movieHistoryLoaded == true && movieId != null && movieId in context.activeMovieIndex
+        var history = if (context?.movieHistoryLoaded == true && !mustResolveActiveConsumption) {
+            emptyList()
+        } else {
+            loadHistory(api, "movie", source, mediaId, context)
+        }
+        val hadActiveBefore = resolver.resolve(history).active != null
         val exactHistoryAlreadyPresent = resolver.findExactWatch(history, watchedAt) != null
         if (!exactHistoryAlreadyPresent &&
             (movieId == null || context?.watchedMovieIndex?.get(movieId)?.contains(watchedAt) != true)
@@ -637,6 +655,7 @@ class FloppyRemoteDataSource(
         history = loadHistory(api, "movie", source, mediaId, context)
         val active = resolver.resolve(history).active
         active?.let { deleteConsumptionSafely(api, "movie", source, mediaId, it.consumptionId) }
+        movieId?.let { context?.activeMovieIndex?.remove(it) }
         invalidateCaches(context, "movie", source, mediaId)
         val remaining = loadHistory(api, "movie", source, mediaId, context)
         check(resolver.resolve(remaining).active == null) {
