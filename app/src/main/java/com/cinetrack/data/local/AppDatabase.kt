@@ -534,6 +534,22 @@ interface SyncDao {
     """)
     suspend fun pendingFloppyBootstrapCount(prefix: String, connectionId: String): Int
 
+    /** Minimal remote-index seed query; avoids loading the complete bootstrap
+     * plan just to decide whether episode history must be prepared. */
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND o.operation = 'EPISODE_WATCHED'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+        LIMIT :limit
+    """)
+    suspend fun pendingFloppyBootstrapEpisodeOperations(prefix: String, connectionId: String, limit: Int): List<SyncOperationEntity>
+
     @Query("""
         SELECT o.* FROM sync_operations o
         INNER JOIN sync_operation_deliveries d
