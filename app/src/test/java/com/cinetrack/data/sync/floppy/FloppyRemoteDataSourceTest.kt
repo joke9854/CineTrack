@@ -117,6 +117,30 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun preparedMovieStateAvoidsPerMoviePreflightForCompletedPair() = runBlocking {
+        server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"media_id\":\"42\",\"media_type\":\"movie\",\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
+        val context = FloppyBootstrapTransportContext(session.instanceId)
+        val watched = operation(
+            SyncOperationType.MOVIE_WATCHED,
+            payload = "2026-01-01T00:00:00Z",
+        ).copy(id = "watched")
+        val completed = operation(
+            SyncOperationType.LIBRARY_STATUS,
+            value = "COMPLETED",
+        ).copy(id = "completed")
+
+        remote.prepareBootstrap(session, listOf(watched, completed), context)
+        val result = remote.push(session, listOf(watched, completed), context)
+
+        assertEquals(setOf("watched", "completed"), result.completedOperationIds)
+        assertEquals(1, server.requestCount)
+        assertEquals(
+            "/proxy/api/v1/history/?flat=1&limit=200&offset=0&types=movie",
+            server.takeRequest().path,
+        )
+    }
+
+    @Test
     fun movieUnwatchedDeletesTheMatchingConsumptionOnly() = runBlocking {
         server.enqueue(json("{\"pagination\":{\"total\":1,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":3,\"end_date\":\"2026-01-01T00:00:00Z\"}]}"))
         server.enqueue(MockResponse().setResponseCode(204))
