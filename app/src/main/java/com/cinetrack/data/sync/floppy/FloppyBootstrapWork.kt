@@ -33,6 +33,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import java.io.IOException
@@ -194,6 +195,10 @@ class FloppyBootstrapWorker(
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
             try {
                 withTimeout(90_000) { transport.prepare(remainingBeforeIndex) }
+            } catch (timeout: TimeoutCancellationException) {
+                val error = TrackingSyncError.Timeout(timeout)
+                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
+                return terminalResult(error)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -252,6 +257,8 @@ class FloppyBootstrapWorker(
                                 transport = transport::push,
                             )
                         }
+                    } catch (timeout: TimeoutCancellationException) {
+                        SyncResult.failure(TrackingSyncError.Timeout(timeout))
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Throwable) {
