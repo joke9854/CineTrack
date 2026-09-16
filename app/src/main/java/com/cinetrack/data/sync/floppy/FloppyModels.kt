@@ -95,28 +95,6 @@ data class FloppyTrackedMediaEnvelope(
 )
 
 @Serializable
-data class FloppyHistoryEnvelope(
-    val pagination: FloppyPagination = FloppyPagination(),
-    val results: List<FloppyHistoryEntry> = emptyList(),
-)
-
-/** Flat history fields are intentionally nullable: Floppy adds media types over time. */
-@Serializable
-data class FloppyHistoryEntry(
-    @SerialName("media_id") val mediaId: String? = null,
-    @SerialName("media_type") val mediaType: String? = null,
-    val source: String? = null,
-    val status: Int? = null,
-    @SerialName("created_at") val createdAt: String? = null,
-    val watched: Boolean? = null,
-    @SerialName("watched_at") val watchedAt: String? = null,
-    @SerialName("end_date") val endDate: String? = null,
-    val item: JsonObject? = null,
-    val season: Int? = null,
-    val episode: Int? = null,
-)
-
-@Serializable
 data class FloppyTrackMediaRequest(
     val source: String,
     @SerialName("media_id") val mediaId: String,
