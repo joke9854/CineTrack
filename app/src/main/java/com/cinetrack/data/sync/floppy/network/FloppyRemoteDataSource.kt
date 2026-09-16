@@ -17,6 +17,7 @@ import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
 import com.cinetrack.data.sync.floppy.FloppyMediaDetail
 import com.cinetrack.data.sync.floppy.FloppySession
@@ -33,6 +34,10 @@ import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
 import retrofit2.HttpException
 import kotlinx.coroutines.delay
+
+private const val BULK_EPISODE_MAX = 50
+private const val BULK_TASK_POLL_ATTEMPTS = 120
+private const val BULK_TASK_POLL_DELAY_MS = 500L
 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
