@@ -31,6 +31,7 @@ import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.FloppyConnectionStage
 import java.time.Instant
 import java.util.concurrent.ConcurrentHashMap
+import java.util.Collections
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -54,8 +55,8 @@ class FloppyBootstrapTransportContext internal constructor(
     // mutations that require a consumption id.
     internal val watchedMovieIndex = ConcurrentHashMap<Long, MutableSet<Instant>>()
     internal var movieHistoryLoaded: Boolean = false
-    internal val mediaDetailCache = mutableMapOf<String, FloppyMediaDetail?>()
-    internal val historyCache = mutableMapOf<String, List<FloppyConsumption>>()
+    internal val mediaDetailCache = Collections.synchronizedMap(mutableMapOf<String, FloppyMediaDetail?>())
+    internal val historyCache = ConcurrentHashMap<String, List<FloppyConsumption>>()
 }
 
 /** Transport boundary for one Floppy bootstrap worker attempt. */
