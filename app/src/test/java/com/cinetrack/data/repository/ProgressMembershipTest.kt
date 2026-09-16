@@ -47,6 +47,16 @@ class ProgressMembershipTest {
         assertNull(selectProgressCard(show, eps, emptySet(), null, null, now, zone, false))
     }
 
+    @Test fun unknownAirDateDoesNotCreateSpeculativeCard() {
+        val episode = EpisodeCard(1, show.id, 1, 1, "Unknown", "", airDate = null)
+        assertNull(selectProgressCard(show, listOf(episode), emptySet(), null, null, now, zone, false))
+    }
+
+    @Test fun staleStoredFutureRowCannotBypassCurrentEligibility() {
+        val stale = episode(1, "2026-11-01")
+        assertNull(selectProgressCard(show, emptyList(), emptySet(), null, stale, now, zone, false))
+    }
+
     private fun episode(number: Int, airDate: String) = EpisodeCard(
         id = number,
         showId = show.id,
