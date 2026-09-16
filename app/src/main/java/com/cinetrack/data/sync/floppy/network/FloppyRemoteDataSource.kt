@@ -264,7 +264,19 @@ class FloppyRemoteDataSource(
                         ),
                     )
                 } catch (error: HttpException) {
-                    if (error.code() == 404 || error.code() == 405) null else throw error
+                    if (error.code() == 404 || error.code() == 405) {
+                        null
+                    } else if (error.code() == 409) {
+                        // Submission was rejected before a task id existed:
+                        // nothing in this range is remotely confirmed. Keep all
+                        // children durable and retryable, while surfacing only
+                        // safe endpoint/range diagnostics.
+                        val code = FloppyApiErrorMapper.code(error) ?: "unspecified"
+                        throw TrackingSyncError.Conflict(
+                            "Floppy bulk episode conflict: show=${pending.first().mediaId}, " +
+                                "season=${first.first}, episodes=${first.second}-${last.second}, code=$code",
+                        )
+                    } else throw error
                 }
                 val usedBulk = if (task == null) {
                     false
