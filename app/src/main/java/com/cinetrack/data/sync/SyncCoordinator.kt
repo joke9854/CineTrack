@@ -228,6 +228,45 @@ class SyncCoordinator(
     suspend fun pendingBootstrapCount(connectionId: String): Int =
         operations.bootstrapPendingCount(connectionId)
 
+    /** Bootstrap-only lane ownership: the worker may run a bounded internal
+     * wave while normal Floppy sync and connection changes remain excluded. */
+    suspend fun <T> withFloppyBootstrapLane(
+        expectedInstanceId: String,
+        block: suspend () -> T,
+    ): T = withProviderIo(TrackingProviderId.FLOPPY) {
+        val provider = registry.getProvider(TrackingProviderId.FLOPPY)
+            ?: throw TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
+        check(provider.currentDeliveryInstanceId() == expectedInstanceId) {
+            "Floppy connection changed while bootstrap wave was active"
+        }
+        block()
+    }
+
+    /** Applies one completed bootstrap unit after its remote outcome is known.
+     * This is deliberately narrow: it cannot retarget, dispatch, or reopen a
+     * delivery belonging to another provider instance. */
+    suspend fun settleFloppyBootstrapUnit(
+        expectedInstanceId: String,
+        operationsForUnit: List<SyncOperation>,
+        error: Throwable? = null,
+    ) = withProviderIo(TrackingProviderId.FLOPPY) {
+        val provider = registry.getProvider(TrackingProviderId.FLOPPY)
+            ?: throw TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
+        check(provider.currentDeliveryInstanceId() == expectedInstanceId) {
+            "Floppy connection changed before bootstrap acknowledgement"
+        }
+        val current = operations.bootstrapPendingByIds(
+            expectedInstanceId,
+            operationsForUnit.mapTo(linkedSetOf(), SyncOperation::id),
+        )
+        if (error == null) {
+            operations.acknowledge(TrackingProviderId.FLOPPY, current)
+            operations.completeReady(current)
+        } else {
+            operations.failDelivery(TrackingProviderId.FLOPPY, current, error)
+        }
+    }
+
     /**
      * Dispatches pending work while the caller already owns providerIoMutex.
      * Connection activation uses this boundary so it can keep activation,
