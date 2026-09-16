@@ -28,7 +28,7 @@ class FloppyBootstrapBatchingTest {
 
     @Test
     fun gapsAndDifferentShowsAreNeverMixed() {
-        val runs = FloppyRemoteDataSource.contiguousEpisodeRuns(
+        val runs = remote.contiguousEpisodeRuns(
             listOf(op("a", 10, 1, 1), op("b", 10, 1, 3), op("c", 11, 1, 2)),
         )
         assertEquals(listOf(listOf("a"), listOf("b"), listOf("c")), runs.map { it.map(SyncOperation::id) })
