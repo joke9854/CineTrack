@@ -584,7 +584,7 @@ class FloppyRemoteDataSource(
             mediaId = mediaId,
             request = FloppyMovieWatchRequest(
                 endDate = watchedAt.toString(),
-                externalId = "cinetrack:${context?.providerInstanceId ?: "default"}:${operation.id}:${operation.sourceVersion}",
+                externalId = "cinetrack:${context?.providerInstanceId ?: session.instanceId}:${operation.id}:${operation.sourceVersion}",
             ),
         )
         if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
@@ -613,10 +613,10 @@ class FloppyRemoteDataSource(
                 mediaId = mediaId,
                 request = FloppyMovieWatchRequest(
                     endDate = watchedAt.toString(),
-                    externalId = "cinetrack:${context?.providerInstanceId ?: "default"}:${watched.id}:${watched.sourceVersion}",
+                    externalId = "cinetrack:${context?.providerInstanceId ?: session.instanceId}:${watched.id}:${watched.sourceVersion}",
                 ),
             )
-            if (movieId != null) context?.watchedMovieIndex?.getOrPut(movieId) { linkedSetOf() }?.add(watchedAt)
+            if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
             invalidateCaches(context, "movie", source, mediaId)
         }
         // When there was no active consumption, the exact completion check is
