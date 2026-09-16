@@ -227,13 +227,13 @@ class FloppyBootstrapWorker(
         // never once per 15-operation batch.
         // Seed remote-state preparation with one focused SQL result instead
         // of loading the entire 9k-operation plan just to detect episodes.
-        val episodeSeed = application.container.syncCoordinator
-            .pendingBootstrapEpisodeOperations(expected, limit = 1)
-        if (episodeSeed.isNotEmpty()) {
-            Log.i(TAG, "Floppy bootstrap preparing remote episode state")
+        val preparationSeed = application.container.syncCoordinator
+            .pendingBootstrapOperations(expected, limit = BOOTSTRAP_PREPARATION_SEED)
+        if (preparationSeed.isNotEmpty()) {
+            Log.i(TAG, "Floppy bootstrap preparing remote movie/episode state")
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
             try {
-                withTimeout(90_000) { transport.prepare(episodeSeed) }
+                withTimeout(90_000) { transport.prepare(preparationSeed) }
             } catch (timeout: TimeoutCancellationException) {
                 val error = TrackingSyncError.Timeout(timeout)
                 setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
@@ -275,6 +275,12 @@ class FloppyBootstrapWorker(
                     val fetchedBatch = application.container.syncCoordinator
                         .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
                     if (fetchedBatch.isEmpty()) break
+                    // Movie and episode history are each indexed once, on
+                    // the first focused window that contains that media type.
+                    if ((!transport.context.movieHistoryLoaded && fetchedBatch.any { it.mediaType == com.cinetrack.domain.MediaType.MOVIE }) ||
+                        (!transport.context.episodeHistoryLoaded && fetchedBatch.any { it.type == SyncOperationType.EPISODE_WATCHED })) {
+                        transport.prepare(fetchedBatch)
+                    }
                     // A transport unit is the durable acknowledgement boundary.
                     // Earlier bulk-task successes are committed before an
                     // unrelated later unit can fail.
@@ -438,6 +444,7 @@ class FloppyBootstrapWorker(
         const val BOOTSTRAP_RUN_ID = "bootstrapRunId"
         const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
         private const val BOOTSTRAP_FETCH_BATCH = 200
+        private const val BOOTSTRAP_PREPARATION_SEED = 200
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
