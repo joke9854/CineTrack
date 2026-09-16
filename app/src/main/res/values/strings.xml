@@ -552,5 +552,19 @@
     <string name="floppy_error_network">CineTrack couldn’t reach this Floppy server.</string>
     <string name="floppy_error_wrong_api">A Floppy API wasn’t found at this address.</string>
     <string name="floppy_error_invalid_response">The server responded, but CineTrack couldn’t recognize its Floppy API.</string>
+    <string name="initial_synchronization">Initial synchronization</string>
+    <string name="floppy_preparing_sync_plan">Preparing sync plan…</string>
+    <string name="floppy_checking_existing_history">Checking existing Floppy history…</string>
+    <string name="floppy_syncing_with_floppy">Syncing with Floppy</string>
+    <string name="floppy_verifying_sync">Verifying Floppy…</string>
+    <string name="floppy_waiting_for_server">Waiting for Floppy server…</string>
+    <string name="floppy_taking_longer">Floppy is taking longer than expected</string>
+    <string name="floppy_last_progress">Last progress %1$s ago</string>
+    <string name="floppy_initial_sync_needs_attention">Initial synchronization needs attention</string>
+    <string name="retry_now">Retry now</string>
+    <string name="floppy_leave_screen_copy">You can leave this screen. Sync will continue in the background.</string>
+    <string name="floppy_progress_count">%1$d of %2$d</string>
+    <string name="floppy_ready_short">Ready</string>
+    <string name="current">Current</string>
 </resources>
 

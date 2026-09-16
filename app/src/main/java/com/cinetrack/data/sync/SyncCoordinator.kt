@@ -137,6 +137,7 @@ class SyncCoordinator(
         providerId: TrackingProviderId,
         operationIds: Set<String>,
         expectedInstanceId: String? = null,
+        transport: (suspend (List<SyncOperation>) -> ProviderPushResult)? = null,
     ): Result<Unit> = withProviderIo(providerId) {
         resultOf {
             if (operationIds.isEmpty()) return@resultOf Unit
@@ -188,7 +189,7 @@ class SyncCoordinator(
             }
             try {
                 requireAuthenticated(provider)
-                pushTo(provider, supported)
+                pushTo(provider, supported, transport)
                 operations.acknowledge(providerId, supported)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
@@ -206,6 +207,9 @@ class SyncCoordinator(
     /** Durable queue projection used by bounded background delivery workers. */
     suspend fun pendingOperationIds(operationIds: Set<String>): Set<String> =
         operations.pending(operationIds).mapTo(linkedSetOf(), SyncOperation::id)
+
+    /** Returns the current durable operations for an exact bootstrap unit. */
+    suspend fun pendingOperations(operationIds: Set<String>): List<SyncOperation> = operations.pending(operationIds)
 
     suspend fun pendingOperationCount(operationIds: Set<String>): Int =
         pendingOperationIds(operationIds).size
@@ -276,10 +280,14 @@ class SyncCoordinator(
         return provider.isAuthenticated()
     }
 
-    private suspend fun pushTo(provider: TrackingProvider, pending: List<SyncOperation>) {
+    private suspend fun pushTo(
+        provider: TrackingProvider,
+        pending: List<SyncOperation>,
+        transport: (suspend (List<SyncOperation>) -> ProviderPushResult)? = null,
+    ) {
         val unsupported = pending.firstOrNull { !provider.capabilities.supports(it) }
         if (unsupported != null) throw TrackingSyncError.UnsupportedOperation(provider.id, unsupported.type)
-        val completed = provider.push(pending).completedOperationIds
+        val completed = (transport?.invoke(pending) ?: provider.push(pending)).completedOperationIds
         check(completed.containsAll(pending.map(SyncOperation::id))) {
             "${provider.id.name} did not acknowledge every synchronization operation"
         }

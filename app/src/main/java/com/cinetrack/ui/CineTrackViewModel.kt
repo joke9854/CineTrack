@@ -266,9 +266,11 @@ class CineTrackViewModel(
                             FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
                             FloppyBootstrapStage.PREPARING,
                             FloppyBootstrapStage.QUEUED,
+                            FloppyBootstrapStage.CHECKING_REMOTE_STATE,
                             FloppyBootstrapStage.WAITING_FOR_SERVER,
                             FloppyBootstrapStage.SYNCING,
                             FloppyBootstrapStage.VERIFYING,
+                            FloppyBootstrapStage.STALLED,
                             -> if (current.floppyConnected) com.cinetrack.domain.FloppyUiState.SETTING_UP else current.floppyUiState
                             null -> current.floppyUiState
                         }

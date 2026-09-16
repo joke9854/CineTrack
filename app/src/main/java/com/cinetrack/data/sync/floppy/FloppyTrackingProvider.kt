@@ -14,6 +14,8 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
+import com.cinetrack.data.sync.floppy.network.FloppyBootstrapTransportContext
+import com.cinetrack.data.sync.floppy.network.FloppyBootstrapTransportSession
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.FloppyConnectionStage
 import java.util.concurrent.atomic.AtomicLong
@@ -164,6 +166,24 @@ class FloppyTrackingProvider(
         checkGeneration(generation)
         checkSessionStillCurrent(session)
         return result
+    }
+
+    /** Opens the run-scoped transport used exclusively by Floppy bootstrap.
+     * The immutable session and expected instance protect retries from ever
+     * sending an old plan to a newly activated account. */
+    suspend fun openBootstrapSession(expectedInstanceId: String): FloppyBootstrapTransportSession {
+        val session = captureSession()
+        if (session.instanceId != expectedInstanceId) {
+            throw TrackingSyncError.ProviderUnavailable(
+                id,
+                IllegalStateException("Floppy connection changed before bootstrap started"),
+            )
+        }
+        return FloppyBootstrapTransportSession(
+            remote = remote,
+            session = session,
+            context = FloppyBootstrapTransportContext(expectedInstanceId),
+        )
     }
 
     override suspend fun pullSnapshot(): TrackingSnapshot {

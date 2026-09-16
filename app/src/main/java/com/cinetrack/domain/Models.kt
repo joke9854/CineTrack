@@ -206,9 +206,11 @@ enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY,
 enum class FloppyBootstrapStage {
     PREPARING,
     QUEUED,
+    CHECKING_REMOTE_STATE,
     WAITING_FOR_SERVER,
     SYNCING,
     VERIFYING,
+    STALLED,
     COMPLETE,
     NEEDS_ATTENTION,
 }
@@ -221,6 +223,9 @@ data class FloppyBootstrapProgress(
     val succeeded: Int = 0,
     val failed: Int = 0,
     val providerInstanceId: String? = null,
+    val currentOperationType: String? = null,
+    val currentTitle: String? = null,
+    val lastProgressAtMillis: Long? = null,
 )
 
 /** Durable stages reported by the library artwork/metadata refresh job. */

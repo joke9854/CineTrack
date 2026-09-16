@@ -797,6 +797,7 @@ private fun SyncSettings(
 internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
     val bootstrap by viewModel.managedBootstrapSummary.collectAsStateWithLifecycle()
+    val bootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
     LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
     val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }
     val failed = operations.filter { it.status in setOf(SyncOperationStatus.FAILED, SyncOperationStatus.PARTIAL) }
@@ -810,25 +811,38 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
         ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
     }
 
-    bootstrap?.let { summary ->
-        SettingsSection("Floppy initial synchronization") {
-            val stateLabel = when (summary.state) {
-                com.cinetrack.data.sync.ProviderBootstrapState.READY -> "Ready"
-                com.cinetrack.data.sync.ProviderBootstrapState.FAILED -> "Needs attention"
-                com.cinetrack.data.sync.ProviderBootstrapState.RUNNING -> "Syncing"
-                com.cinetrack.data.sync.ProviderBootstrapState.NOT_STARTED -> "Preparing"
-            }
-            ValueRow("Floppy initial sync", "$stateLabel · ${summary.completed} / ${summary.total}", summary.state == com.cinetrack.data.sync.ProviderBootstrapState.READY)
-            summary.lastError?.takeIf(String::isNotBlank)?.let { error ->
-                Text("Floppy · $error", color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
-            }
-            if (summary.state != com.cinetrack.data.sync.ProviderBootstrapState.READY) {
-                PrimaryAction("Retry initial sync", Icons.Filled.Refresh, onClick = viewModel::retryFloppyInitialSync)
-            }
+    val effectiveProgress = bootstrapProgress ?: bootstrap?.let { summary ->
+        FloppyBootstrapProgress(
+            stage = when (summary.state) {
+                com.cinetrack.data.sync.ProviderBootstrapState.READY -> FloppyBootstrapStage.COMPLETE
+                com.cinetrack.data.sync.ProviderBootstrapState.FAILED -> FloppyBootstrapStage.NEEDS_ATTENTION
+                com.cinetrack.data.sync.ProviderBootstrapState.RUNNING -> FloppyBootstrapStage.SYNCING
+                com.cinetrack.data.sync.ProviderBootstrapState.NOT_STARTED -> FloppyBootstrapStage.PREPARING
+            },
+            processed = summary.completed,
+            total = summary.total,
+            succeeded = summary.completed,
+            failed = summary.failed,
+            providerInstanceId = summary.connectionId,
+        )
+    }
+    if (effectiveProgress != null) {
+        SettingsSection(stringResource(R.string.initial_synchronization)) {
+            ManagedFloppyBootstrapCard(effectiveProgress, bootstrap, viewModel::retryFloppyInitialSync)
         }
     }
 
-    if (operations.isEmpty()) {
+    val managedActive = effectiveProgress?.stage in setOf(
+        FloppyBootstrapStage.PREPARING,
+        FloppyBootstrapStage.QUEUED,
+        FloppyBootstrapStage.CHECKING_REMOTE_STATE,
+        FloppyBootstrapStage.SYNCING,
+        FloppyBootstrapStage.VERIFYING,
+        FloppyBootstrapStage.WAITING_FOR_SERVER,
+        FloppyBootstrapStage.STALLED,
+        FloppyBootstrapStage.NEEDS_ATTENTION,
+    )
+    if (operations.isEmpty() && !managedActive) {
         Text(
             stringResource(R.string.no_sync_operations),
             color = TextSecondary,
@@ -841,6 +855,95 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     if (conflicts.isNotEmpty()) SyncOperationSection(stringResource(R.string.conflicts_to_resolve), conflicts, viewModel)
     if (failed.isNotEmpty()) SyncOperationSection(stringResource(R.string.failed_actions), failed, viewModel)
     if (pending.isNotEmpty()) SyncOperationSection(stringResource(R.string.pending_writes), pending, viewModel)
+}
+
+@Composable
+private fun ManagedFloppyBootstrapCard(
+    progress: com.cinetrack.domain.FloppyBootstrapProgress,
+    summary: com.cinetrack.data.sync.ManagedBootstrapSummary?,
+    onRetry: () -> Unit,
+) {
+    val stage = progress.stage
+    val determinate = stage == FloppyBootstrapStage.SYNCING && progress.total > 0
+    val percent = if (determinate) (progress.processed * 100 / progress.total).coerceIn(0, 100) else 0
+    val retryable = stage in setOf(FloppyBootstrapStage.WAITING_FOR_SERVER, FloppyBootstrapStage.STALLED, FloppyBootstrapStage.NEEDS_ATTENTION)
+    Column(
+        Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+            .padding(com.cinetrack.ui.theme.Spacing.lg),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.CloudSync, contentDescription = null, tint = AccentLight, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+            Column(Modifier.weight(1f)) {
+                Text("Floppy", color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
+                Text(stringResource(R.string.initial_synchronization), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            }
+            Text(
+                when (stage) {
+                    FloppyBootstrapStage.COMPLETE -> stringResource(R.string.floppy_ready_short)
+                    FloppyBootstrapStage.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_needs_attention)
+                    FloppyBootstrapStage.STALLED -> stringResource(R.string.floppy_taking_longer)
+                    else -> stringResource(R.string.floppy_syncing_with_floppy)
+                },
+                color = if (retryable) androidx.compose.material3.MaterialTheme.colorScheme.error else TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                fontWeight = FontWeight.Bold,
+            )
+        }
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+        Text(
+            when (stage) {
+                FloppyBootstrapStage.PREPARING -> stringResource(R.string.floppy_preparing_sync_plan)
+                FloppyBootstrapStage.CHECKING_REMOTE_STATE -> stringResource(R.string.floppy_checking_existing_history)
+                FloppyBootstrapStage.QUEUED -> stringResource(R.string.floppy_waiting_for_server)
+                FloppyBootstrapStage.SYNCING -> stringResource(R.string.floppy_syncing_with_floppy)
+                FloppyBootstrapStage.VERIFYING -> stringResource(R.string.floppy_verifying_sync)
+                FloppyBootstrapStage.WAITING_FOR_SERVER -> stringResource(R.string.floppy_waiting_for_server)
+                FloppyBootstrapStage.STALLED -> stringResource(R.string.floppy_taking_longer)
+                FloppyBootstrapStage.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_needs_attention)
+                FloppyBootstrapStage.COMPLETE -> stringResource(R.string.floppy_ready_short)
+            },
+            color = TextPrimary,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (determinate) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            LinearProgressIndicator(
+                progress = { (progress.processed.toFloat() / progress.total).coerceIn(0f, 1f) },
+                color = AccentLight,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.floppy_progress_count, progress.processed, progress.total), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                Text("$percent%", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            }
+        } else if (stage != FloppyBootstrapStage.COMPLETE && stage != FloppyBootstrapStage.NEEDS_ATTENTION) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            LinearProgressIndicator(color = AccentLight, modifier = Modifier.fillMaxWidth())
+        }
+        progress.currentTitle?.takeIf(String::isNotBlank)?.let { title ->
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Text("${stringResource(R.string.current)}: $title", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        }
+        if (stage == FloppyBootstrapStage.SYNCING) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        }
+        summary?.lastError?.takeIf(String::isNotBlank)?.let { error ->
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Text(error, color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+        }
+        if (retryable) {
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
+            TextButton(onClick = onRetry) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                Text(if (stage == FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry) else stringResource(R.string.retry_now))
+            }
+        }
+    }
 }
 
 @Composable
@@ -1033,7 +1136,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                 else -> stringResource(R.string.floppy_setting_up)
             })
             val bootstrapProgress = observedBootstrapProgress ?: state.floppyBootstrapProgress
-            if (bootstrapProgress != null && state.floppyUiState != FloppyUiState.READY) {
+            if (bootstrapProgress != null && bootstrapProgress.stage != FloppyBootstrapStage.COMPLETE) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                     val determinate = bootstrapProgress.total > 0 && bootstrapProgress.stage == FloppyBootstrapStage.SYNCING
                     if (determinate) {
@@ -1042,23 +1145,30 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
                     Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
                     Text(
                         when (bootstrapProgress.stage) {
-                            FloppyBootstrapStage.PREPARING -> "Preparing initial sync…"
-                            FloppyBootstrapStage.QUEUED -> "Waiting to sync with Floppy…"
-                            FloppyBootstrapStage.WAITING_FOR_SERVER -> "Waiting for Floppy server…"
-                            FloppyBootstrapStage.SYNCING -> "Syncing with Floppy · ${bootstrapProgress.processed} / ${bootstrapProgress.total}"
-                            FloppyBootstrapStage.VERIFYING -> "Verifying Floppy…"
-                            FloppyBootstrapStage.COMPLETE -> "Initial sync complete"
-                            FloppyBootstrapStage.NEEDS_ATTENTION -> "Initial sync needs attention"
+                            FloppyBootstrapStage.PREPARING -> stringResource(R.string.floppy_preparing_sync_plan)
+                            FloppyBootstrapStage.QUEUED -> stringResource(R.string.floppy_waiting_for_server)
+                            FloppyBootstrapStage.CHECKING_REMOTE_STATE -> stringResource(R.string.floppy_checking_existing_history)
+                            FloppyBootstrapStage.WAITING_FOR_SERVER -> stringResource(R.string.floppy_waiting_for_server)
+                            FloppyBootstrapStage.SYNCING -> stringResource(R.string.floppy_syncing_with_floppy) + " · ${bootstrapProgress.processed} / ${bootstrapProgress.total}"
+                            FloppyBootstrapStage.VERIFYING -> stringResource(R.string.floppy_verifying_sync)
+                            FloppyBootstrapStage.STALLED -> stringResource(R.string.floppy_taking_longer)
+                            FloppyBootstrapStage.COMPLETE -> stringResource(R.string.floppy_ready_short)
+                            FloppyBootstrapStage.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_needs_attention)
                         },
                         color = TextMuted,
                         style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     )
                 }
-                Text("You can leave this screen. Synchronization will continue in the background.", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
+                Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
             }
         }
-        if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) {
-            PrimaryAction(stringResource(R.string.floppy_retry_initial_sync), Icons.Filled.Refresh) { viewModel.retryFloppyInitialSync() }
+        val retryableStage = observedBootstrapProgress?.stage in setOf(FloppyBootstrapStage.WAITING_FOR_SERVER, FloppyBootstrapStage.STALLED, FloppyBootstrapStage.NEEDS_ATTENTION)
+        if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION || retryableStage) {
+            TextButton(onClick = viewModel::retryFloppyInitialSync, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                Text(if (retryableStage && observedBootstrapProgress?.stage != FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry_now) else stringResource(R.string.retry))
+            }
         }
     }
     FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)

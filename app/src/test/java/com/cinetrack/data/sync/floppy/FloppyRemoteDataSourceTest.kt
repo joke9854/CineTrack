@@ -149,6 +149,25 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun bootstrapTransportIndexesEpisodeHistoryOnceAndUpdatesCache() = runBlocking {
+        server.enqueue(json("{\"pagination\":{\"total\":0,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[]}"))
+        server.enqueue(json("{}"))
+        val context = FloppyBootstrapTransportContext(session.instanceId)
+        val first = operation(SyncOperationType.EPISODE_WATCHED, mediaType = MediaType.TV, payload = "2:3:2026-01-01T00:00:00Z")
+        val duplicate = first.copy(id = "duplicate")
+
+        remote.prepareBootstrap(session, listOf(first, duplicate), context)
+        remote.push(session, listOf(first), context)
+        remote.push(session, listOf(duplicate), context)
+
+        // One history index request, one watch POST; the duplicate is
+        // acknowledged from the run-scoped EpisodeKey cache.
+        assertEquals(2, server.requestCount)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals("POST", server.takeRequest().method)
+    }
+
+    @Test
     fun episodeUnwatchedUsesTheDedicatedDropRoute() = runBlocking {
         server.enqueue(json("{}"))
 

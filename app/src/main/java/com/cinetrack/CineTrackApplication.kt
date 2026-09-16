@@ -200,7 +200,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             floppySecondaryService = floppySecondaryService,
             floppyRetryBootstrap = {
                 preferences.floppySettingsNow()?.connectionId?.let { instance ->
-                    FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first())
+                    FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())
                 }
             },
         )
