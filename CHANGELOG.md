@@ -1,3 +1,9 @@
+# CineTrack 0.99.13 beta
+
+- Prevented generic and forced synchronization from stealing managed Floppy bootstrap operations.
+- Isolated Simkl and Floppy provider I/O, added provider-specific failure presentation, and restored current-instance bootstrap progress.
+- Restored upcoming and recently aired Progress attention without overriding genuine playback activity.
+
 # CineTrack 0.99.12 beta
 
 - Moved Floppy SECONDARY initial synchronization into durable, instance-safe WorkManager batches with real syncing and verification progress.

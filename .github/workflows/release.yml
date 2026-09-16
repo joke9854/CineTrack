@@ -50,7 +50,9 @@ jobs:
       - name: Verify database schema and migration chain
         run: python3 scripts/check_database_indexes.py
       - name: Wait for Android validation
-        if: github.event_name == 'push'
+        if: >-
+          github.event_name == 'push' &&
+          !contains(github.event.head_commit.message, '[skip tests]')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -96,7 +98,14 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
-        run: ./gradlew :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+          SKIP_TESTS: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip tests]')) || (github.event_name == 'workflow_run' && contains(github.event.workflow_run.head_commit.message, '[skip tests]')) }}
+        run: |
+          if [ "$SKIP_TESTS" = "true" ]; then
+            echo "Skipping release tests by explicit [skip tests] request; building the signed APK only."
+            ./gradlew :app:assembleRelease
+          else
+            ./gradlew :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+          fi
       - name: Verify signed APK and profile assets
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -129,3 +138,4 @@ jobs:
               --notes-file CHANGELOG.md \
               --latest
           fi
+
