@@ -17,6 +17,7 @@ import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
 import com.cinetrack.data.sync.floppy.FloppyMediaDetail
@@ -47,6 +48,11 @@ class FloppyBootstrapTransportContext internal constructor(
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
+    // Global movie history is prepared once per worker attempt. A per-movie
+    // detail lookup remains reserved for exceptional active-consumption
+    // mutations that require a consumption id.
+    internal val watchedMovieIndex = mutableMapOf<Long, MutableSet<Instant>>()
+    internal var movieHistoryLoaded: Boolean = false
     internal val mediaDetailCache = mutableMapOf<String, FloppyMediaDetail?>()
     internal val historyCache = mutableMapOf<String, List<FloppyConsumption>>()
 }
@@ -363,12 +369,17 @@ class FloppyRemoteDataSource(
         if (context.providerInstanceId != session.instanceId) {
             throw TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY, IllegalStateException("Floppy instance changed"))
         }
-        if (context.episodeHistoryLoaded || operations.none { it.type == SyncOperationType.EPISODE_WATCHED }) return context.watchedEpisodeIndex.size
         val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         return try {
-            context.watchedEpisodeIndex += loadEpisodeIndex(api)
-            context.episodeHistoryLoaded = true
-            context.watchedEpisodeIndex.size
+            if (!context.episodeHistoryLoaded && operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+                context.watchedEpisodeIndex += loadEpisodeIndex(api)
+                context.episodeHistoryLoaded = true
+            }
+            if (!context.movieHistoryLoaded && operations.any { it.mediaType == MediaType.MOVIE }) {
+                loadMovieIndex(api, context)
+                context.movieHistoryLoaded = true
+            }
+            context.watchedEpisodeIndex.size + context.watchedMovieIndex.values.sumOf { it.size }
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
@@ -381,6 +392,21 @@ class FloppyRemoteDataSource(
             val episode = entry.episode ?: return@mapNotNull null
             if (entry.watched == true || entry.endDate != null) EpisodeKey(show, season, episode) else null
         }.toMutableSet()
+
+    private suspend fun loadMovieIndex(api: FloppyApi, context: FloppyBootstrapTransportContext) {
+        var offset = 0
+        while (true) {
+            val page = api.history(flat = "1", limit = 200, offset = offset, types = "movie")
+            page.results.forEach { entry ->
+                val movieId = entry.mediaId?.toLongOrNull() ?: return@forEach
+                val watchedAt = (entry.watchedAt ?: entry.endDate).toInstantOrNull() ?: return@forEach
+                context.watchedMovieIndex.getOrPut(movieId) { linkedSetOf() } += watchedAt
+            }
+            if (page.results.isEmpty() || page.pagination.next == null) break
+            offset += page.results.size
+        }
+    }
+
 
     suspend fun snapshot(
         baseUrl: String,
@@ -547,9 +573,19 @@ class FloppyRemoteDataSource(
         require(operation.mediaType == MediaType.MOVIE) { "Movie watched operation must target a movie" }
         val watchedAt = operation.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
-        val history = loadHistory(api, "movie", source, mediaId, context)
-        if (resolver.findExactWatch(history, watchedAt) != null) return
-        api.track("movie", FloppyTrackMediaRequest(source, mediaId, operation.title, status = 3, endDate = watchedAt.toString()))
+        val movieId = mediaId.toLongOrNull()
+        if (movieId != null && context?.watchedMovieIndex?.get(movieId)?.contains(watchedAt) == true) return
+        // v26.9.10's dedicated endpoint returns 201 on creation and 200 for
+        // the same external id. The identity is stable across retries.
+        api.watchMovie(
+            source = source,
+            mediaId = mediaId,
+            request = FloppyMovieWatchRequest(
+                endDate = watchedAt.toString(),
+                externalId = "cinetrack:${context?.providerInstanceId ?: "default"}:${operation.id}:${operation.sourceVersion}",
+            ),
+        )
+        if (movieId != null) context?.watchedMovieIndex?.getOrPut(movieId) { linkedSetOf() }?.add(watchedAt)
         invalidateCaches(context, "movie", source, mediaId)
     }
 
@@ -568,8 +604,17 @@ class FloppyRemoteDataSource(
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
         var history = loadHistory(api, "movie", source, mediaId, context)
         val hadActiveBefore = resolver.resolve(history).active != null
-        if (resolver.findExactWatch(history, watchedAt) == null) {
-            api.track("movie", FloppyTrackMediaRequest(source, mediaId, watched.title, status = 3, endDate = watchedAt.toString()))
+        val movieId = mediaId.toLongOrNull()
+        if (movieId == null || context?.watchedMovieIndex?.get(movieId)?.contains(watchedAt) != true) {
+            api.watchMovie(
+                source = source,
+                mediaId = mediaId,
+                request = FloppyMovieWatchRequest(
+                    endDate = watchedAt.toString(),
+                    externalId = "cinetrack:${context?.providerInstanceId ?: "default"}:${watched.id}:${watched.sourceVersion}",
+                ),
+            )
+            if (movieId != null) context?.watchedMovieIndex?.getOrPut(movieId) { linkedSetOf() }?.add(watchedAt)
             invalidateCaches(context, "movie", source, mediaId)
         }
         // When there was no active consumption, the exact completion check is
