@@ -288,7 +288,7 @@ class FloppyBootstrapWorker(
             earlyResult
         }
         @Suppress("UNCHECKED_CAST")
-        loopResult?.let { return it as Result }
+        loopResult?.let { return it as Result<Any?> }
         if (!isCurrent(application, expected)) return Result.success()
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
         val ready = coordinator.markReadyIfComplete()
