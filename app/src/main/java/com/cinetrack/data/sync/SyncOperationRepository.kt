@@ -31,6 +31,20 @@ interface SyncOperationRepository {
     ) {
         enqueue(operations)
     }
+
+    /** Fast path for immutable Floppy bootstrap materialization. */
+    suspend fun enqueueBootstrapForProviders(
+        operations: List<SyncOperation>,
+        targets: List<SyncOperationDelivery>,
+    ) = enqueue(operations, targets)
+
+    /** Direct, repair-free reads used only by the managed Floppy worker. */
+    suspend fun bootstrapPending(connectionId: String, limit: Int): List<SyncOperation> =
+        pending().filter { it.id.startsWith("bootstrap:${connectionId}:") }.take(limit)
+    suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
+        bootstrapPending(connectionId, operationIds.size.coerceAtLeast(1)).filter { it.id in operationIds }
+    suspend fun bootstrapPendingCount(connectionId: String): Int =
+        bootstrapPending(connectionId, Int.MAX_VALUE).size
     suspend fun cards(): List<SyncOperationCard>
     suspend fun managedBootstrapSummary(): ManagedBootstrapSummary? = null
     suspend fun complete(operations: List<SyncOperation>)
@@ -109,6 +123,18 @@ class RoomSyncOperationRepository(
             lastError = failedRows.firstOrNull()?.lastError,
         )
     }
+    override suspend fun bootstrapPending(connectionId: String, limit: Int): List<SyncOperation> =
+        database.syncDao().pendingFloppyBootstrapOperations("bootstrap:${connectionId}:", connectionId, limit)
+            .mapNotNull { it.toSyncOperation(null) }
+
+    override suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
+        if (operationIds.isEmpty()) emptyList()
+        else database.syncDao().pendingFloppyBootstrapOperationsByIds(operationIds.toList(), connectionId)
+            .mapNotNull { it.toSyncOperation(null) }
+
+    override suspend fun bootstrapPendingCount(connectionId: String): Int =
+        database.syncDao().pendingFloppyBootstrapCount("bootstrap:${connectionId}:", connectionId)
+
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> {
         backfillLegacyDeliveries()
         ensureLegacyOperationsMaterialized()
@@ -160,6 +186,37 @@ class RoomSyncOperationRepository(
                     SyncDeliveryCard(it.providerId.name, it.status.name, it.required, it.attemptCount, it.lastError)
                 },
             )
+        }
+    }
+
+    override suspend fun enqueueBootstrapForProviders(
+        operations: List<SyncOperation>,
+        targets: List<SyncOperationDelivery>,
+    ) {
+        if (operations.isEmpty()) return
+        // Bootstrap operations already have immutable ids/generations and
+        // provider targets. Do not run the normal queue's global repair,
+        // legacy materialization, title repair, or stale-field scans here.
+        val now = System.currentTimeMillis()
+        val entities = operations.map { operation ->
+            SyncOperationEntity(
+                operationId = operation.id,
+                operation = operation.type.name,
+                mediaType = operation.mediaType.name,
+                mediaId = operation.mediaId,
+                title = operation.title.ifBlank { "${operation.mediaType.name} #${operation.mediaId}" },
+                status = SyncOperationStatus.PENDING.name,
+                localValue = operation.value,
+                createdAt = operation.sourceVersion,
+                updatedAt = now,
+                season = operation.payload?.episodePart(0),
+                episode = operation.payload?.episodePart(1),
+                payload = operation.payload,
+            )
+        }
+        database.withTransaction {
+            database.syncDao().upsertOperations(entities)
+            database.syncDao().upsertDeliveries(targets.map { it.toEntity(now) })
         }
     }
 

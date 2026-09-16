@@ -238,6 +238,8 @@ data class FloppyBootstrapProgress(
     val lastProgressAtMillis: Long? = null,
     val planningProcessed: Int = 0,
     val planningTotal: Int = 0,
+    /** Immutable WorkManager execution identity; retries keep the same id. */
+    val bootstrapRunId: String? = null,
 )
 
 /** Durable stages reported by the library artwork/metadata refresh job. */

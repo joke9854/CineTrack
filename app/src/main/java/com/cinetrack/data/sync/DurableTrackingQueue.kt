@@ -196,11 +196,15 @@ class DurableSyncOperationWriter(
         routingMutex.withLock {
             val targets = durableQueue.snapshotForProvidersUnlocked(operations, providers)
             if (targets.isEmpty()) return@withLock
-            operationRepository.enqueue(
-                operations = operations,
-                targets = targets,
-                supersedeOperationIds = if (supersedeLogicalKey) operations.mapTo(linkedSetOf(), SyncOperation::id) else emptySet(),
-            )
+            if (!supersedeLogicalKey && operations.all(SyncOperation::isManagedBootstrapOperation)) {
+                operationRepository.enqueueBootstrapForProviders(operations, targets)
+            } else {
+                operationRepository.enqueue(
+                    operations = operations,
+                    targets = targets,
+                    supersedeOperationIds = if (supersedeLogicalKey) operations.mapTo(linkedSetOf(), SyncOperation::id) else emptySet(),
+                )
+            }
         }
     }
 

@@ -1018,31 +1018,17 @@ class CineTrackRepository(
         val cachedEpisodeCards = cachedEpisodes.map { it.toDomain() }
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.TV && it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED) }
-            .mapNotNull { show ->
-                // Only an unfinished playback session is allowed to override
-                // the episode schedule. A zero-progress placeholder is not an
-                // active session and may yield to an aired/future next episode.
+            .map { show ->
+                // Resume state is the strongest signal. Schedule metadata can
+                // never replace an unfinished episode already being watched.
                 val session = playbackByShow[show.stableKey]?.takeIf {
-                    it.progress > 0f && it.season != null && it.episodeNumber != null &&
+                    it.progress > 0f && it.progress < 1f &&
+                        it.season != null && it.episodeNumber != null &&
                         Triple(show.id, it.season, it.episodeNumber) !in watchedNumbers
                 }
-                if (session != null) {
-                    // Pass the active session into canonical selection before
-                    // returning it. This keeps episode identity and playback
-                    // progress coupled even when a later episode has aired.
-                    selectNextProgressEpisode(
-                        show.id,
-                        cachedEpisodeCards,
-                        watchedNumbers,
-                        releaseNow,
-                        releaseZone,
-                        excludeSpecials,
-                        playbackSession = session,
-                    )
-                    return@mapNotNull session
-                }
-                val cachedRow = durableUpNext[show.id]
-                val stored = cachedRow?.takeUnless {
+                if (session != null) return@map session
+
+                val stored = durableUpNext[show.id]?.takeUnless {
                     Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
                 }?.let { row ->
                     EpisodeCard(
@@ -1056,10 +1042,6 @@ class CineTrackRepository(
                         runtimeMinutes = row.durationMinutes,
                     )
                 }
-                // Re-evaluate the local schedule on every projection. This
-                // prevents a durable future row from masking an episode that
-                // has since aired; the persisted row remains a fallback when
-                // the cache is incomplete during startup.
                 val computed = selectNextProgressEpisode(
                     show.id,
                     cachedEpisodeCards,
@@ -1068,13 +1050,32 @@ class CineTrackRepository(
                     releaseZone,
                     excludeSpecials,
                 )
-                val next = computed ?: stored?.takeIf { storedEpisode ->
-                    val air = releaseDateTime(storedEpisode.airDate, releaseZone)?.toInstant()
-                    air == null || !air.isAfter(releaseNow) ||
+                fun storedIsEligible(candidate: EpisodeCard): Boolean {
+                    val air = releaseDateTime(candidate.airDate, releaseZone)?.toInstant()
+                    return air == null || !air.isAfter(releaseNow) ||
                         air.toEpochMilli() - releaseNow.toEpochMilli() <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
                 }
-                if (next == null) return@mapNotNull session
-                val sameEpisode = session?.season == next.season && session.episodeNumber == next.number
+                // If both paths have data, retain the earliest sequential
+                // candidate. This protects an older correct up_next row when
+                // a latest-season cache is sparse or only partially refreshed.
+                val next = when {
+                    computed == null -> stored?.takeIf(::storedIsEligible)
+                    stored == null || !storedIsEligible(stored) -> computed
+                    else -> if (
+                        compareBy<EpisodeCard> { it.season }.thenBy { it.number }
+                            .compare(computed, stored) <= 0
+                    ) computed else stored
+                }
+                if (next == null) {
+                    // Keep meaningful tracking progress visible even when
+                    // metadata is temporarily unavailable; do not build list
+                    // membership from latest-air resolution.
+                    return@map PlaybackCard(
+                        media = show,
+                        progress = 0f,
+                        durationMinutes = show.runtimeMinutes,
+                    )
+                }
                 PlaybackCard(
                     media = show,
                     episodeId = next.id.takeIf { it > 0 },
@@ -1082,11 +1083,11 @@ class CineTrackRepository(
                     episodeTitle = next.title,
                     season = next.season,
                     episodeNumber = next.number,
-                    progress = if (sameEpisode) session?.progress ?: 0f else 0f,
-                    remainingMinutes = if (sameEpisode && (session?.progress ?: 0f) > 0f) session?.remainingMinutes else null,
-                    durationMinutes = next.runtimeMinutes ?: session?.durationMinutes ?: show.runtimeMinutes,
+                    progress = 0f,
+                    remainingMinutes = null,
+                    durationMinutes = next.runtimeMinutes ?: show.runtimeMinutes,
                     episodeAirDate = next.airDate,
-                    progressUpdatedAtMillis = if (sameEpisode) session?.progressUpdatedAtMillis ?: 0L else 0L,
+                    progressUpdatedAtMillis = 0L,
                 )
             }
             .sortedWith { left, right ->

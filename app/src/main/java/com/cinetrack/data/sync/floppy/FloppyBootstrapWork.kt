@@ -63,8 +63,15 @@ object FloppyBootstrapWorkScheduler {
     /** Idempotent scheduling for the current immutable Floppy instance. */
     fun ensureScheduled(context: Context, connectionId: String, wifiOnly: Boolean = false) {
         if (connectionId.isBlank()) return
+        val runId = java.util.UUID.randomUUID().toString()
         val request = OneTimeWorkRequestBuilder<FloppyBootstrapWorker>()
-            .setInputData(workDataOf(FloppyBootstrapWorker.EXPECTED_CONNECTION_ID to connectionId))
+            .setInputData(
+                workDataOf(
+                    FloppyBootstrapWorker.EXPECTED_CONNECTION_ID to connectionId,
+                    FloppyBootstrapWorker.BOOTSTRAP_RUN_ID to runId,
+                    FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT to System.currentTimeMillis(),
+                ),
+            )
             .addTag("floppy-bootstrap")
             .addTag("floppy-bootstrap:$connectionId")
             .setConstraints(
@@ -112,8 +119,12 @@ class FloppyBootstrapWorkManager(context: Context) {
 }
 
 private fun List<WorkInfo>.selectFloppyWork(): WorkInfo? =
-    firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
-        ?: firstOrNull()
+    asSequence()
+        .sortedByDescending { it.inputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L) }
+        .firstOrNull { it.state == WorkInfo.State.RUNNING || it.state == WorkInfo.State.ENQUEUED }
+        ?: asSequence()
+            .sortedByDescending { it.inputData.getLong(FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT, 0L) }
+            .firstOrNull()
 
 class FloppyBootstrapWorker(
     appContext: Context,
@@ -157,8 +168,7 @@ class FloppyBootstrapWorker(
         val total = plan.size
         Log.i(TAG, "Floppy bootstrap started: plan total=$total")
         if (total > 100) setForeground(createForegroundInfo(initialPlan.copy(total = total)))
-        val planIds = plan.mapTo(linkedSetOf()) { it.id }
-        var processed = (total - application.container.syncCoordinator.pendingOperationCount(planIds)).coerceIn(0, total)
+        var processed = (total - application.container.syncCoordinator.pendingBootstrapCount(expected)).coerceIn(0, total)
         var failed = 0
         // A cheap authenticated reachability check prevents a transient
         // private-DNS/VPN outage from poisoning an entire batch of durable
@@ -203,7 +213,7 @@ class FloppyBootstrapWorker(
         // Expensive remote preparation belongs to its own stage.  In
         // particular, episode history is indexed once for this worker run,
         // never once per 15-operation batch.
-        val remainingBeforeIndex = application.container.syncCoordinator.pendingOperations(planIds)
+        val remainingBeforeIndex = application.container.syncCoordinator.pendingBootstrapOperations(expected, total.coerceAtLeast(1))
         if (remainingBeforeIndex.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
             Log.i(TAG, "Floppy bootstrap preparing remote episode state")
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
@@ -242,14 +252,19 @@ class FloppyBootstrapWorker(
                 }
             }
             try {
+                var pendingBatch = emptyList<SyncOperation>()
                 while (true) {
                     if (!isCurrent(application, expected)) {
                         stoppedForInstanceChange = true
                         break
                     }
-                    val pendingOps = application.container.syncCoordinator.pendingOperations(planIds)
-                    if (pendingOps.isEmpty()) break
-                    val unit = pendingOps.bootstrapLogicalUnit()
+                    if (pendingBatch.isEmpty()) {
+                        pendingBatch = application.container.syncCoordinator.pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
+                    }
+                    if (pendingBatch.isEmpty()) break
+                    val unit = pendingBatch.bootstrapLogicalUnit()
+                    val unitIds = unit.mapTo(linkedSetOf()) { it.id }
+                    pendingBatch = pendingBatch.filterNot { it.id in unitIds }
                     val first = unit.first()
                     Log.i(TAG, "Floppy bootstrap unit started: type=${first.type} media=${first.mediaType}:${first.mediaId}")
                     current = FloppyBootstrapProgress(
@@ -299,7 +314,7 @@ class FloppyBootstrapWorker(
                         stoppedForInstanceChange = true
                         break
                     }
-                    val remaining = application.container.syncCoordinator.pendingOperationCount(planIds)
+                    val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
                     processed = (total - remaining).coerceIn(0, total)
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
@@ -364,6 +379,7 @@ class FloppyBootstrapWorker(
         .putInt("failed", progress.failed)
         .apply {
             progress.providerInstanceId?.let { putString("providerInstanceId", it) }
+            progress.bootstrapRunId?.let { putString("bootstrapRunId", it) }
             progress.currentOperationType?.let { putString("currentOperationType", it) }
             progress.currentTitle?.let { putString("currentTitle", it) }
             progress.lastProgressAtMillis?.let { putLong("lastProgressAt", it) }
@@ -393,6 +409,9 @@ class FloppyBootstrapWorker(
 
     companion object {
         const val EXPECTED_CONNECTION_ID = "expectedConnectionId"
+        const val BOOTSTRAP_RUN_ID = "bootstrapRunId"
+        const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
+        private const val BOOTSTRAP_FETCH_BATCH = 200
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
@@ -419,6 +438,8 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
         succeeded = data.getInt("succeeded", 0),
         failed = data.getInt("failed", 0),
         providerInstanceId = data.getString("providerInstanceId"),
+        bootstrapRunId = data.getString("bootstrapRunId")
+            ?: inputData.getString(FloppyBootstrapWorker.BOOTSTRAP_RUN_ID),
         currentOperationType = data.getString("currentOperationType"),
         currentTitle = data.getString("currentTitle"),
         lastProgressAtMillis = data.getLong("lastProgressAt", 0L).takeIf { it > 0L },

@@ -132,6 +132,36 @@ class PlaybackOrderingTest {
     }
 
     @Test
+    fun sequentialProgressStaysInAnOlderSeason() {
+        val now = Instant.parse("2026-09-16T12:00:00Z")
+        val episodes = (1..2).map { episode(42, 1, it, "2026-01-01") } +
+            (1..4).map { episode(42, 2, it, "2026-02-01") } +
+            (1..2).map { episode(42, 5, it, "2026-09-15") }
+        val watched = (1..2).map { Triple(42, 1, it) }.toSet() +
+            (1..3).map { Triple(42, 2, it) }.toSet()
+        assertEquals(4, selectNextProgressEpisode(42, episodes, watched, now, java.time.ZoneId.of("UTC"), false)?.number)
+    }
+
+    @Test
+    fun anUnwatchedGapBeatsLaterWatchedEpisode() {
+        val now = Instant.parse("2026-09-16T12:00:00Z")
+        val episodes = (1..5).map { episode(42, 2, it, "2026-01-01") }
+        val watched = setOf(Triple(42, 2, 1), Triple(42, 2, 2), Triple(42, 2, 4))
+        assertEquals(3, selectNextProgressEpisode(42, episodes, watched, now, java.time.ZoneId.of("UTC"), false)?.number)
+    }
+
+    @Test
+    fun newerAirDateCannotSkipAnOlderUnwatchedEpisode() {
+        val now = Instant.parse("2026-09-16T12:00:00Z")
+        val episodes = listOf(
+            episode(42, 2, 4, "2026-02-01"),
+            episode(42, 5, 10, "2026-09-16"),
+        )
+        val watched = setOf(Triple(42, 2, 1), Triple(42, 2, 2), Triple(42, 2, 3))
+        assertEquals(4, selectNextProgressEpisode(42, episodes, watched, now, java.time.ZoneId.of("UTC"), false)?.number)
+    }
+
+    @Test
     fun specialsRemainExcluded() {
         val now = Instant.parse("2026-09-16T12:00:00Z")
         val episodes = listOf(episode(42, 0, 1, "2026-09-10"), episode(42, 1, 1, "2026-09-11"))

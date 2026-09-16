@@ -509,6 +509,43 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operations ORDER BY CASE status WHEN 'CONFLICT' THEN 0 WHEN 'FAILED' THEN 1 ELSE 2 END, updatedAt DESC")
     suspend fun syncOperations(): List<SyncOperationEntity>
 
+    /** Current-generation Floppy bootstrap rows only; avoids the broad queue projection. */
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+        LIMIT :limit
+    """)
+    suspend fun pendingFloppyBootstrapOperations(prefix: String, connectionId: String, limit: Int): List<SyncOperationEntity>
+
+    @Query("""
+        SELECT COUNT(*) FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+    """)
+    suspend fun pendingFloppyBootstrapCount(prefix: String, connectionId: String): Int
+
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId IN (:operationIds)
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+    """)
+    suspend fun pendingFloppyBootstrapOperationsByIds(operationIds: List<String>, connectionId: String): List<SyncOperationEntity>
+
     @Query("SELECT * FROM sync_operations WHERE operationId = :operationId LIMIT 1")
     suspend fun syncOperation(operationId: String): SyncOperationEntity?
 

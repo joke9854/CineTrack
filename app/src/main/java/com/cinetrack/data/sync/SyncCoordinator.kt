@@ -141,7 +141,8 @@ class SyncCoordinator(
     ): Result<Unit> = withProviderIo(providerId) {
         resultOf {
             if (operationIds.isEmpty()) return@resultOf Unit
-            repairCurrentFloppyInstance()
+            val managedBootstrap = operationIds.isNotEmpty() && operationIds.all { it.startsWith("bootstrap:") }
+            if (!managedBootstrap) repairCurrentFloppyInstance()
             val provider = registry.getProvider(providerId)
                 ?: throw TrackingSyncError.ProviderUnavailable(providerId)
             val configuration = registry.configuration()
@@ -155,7 +156,11 @@ class SyncCoordinator(
             // This exact-ID boundary is intentionally the one exception to
             // generic bootstrap exclusion: FloppyBootstrapWorker owns these
             // rows and passes their persisted ids explicitly.
-            val pending = operations.pending(operationIds)
+            val pending = if (managedBootstrap && !expectedInstanceId.isNullOrBlank()) {
+                operations.bootstrapPendingByIds(expectedInstanceId, operationIds)
+            } else {
+                operations.pending(operationIds)
+            }
             if (pending.isEmpty()) return@resultOf Unit
             if (!operations.requiresPersistedDeliveryRows) {
                 operations.ensureDeliveries(
@@ -213,6 +218,12 @@ class SyncCoordinator(
 
     suspend fun pendingOperationCount(operationIds: Set<String>): Int =
         pendingOperationIds(operationIds).size
+
+    suspend fun pendingBootstrapOperations(connectionId: String, limit: Int): List<SyncOperation> =
+        operations.bootstrapPending(connectionId, limit)
+
+    suspend fun pendingBootstrapCount(connectionId: String): Int =
+        operations.bootstrapPendingCount(connectionId)
 
     /**
      * Dispatches pending work while the caller already owns providerIoMutex.
