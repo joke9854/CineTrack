@@ -36,6 +36,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.io.IOException
 import kotlin.Result as SyncResult
@@ -107,15 +108,16 @@ class FloppyBootstrapWorkManager(context: Context) {
     /** Compatibility view for callers that do not yet know the active instance. */
     val progress: Flow<FloppyBootstrapProgress?> = allProgress.map { infos -> infos.selectFloppyWork()?.toFloppyProgress() }
 
-    /** Selects only WorkInfo belonging to the requested immutable provider instance. */
-    fun progressFor(connectionId: String?): Flow<FloppyBootstrapProgress?> = allProgress.map { infos ->
-        if (connectionId.isNullOrBlank()) null
-        else infos.filter { info ->
-            "floppy-bootstrap:$connectionId" in info.tags ||
-                info.progress.getString("providerInstanceId") == connectionId ||
-                info.outputData.getString("providerInstanceId") == connectionId
-        }.selectFloppyWork()?.toFloppyProgress()
-    }
+    /** Selects the unique WorkManager execution for the requested immutable
+     * provider instance. Querying the unique name avoids historical tagged
+     * retries/cancellations masking the active instance's progress. */
+    fun progressFor(connectionId: String?): Flow<FloppyBootstrapProgress?> =
+        if (connectionId.isNullOrBlank()) {
+            flowOf(null)
+        } else {
+            workManager.getWorkInfosForUniqueWorkFlow(uniqueWorkName(connectionId))
+                .map { infos -> infos.selectFloppyWork()?.toFloppyProgress() }
+        }
 }
 
 private fun List<WorkInfo>.selectFloppyWork(): WorkInfo? =
@@ -377,25 +379,33 @@ class FloppyBootstrapWorker(
 
     private fun isRetryable(error: Throwable): Boolean = isFloppyBootstrapRetryable(error)
 
-    private fun progressData(progress: FloppyBootstrapProgress): Data = Data.Builder()
-        .putString("stage", progress.stage.name)
-        .putInt("processed", progress.processed)
-        .putInt("total", progress.total)
-        .putInt("succeeded", progress.succeeded)
-        .putInt("failed", progress.failed)
-        .apply {
-            progress.providerInstanceId?.let { putString("providerInstanceId", it) }
-            progress.bootstrapRunId?.let { putString("bootstrapRunId", it) }
-            inputData.getLong(BOOTSTRAP_SCHEDULED_AT, 0L).takeIf { it > 0L }?.let {
-                putLong(BOOTSTRAP_SCHEDULED_AT, it)
+    private fun progressData(progress: FloppyBootstrapProgress): Data {
+        // Every WorkInfo update carries the immutable execution identity from
+        // input. This keeps retries of one request correlated while ensuring
+        // historical executions cannot be rendered as the current run.
+        val current = if (progress.bootstrapRunId == null) {
+            progress.copy(bootstrapRunId = inputData.getString(BOOTSTRAP_RUN_ID))
+        } else progress
+        return Data.Builder()
+            .putString("stage", current.stage.name)
+            .putInt("processed", current.processed)
+            .putInt("total", current.total)
+            .putInt("succeeded", current.succeeded)
+            .putInt("failed", current.failed)
+            .apply {
+                current.providerInstanceId?.let { putString("providerInstanceId", it) }
+                current.bootstrapRunId?.let { putString("bootstrapRunId", it) }
+                inputData.getLong(BOOTSTRAP_SCHEDULED_AT, 0L).takeIf { it > 0L }?.let {
+                    putLong(BOOTSTRAP_SCHEDULED_AT, it)
+                }
+                current.currentOperationType?.let { putString("currentOperationType", it) }
+                current.currentTitle?.let { putString("currentTitle", it) }
+                current.lastProgressAtMillis?.let { putLong("lastProgressAt", it) }
+                putInt("planningProcessed", current.planningProcessed)
+                putInt("planningTotal", current.planningTotal)
             }
-            progress.currentOperationType?.let { putString("currentOperationType", it) }
-            progress.currentTitle?.let { putString("currentTitle", it) }
-            progress.lastProgressAtMillis?.let { putLong("lastProgressAt", it) }
-            putInt("planningProcessed", progress.planningProcessed)
-            putInt("planningTotal", progress.planningTotal)
-        }
-        .build()
+            .build()
+    }
 
     private fun createForegroundInfo(progress: FloppyBootstrapProgress): androidx.work.ForegroundInfo {
         if (Build.VERSION.SDK_INT >= 26) {
