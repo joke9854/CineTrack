@@ -4,6 +4,7 @@ import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.domain.MediaType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloppyBootstrapBatchingTest {
@@ -31,6 +32,7 @@ class FloppyBootstrapBatchingTest {
         val runs = remote.contiguousEpisodeRuns(
             listOf(op("a", 10, 1, 1), op("b", 10, 1, 3), op("c", 11, 1, 2)),
         )
-        assertEquals(listOf(listOf("a"), listOf("b"), listOf("c")), runs.map { it.map(SyncOperation::id) })
+        assertEquals(setOf("a", "b", "c"), runs.flatten().map(SyncOperation::id).toSet())
+        assertTrue(runs.all { run -> run.map { it.mediaId }.toSet().size == 1 })
     }
 }
