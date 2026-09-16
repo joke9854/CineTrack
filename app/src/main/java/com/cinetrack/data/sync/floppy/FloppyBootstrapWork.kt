@@ -115,7 +115,7 @@ class FloppyBootstrapWorkManager(context: Context) {
         if (connectionId.isNullOrBlank()) {
             flowOf(null)
         } else {
-            workManager.getWorkInfosForUniqueWorkFlow(uniqueWorkName(connectionId))
+            workManager.getWorkInfosForUniqueWorkFlow(FloppyBootstrapWorkScheduler.uniqueWorkName(connectionId))
                 .map { infos -> infos.selectFloppyWork()?.toFloppyProgress() }
         }
 }
