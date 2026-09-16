@@ -806,14 +806,6 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     val failed = operations.filter { it.status in setOf(SyncOperationStatus.FAILED, SyncOperationStatus.PARTIAL) }
     val pending = operations.filter { it.status == SyncOperationStatus.PENDING }
 
-    SettingsSection(stringResource(R.string.sync_operations_status)) {
-        ValueRow(stringResource(R.string.pending_writes), pending.size.toString(), pending.isEmpty())
-        GlassDivider()
-        ValueRow(stringResource(R.string.failed_actions), failed.size.toString(), failed.isEmpty())
-        GlassDivider()
-        ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
-    }
-
     val effectiveProgress = bootstrapProgress ?: bootstrap?.let { summary ->
         FloppyBootstrapProgress(
             stage = when (summary.state) {
@@ -829,6 +821,19 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
             providerInstanceId = summary.connectionId,
         )
     }
+    // Managed bootstrap rows are intentionally compacted into one card, but
+    // their terminal failure must still be reflected in this screen's status
+    // summary. A Floppy HTTP failure is transport attention, never a local
+    // reconciliation conflict.
+    val bootstrapFailed = effectiveProgress?.stage == FloppyBootstrapStage.NEEDS_ATTENTION
+    SettingsSection(stringResource(R.string.sync_operations_status)) {
+        ValueRow(stringResource(R.string.pending_writes), pending.size.toString(), pending.isEmpty())
+        GlassDivider()
+        ValueRow(stringResource(R.string.failed_actions), (failed.size + if (bootstrapFailed) 1 else 0).toString(), failed.isEmpty() && !bootstrapFailed)
+        GlassDivider()
+        ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
+    }
+
     if (effectiveProgress != null) {
         SettingsSection(stringResource(R.string.initial_synchronization)) {
             ManagedFloppyBootstrapCard(effectiveProgress, bootstrap, viewModel::retryFloppyInitialSync)
