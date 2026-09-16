@@ -283,7 +283,11 @@ class FloppyRemoteDataSource(
                 } else {
                     val taskId = task.taskId
                         ?: throw TrackingSyncError.InvalidRemoteData("Floppy bulk response did not include a task id")
-                    awaitBulkTask(api, taskId)
+                    awaitBulkTask(
+                        api,
+                        taskId,
+                        "show=${pending.first().mediaId}, season=${first.first}, episodes=${first.second}-${last.second}",
+                    )
                     true
                 }
                 if (usedBulk) {
@@ -326,15 +330,28 @@ class FloppyRemoteDataSource(
         return runs
     }
 
-    private suspend fun awaitBulkTask(api: FloppyApi, taskId: String) {
+    private suspend fun awaitBulkTask(api: FloppyApi, taskId: String, safeRange: String) {
         repeat(BULK_TASK_POLL_ATTEMPTS) {
-            when (api.taskStatus(taskId).status?.uppercase()) {
+            val status = try {
+                api.taskStatus(taskId).status?.uppercase()
+            } catch (error: HttpException) {
+                if (error.code() == 409) {
+                    val code = FloppyApiErrorMapper.code(error) ?: "unspecified"
+                    throw TrackingSyncError.Conflict(
+                        "Floppy bulk task conflict: task=$taskId, $safeRange, code=$code",
+                    )
+                }
+                throw error
+            }
+            when (status) {
                 "SUCCESS", "SUCCEEDED", "COMPLETED" -> return
-                "FAILURE", "FAILED", "REVOKED" -> throw TrackingSyncError.InvalidRemoteData("Floppy bulk episode task failed")
+                "FAILURE", "FAILED", "REVOKED" -> throw TrackingSyncError.InvalidRemoteData(
+                    "Floppy bulk episode task failed: task=$taskId, $safeRange, state=$status",
+                )
                 else -> delay(BULK_TASK_POLL_DELAY_MS)
             }
         }
-        throw TrackingSyncError.Timeout(IllegalStateException("Floppy bulk episode task timed out"))
+        throw TrackingSyncError.Timeout(IllegalStateException("Floppy bulk episode task timed out: task=$taskId, $safeRange"))
     }
 
     /** Index Floppy episode history once before the first bootstrap unit. */
