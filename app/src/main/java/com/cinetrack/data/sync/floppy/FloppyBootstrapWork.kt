@@ -29,6 +29,9 @@ import com.cinetrack.data.sync.SyncOperationType
 import com.cinetrack.domain.FloppyBootstrapProgress
 import com.cinetrack.domain.FloppyBootstrapStage
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.supervisorScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -281,6 +284,33 @@ class FloppyBootstrapWorker(
                         (!transport.context.episodeHistoryLoaded && fetchedBatch.any { it.type == SyncOperationType.EPISODE_WATCHED })) {
                         transport.prepare(fetchedBatch)
                     }
+                    val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
+                    if (movieWave.isNotEmpty()) {
+                        val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
+                            supervisorScope {
+                                movieWave.map { unit ->
+                                    async {
+                                        unit to runCatching { withTimeout(90_000) { transport.push(unit) } }
+                                    }
+                                }.awaitAll()
+                            }
+                        }
+                        var waveFailure: Throwable? = null
+                        outcomes.forEach { (unit, outcome) ->
+                            val error = outcome.exceptionOrNull()
+                            application.container.syncCoordinator.settleFloppyBootstrapUnit(expected, unit, error)
+                            if (error != null && waveFailure == null) waveFailure = error
+                        }
+                        val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
+                        processed = (total - remaining).coerceIn(processed, total)
+                        lastProgressAt = System.currentTimeMillis()
+                        if (waveFailure != null) {
+                            failed += movieWave.firstOrNull { unit -> outcomes.firstOrNull { it.first == unit }?.second?.isFailure == true }?.size ?: 0
+                            loopError = waveFailure
+                            break
+                        }
+                        continue
+                    }
                     // A transport unit is the durable acknowledgement boundary.
                     // Earlier bulk-task successes are committed before an
                     // unrelated later unit can fail.
@@ -444,6 +474,7 @@ class FloppyBootstrapWorker(
         const val BOOTSTRAP_RUN_ID = "bootstrapRunId"
         const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
         private const val BOOTSTRAP_FETCH_BATCH = 200
+        internal const val MAX_CONCURRENT_MOVIE_UNITS = 4
         private const val BOOTSTRAP_PREPARATION_SEED = 200
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
@@ -485,6 +516,15 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
 /** One independently-confirmable Floppy bootstrap request. Episode units are
  * same-show, same-season, gap-free ranges capped at the server payload limit.
  * Other operations preserve the existing completed-movie pair invariant. */
+/** Plans at most one ordered logical unit for each distinct movie. */
+internal fun List<SyncOperation>.bootstrapMovieWave(maxUnits: Int): List<List<SyncOperation>> =
+    filter { it.mediaType == com.cinetrack.domain.MediaType.MOVIE }
+        .groupBy(SyncOperation::mediaId)
+        .toSortedMap()
+        .values
+        .map { it.bootstrapLogicalUnit() }
+        .take(maxUnits)
+
 internal fun List<SyncOperation>.bootstrapTransportUnit(): List<SyncOperation> {
     if (isEmpty()) return emptyList()
     val episode = filter { it.type == SyncOperationType.EPISODE_WATCHED }
