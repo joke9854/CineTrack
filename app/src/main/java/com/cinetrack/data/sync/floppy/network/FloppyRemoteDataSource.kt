@@ -205,13 +205,13 @@ class FloppyRemoteDataSource(
                 }
                 val watched = pair.firstOrNull { it.type == SyncOperationType.MOVIE_WATCHED }
                 if (library != null && watched != null) {
-                    pushMovieCompleted(api, library, watched, "tmdb", watched.mediaId.toString(), bootstrapContext)
+                    pushMovieCompleted(api, library, watched, "tmdb", watched.mediaId.toString(), bootstrapContext, session.instanceId)
                     completed += library.id
                     completed += watched.id
                     consumed += library.id
                     consumed += watched.id
                 } else {
-                    pushOne(api, operation, episodeIndex, bootstrapContext)
+                    pushOne(api, operation, episodeIndex, bootstrapContext, session.instanceId)
                     completed += operation.id
                     consumed += operation.id
                 }
@@ -474,12 +474,13 @@ class FloppyRemoteDataSource(
         operation: SyncOperation,
         episodeIndex: MutableSet<EpisodeKey>? = null,
         bootstrapContext: FloppyBootstrapTransportContext? = null,
+        providerInstanceId: String,
     ) {
         val source = "tmdb"
         val mediaId = operation.mediaId.toString()
         when (operation.type) {
             SyncOperationType.LIBRARY_STATUS -> pushLibrary(api, operation, source, mediaId, bootstrapContext)
-            SyncOperationType.MOVIE_WATCHED -> pushMovieWatched(api, operation, source, mediaId, bootstrapContext)
+            SyncOperationType.MOVIE_WATCHED -> pushMovieWatched(api, operation, source, mediaId, bootstrapContext, providerInstanceId)
             SyncOperationType.MOVIE_UNWATCHED -> removeExactMovieHistory(api, operation, source, mediaId, bootstrapContext)
             SyncOperationType.EPISODE_WATCHED -> pushEpisodeWatched(api, operation, source, mediaId, episodeIndex)
             SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeDrop(api, operation, source, mediaId)
@@ -571,7 +572,14 @@ class FloppyRemoteDataSource(
         context?.historyCache?.remove(key)
     }
 
-    private suspend fun pushMovieWatched(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String, context: FloppyBootstrapTransportContext? = null) {
+    private suspend fun pushMovieWatched(
+        api: FloppyApi,
+        operation: SyncOperation,
+        source: String,
+        mediaId: String,
+        context: FloppyBootstrapTransportContext? = null,
+        providerInstanceId: String,
+    ) {
         require(operation.mediaType == MediaType.MOVIE) { "Movie watched operation must target a movie" }
         val watchedAt = operation.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
@@ -584,7 +592,7 @@ class FloppyRemoteDataSource(
             mediaId = mediaId,
             request = FloppyMovieWatchRequest(
                 endDate = watchedAt.toString(),
-                externalId = "cinetrack:${context?.providerInstanceId ?: session.instanceId}:${operation.id}:${operation.sourceVersion}",
+                externalId = "cinetrack:${context?.providerInstanceId ?: providerInstanceId}:${operation.id}:${operation.sourceVersion}",
             ),
         )
         if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
@@ -601,6 +609,7 @@ class FloppyRemoteDataSource(
         source: String,
         mediaId: String,
         context: FloppyBootstrapTransportContext? = null,
+        providerInstanceId: String,
     ) {
         val watchedAt = watched.payload.toInstantOrNull()
             ?: throw TrackingSyncError.InvalidRemoteData("Movie watched operation has no timestamp payload")
@@ -613,7 +622,7 @@ class FloppyRemoteDataSource(
                 mediaId = mediaId,
                 request = FloppyMovieWatchRequest(
                     endDate = watchedAt.toString(),
-                    externalId = "cinetrack:${context?.providerInstanceId ?: session.instanceId}:${watched.id}:${watched.sourceVersion}",
+                    externalId = "cinetrack:${context?.providerInstanceId ?: providerInstanceId}:${watched.id}:${watched.sourceVersion}",
                 ),
             )
             if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
