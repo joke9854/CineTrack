@@ -278,7 +278,7 @@ class FloppyRemoteDataSource(
         return completed
     }
 
-    private fun contiguousEpisodeRuns(operations: List<SyncOperation>): List<List<SyncOperation>> {
+    internal fun contiguousEpisodeRuns(operations: List<SyncOperation>): List<List<SyncOperation>> {
         val sorted = operations.sortedWith(compareBy<SyncOperation> { it.episodeParts().first }.thenBy { it.episodeParts().second })
         val runs = mutableListOf<MutableList<SyncOperation>>()
         sorted.forEach { operation ->
