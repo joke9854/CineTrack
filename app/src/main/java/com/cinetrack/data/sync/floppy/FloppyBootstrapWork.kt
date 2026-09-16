@@ -247,19 +247,6 @@ class FloppyBootstrapWorker(
             }
         }
 
-        /*
-                val error = TrackingSyncError.Timeout(timeout)
-                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
-                return terminalResult(error)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                val stage = if (isRetryable(error)) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
-                setProgress(progressData(FloppyBootstrapProgress(stage, processed, total, processed, failed, expected)))
-                return terminalResult(error)
-            }
-        }
-
         var lastProgressAt = System.currentTimeMillis()
         var stalledPublished = false
         var current: FloppyBootstrapProgress? = null
