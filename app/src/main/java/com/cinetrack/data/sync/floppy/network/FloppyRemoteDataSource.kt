@@ -243,11 +243,15 @@ class FloppyRemoteDataSource(
                     completed += run.map(SyncOperation::id)
                     return@forEach
                 }
-                val usedBulk = try {
-                    val first = pending.first().episodeParts()
-                    val last = pending.last().episodeParts()
-                    val dates = pending.mapNotNull { it.episodeParts().third?.toString() }
-                    val task = api.bulkEpisodes(
+                // Only a route-level 404/405 means the deployed server lacks
+                // bulk support. Once a task has been accepted, status failures
+                // must propagate so the range is retried atomically; falling
+                // back after acceptance could duplicate the remote write.
+                val first = pending.first().episodeParts()
+                val last = pending.last().episodeParts()
+                val dates = pending.mapNotNull { it.episodeParts().third?.toString() }
+                val task = try {
+                    api.bulkEpisodes(
                         source = "tmdb",
                         mediaId = pending.first().mediaId.toString(),
                         request = FloppyEpisodeBulkRequest(
@@ -259,11 +263,16 @@ class FloppyRemoteDataSource(
                             endDate = dates.maxOrNull() ?: Instant.now().toString(),
                         ),
                     )
-                    val taskId = task.taskId ?: throw TrackingSyncError.InvalidRemoteData("Floppy bulk response did not include a task id")
+                } catch (error: HttpException) {
+                    if (error.code() == 404 || error.code() == 405) null else throw error
+                }
+                val usedBulk = if (task == null) {
+                    false
+                } else {
+                    val taskId = task.taskId
+                        ?: throw TrackingSyncError.InvalidRemoteData("Floppy bulk response did not include a task id")
                     awaitBulkTask(api, taskId)
                     true
-                } catch (error: HttpException) {
-                    if (error.code() == 404 || error.code() == 405) false else throw error
                 }
                 if (usedBulk) {
                     completed += pending.map(SyncOperation::id)
