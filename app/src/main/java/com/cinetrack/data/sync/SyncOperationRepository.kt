@@ -41,6 +41,8 @@ interface SyncOperationRepository {
     /** Direct, repair-free reads used only by the managed Floppy worker. */
     suspend fun bootstrapPending(connectionId: String, limit: Int): List<SyncOperation> =
         pending().filter { it.id.startsWith("bootstrap:${connectionId}:") }.take(limit)
+    suspend fun bootstrapEpisodePending(connectionId: String, limit: Int): List<SyncOperation> =
+        bootstrapPending(connectionId, limit).filter { it.type == SyncOperationType.EPISODE_WATCHED }
     suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
         bootstrapPending(connectionId, operationIds.size.coerceAtLeast(1)).filter { it.id in operationIds }
     suspend fun bootstrapPendingCount(connectionId: String): Int =
@@ -125,6 +127,10 @@ class RoomSyncOperationRepository(
     }
     override suspend fun bootstrapPending(connectionId: String, limit: Int): List<SyncOperation> =
         database.syncDao().pendingFloppyBootstrapOperations("bootstrap:${connectionId}:", connectionId, limit)
+            .mapNotNull { it.toSyncOperation(null) }
+
+    override suspend fun bootstrapEpisodePending(connectionId: String, limit: Int): List<SyncOperation> =
+        database.syncDao().pendingFloppyBootstrapEpisodeOperations("bootstrap:${connectionId}:", connectionId, limit)
             .mapNotNull { it.toSyncOperation(null) }
 
     override suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
