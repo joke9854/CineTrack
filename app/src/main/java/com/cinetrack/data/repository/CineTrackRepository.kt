@@ -1016,18 +1016,10 @@ class CineTrackRepository(
             .mapValues { (_, items) -> items.maxByOrNull(::playbackActivityRecency) }
         val durableUpNext = snapshot.upNext.associateBy(UpNextEntity::showId)
         val cachedEpisodeCards = cachedEpisodes.map { it.toDomain() }
+        
         val cachedUpNext = rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.TV && it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED) }
-            .map { show ->
-                // Resume state is the strongest signal. Schedule metadata can
-                // never replace an unfinished episode already being watched.
-                val session = playbackByShow[show.stableKey]?.takeIf {
-                    it.progress > 0f && it.progress < 1f &&
-                        it.season != null && it.episodeNumber != null &&
-                        Triple(show.id, it.season, it.episodeNumber) !in watchedNumbers
-                }
-                if (session != null) return@map session
-
+            .mapNotNull { show ->
                 val stored = durableUpNext[show.id]?.takeUnless {
                     Triple(show.id, it.season, it.episodeNumber) in watchedNumbers
                 }?.let { row ->
@@ -1042,58 +1034,22 @@ class CineTrackRepository(
                         runtimeMinutes = row.durationMinutes,
                     )
                 }
-                val computed = selectNextProgressEpisode(
-                    show.id,
-                    cachedEpisodeCards,
-                    watchedNumbers,
-                    releaseNow,
-                    releaseZone,
-                    excludeSpecials,
-                )
-                fun storedIsEligible(candidate: EpisodeCard): Boolean {
-                    val air = releaseDateTime(candidate.airDate, releaseZone)?.toInstant()
-                    return air == null || !air.isAfter(releaseNow) ||
-                        air.toEpochMilli() - releaseNow.toEpochMilli() <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
-                }
-                // If both paths have data, retain the earliest sequential
-                // candidate. This protects an older correct up_next row when
-                // a latest-season cache is sparse or only partially refreshed.
-                val next = when {
-                    computed == null -> stored?.takeIf(::storedIsEligible)
-                    stored == null || !storedIsEligible(stored) -> computed
-                    else -> if (
-                        compareBy<EpisodeCard> { it.season }.thenBy { it.number }
-                            .compare(computed, stored) <= 0
-                    ) computed else stored
-                }
-                if (next == null) {
-                    // Keep meaningful tracking progress visible even when
-                    // metadata is temporarily unavailable; do not build list
-                    // membership from latest-air resolution.
-                    return@map PlaybackCard(
-                        media = show,
-                        progress = 0f,
-                        durationMinutes = show.runtimeMinutes,
-                    )
-                }
-                PlaybackCard(
-                    media = show,
-                    episodeId = next.id.takeIf { it > 0 },
-                    episodeLabel = "S${next.season.toString().padStart(2, '0')} E${next.number.toString().padStart(2, '0')}",
-                    episodeTitle = next.title,
-                    season = next.season,
-                    episodeNumber = next.number,
-                    progress = 0f,
-                    remainingMinutes = null,
-                    durationMinutes = next.runtimeMinutes ?: show.runtimeMinutes,
-                    episodeAirDate = next.airDate,
-                    progressUpdatedAtMillis = 0L,
+                // mapNotNull is intentional: main's Progress invariant is
+                // that a tracked show without a concrete next episode is not
+                // a Progress card. selectProgressCard retains beta's genuine
+                // partial-playback resume behavior.
+                selectProgressCard(
+                    show = show,
+                    episodes = cachedEpisodeCards,
+                    watched = watchedNumbers,
+                    playbackSession = playbackByShow[show.stableKey],
+                    storedNext = stored,
+                    now = releaseNow,
+                    zone = releaseZone,
+                    excludeSpecials = excludeSpecials,
                 )
             }
-            .sortedWith { left, right ->
-                compareProgressAttention(left, right, latestWatchedAtByShow, releaseNow.toEpochMilli(), releaseZone)
-            }
-        val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
+val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
         val movieKeys = moviePlayback.map { it.media.stableKey }.toSet()
         moviePlayback += rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.MOVIE && it.status == LibraryStatus.WATCHING && it.stableKey !in movieKeys }

@@ -49,12 +49,82 @@ internal fun selectNextProgressEpisode(
         releaseDateTime(episode.airDate, zone)?.toInstant()?.let { !it.isAfter(now) } == true
     }
     aired.firstOrNull()?.let { return it }
+    // Missing release metadata is not proof that an episode is in the future.
+    // Keep the sequential watch-history-first invariant and let the caller
+    // refresh the missing season metadata instead of skipping this episode.
+    candidates.firstOrNull { releaseDateTime(it.airDate, zone) == null }?.let { return it }
     val attentionWindow = UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
     return candidates.firstOrNull { episode ->
         val air = releaseDateTime(episode.airDate, zone)?.toInstant() ?: return@firstOrNull false
         val distance = air.toEpochMilli() - now.toEpochMilli()
         distance > 0L && distance <= attentionWindow
     }
+}
+
+
+/**
+ * Builds one TV Progress card from durable watch state. Membership is
+ * deliberately episode-based: a tracked show without a real next episode is
+ * absent, while an unfinished playback session remains resumable.
+ */
+internal fun selectProgressCard(
+    show: MediaCard,
+    episodes: List<EpisodeCard>,
+    watched: Set<Triple<Int, Int, Int>>,
+    playbackSession: PlaybackCard?,
+    storedNext: EpisodeCard?,
+    now: java.time.Instant,
+    zone: ZoneId,
+    excludeSpecials: Boolean,
+): PlaybackCard? {
+    val session = playbackSession?.takeIf {
+        it.media.id == show.id &&
+            it.season != null &&
+            it.episodeNumber != null &&
+            it.progress > 0f &&
+            it.progress < PLAYBACK_COMPLETION_THRESHOLD &&
+            Triple(show.id, it.season, it.episodeNumber) !in watched
+    }
+    // The resume session is an input to selection, not a post-selection
+    // decoration. It must survive even if its episode metadata is temporarily
+    // absent from Room.
+    if (session != null) return session.copy(media = show)
+
+    val computed = selectNextProgressEpisode(
+        show.id,
+        episodes,
+        watched,
+        now,
+        zone,
+        excludeSpecials,
+    )
+    fun storedIsEligible(candidate: EpisodeCard): Boolean {
+        val air = releaseDateTime(candidate.airDate, zone)?.toInstant()
+        return air == null || !air.isAfter(now) ||
+            air.toEpochMilli() - now.toEpochMilli() <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+    }
+    val next = when {
+        computed == null -> storedNext?.takeIf(::storedIsEligible)
+        storedNext == null || !storedIsEligible(storedNext) -> computed
+        else -> if (
+            compareBy<EpisodeCard> { it.season }.thenBy { it.number }
+                .compare(computed, storedNext) <= 0
+        ) computed else storedNext
+    } ?: return null
+
+    return PlaybackCard(
+        media = show,
+        episodeId = next.id.takeIf { it > 0 },
+        episodeLabel = "S${next.season.toString().padStart(2, '0')} E${next.number.toString().padStart(2, '0')}",
+        episodeTitle = next.title,
+        season = next.season,
+        episodeNumber = next.number,
+        progress = 0f,
+        remainingMinutes = null,
+        durationMinutes = next.runtimeMinutes ?: show.runtimeMinutes,
+        episodeAirDate = next.airDate,
+        progressUpdatedAtMillis = 0L,
+    )
 }
 
 /**
