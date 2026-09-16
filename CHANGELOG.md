@@ -1,3 +1,9 @@
+# CineTrack 0.99.15 beta
+
+- Corrected Progress episode selection for out-of-order history, active playback precedence, sparse season caches, and distant future schedules.
+- Bulk-materialized Floppy bootstrap deliveries in bounded Room chunks with real preparation progress and same-plan restart safety.
+- Retired current-generation synced operations and removed stale provider-instance cancellation errors from current presentation.
+
 # CineTrack 0.99.14 beta
 
 - Fixed stalled Floppy initial synchronization by indexing remote episode history once per worker run and reusing a session-scoped transport cache.
