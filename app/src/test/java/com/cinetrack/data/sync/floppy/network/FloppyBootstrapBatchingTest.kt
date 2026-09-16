@@ -2,6 +2,7 @@ package com.cinetrack.data.sync.floppy.network
 
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.floppy.bootstrapTransportUnit
 import com.cinetrack.domain.MediaType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -41,6 +42,20 @@ class FloppyBootstrapBatchingTest {
             listOf(op("s1e3", 10, 1, 3), op("s2e1", 10, 2, 1)),
         )
         assertEquals(listOf(listOf("s1e3"), listOf("s2e1")), runs.map { it.map(SyncOperation::id) })
+    }
+
+    @Test
+    fun workerTransportUnitKeepsAContiguousSeasonRangeTogether() {
+        val unit = listOf(op("3", 10, 1, 3), op("4", 10, 1, 4), op("5", 10, 1, 5)).bootstrapTransportUnit()
+        assertEquals(listOf("3", "4", "5"), unit.map(SyncOperation::id))
+    }
+
+    @Test
+    fun workerTransportUnitSplitsGapsAndSeasonBoundaries() {
+        val gap = listOf(op("3", 10, 1, 3), op("5", 10, 1, 5)).bootstrapTransportUnit()
+        assertEquals(listOf("3"), gap.map(SyncOperation::id))
+        val boundary = listOf(op("s1", 10, 1, 3), op("s2", 10, 2, 1)).bootstrapTransportUnit()
+        assertEquals(listOf("s1"), boundary.map(SyncOperation::id))
     }
 
 }
