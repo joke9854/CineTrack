@@ -53,12 +53,9 @@ internal fun selectNextProgressEpisode(
     // Keep the sequential watch-history-first invariant and let the caller
     // refresh the missing season metadata instead of skipping this episode.
     candidates.firstOrNull { releaseDateTime(it.airDate, zone) == null }?.let { return it }
-    val attentionWindow = UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
-    return candidates.firstOrNull { episode ->
-        val air = releaseDateTime(episode.airDate, zone)?.toInstant() ?: return@firstOrNull false
-        val distance = air.toEpochMilli() - now.toEpochMilli()
-        distance > 0L && distance <= attentionWindow
-    }
+    // Future episodes do not create membership. Upcoming attention is a
+    // ranking signal for cards that become eligible at their real release time.
+    return null
 }
 
 
@@ -100,8 +97,8 @@ internal fun selectProgressCard(
     )
     fun storedIsEligible(candidate: EpisodeCard): Boolean {
         val air = releaseDateTime(candidate.airDate, zone)?.toInstant()
-        return air == null || !air.isAfter(now) ||
-            air.toEpochMilli() - now.toEpochMilli() <= UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+        // A future up_next row is not a watchable Progress card yet.
+        return air == null || !air.isAfter(now)
     }
     val next = when {
         computed == null -> storedNext?.takeIf(::storedIsEligible)

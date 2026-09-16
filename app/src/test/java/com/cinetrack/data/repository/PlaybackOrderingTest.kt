@@ -115,10 +115,10 @@ class PlaybackOrderingTest {
     }
 
     @Test
-    fun imminentFutureEpisodeIsSelectedOnlyWhenCaughtUp() {
+    fun futureEpisodeIsNotSelectedBeforeItsRelease() {
         val now = Instant.parse("2026-09-16T12:00:00Z")
         val episodes = listOf(episode(42, 4, 1, "2026-09-17"))
-        assertEquals(1, selectNextProgressEpisode(42, episodes, emptySet(), now, java.time.ZoneId.of("UTC"), false)?.number)
+        assertEquals(null, selectNextProgressEpisode(42, episodes, emptySet(), now, java.time.ZoneId.of("UTC"), false)?.number)
     }
 
     @Test
