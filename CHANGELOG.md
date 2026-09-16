@@ -1,3 +1,8 @@
+# CineTrack 0.99.17 beta
+
+- Restored watch-history-first Progress membership with real partial-playback precedence and release-aware episode eligibility.
+- Added Floppy bootstrap bulk episode transport, exact-generation batch acknowledgement, focused remote-index preparation, and unique run-scoped progress observation.
+
 # CineTrack 0.99.16 beta
 
 - Restored watch-history-first Progress selection so older seasons, gaps, active playback, specials, and missing latest metadata cannot be displaced by latest-air data.
