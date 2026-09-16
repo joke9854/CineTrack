@@ -171,7 +171,13 @@ class FloppyRemoteDataSource(
             // available. Runs are contiguous and show-scoped so a range cannot
             // accidentally include an unrelated show or an unplanned episode.
             val episodeOperations = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
-            val bulkCompleted = pushEpisodeBatches(api, episodeOperations, episodeIndex)
+            // Bulk transport is deliberately restricted to managed bootstrap.
+            // Realtime/delta pushes keep their existing singular semantics.
+            val bulkCompleted = if (bootstrapContext != null) {
+                pushEpisodeBatches(api, episodeOperations, episodeIndex)
+            } else {
+                emptySet()
+            }
             completed += bulkCompleted
 
             val byMovieGeneration = operations
