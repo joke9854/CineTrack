@@ -42,6 +42,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.io.IOException
+import retrofit2.HttpException
 import kotlin.Result as SyncResult
 import java.util.concurrent.TimeUnit
 
@@ -52,6 +53,8 @@ internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error
     is TrackingSyncError.RateLimited,
     is IOException,
     -> true
+    is TrackingSyncError.ProviderUnavailable ->
+        (error.cause as? HttpException)?.code() in 500..599
     else -> false
 }
 
@@ -225,32 +228,7 @@ class FloppyBootstrapWorker(
             return terminalResult(error)
         }
 
-        // Expensive remote preparation belongs to its own stage.  In
-        // particular, episode history is indexed once for this worker run,
-        // never once per 15-operation batch.
-        // Seed remote-state preparation with one focused SQL result instead
-        // of loading the entire 9k-operation plan just to detect episodes.
-        val preparationSeed = application.container.syncCoordinator
-            .pendingBootstrapOperations(expected, limit = BOOTSTRAP_PREPARATION_SEED)
-        if (preparationSeed.isNotEmpty()) {
-            Log.i(TAG, "Floppy bootstrap preparing remote movie/episode state")
-            setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.CHECKING_REMOTE_STATE, processed, total, processed, failed, expected)))
-            try {
-                withTimeout(90_000) { transport.prepare(preparationSeed) }
-            } catch (timeout: TimeoutCancellationException) {
-                val error = TrackingSyncError.Timeout(timeout)
-                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
-                return terminalResult(error)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (error: Throwable) {
-                val stage = if (isRetryable(error)) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
-                setProgress(progressData(FloppyBootstrapProgress(stage, processed, total, processed, failed, expected)))
-                return terminalResult(error)
-            }
-        }
-
-        var lastProgressAt = System.currentTimeMillis()
+         var lastProgressAt = System.currentTimeMillis()
         var stalledPublished = false
         var current: FloppyBootstrapProgress? = null
         var stoppedForInstanceChange = false
@@ -259,7 +237,10 @@ class FloppyBootstrapWorker(
             val watchdog = launch {
                 while (isActive) {
                     delay(WATCHDOG_POLL_MS)
-                    if (!stalledPublished && current?.stage == FloppyBootstrapStage.SYNCING &&
+                    if (!stalledPublished && current?.stage in setOf(
+                            FloppyBootstrapStage.CHECKING_REMOTE_STATE,
+                            FloppyBootstrapStage.SYNCING,
+                        ) &&
                         System.currentTimeMillis() - lastProgressAt >= NO_PROGRESS_TIMEOUT_MS
                     ) {
                         stalledPublished = true
@@ -278,14 +259,26 @@ class FloppyBootstrapWorker(
                     val fetchedBatch = application.container.syncCoordinator
                         .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
                     if (fetchedBatch.isEmpty()) break
-                    // Movie and episode history are each indexed once, on
-                    // the first focused window that contains that media type.
-                    if ((!transport.context.movieHistoryLoaded && fetchedBatch.any { it.mediaType == com.cinetrack.domain.MediaType.MOVIE }) ||
-                        (!transport.context.episodeHistoryLoaded && fetchedBatch.any { it.type == SyncOperationType.EPISODE_WATCHED })) {
-                        transport.prepare(fetchedBatch)
-                    }
-                    val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
+                     val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
                     if (movieWave.isNotEmpty()) {
+                        if (!transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
+                            current = FloppyBootstrapProgress(
+                                FloppyBootstrapStage.CHECKING_REMOTE_STATE,
+                                processed, total, processed, failed, expected,
+                                currentOperationType = "MOVIE_STATE",
+                                lastProgressAtMillis = lastProgressAt,
+                            )
+                            setProgress(progressData(current!!))
+                            try {
+                                transport.prepare(movieWave.flatten())
+                                lastProgressAt = System.currentTimeMillis()
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                loopError = error
+                                break
+                            }
+                        }
                         val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
                             supervisorScope {
                                 movieWave.map { unit ->
@@ -322,6 +315,24 @@ class FloppyBootstrapWorker(
                     // unrelated later unit can fail.
                     val batch = fetchedBatch.bootstrapTransportUnit()
                     val first = batch.first()
+                    if (first.type == SyncOperationType.EPISODE_WATCHED && !transport.context.episodeHistoryLoaded) {
+                        current = FloppyBootstrapProgress(
+                            FloppyBootstrapStage.CHECKING_REMOTE_STATE,
+                            processed, total, processed, failed, expected,
+                            currentOperationType = "EPISODE_STATE",
+                            lastProgressAtMillis = lastProgressAt,
+                        )
+                        setProgress(progressData(current!!))
+                        try {
+                            transport.prepare(batch)
+                            lastProgressAt = System.currentTimeMillis()
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Throwable) {
+                            loopError = error
+                            break
+                        }
+                    }
                     Log.i(TAG, "Floppy bootstrap batch started: size=\${batch.size} type=\${first.type} media=\${first.mediaType}:\${first.mediaId}")
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
@@ -481,8 +492,7 @@ class FloppyBootstrapWorker(
         const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
         private const val BOOTSTRAP_FETCH_BATCH = 200
         internal const val MAX_CONCURRENT_MOVIE_UNITS = 4
-        private const val BOOTSTRAP_PREPARATION_SEED = 200
-        private const val MAX_RETRIES = 5
+         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
         private const val CHANNEL_ID = "cinetrack_background_sync"
