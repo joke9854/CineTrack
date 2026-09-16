@@ -30,6 +30,7 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.FloppyConnectionStage
 import java.time.Instant
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.intOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -51,7 +52,7 @@ class FloppyBootstrapTransportContext internal constructor(
     // Global movie history is prepared once per worker attempt. A per-movie
     // detail lookup remains reserved for exceptional active-consumption
     // mutations that require a consumption id.
-    internal val watchedMovieIndex = mutableMapOf<Long, MutableSet<Instant>>()
+    internal val watchedMovieIndex = ConcurrentHashMap<Long, MutableSet<Instant>>()
     internal var movieHistoryLoaded: Boolean = false
     internal val mediaDetailCache = mutableMapOf<String, FloppyMediaDetail?>()
     internal val historyCache = mutableMapOf<String, List<FloppyConsumption>>()
@@ -400,7 +401,7 @@ class FloppyRemoteDataSource(
             page.results.forEach { entry ->
                 val movieId = entry.mediaId?.toLongOrNull() ?: return@forEach
                 val watchedAt = (entry.watchedAt ?: entry.endDate).toInstantOrNull() ?: return@forEach
-                context.watchedMovieIndex.getOrPut(movieId) { linkedSetOf() } += watchedAt
+                context.watchedMovieIndex.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }.add(watchedAt)
             }
             if (page.results.isEmpty() || page.pagination.next == null) break
             offset += page.results.size
@@ -585,7 +586,7 @@ class FloppyRemoteDataSource(
                 externalId = "cinetrack:${context?.providerInstanceId ?: "default"}:${operation.id}:${operation.sourceVersion}",
             ),
         )
-        if (movieId != null) context?.watchedMovieIndex?.getOrPut(movieId) { linkedSetOf() }?.add(watchedAt)
+        if (movieId != null) context?.watchedMovieIndex?.computeIfAbsent(movieId) { ConcurrentHashMap.newKeySet() }?.add(watchedAt)
         invalidateCaches(context, "movie", source, mediaId)
     }
 
