@@ -195,6 +195,10 @@ sealed interface ConnectionResult {
 sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exception(message, cause) {
     class AuthenticationRequired(provider: TrackingProviderId) :
         TrackingSyncError("Connect ${provider.name.lowercase().replaceFirstChar(Char::uppercase)} first")
+    class TokenScope(provider: TrackingProviderId) :
+        TrackingSyncError("The ${provider.name.lowercase().replaceFirstChar(Char::uppercase)} token does not allow tracking synchronization")
+    class ApiRedirect(val location: String? = null) :
+        TrackingSyncError("Floppy redirected the API request. Use the final HTTPS server URL.")
     class NetworkUnavailable(cause: Throwable) : TrackingSyncError("Network unavailable", cause)
     class ProviderUnavailable(provider: TrackingProviderId, cause: Throwable? = null) :
         TrackingSyncError("${provider.name.lowercase().replaceFirstChar(Char::uppercase)} is unavailable", cause)
@@ -254,4 +258,3 @@ interface TrackingProvider {
 
     suspend fun testConnection(): ConnectionResult
 }
-
