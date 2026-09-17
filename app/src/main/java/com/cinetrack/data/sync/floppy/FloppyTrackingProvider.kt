@@ -217,8 +217,9 @@ class FloppyTrackingProvider(
     }
 
     override suspend fun testConnection(): ConnectionResult {
-        val settings = preferences?.floppySettingsNow() ?: return ConnectionResult.AuthenticationRequired
-        val apiKey = preferences.floppyApiKeyNow()?.takeIf(String::isNotBlank)
+        val prefs = preferences ?: return ConnectionResult.AuthenticationRequired
+        val settings = prefs.floppySettingsNow() ?: return ConnectionResult.AuthenticationRequired
+        val apiKey = prefs.floppyApiKeyNow()?.takeIf(String::isNotBlank)
             ?: return ConnectionResult.AuthenticationRequired
         return runCatching {
             val refreshed = remote.connect(
@@ -228,7 +229,7 @@ class FloppyTrackingProvider(
             )
             val activation = commitValidatedConnectionLocked(refreshed, apiKey)
             discovered = activation.committed.capabilities
-            bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+            bootstrapReady = prefs.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
             ConnectionResult.Connected
         }.getOrElse { error ->
             val mapped = error as? TrackingSyncError ?: TrackingSyncError.Unknown(error)
@@ -238,11 +239,12 @@ class FloppyTrackingProvider(
     }
 
     private suspend fun captureSession(): FloppySession {
-        val settings = preferences?.floppySettingsNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
-        val apiKey = preferences.floppyApiKeyNow(settings.credentialAlias)?.takeIf(String::isNotBlank)
+        val prefs = preferences ?: throw TrackingSyncError.AuthenticationRequired(id)
+        val settings = prefs.floppySettingsNow() ?: throw TrackingSyncError.AuthenticationRequired(id)
+        val apiKey = prefs.floppyApiKeyNow(settings.credentialAlias)?.takeIf(String::isNotBlank)
             ?: throw TrackingSyncError.AuthenticationRequired(id)
         discovered = settings.capabilities
-        bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+        bootstrapReady = prefs.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
         return FloppySession(
             instanceId = settings.connectionId,
             baseUrl = settings.baseUrl,
