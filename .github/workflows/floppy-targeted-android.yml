@@ -31,6 +31,7 @@ jobs:
             --tests 'com.cinetrack.data.sync.floppy.FloppyBootstrapRetryTest' \
             --tests 'com.cinetrack.data.sync.floppy.FloppyBootstrapWorkSchedulerTest' \
             --tests 'com.cinetrack.data.sync.floppy.FloppyConnectionPreflightTest' \
+            --tests 'com.cinetrack.data.sync.floppy.FloppyRemoteTargetIdentityTest' \
             --tests 'com.cinetrack.data.sync.floppy.FloppyBootstrapV2PlannerTest' \
             --tests 'com.cinetrack.data.sync.floppy.network.FloppyBootstrapBatchingTest' \
             --stacktrace
