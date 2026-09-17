@@ -64,18 +64,20 @@ class FloppyConnectionPreflightTest {
     }
 
     @Test
-    fun redirectIsNotClassifiedAsProviderUnavailable() = runBlocking {
-        server.enqueue(
-            MockResponse()
-                .setResponseCode(302)
-                .setHeader("Location", "https://final.example/api/?token=must-not-survive#fragment"),
-        )
+    fun allApiRedirectCodesAreExplicitAndSanitized() = runBlocking {
+        for (code in listOf(301, 302, 307, 308)) {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(code)
+                    .setHeader("Location", "https://final.example/api/?token=must-not-survive#fragment"),
+            )
 
-        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+            val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
 
-        val error = (result as ConnectionResult.Failed).error
-        assertTrue(error is TrackingSyncError.ApiRedirect)
-        assertEquals("https://final.example/api/", (error as TrackingSyncError.ApiRedirect).location)
+            val error = (result as ConnectionResult.Failed).error
+            assertTrue("HTTP $code", error is TrackingSyncError.ApiRedirect)
+            assertEquals("https://final.example/api/", (error as TrackingSyncError.ApiRedirect).location)
+        }
     }
 
     @Test
@@ -86,6 +88,17 @@ class FloppyConnectionPreflightTest {
         val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
 
         assertTrue((result as ConnectionResult.Failed).error is TrackingSyncError.TokenScope)
+    }
+
+    @Test
+    fun serverFailureRemainsRetryable() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        val error = (result as ConnectionResult.Failed).error
+        assertTrue(error is TrackingSyncError.ProviderUnavailable)
+        assertTrue(isFloppyBootstrapRetryable(error))
     }
 
     @Test
