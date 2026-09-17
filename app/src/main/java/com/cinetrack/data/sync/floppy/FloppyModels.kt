@@ -14,6 +14,12 @@ data class FloppyInfoDto(
     val timezone: String = "",
     @SerialName("admin_enabled") val adminEnabled: Boolean = false,
     @SerialName("track_time") val trackTime: Boolean = false,
+    @SerialName("api_extensions") val apiExtensions: FloppyApiExtensions? = null,
+)
+
+@Serializable
+data class FloppyApiExtensions(
+    @SerialName("cinetrack_episode_events_v1") val cinetrackEpisodeEventsV1: Boolean = false,
 )
 
 @Serializable
@@ -198,7 +204,31 @@ data class FloppyCapabilities(
     val canWriteEpisodeHistory: Boolean = false,
     val canRemoveHistory: Boolean = false,
     val canReadCompleteSnapshot: Boolean = false,
+    /** Fork capability: exact event timestamps + durable idempotent replay. */
+    val canEnsureEpisodeEvents: Boolean = false,
 )
+
+@Serializable
+data class FloppyEpisodeEnsureEvent(
+    @SerialName("season_number") val seasonNumber: Int,
+    @SerialName("episode_number") val episodeNumber: Int,
+    @SerialName("watched_at") val watchedAt: String,
+    @SerialName("client_event_id") val clientEventId: String,
+)
+
+@Serializable
+data class FloppyEpisodeEnsureRequest(val events: List<FloppyEpisodeEnsureEvent>)
+
+@Serializable
+data class FloppyEpisodeEnsureResult(
+    @SerialName("client_event_id") val clientEventId: String,
+    @SerialName("season_number") val seasonNumber: Int,
+    @SerialName("episode_number") val episodeNumber: Int,
+    val status: String,
+)
+
+@Serializable
+data class FloppyEpisodeEnsureResponse(val results: List<FloppyEpisodeEnsureResult> = emptyList())
 
 
 @Serializable
