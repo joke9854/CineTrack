@@ -21,6 +21,15 @@ data class FloppyInfoDto(
 data class FloppyApiExtensions(
     @SerialName("cinetrack_episode_events_v1") val cinetrackEpisodeEventsV1: Boolean = false,
     @SerialName("cinetrack_bootstrap_v2") val cinetrackBootstrapV2: Boolean = false,
+    @SerialName("episode_sql_pagination") val episodeSqlPagination: Boolean = false,
+)
+
+@Serializable
+data class FloppyConnectionProbeDto(
+    val authenticated: Boolean = false,
+    @SerialName("account_id") val accountId: String = "",
+    @SerialName("server_version") val serverVersion: String = "",
+    @SerialName("api_extensions") val apiExtensions: FloppyApiExtensions = FloppyApiExtensions(),
 )
 
 @Serializable
@@ -144,7 +153,6 @@ data class FloppyMovieWatchRequest(
     @SerialName("external_id") val externalId: String? = null,
 )
 
-
 /** Non-secret connection state. The API key is deliberately absent. */
 data class FloppyConnectionSettings(
     val baseUrl: String,
@@ -163,8 +171,8 @@ data class FloppyConnectionSettings(
 
 /**
  * Resolves whether two validated connections address the same logical Floppy
- * dataset.  A credential rotation is not a provider-instance change when the
- * authenticated account proves that the remote dataset is unchanged.  If an
+ * dataset. A credential rotation is not a provider-instance change when the
+ * authenticated account proves that the remote dataset is unchanged. If an
  * account identity is unavailable, matching the key is the conservative
  * fallback; a changed key is treated as a new target rather than risking a
  * delivery to an unknown account.
@@ -227,21 +235,30 @@ data class FloppyBootstrapMovie(
     val watch: FloppyBootstrapMovieWatch? = null,
 )
 
-@Serializable data class FloppyBootstrapMoviesRequest(val movies: List<FloppyBootstrapMovie>)
-@Serializable data class FloppyBootstrapShow(
+@Serializable
+data class FloppyBootstrapMoviesRequest(val movies: List<FloppyBootstrapMovie>)
+
+@Serializable
+data class FloppyBootstrapShow(
     val source: String,
     @SerialName("media_id") val mediaId: String,
     val title: String? = null,
     val image: String? = null,
     val status: Int? = null,
 )
-@Serializable data class FloppyBootstrapShowsRequest(val shows: List<FloppyBootstrapShow>)
-@Serializable data class FloppyBootstrapEnsureResult(
+
+@Serializable
+data class FloppyBootstrapShowsRequest(val shows: List<FloppyBootstrapShow>)
+
+@Serializable
+data class FloppyBootstrapEnsureResult(
     val source: String,
     @SerialName("media_id") val mediaId: String,
     val status: String,
 )
-@Serializable data class FloppyBootstrapEnsureResponse(val results: List<FloppyBootstrapEnsureResult> = emptyList())
+
+@Serializable
+data class FloppyBootstrapEnsureResponse(val results: List<FloppyBootstrapEnsureResult> = emptyList())
 
 @Serializable
 data class FloppyEpisodeEnsureEvent(
@@ -264,7 +281,6 @@ data class FloppyEpisodeEnsureResult(
 
 @Serializable
 data class FloppyEpisodeEnsureResponse(val results: List<FloppyEpisodeEnsureResult> = emptyList())
-
 
 @Serializable
 data class FloppyEpisodeBulkRequest(
