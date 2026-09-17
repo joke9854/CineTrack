@@ -108,7 +108,7 @@ object FloppyBootstrapWorkScheduler {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
-        // REPLACE is atomic at the unique-work boundary.  cancel + KEEP races
+        // REPLACE is atomic at the unique-work boundary. cancel + KEEP races
         // with WorkManager's asynchronous cancellation and can reuse stale work.
         WorkManager.getInstance(context).enqueueUniqueWork(uniqueWorkName(connectionId), ExistingWorkPolicy.REPLACE, request)
     }
@@ -124,12 +124,8 @@ class FloppyBootstrapWorkManager(context: Context) {
     private val allProgress: Flow<List<WorkInfo>> = workManager
         .getWorkInfosByTagFlow("floppy-bootstrap")
 
-    /** Compatibility view for callers that do not yet know the active instance. */
     val progress: Flow<FloppyBootstrapProgress?> = allProgress.map { infos -> infos.selectFloppyWork()?.toFloppyProgress() }
 
-    /** Selects the unique WorkManager execution for the requested immutable
-     * provider instance. Querying the unique name avoids historical tagged
-     * retries/cancellations masking the active instance's progress. */
     fun progressFor(connectionId: String?): Flow<FloppyBootstrapProgress?> =
         if (connectionId.isNullOrBlank()) {
             flowOf(null)
@@ -167,8 +163,57 @@ class FloppyBootstrapWorker(
         val expected = inputData.getString(EXPECTED_CONNECTION_ID).orEmpty()
         if (expected.isBlank() || !isCurrent(application, expected)) return Result.success()
         val coordinator = application.container.floppyBootstrapCoordinator
+
+        // Probe before any fresh canonical snapshot/plan materialization. For an
+        // interrupted run, coordinator.progress reads the existing immutable plan
+        // and preserves its durable processed count without regenerating it.
+        val beforePlan = coordinator.progress(expected)
+        val runId = inputData.getString(BOOTSTRAP_RUN_ID).orEmpty()
+        Log.i(TAG, "Floppy bootstrap preflight: run=$runId connection=$expected stage=AUTH_PROBE processed=${beforePlan.processed} total=${beforePlan.total}")
+        setProgress(progressData(beforePlan.copy(stage = FloppyBootstrapStage.PREPARING)))
+        val provider = application.container.trackingProviderRegistry.getProvider(TrackingProviderId.FLOPPY)
+        val preflight = provider?.let {
+            application.container.syncCoordinator.withProviderIoQuiesced { it.testConnection() }
+        }
+        when (val connection = preflight) {
+            ConnectionResult.Connected -> {
+                // A successful probe may discover that the token now belongs to
+                // another account. The provider then rotates connectionId; never
+                // deliver this old plan to that new provider instance.
+                if (!isCurrent(application, expected)) {
+                    Log.w(TAG, "Floppy bootstrap stopped after probe: provider instance changed")
+                    return Result.success()
+                }
+            }
+            ConnectionResult.AuthenticationRequired -> {
+                application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+                val failure = beforePlan.copy(stage = FloppyBootstrapStage.NEEDS_ATTENTION)
+                setProgress(progressData(failure))
+                Log.w(TAG, "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE reason=AUTH_REQUIRED")
+                return Result.failure(progressData(failure))
+            }
+            is ConnectionResult.Failed -> {
+                if (!isCurrent(application, expected)) return Result.success()
+                val waitingStage = if (isFloppyBootstrapRetryable(connection.error)) {
+                    FloppyBootstrapStage.WAITING_FOR_SERVER
+                } else {
+                    FloppyBootstrapStage.NEEDS_ATTENTION
+                }
+                val failure = beforePlan.copy(stage = waitingStage)
+                setProgress(progressData(failure))
+                Log.w(TAG, "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE error=${connection.error::class.java.simpleName}")
+                return terminalResult(connection.error, progressData(failure))
+            }
+            null -> {
+                val error = TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
+                val waiting = beforePlan.copy(stage = FloppyBootstrapStage.WAITING_FOR_SERVER)
+                setProgress(progressData(waiting))
+                return terminalResult(error, progressData(waiting))
+            }
+        }
+
         val initialPlan = try {
-            setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.BUILDING_PLAN, providerInstanceId = expected)))
+            setProgress(progressData(beforePlan.copy(stage = FloppyBootstrapStage.BUILDING_PLAN)))
             coordinator.start { stage, prepared, planningTotal ->
                 setProgress(
                     progressData(
@@ -197,38 +242,11 @@ class FloppyBootstrapWorker(
         setProgress(progressData(initialPlan))
         val plan = coordinator.ensurePlan()
         val total = plan.size
-        Log.i(TAG, "Floppy bootstrap started: plan total=$total")
+        Log.i(TAG, "Floppy bootstrap started: run=$runId connection=$expected planTotal=$total")
         if (total > 100) setForeground(createForegroundInfo(initialPlan.copy(total = total)))
         var processed = (total - application.container.syncCoordinator.pendingBootstrapCount(expected)).coerceIn(0, total)
         var failed = 0
-        // A cheap authenticated reachability check prevents a transient
-        // private-DNS/VPN outage from poisoning an entire batch of durable
-        // delivery rows. It runs once per WorkManager attempt, not per item.
-        val provider = application.container.trackingProviderRegistry.getProvider(TrackingProviderId.FLOPPY)
-        val preflight = provider?.let {
-            application.container.syncCoordinator.withProviderIoQuiesced { it.testConnection() }
-        }
-        when (val connection = preflight) {
-            ConnectionResult.Connected -> Unit
-            ConnectionResult.AuthenticationRequired -> {
-                val error = TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
-                application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
-                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
-                return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
-            }
-            is ConnectionResult.Failed -> {
-                if (!isCurrent(application, expected)) return Result.success()
-                val error = connection.error
-                val waiting = FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)
-                setProgress(progressData(waiting))
-                return terminalResult(error, progressData(waiting))
-            }
-            null -> {
-                val error = TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY)
-                setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)))
-                return terminalResult(error)
-            }
-        }
+
         val floppy = application.container.trackingProviderRegistry
             .getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider
             ?: return terminalResult(TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY))
@@ -258,7 +276,7 @@ class FloppyBootstrapWorker(
                     ) {
                         stalledPublished = true
                         val stalled = current!!.copy(stage = FloppyBootstrapStage.STALLED, lastProgressAtMillis = lastProgressAt)
-                        Log.w(TAG, "Floppy bootstrap no progress for 60s: operation=${current?.currentOperationType}")
+                        Log.w(TAG, "Floppy bootstrap no progress for 60s: run=$runId connection=$expected operation=${current?.currentOperationType}")
                         setProgress(progressData(stalled))
                     }
                 }
@@ -272,7 +290,9 @@ class FloppyBootstrapWorker(
                     val fetchedBatch = application.container.syncCoordinator
                         .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
                     if (fetchedBatch.isEmpty()) break
-                    val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
+                    val movieWave = fetchedBatch.bootstrapMovieWave(
+                        if (transport.context.canBootstrapV2) BOOTSTRAP_V2_MAX else MAX_CONCURRENT_MOVIE_UNITS,
+                    )
                     if (movieWave.isNotEmpty()) {
                         if (!transport.context.canBootstrapV2 && !transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
                             current = FloppyBootstrapProgress(
@@ -307,51 +327,79 @@ class FloppyBootstrapWorker(
                                 break
                             }
                         }
-                        // Preparation is complete: writes must never continue
-                        // under the user-facing CHECKING_REMOTE_STATE stage.
                         current = FloppyBootstrapProgress(
                             FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected,
                             currentOperationType = movieWave.first().firstOrNull()?.type?.name,
                             lastProgressAtMillis = lastProgressAt,
                         )
                         setProgress(progressData(current!!))
-                        val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
-                            supervisorScope {
-                                movieWave.map { unit ->
-                                    async {
-                                        unit to try {
-                                            SyncResult.success(withTimeout(90_000) { transport.push(unit) })
-                                        } catch (cancelled: CancellationException) {
-                                            throw cancelled
-                                        } catch (error: Throwable) {
-                                            SyncResult.failure(error)
+
+                        if (transport.context.canBootstrapV2) {
+                            val modernBatch = movieWave.flatten()
+                            val result: SyncResult<Unit> = try {
+                                withTimeout(90_000) {
+                                    application.container.syncCoordinator.pushPendingForProvider(
+                                        TrackingProviderId.FLOPPY,
+                                        modernBatch.mapTo(linkedSetOf()) { it.id },
+                                        expected,
+                                        transport = transport::push,
+                                    )
+                                }
+                            } catch (timeout: TimeoutCancellationException) {
+                                SyncResult.failure(TrackingSyncError.Timeout(timeout))
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: Throwable) {
+                                SyncResult.failure(error)
+                            }
+                            if (result.isFailure) {
+                                val error = result.exceptionOrNull() ?: IllegalStateException("Floppy V2 movie batch failed")
+                                failed += modernBatch.size
+                                loopError = error
+                                break
+                            }
+                        } else {
+                            val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
+                                supervisorScope {
+                                    movieWave.map { unit ->
+                                        async {
+                                            unit to try {
+                                                SyncResult.success(withTimeout(90_000) { transport.push(unit) })
+                                            } catch (cancelled: CancellationException) {
+                                                throw cancelled
+                                            } catch (error: Throwable) {
+                                                SyncResult.failure(error)
+                                            }
                                         }
-                                    }
-                                }.awaitAll()
+                                    }.awaitAll()
+                                }
+                            }
+                            var waveFailure: Throwable? = null
+                            outcomes.forEach { (unit, outcome) ->
+                                val error = outcome.exceptionOrNull()
+                                application.container.syncCoordinator.settleFloppyBootstrapUnit(expected, unit, error)
+                                if (error != null && waveFailure == null) waveFailure = error
+                            }
+                            if (waveFailure != null) {
+                                failed += movieWave.firstOrNull { unit -> outcomes.firstOrNull { it.first == unit }?.second?.isFailure == true }?.size ?: 0
+                                loopError = waveFailure
+                                break
                             }
                         }
-                        var waveFailure: Throwable? = null
-                        outcomes.forEach { (unit, outcome) ->
-                            val error = outcome.exceptionOrNull()
-                            application.container.syncCoordinator.settleFloppyBootstrapUnit(expected, unit, error)
-                            if (error != null && waveFailure == null) waveFailure = error
-                        }
+
                         val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
                         processed = (total - remaining).coerceIn(processed, total)
                         lastProgressAt = System.currentTimeMillis()
+                        stalledPublished = false
                         current = current?.copy(processed = processed, succeeded = processed, lastProgressAtMillis = lastProgressAt)
                         current?.let { setProgress(progressData(it)) }
-                        if (waveFailure != null) {
-                            failed += movieWave.firstOrNull { unit -> outcomes.firstOrNull { it.first == unit }?.second?.isFailure == true }?.size ?: 0
-                            loopError = waveFailure
-                            break
-                        }
                         continue
                     }
-                    // A transport unit is the durable acknowledgement boundary.
-                    // Earlier bulk-task successes are committed before an
-                    // unrelated later unit can fail.
-                    val batch = fetchedBatch.bootstrapTransportUnit()
+
+                    val batch = fetchedBatch.bootstrapTransportUnit(
+                        canEnsureEpisodeEvents = transport.canEnsureEpisodeEvents,
+                        canBootstrapV2 = transport.context.canBootstrapV2,
+                    )
                     val first = batch.first()
                     if (first.type == SyncOperationType.EPISODE_WATCHED &&
                         !transport.canEnsureEpisodeEvents && !transport.context.episodeHistoryLoaded) {
@@ -387,7 +435,7 @@ class FloppyBootstrapWorker(
                             break
                         }
                     }
-                    Log.i(TAG, "Floppy bootstrap batch started: size=\${batch.size} type=\${first.type} media=\${first.mediaType}:\${first.mediaId}")
+                    Log.i(TAG, "Floppy bootstrap batch started: run=$runId connection=$expected size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId}")
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
                         processed,
@@ -436,12 +484,11 @@ class FloppyBootstrapWorker(
                         break
                     }
                     val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
-                    val nextProcessed = (total - remaining).coerceIn(processed, total)
-                    processed = nextProcessed
+                    processed = (total - remaining).coerceIn(processed, total)
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
-                    Log.i(TAG, "Floppy bootstrap batch complete: \${processed}/\${total}")
+                    Log.i(TAG, "Floppy bootstrap batch complete: run=$runId connection=$expected processed=$processed total=$total")
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
@@ -453,7 +500,7 @@ class FloppyBootstrapWorker(
         loopError?.let { return terminalResult(it) }
         if (!isCurrent(application, expected)) return Result.success()
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
-        Log.i(TAG, "Floppy bootstrap verifying")
+        Log.i(TAG, "Floppy bootstrap verifying: run=$runId connection=$expected")
         val ready = coordinator.markReadyIfComplete()
         if (!ready) {
             application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
@@ -461,7 +508,7 @@ class FloppyBootstrapWorker(
             return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
         }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
-        Log.i(TAG, "Floppy bootstrap READY: $total/$total")
+        Log.i(TAG, "Floppy bootstrap READY: run=$runId connection=$expected $total/$total")
         return Result.success(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
     }
 
@@ -494,9 +541,6 @@ class FloppyBootstrapWorker(
     private fun isRetryable(error: Throwable): Boolean = isFloppyBootstrapRetryable(error)
 
     private fun progressData(progress: FloppyBootstrapProgress): Data {
-        // Every WorkInfo update carries the immutable execution identity from
-        // input. This keeps retries of one request correlated while ensuring
-        // historical executions cannot be rendered as the current run.
         val current = if (progress.bootstrapRunId == null) {
             progress.copy(bootstrapRunId = inputData.getString(BOOTSTRAP_RUN_ID))
         } else progress
@@ -546,6 +590,7 @@ class FloppyBootstrapWorker(
         const val BOOTSTRAP_SCHEDULED_AT = "bootstrapScheduledAt"
         private const val BOOTSTRAP_FETCH_BATCH = 200
         internal const val MAX_CONCURRENT_MOVIE_UNITS = 4
+        internal const val BOOTSTRAP_V2_MAX = 50
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
@@ -581,11 +626,6 @@ private fun WorkInfo.toFloppyProgress(): FloppyBootstrapProgress {
     )
 }
 
-/** Keeps a completed-movie pair together while allowing every other
- * bootstrap operation to advance progress independently. */
-/** One independently-confirmable Floppy bootstrap request. Episode units are
- * same-show, same-season, gap-free ranges capped at the server payload limit.
- * Other operations preserve the existing completed-movie pair invariant. */
 /** Plans at most one ordered logical unit for each distinct movie. */
 internal fun List<SyncOperation>.bootstrapMovieWave(maxUnits: Int): List<List<SyncOperation>> =
     filter { it.mediaType == com.cinetrack.domain.MediaType.MOVIE }
@@ -595,25 +635,55 @@ internal fun List<SyncOperation>.bootstrapMovieWave(maxUnits: Int): List<List<Sy
         .map { it.bootstrapLogicalUnit() }
         .take(maxUnits)
 
-internal fun List<SyncOperation>.bootstrapTransportUnit(): List<SyncOperation> {
+/**
+ * One independently-confirmable Floppy request. Modern explicit-event
+ * endpoints do not imply omitted coordinates, so their batches may span gaps
+ * and seasons. Legacy range transport remains same-show/same-season/contiguous.
+ */
+internal fun List<SyncOperation>.bootstrapTransportUnit(
+    canEnsureEpisodeEvents: Boolean = false,
+    canBootstrapV2: Boolean = false,
+): List<SyncOperation> {
     if (isEmpty()) return emptyList()
     val episode = filter { it.type == SyncOperationType.EPISODE_WATCHED }
         .sortedWith(compareBy<SyncOperation> { it.mediaId }
             .thenBy { it.episodePartsForBootstrap().first }
             .thenBy { it.episodePartsForBootstrap().second })
         .firstOrNull()
-    if (episode == null) return bootstrapLogicalUnit()
-    val (season, firstEpisode) = episode.episodePartsForBootstrap()
-    return filter { operation ->
-        val parts = operation.episodePartsForBootstrap()
-        operation.type == SyncOperationType.EPISODE_WATCHED &&
-            operation.mediaId == episode.mediaId &&
-            parts.first == season
-    }
-        .sortedBy { it.episodePartsForBootstrap().second }
-        .takeWhileIndexed { index, operation ->
-            index < 50 && operation.episodePartsForBootstrap().second == firstEpisode + index
+    if (episode != null) {
+        if (canEnsureEpisodeEvents) {
+            return filter {
+                it.type == SyncOperationType.EPISODE_WATCHED && it.mediaId == episode.mediaId
+            }
+                .sortedWith(compareBy<SyncOperation> { it.episodePartsForBootstrap().first }
+                    .thenBy { it.episodePartsForBootstrap().second })
+                .take(50)
         }
+        val (season, firstEpisode) = episode.episodePartsForBootstrap()
+        return filter { operation ->
+            val parts = operation.episodePartsForBootstrap()
+            operation.type == SyncOperationType.EPISODE_WATCHED &&
+                operation.mediaId == episode.mediaId &&
+                parts.first == season
+        }
+            .sortedBy { it.episodePartsForBootstrap().second }
+            .takeWhileIndexed { index, operation ->
+                index < 50 && operation.episodePartsForBootstrap().second == firstEpisode + index
+            }
+    }
+    if (canBootstrapV2) {
+        val show = firstOrNull {
+            it.mediaType == com.cinetrack.domain.MediaType.TV && it.type == SyncOperationType.LIBRARY_STATUS
+        }
+        if (show != null) {
+            return filter {
+                it.mediaType == com.cinetrack.domain.MediaType.TV && it.type == SyncOperationType.LIBRARY_STATUS
+            }
+                .distinctBy(SyncOperation::mediaId)
+                .take(50)
+        }
+    }
+    return bootstrapLogicalUnit()
 }
 
 private inline fun <T> List<T>.takeWhileIndexed(predicate: (Int, T) -> Boolean): List<T> {
@@ -641,4 +711,3 @@ internal fun List<SyncOperation>.bootstrapLogicalUnit(): List<SyncOperation> {
         pair.any { it.type == SyncOperationType.MOVIE_WATCHED }
     ) pair else listOf(first)
 }
-
