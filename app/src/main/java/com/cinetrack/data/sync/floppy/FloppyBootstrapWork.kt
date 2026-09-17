@@ -330,7 +330,8 @@ class FloppyBootstrapWorker(
                     // unrelated later unit can fail.
                     val batch = fetchedBatch.bootstrapTransportUnit()
                     val first = batch.first()
-                    if (first.type == SyncOperationType.EPISODE_WATCHED && !transport.context.episodeHistoryLoaded) {
+                    if (first.type == SyncOperationType.EPISODE_WATCHED &&
+                        !transport.canEnsureEpisodeEvents && !transport.context.episodeHistoryLoaded) {
                         current = FloppyBootstrapProgress(
                             FloppyBootstrapStage.CHECKING_REMOTE_STATE,
                             processed, total, processed, failed, expected,
