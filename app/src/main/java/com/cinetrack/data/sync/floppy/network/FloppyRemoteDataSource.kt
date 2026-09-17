@@ -19,6 +19,8 @@ import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureEvent
+import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
 import com.cinetrack.data.sync.floppy.FloppyMediaDetail
 import com.cinetrack.data.sync.floppy.FloppySession
@@ -30,6 +32,8 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.FloppyConnectionStage
 import java.time.Instant
+import java.nio.charset.StandardCharsets
+import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.Collections
 import kotlinx.serialization.json.contentOrNull
@@ -47,6 +51,7 @@ private const val BULK_TASK_POLL_DELAY_MS = 500L
  * of truth and a retry reconstructs this cache from Floppy. */
 class FloppyBootstrapTransportContext internal constructor(
     val providerInstanceId: String,
+    val canEnsureEpisodeEvents: Boolean = false,
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
@@ -68,6 +73,7 @@ class FloppyBootstrapTransportSession internal constructor(
     val context: FloppyBootstrapTransportContext,
     private val ensureCurrent: suspend () -> Boolean = { true },
 ) {
+    val canEnsureEpisodeEvents: Boolean get() = context.canEnsureEpisodeEvents
     suspend fun prepare(
         operations: List<SyncOperation>,
         onRemoteProgress: suspend (itemsLoaded: Int, totalItems: Int) -> Unit = { _, _ -> },
@@ -127,6 +133,7 @@ class FloppyRemoteDataSource(
             canWriteEpisodeHistory = true,
             canRemoveHistory = true,
             canReadCompleteSnapshot = false,
+            canEnsureEpisodeEvents = info.apiExtensions?.cinetrackEpisodeEventsV1 == true,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -192,7 +199,7 @@ class FloppyRemoteDataSource(
             // Bulk transport is deliberately restricted to managed bootstrap.
             // Realtime/delta pushes keep their existing singular semantics.
             val bulkCompleted = if (bootstrapContext != null) {
-                pushEpisodeBatches(api, episodeOperations, episodeIndex)
+                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId)
             } else {
                 emptySet()
             }
@@ -239,9 +246,38 @@ class FloppyRemoteDataSource(
         api: FloppyApi,
         operations: List<SyncOperation>,
         episodeIndex: MutableSet<EpisodeKey>?,
+        canEnsureEpisodeEvents: Boolean,
+        providerInstanceId: String,
     ): Set<String> {
         if (operations.isEmpty()) return emptySet()
         val completed = linkedSetOf<String>()
+        if (canEnsureEpisodeEvents) {
+            operations.groupBy { it.mediaId }.toSortedMap().forEach { (showId, showOperations) ->
+                showOperations.chunked(BULK_EPISODE_MAX).forEach { chunk ->
+                    val events = chunk.map { operation ->
+                        val (season, episode, watchedAt) = operation.episodeParts()
+                        FloppyEpisodeEnsureEvent(
+                            seasonNumber = season,
+                            episodeNumber = episode,
+                            watchedAt = requireNotNull(watchedAt) { "Episode bootstrap requires watchedAt" }.toString(),
+                            clientEventId = episodeClientEventId(providerInstanceId, operation),
+                        )
+                    }
+                    val response = api.ensureEpisodes(source = "tmdb", mediaId = showId.toString(), request = FloppyEpisodeEnsureRequest(events))
+                    val accepted = response.results.filter { it.status == "created" || it.status == "already_satisfied" }
+                    val expectedIds = events.mapTo(linkedSetOf()) { it.clientEventId }
+                    require(accepted.mapTo(linkedSetOf()) { it.clientEventId } == expectedIds) {
+                        "Floppy ensure response did not confirm every submitted event"
+                    }
+                    completed += chunk.map(SyncOperation::id)
+                    chunk.forEach { operation ->
+                        val (season, episode, _) = operation.episodeParts()
+                        episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), season, episode))
+                    }
+                }
+            }
+            return completed
+        }
         operations
             .groupBy { it.mediaId }
             .toSortedMap()
@@ -383,7 +419,7 @@ class FloppyRemoteDataSource(
         }
         val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         return try {
-            if (!context.episodeHistoryLoaded && operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+            if (!context.canEnsureEpisodeEvents && !context.episodeHistoryLoaded && operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
                 context.watchedEpisodeIndex += loadEpisodeIndex(api, onRemoteProgress)
                 context.episodeHistoryLoaded = true
             }
@@ -888,6 +924,12 @@ private fun SyncOperation.episodeParts(): Triple<Int, Int, Instant?> {
     val episode = parts.getOrNull(1)?.toIntOrNull() ?: throw TrackingSyncError.InvalidRemoteData("Invalid Floppy episode")
     return Triple(season, episode, parts.getOrNull(2).toInstantOrNull())
 }
+
+/** UUID v3 gives Floppy's durable UUID receipt a stable value per exact delivery. */
+internal fun episodeClientEventId(providerInstanceId: String, operation: SyncOperation): String =
+    UUID.nameUUIDFromBytes(
+        "cinetrack:$providerInstanceId:${operation.id}:${operation.sourceVersion}".toByteArray(StandardCharsets.UTF_8),
+    ).toString()
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
 
