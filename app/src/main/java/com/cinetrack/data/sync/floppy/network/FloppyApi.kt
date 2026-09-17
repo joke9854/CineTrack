@@ -10,6 +10,7 @@ import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
 import com.cinetrack.data.sync.floppy.FloppyBootstrapEnsureResponse
 import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
 import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
+import com.cinetrack.data.sync.floppy.FloppyConnectionProbeDto
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionPage
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
@@ -18,7 +19,6 @@ import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaEnvelope
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
-import kotlinx.serialization.json.JsonObject
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -34,11 +34,12 @@ interface FloppyApi {
 
     @POST("api/v1/cinetrack/bootstrap/shows/ensure/")
     suspend fun ensureBootstrapShows(@Body request: FloppyBootstrapShowsRequest): FloppyBootstrapEnsureResponse
+
     @GET("api/v1/info/")
     suspend fun info(): FloppyInfoDto
 
-    @GET("api/v1/user/preferences/")
-    suspend fun preferences(): JsonObject
+    @GET("api/v1/cinetrack/connection/")
+    suspend fun connection(): FloppyConnectionProbeDto
 
     @GET("api/v1/media/{mediaType}/{source}/{mediaId}/")
     suspend fun mediaDetail(
@@ -140,5 +141,4 @@ interface FloppyApi {
         @Path("episode") episode: Int,
         @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
     ): FloppyTrackedMedia
-
 }
