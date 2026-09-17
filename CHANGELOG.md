@@ -1,3 +1,9 @@
+# CineTrack 0.99.23 beta
+
+- Added Floppy Bootstrap V2 support for batched movie/show imports on compatible servers, removing unnecessary full movie-history preparation before export.
+- Fixed Floppy bootstrap progress so movie writes report as syncing, and made explicit retries replace stale WorkManager executions instead of racing cancel + KEEP.
+- Stabilized Room migration CI by requiring usable KVM acceleration and running only the dedicated AppDatabaseMigrationTest instrumentation class.
+
 # CineTrack 0.99.22 beta
 
 - Added capability-gated idempotent Floppy episode-event bootstrap with exact watched timestamps, durable retry identity, and safe rewatch preservation.
@@ -190,4 +196,3 @@ Debug and release APK builds, unit tests, lint, baseline-profile compilation, re
 - Clear stale results while switching queries and show a proper empty state after searches complete.
 
 Debug and release APK builds, unit tests, lint, baseline-profile compilation, resource checks, database migration checks, and APK signature verification passed. Device-level visual verification remains necessary.
-
