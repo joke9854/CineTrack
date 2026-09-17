@@ -19,6 +19,7 @@ import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaEnvelope
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
+import kotlinx.serialization.json.JsonObject
 import retrofit2.http.Body
 import retrofit2.http.DELETE
 import retrofit2.http.GET
@@ -40,6 +41,14 @@ interface FloppyApi {
 
     @GET("api/v1/cinetrack/connection/")
     suspend fun connection(): FloppyConnectionProbeDto
+
+    /**
+     * Compatibility name for the pre-V2 connection call site. This no longer
+     * reads Floppy user preferences: it hits the dedicated authenticated
+     * CineTrack probe and returns only its safe connection JSON.
+     */
+    @GET("api/v1/cinetrack/connection/")
+    suspend fun preferences(): JsonObject
 
     @GET("api/v1/media/{mediaType}/{source}/{mediaId}/")
     suspend fun mediaDetail(
