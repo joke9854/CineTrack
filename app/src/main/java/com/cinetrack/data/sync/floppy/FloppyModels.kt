@@ -20,6 +20,7 @@ data class FloppyInfoDto(
 @Serializable
 data class FloppyApiExtensions(
     @SerialName("cinetrack_episode_events_v1") val cinetrackEpisodeEventsV1: Boolean = false,
+    @SerialName("cinetrack_bootstrap_v2") val cinetrackBootstrapV2: Boolean = false,
 )
 
 @Serializable
@@ -206,7 +207,41 @@ data class FloppyCapabilities(
     val canReadCompleteSnapshot: Boolean = false,
     /** Fork capability: exact event timestamps + durable idempotent replay. */
     val canEnsureEpisodeEvents: Boolean = false,
+    /** Fork capability: set-based movie/show import with no remote prefetch. */
+    val canBootstrapV2: Boolean = false,
 )
+
+@Serializable
+data class FloppyBootstrapMovieWatch(
+    @SerialName("watched_at") val watchedAt: String,
+    @SerialName("client_event_id") val clientEventId: String,
+)
+
+@Serializable
+data class FloppyBootstrapMovie(
+    val source: String,
+    @SerialName("media_id") val mediaId: String,
+    val title: String? = null,
+    val image: String? = null,
+    val status: Int? = null,
+    val watch: FloppyBootstrapMovieWatch? = null,
+)
+
+@Serializable data class FloppyBootstrapMoviesRequest(val movies: List<FloppyBootstrapMovie>)
+@Serializable data class FloppyBootstrapShow(
+    val source: String,
+    @SerialName("media_id") val mediaId: String,
+    val title: String? = null,
+    val image: String? = null,
+    val status: Int? = null,
+)
+@Serializable data class FloppyBootstrapShowsRequest(val shows: List<FloppyBootstrapShow>)
+@Serializable data class FloppyBootstrapEnsureResult(
+    val source: String,
+    @SerialName("media_id") val mediaId: String,
+    val status: String,
+)
+@Serializable data class FloppyBootstrapEnsureResponse(val results: List<FloppyBootstrapEnsureResult> = emptyList())
 
 @Serializable
 data class FloppyEpisodeEnsureEvent(

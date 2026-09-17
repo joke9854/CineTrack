@@ -5,6 +5,9 @@ import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureResponse
+import com.cinetrack.data.sync.floppy.FloppyBootstrapMoviesRequest
+import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
+import com.cinetrack.data.sync.floppy.FloppyBootstrapEnsureResponse
 import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
 import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
 import com.cinetrack.data.sync.floppy.FloppyConsumption
@@ -26,6 +29,11 @@ import retrofit2.http.Query
 
 /** Retrofit surface is limited to endpoints present in Floppy's public OpenAPI. */
 interface FloppyApi {
+    @POST("api/v1/cinetrack/bootstrap/movies/ensure/")
+    suspend fun ensureBootstrapMovies(@Body request: FloppyBootstrapMoviesRequest): FloppyBootstrapEnsureResponse
+
+    @POST("api/v1/cinetrack/bootstrap/shows/ensure/")
+    suspend fun ensureBootstrapShows(@Body request: FloppyBootstrapShowsRequest): FloppyBootstrapEnsureResponse
     @GET("api/v1/info/")
     suspend fun info(): FloppyInfoDto
 

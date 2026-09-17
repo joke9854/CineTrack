@@ -185,6 +185,7 @@ class FloppyTrackingProvider(
             context = FloppyBootstrapTransportContext(
                 expectedInstanceId,
                 canEnsureEpisodeEvents = session.capabilities.canEnsureEpisodeEvents,
+                canBootstrapV2 = session.capabilities.canBootstrapV2,
             ),
             ensureCurrent = { currentDeliveryInstanceId() == expectedInstanceId },
         )

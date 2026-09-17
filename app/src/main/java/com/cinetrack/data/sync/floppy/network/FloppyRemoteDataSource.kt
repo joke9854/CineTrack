@@ -18,6 +18,11 @@ import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyBootstrapMovie
+import com.cinetrack.data.sync.floppy.FloppyBootstrapMovieWatch
+import com.cinetrack.data.sync.floppy.FloppyBootstrapMoviesRequest
+import com.cinetrack.data.sync.floppy.FloppyBootstrapShow
+import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureEvent
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
@@ -52,6 +57,7 @@ private const val BULK_TASK_POLL_DELAY_MS = 500L
 class FloppyBootstrapTransportContext internal constructor(
     val providerInstanceId: String,
     val canEnsureEpisodeEvents: Boolean = false,
+    val canBootstrapV2: Boolean = false,
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
@@ -134,6 +140,7 @@ class FloppyRemoteDataSource(
             canRemoveHistory = true,
             canReadCompleteSnapshot = false,
             canEnsureEpisodeEvents = info.apiExtensions?.cinetrackEpisodeEventsV1 == true,
+            canBootstrapV2 = info.apiExtensions?.cinetrackBootstrapV2 == true,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -187,6 +194,9 @@ class FloppyRemoteDataSource(
         val api = factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
         val completed = linkedSetOf<String>()
         try {
+            if (bootstrapContext?.canBootstrapV2 == true) {
+                return pushBootstrapV2(api, operations, bootstrapContext, session.instanceId)
+            }
             val episodeIndex = bootstrapContext?.watchedEpisodeIndex
                 ?: if (operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
                     loadEpisodeIndex(api)
@@ -231,6 +241,58 @@ class FloppyRemoteDataSource(
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
+        return ProviderPushResult(completed)
+    }
+
+    /** Fork V2 owns idempotency, so its import requests never need the
+     * run-scoped full movie/episode index.  The returned ids stay exact: only
+     * operations included in confirmed server entries are acknowledged. */
+    private suspend fun pushBootstrapV2(
+        api: FloppyApi,
+        operations: List<SyncOperation>,
+        context: FloppyBootstrapTransportContext,
+        providerInstanceId: String,
+    ): ProviderPushResult {
+        val completed = linkedSetOf<String>()
+        val movies = operations.filter { it.mediaType == MediaType.MOVIE }
+            .groupBy { it.mediaId to it.sourceVersion }
+        if (movies.isNotEmpty()) {
+            val entries = movies.values.mapNotNull { group ->
+                val watched = group.firstOrNull { it.type == SyncOperationType.MOVIE_WATCHED }
+                val library = group.firstOrNull { it.type == SyncOperationType.LIBRARY_STATUS }
+                val anchor = watched ?: library ?: return@mapNotNull null
+                val status = library?.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull()?.toFloppyStatus() }
+                val watch = watched?.payload?.toInstantOrNull()?.let { instant ->
+                    FloppyBootstrapMovieWatch(
+                        watchedAt = instant.toString(),
+                        clientEventId = "cinetrack:${providerInstanceId}:${watched.id}:${watched.sourceVersion}",
+                    )
+                }
+                FloppyBootstrapMovie("tmdb", anchor.mediaId.toString(), anchor.title.takeIf(String::isNotBlank), status = status, watch = watch)
+            }
+            if (entries.isNotEmpty()) {
+                val response = api.ensureBootstrapMovies(FloppyBootstrapMoviesRequest(entries))
+                require(response.results.size == entries.size && response.results.all { it.status in setOf("created", "already_satisfied") }) {
+                    "Floppy V2 movie response did not confirm every submitted movie"
+                }
+                completed += movies.values.flatten().map(SyncOperation::id)
+            }
+        }
+        val shows = operations.filter { it.mediaType == MediaType.TV && it.type == SyncOperationType.LIBRARY_STATUS }
+        if (shows.isNotEmpty()) {
+            val entries = shows.map { operation ->
+                FloppyBootstrapShow("tmdb", operation.mediaId.toString(), operation.title.takeIf(String::isNotBlank), status = operation.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull()?.toFloppyStatus() })
+            }
+            val response = api.ensureBootstrapShows(FloppyBootstrapShowsRequest(entries))
+            require(response.results.size == entries.size && response.results.all { it.status in setOf("created", "already_satisfied") }) {
+                "Floppy V2 show response did not confirm every submitted show"
+            }
+            completed += shows.map(SyncOperation::id)
+        }
+        val episodes = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
+        if (episodes.isNotEmpty()) completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId)
+        val unsupported = operations.map(SyncOperation::id).toSet() - completed
+        if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
         return ProviderPushResult(completed)
     }
 

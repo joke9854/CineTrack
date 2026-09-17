@@ -96,8 +96,21 @@ object FloppyBootstrapWorkScheduler {
      * replaced. */
     fun retryNow(context: Context, connectionId: String, wifiOnly: Boolean = false) {
         if (connectionId.isBlank()) return
-        WorkManager.getInstance(context).cancelUniqueWork(uniqueWorkName(connectionId))
-        ensureScheduled(context, connectionId, wifiOnly)
+        val runId = java.util.UUID.randomUUID().toString()
+        val request = OneTimeWorkRequestBuilder<FloppyBootstrapWorker>()
+            .setInputData(workDataOf(
+                FloppyBootstrapWorker.EXPECTED_CONNECTION_ID to connectionId,
+                FloppyBootstrapWorker.BOOTSTRAP_RUN_ID to runId,
+                FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT to System.currentTimeMillis(),
+            ))
+            .addTag("floppy-bootstrap")
+            .addTag("floppy-bootstrap:$connectionId")
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        // REPLACE is atomic at the unique-work boundary.  cancel + KEEP races
+        // with WorkManager's asynchronous cancellation and can reuse stale work.
+        WorkManager.getInstance(context).enqueueUniqueWork(uniqueWorkName(connectionId), ExistingWorkPolicy.REPLACE, request)
     }
 
     fun cancel(context: Context, connectionId: String?) {
@@ -261,7 +274,7 @@ class FloppyBootstrapWorker(
                     if (fetchedBatch.isEmpty()) break
                     val movieWave = fetchedBatch.bootstrapMovieWave(MAX_CONCURRENT_MOVIE_UNITS)
                     if (movieWave.isNotEmpty()) {
-                        if (!transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
+                        if (!transport.context.canBootstrapV2 && !transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
                             current = FloppyBootstrapProgress(
                                 FloppyBootstrapStage.CHECKING_REMOTE_STATE,
                                 processed, total, processed, failed, expected,
@@ -294,6 +307,14 @@ class FloppyBootstrapWorker(
                                 break
                             }
                         }
+                        // Preparation is complete: writes must never continue
+                        // under the user-facing CHECKING_REMOTE_STATE stage.
+                        current = FloppyBootstrapProgress(
+                            FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected,
+                            currentOperationType = movieWave.first().firstOrNull()?.type?.name,
+                            lastProgressAtMillis = lastProgressAt,
+                        )
+                        setProgress(progressData(current!!))
                         val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
                             supervisorScope {
                                 movieWave.map { unit ->
@@ -318,6 +339,8 @@ class FloppyBootstrapWorker(
                         val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
                         processed = (total - remaining).coerceIn(processed, total)
                         lastProgressAt = System.currentTimeMillis()
+                        current = current?.copy(processed = processed, succeeded = processed, lastProgressAtMillis = lastProgressAt)
+                        current?.let { setProgress(progressData(it)) }
                         if (waveFailure != null) {
                             failed += movieWave.firstOrNull { unit -> outcomes.firstOrNull { it.first == unit }?.second?.isFailure == true }?.size ?: 0
                             loopError = waveFailure

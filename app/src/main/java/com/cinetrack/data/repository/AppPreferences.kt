@@ -268,6 +268,7 @@ class AppPreferences(private val context: Context) {
                 canRemoveHistory = "remove_history" in capabilities,
                 canReadCompleteSnapshot = "complete_snapshot" in capabilities,
                 canEnsureEpisodeEvents = "ensure_episode_events" in capabilities,
+                canBootstrapV2 = "bootstrap_v2" in capabilities,
             ),
             connectedAt = values[Keys.floppyConnectedAt],
             connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
@@ -328,6 +329,7 @@ class AppPreferences(private val context: Context) {
                     if (settings.capabilities.canRemoveHistory) add("remove_history")
                     if (settings.capabilities.canReadCompleteSnapshot) add("complete_snapshot")
                     if (settings.capabilities.canEnsureEpisodeEvents) add("ensure_episode_events")
+                    if (settings.capabilities.canBootstrapV2) add("bootstrap_v2")
                 }
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
