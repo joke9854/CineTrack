@@ -31,8 +31,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 23
         targetSdk = 36
-        versionCode = 121
-        versionName = "0.99.22"
+        versionCode = 122
+        versionName = "0.99.23"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -160,4 +160,3 @@ dependencies {
     androidTestImplementation("androidx.room:room-testing:2.8.4")
     androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
 }
-
