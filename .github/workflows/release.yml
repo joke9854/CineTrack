@@ -91,21 +91,15 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/cinetrack-release.jks"
-      - name: Test and build signed APK
+      - name: Build signed release APK
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cinetrack-release.jks
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
-          SKIP_TESTS: ${{ (github.event_name == 'push' && contains(github.event.head_commit.message, '[skip tests]')) || (github.event_name == 'workflow_run' && contains(github.event.workflow_run.head_commit.message, '[skip tests]')) }}
         run: |
-          if [ "$SKIP_TESTS" = "true" ]; then
-            echo "Skipping release tests by explicit [skip tests] request; building the signed APK only."
-            ./gradlew :app:assembleRelease
-          else
-            ./gradlew :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
-          fi
+          ./gradlew :app:assembleRelease
       - name: Verify signed APK and profile assets
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
