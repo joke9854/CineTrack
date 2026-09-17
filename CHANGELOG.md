@@ -1,3 +1,8 @@
+# CineTrack 0.99.22 beta
+
+- Added capability-gated idempotent Floppy episode-event bootstrap with exact watched timestamps, durable retry identity, and safe rewatch preservation.
+- Added Floppy fork capability discovery and database-level episode pagination while retaining the stock-server fallback path.
+
 # CineTrack 0.99.19 beta
 
 - Made Floppy bootstrap delivery durable at each confirmed same-season transport unit, so later failures cannot discard earlier acknowledgements.
