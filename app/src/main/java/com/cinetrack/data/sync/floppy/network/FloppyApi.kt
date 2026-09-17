@@ -3,6 +3,8 @@ package com.cinetrack.data.sync.floppy.network
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureResponse
 import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
 import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
 import com.cinetrack.data.sync.floppy.FloppyConsumption
@@ -109,6 +111,14 @@ interface FloppyApi {
         @Path("mediaId") mediaId: String,
         @Body request: FloppyEpisodeBulkRequest,
     ): FloppyBulkTaskResponse
+
+    @POST("api/v1/media/{mediaType}/{source}/{mediaId}/episodes/ensure/")
+    suspend fun ensureEpisodes(
+        @Path("mediaType") mediaType: String = "tv",
+        @Path("source") source: String,
+        @Path("mediaId") mediaId: String,
+        @Body request: FloppyEpisodeEnsureRequest,
+    ): FloppyEpisodeEnsureResponse
 
     @GET("api/v1/tasks/{taskId}/")
     suspend fun taskStatus(@Path("taskId") taskId: String): FloppyTaskStatusResponse
