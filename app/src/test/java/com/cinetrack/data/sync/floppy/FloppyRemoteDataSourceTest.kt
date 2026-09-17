@@ -6,6 +6,7 @@ import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
 import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
 import com.cinetrack.data.sync.floppy.network.FloppyBootstrapTransportContext
+import com.cinetrack.data.sync.floppy.network.episodeClientEventId
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.FloppyConnectionStage
@@ -243,6 +244,28 @@ class FloppyRemoteDataSourceTest {
         assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=0", server.takeRequest().path)
         assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/bulk/", server.takeRequest().path)
         assertEquals("/proxy/api/v1/tasks/task-1/", server.takeRequest().path)
+    }
+
+    @Test
+    fun capableBootstrapUsesExactEnsureEventsWithoutEpisodePrefetch() = runBlocking {
+        val capable = session.copy(capabilities = session.capabilities.copy(canEnsureEpisodeEvents = true))
+        val context = FloppyBootstrapTransportContext(capable.instanceId, canEnsureEpisodeEvents = true)
+        val operation = operation(
+            SyncOperationType.EPISODE_WATCHED,
+            mediaType = MediaType.TV,
+            payload = "2:3:2024-01-03T21:13:00Z",
+        )
+        server.enqueue(json("""{"results":[{"client_event_id":"${episodeClientEventId(capable.instanceId, operation)}","season_number":2,"episode_number":3,"status":"created"}]}"""))
+
+        remote.push(capable, listOf(operation), context)
+
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/ensure/", request.path)
+        val body = request.body.readUtf8()
+        assertTrue(body.contains("2024-01-03T21:13:00Z"))
+        assertTrue(body.contains("\"season_number\":2"))
+        assertTrue(body.contains("\"episode_number\":3"))
     }
 
     @Test
