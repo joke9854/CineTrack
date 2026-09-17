@@ -62,7 +62,7 @@ class FloppyTrackingProvider(
         return true
     }
 
-    /** Performs the staged public-info then authenticated-preferences flow. */
+    /** Performs the staged public-info then authenticated CineTrack probe flow. */
     suspend fun validateConnection(
         baseUrl: String,
         apiKey: String,
@@ -84,9 +84,9 @@ class FloppyTrackingProvider(
     }
 
     /**
-     * Commits a previously validated connection.  The caller must already own
-     * TrackingRoutingMutex (and provider I/O serialization); no callback or
-     * nested routing lock is taken here.
+     * Commits a previously validated connection. The caller serializes provider
+     * I/O before invoking this method so an immutable bootstrap session cannot
+     * observe a partially replaced target.
      */
     internal suspend fun commitValidatedConnectionLocked(
         settings: FloppyConnectionSettings,
@@ -160,8 +160,6 @@ class FloppyTrackingProvider(
         val generation = connectionGeneration.get()
         val session = captureSession()
         checkGeneration(generation)
-        // Never query Room here: the coordinator's immutable delivery set is
-        // the complete authority for this provider pass.
         val result = remote.push(session, operations)
         checkGeneration(generation)
         checkSessionStillCurrent(session)
@@ -215,19 +213,27 @@ class FloppyTrackingProvider(
         operations: List<SyncOperation>,
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
-        // Floppy exposes useful read endpoints, but no authoritative
-        // provider-neutral reconciliation engine yet. Never pretend a push
-        // followed by a discarded snapshot is bidirectional synchronization.
         throw TrackingSyncError.UnsupportedOperation(id, com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS)
     }
 
     override suspend fun testConnection(): ConnectionResult {
         val settings = preferences?.floppySettingsNow() ?: return ConnectionResult.AuthenticationRequired
-        return remote.test(settings.baseUrl, preferences.floppyApiKeyNow(), settings.allowInsecureLocalHttp).also {
-            if (it is ConnectionResult.Connected) {
-                discovered = settings.capabilities
-                bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
-            }
+        val apiKey = preferences.floppyApiKeyNow()?.takeIf(String::isNotBlank)
+            ?: return ConnectionResult.AuthenticationRequired
+        return runCatching {
+            val refreshed = remote.connect(
+                settings.baseUrl,
+                apiKey,
+                settings.allowInsecureLocalHttp,
+            )
+            val activation = commitValidatedConnectionLocked(refreshed, apiKey)
+            discovered = activation.committed.capabilities
+            bootstrapReady = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY
+            ConnectionResult.Connected
+        }.getOrElse { error ->
+            val mapped = error as? TrackingSyncError ?: TrackingSyncError.Unknown(error)
+            if (mapped is TrackingSyncError.AuthenticationRequired) ConnectionResult.AuthenticationRequired
+            else ConnectionResult.Failed(mapped)
         }
     }
 
@@ -272,8 +278,6 @@ private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) =
     supportsWatchHistory = canReadHistory || canWriteMovieHistory || canWriteEpisodeHistory,
     supportsRatings = false,
     supportsLibrary = canReadLibrary || canWriteLibrary,
-    // A real Floppy MAIN reconciler is deliberately out of scope for this
-    // milestone, regardless of bootstrap state or read endpoint availability.
     supportsTwoWaySync = false,
     supported = buildSet {
         if (canReadLibrary) add(TrackingCapability.PULL_LIBRARY)
@@ -291,4 +295,3 @@ private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) =
         }
     },
 )
-
