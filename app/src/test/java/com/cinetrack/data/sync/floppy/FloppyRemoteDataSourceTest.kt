@@ -238,8 +238,6 @@ class FloppyRemoteDataSourceTest {
         remote.push(session, listOf(first), context)
         remote.push(session, listOf(duplicate), context)
 
-        // One typed-media index request and one async bulk range task; the
-        // duplicate is acknowledged from the run-scoped EpisodeKey cache.
         assertEquals(3, server.requestCount)
         assertEquals("/proxy/api/v1/media/episode/?limit=200&offset=0", server.takeRequest().path)
         assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/bulk/", server.takeRequest().path)
@@ -397,9 +395,9 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun connectUsesPublicInfoThenAuthenticatedPreferencesAndReportsServerVersion() = runBlocking {
-        server.enqueue(json("{\"version\":\"v26.9.10\",\"frontend_url\":\"https://frontend.example\"}"))
-        server.enqueue(json("{\"preferences\":{},\"choices\":{}}"))
+    fun connectUsesPublicInfoThenAuthenticatedConnectionProbeAndReportsServerVersion() = runBlocking {
+        server.enqueue(json("{\"version\":\"v26.9.10\",\"frontend_url\":\"https://frontend.example\",\"api_extensions\":{\"cinetrack_episode_events_v1\":true,\"cinetrack_bootstrap_v2\":true,\"episode_sql_pagination\":true}}"))
+        server.enqueue(json("{\"authenticated\":true,\"account_id\":\"opaque-account\",\"user\":\"opaque-account\",\"server_version\":\"v26.9.10\",\"api_extensions\":{\"cinetrack_episode_events_v1\":true,\"cinetrack_bootstrap_v2\":true,\"episode_sql_pagination\":true}}"))
         val stages = mutableListOf<Pair<FloppyConnectionStage, String?>>()
 
         val settings = remote.connect(
@@ -410,13 +408,16 @@ class FloppyRemoteDataSourceTest {
         )
 
         assertEquals("v26.9.10", settings.serverVersion)
+        assertEquals("opaque-account", settings.accountIdentity)
+        assertTrue(settings.capabilities.canEnsureEpisodeEvents)
+        assertTrue(settings.capabilities.canBootstrapV2)
         assertEquals(listOf(FloppyConnectionStage.AUTHENTICATING to "v26.9.10"), stages)
         val infoRequest = server.takeRequest()
         assertEquals("/proxy/api/v1/info/", infoRequest.path)
         assertTrue(infoRequest.getHeader("X-API-Key").isNullOrBlank())
-        val preferencesRequest = server.takeRequest()
-        assertEquals("/proxy/api/v1/user/preferences/", preferencesRequest.path)
-        assertEquals("secret-token", preferencesRequest.getHeader("X-API-Key"))
+        val connectionRequest = server.takeRequest()
+        assertEquals("/proxy/api/v1/cinetrack/connection/", connectionRequest.path)
+        assertEquals("secret-token", connectionRequest.getHeader("X-API-Key"))
     }
 
     @Test
@@ -479,4 +480,3 @@ class FloppyRemoteDataSourceTest {
         .addHeader("Content-Type", "application/json")
         .setBody(body)
 }
-
