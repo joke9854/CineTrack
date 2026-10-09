@@ -286,6 +286,10 @@ data class FloppyEpisodeEnsureResult(
     @SerialName("season_number") val seasonNumber: Int,
     @SerialName("episode_number") val episodeNumber: Int,
     val status: String,
+    /** Where Floppy stored the watch when it differs from the submitted
+     * coordinate (continuous anime numbering translated to TMDB seasons). */
+    @SerialName("stored_season_number") val storedSeasonNumber: Int? = null,
+    @SerialName("stored_episode_number") val storedEpisodeNumber: Int? = null,
 )
 
 @Serializable

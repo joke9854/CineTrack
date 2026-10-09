@@ -237,8 +237,10 @@ class FloppyRemoteDataSource(
             // Bulk transport is deliberately restricted to managed bootstrap.
             // Realtime/delta pushes keep their existing singular semantics.
             val rejected = linkedMapOf<String, String>()
+            val unmatched = linkedMapOf<String, String>()
+            val stored = linkedMapOf<String, String>()
             val bulkCompleted = if (bootstrapContext != null) {
-                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected)
+                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected, unmatched, stored)
             } else {
                 pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId, rejected)
             }
@@ -247,7 +249,7 @@ class FloppyRemoteDataSource(
             val byMovieGeneration = operations
                 .filter { it.mediaType == MediaType.MOVIE }
                 .groupBy { it.mediaId to it.sourceVersion }
-            val consumed = (bulkCompleted + rejected.keys).toMutableSet()
+            val consumed = (bulkCompleted + rejected.keys + unmatched.keys).toMutableSet()
             operations.forEach { operation ->
                 if (operation.id in consumed) return@forEach
                 val pair = byMovieGeneration[operation.mediaId to operation.sourceVersion].orEmpty()
@@ -267,7 +269,7 @@ class FloppyRemoteDataSource(
                     consumed += operation.id
                 }
             }
-            return ProviderPushResult(completed, rejected)
+            return ProviderPushResult(completed, rejected, unmatched, stored)
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
@@ -323,10 +325,14 @@ class FloppyRemoteDataSource(
         }
         val episodes = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
         val rejected = linkedMapOf<String, String>()
-        if (episodes.isNotEmpty()) completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected)
-        val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys
+        val unmatched = linkedMapOf<String, String>()
+        val stored = linkedMapOf<String, String>()
+        if (episodes.isNotEmpty()) {
+            completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected, unmatched, stored)
+        }
+        val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys - unmatched.keys
         if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
-        return ProviderPushResult(completed, rejected)
+        return ProviderPushResult(completed, rejected, unmatched, stored)
     }
 
     /**
@@ -344,6 +350,10 @@ class FloppyRemoteDataSource(
         canEnsureEpisodeEvents: Boolean,
         providerInstanceId: String,
         rejected: MutableMap<String, String> = mutableMapOf(),
+        // Initial sync only: not_found is final ("no counterpart") rather than
+        // retried. Live watches keep it retryable in case metadata was stale.
+        unmatched: MutableMap<String, String>? = null,
+        stored: MutableMap<String, String> = mutableMapOf(),
     ): Set<String> {
         if (operations.isEmpty()) return emptySet()
         val completed = linkedSetOf<String>()
@@ -369,12 +379,20 @@ class FloppyRemoteDataSource(
                         throw TrackingSyncError.InvalidRemoteData("Floppy ensure response did not account for every submitted event")
                     }
                     chunk.zip(events).forEach { (operation, event) ->
-                        val status = byEventId.getValue(event.clientEventId).status
-                        if (status == "created" || status == "already_satisfied") {
-                            completed += operation.id
-                            episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), event.seasonNumber, event.episodeNumber))
-                        } else {
-                            rejected[operation.id] = "TV:$showId S%02dE%02d %s".format(event.seasonNumber, event.episodeNumber, status)
+                        val result = byEventId.getValue(event.clientEventId)
+                        val label = "TV:$showId S%02dE%02d".format(event.seasonNumber, event.episodeNumber)
+                        when {
+                            result.status == "created" || result.status == "already_satisfied" -> {
+                                completed += operation.id
+                                val storedSeason = result.storedSeasonNumber ?: event.seasonNumber
+                                val storedEpisode = result.storedEpisodeNumber ?: event.episodeNumber
+                                if (storedSeason != event.seasonNumber || storedEpisode != event.episodeNumber) {
+                                    stored[operation.id] = "$storedSeason:$storedEpisode"
+                                }
+                                episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), storedSeason, storedEpisode))
+                            }
+                            result.status == "not_found" && unmatched != null -> unmatched[operation.id] = "$label has no Floppy counterpart"
+                            else -> rejected[operation.id] = "$label ${result.status}"
                         }
                     }
                 }

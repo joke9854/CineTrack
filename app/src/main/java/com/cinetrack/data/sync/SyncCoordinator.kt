@@ -204,8 +204,11 @@ class SyncCoordinator(
             // Mixed outcome: acknowledge exactly what was applied and leave only
             // the refused operations unresolved.
             val accepted = supported.filter { it.id in result.completedOperationIds }
-            val refused = supported.filterNot { it.id in result.completedOperationIds }
+            val unmatched = supported.filter { it.id !in result.completedOperationIds && it.id in result.unmatchedOperationIds }
+            val refused = supported.filterNot { it.id in result.completedOperationIds || it.id in result.unmatchedOperationIds }
             operations.acknowledge(providerId, accepted)
+            // No remote counterpart exists: close as unsupported, not as success.
+            if (unmatched.isNotEmpty()) operations.skipUnsupported(providerId, unmatched)
             if (refused.isNotEmpty()) {
                 val error = TrackingSyncError.PartiallyRejected(
                     refused.associate { it.id to result.rejectedOperationIds.getValue(it.id) },
@@ -358,7 +361,9 @@ class SyncCoordinator(
         if (unsupported != null) throw TrackingSyncError.UnsupportedOperation(provider.id, unsupported.type)
         val result = transport?.invoke(pending) ?: provider.push(pending)
         // Every operation needs a known outcome: applied, or explicitly refused.
-        check(pending.all { it.id in result.completedOperationIds || it.id in result.rejectedOperationIds }) {
+        check(pending.all {
+            it.id in result.completedOperationIds || it.id in result.rejectedOperationIds || it.id in result.unmatchedOperationIds
+        }) {
             "${provider.id.name} did not acknowledge every synchronization operation"
         }
         return result

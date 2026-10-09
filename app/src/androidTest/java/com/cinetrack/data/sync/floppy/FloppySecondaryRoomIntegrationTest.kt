@@ -547,6 +547,55 @@ class FloppySecondaryRoomIntegrationTest {
     }
 
     @Test
+    fun unmatchedEpisodesCloseAndCompletionUsesStoredCoordinates() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 37854), 1, 62, true, Instant.parse("2025-01-01T00:00:00Z")),
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 6, 26, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val anime = pending.single { it.mediaId == 37854 }
+        val double = pending.single { it.mediaId == 2316 }
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = setOf(anime.id),
+                    unmatchedOperationIds = mapOf(double.id to "TV:2316 S06E26 has no Floppy counterpart"),
+                    storedCoordinates = mapOf(anime.id to "2:1"),
+                )
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to NO_COUNTERPART))
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            listOf(Triple(37854L, 2, 1)),
+            verified!!.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+    }
+
+    @Test
     fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         val previous = requireNotNull(preferences.floppySettingsNow())

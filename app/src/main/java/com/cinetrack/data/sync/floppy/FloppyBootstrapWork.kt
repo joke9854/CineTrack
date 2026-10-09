@@ -23,6 +23,7 @@ import com.cinetrack.R
 import com.cinetrack.data.sync.ProviderBootstrapState
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.ProviderPushResult
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
@@ -533,13 +534,14 @@ class FloppyBootstrapWorker(
                         lastProgressAtMillis = lastProgressAt,
                     )
                     setProgress(progressData(current!!))
+                    var pushed: ProviderPushResult? = null
                     val result: SyncResult<Unit> = try {
                         withTimeout(90_000) {
                             application.container.syncCoordinator.pushPendingForProvider(
                                 TrackingProviderId.FLOPPY,
                                 batch.mapTo(linkedSetOf()) { it.id },
                                 expected,
-                                transport = transport::push,
+                                transport = { operations -> transport.push(operations).also { pushed = it } },
                             )
                         }
                     } catch (timeout: TimeoutCancellationException) {
@@ -548,6 +550,20 @@ class FloppyBootstrapWorker(
                         throw cancelled
                     } catch (error: Throwable) {
                         SyncResult.failure(error)
+                    }
+                    pushed?.let { outcome ->
+                        // Remember where Floppy stored translated episodes and which
+                        // have no counterpart, so completion is verified correctly.
+                        coordinator.recordEpisodeOutcomes(
+                            expected,
+                            outcome.storedCoordinates + outcome.unmatchedOperationIds.mapValues { NO_COUNTERPART },
+                        )
+                        outcome.storedCoordinates.forEach { (id, coordinate) ->
+                            report("Floppy bootstrap episode stored as TMDB $coordinate: run=$runId ${id.substringAfter(":episode:")}")
+                        }
+                        outcome.unmatchedOperationIds.values.forEach { reason ->
+                            report(warn = true, message = "Floppy bootstrap item closed: run=$runId $reason")
+                        }
                     }
                     if (result.isFailure) {
                         val error = result.exceptionOrNull() ?: IllegalStateException("Floppy bootstrap delivery failed")

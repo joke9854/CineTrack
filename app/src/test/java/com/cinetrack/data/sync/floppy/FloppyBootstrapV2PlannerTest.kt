@@ -93,6 +93,30 @@ class FloppyBootstrapV2PlannerTest {
     }
 
     @Test
+    fun completionCheckExpectsTranslatedCoordinatesAndSkipsEpisodesWithoutCounterpart() {
+        val snapshot = TrackingSnapshot(
+            episodes = listOf(
+                TrackedEpisodeState(MediaIds(tmdb = 37854), 1, 62, true),
+                TrackedEpisodeState(MediaIds(tmdb = 2316), 6, 26, true),
+                TrackedEpisodeState(MediaIds(tmdb = 2316), 6, 1, true),
+            ),
+        )
+
+        val expected = snapshot.withEpisodeOutcomes(
+            "instance-a",
+            mapOf(
+                "bootstrap:instance-a:episode:37854:1:62" to "2:1",
+                "bootstrap:instance-a:episode:2316:6:26" to NO_COUNTERPART,
+            ),
+        )
+
+        assertEquals(
+            listOf(Triple(37854L, 2, 1), Triple(2316L, 6, 1)),
+            expected.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+    }
+
+    @Test
     fun specialsNeverShareARequestWithRegularEpisodes() {
         val mixed = listOf(episode("s0e1", 0, 1), episode("s0e2", 0, 2), episode("e1", 1, 1), episode("e202", 2, 2))
 

@@ -384,13 +384,42 @@ class FloppyRemoteDataSourceTest {
         val unknown = v2Operation("e26", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "6:26:2024-01-02T20:00:00Z")
         val validId = episodeClientEventId(session.instanceId, valid)
         val unknownId = episodeClientEventId(session.instanceId, unknown)
-        server.enqueue(json("""{"results":[{"client_event_id":"$validId","season_number":6,"episode_number":1,"status":"created"},{"client_event_id":"$unknownId","season_number":6,"episode_number":26,"status":"not_found"}]}"""))
+        server.enqueue(json("""{"results":[{"client_event_id":"$validId","season_number":6,"episode_number":1,"status":"created"},{"client_event_id":"$unknownId","season_number":6,"episode_number":26,"status":"metadata_unavailable"}]}"""))
 
         val result = remote.push(session, listOf(valid, unknown), context)
 
         assertEquals(setOf("e1"), result.completedOperationIds)
-        assertEquals(mapOf("e26" to "TV:2316 S06E26 not_found"), result.rejectedOperationIds)
+        assertEquals(mapOf("e26" to "TV:2316 S06E26 metadata_unavailable"), result.rejectedOperationIds)
         assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun bootstrapNotFoundIsFinalAndTranslatedCoordinatesAreReported() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val translated = v2Operation("e62", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 37854, payload = "1:62:2024-01-01T20:00:00Z")
+        val double = v2Operation("e26", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 37854, payload = "6:26:2024-01-02T20:00:00Z")
+        val translatedId = episodeClientEventId(session.instanceId, translated)
+        val doubleId = episodeClientEventId(session.instanceId, double)
+        server.enqueue(json("""{"results":[{"client_event_id":"$translatedId","season_number":1,"episode_number":62,"status":"created","stored_season_number":2,"stored_episode_number":1},{"client_event_id":"$doubleId","season_number":6,"episode_number":26,"status":"not_found"}]}"""))
+
+        val result = remote.push(session, listOf(translated, double), context)
+
+        assertEquals(setOf("e62"), result.completedOperationIds)
+        assertEquals(mapOf("e62" to "2:1"), result.storedCoordinates)
+        assertEquals(mapOf("e26" to "TV:37854 S06E26 has no Floppy counterpart"), result.unmatchedOperationIds)
+        assertTrue(result.rejectedOperationIds.isEmpty())
+    }
+
+    @Test
+    fun liveNotFoundStaysRetryable() = runBlocking {
+        val capable = session.copy(capabilities = session.capabilities.copy(canEnsureEpisodeEvents = true))
+        val watch = v2Operation("write:9", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 1399, payload = "8:7:2026-10-09T20:00:00Z")
+        server.enqueue(json("""{"results":[{"client_event_id":"${episodeClientEventId(capable.instanceId, watch)}","season_number":8,"episode_number":7,"status":"not_found"}]}"""))
+
+        val result = remote.push(capable, listOf(watch))
+
+        assertTrue(result.unmatchedOperationIds.isEmpty())
+        assertEquals(setOf("write:9"), result.rejectedOperationIds.keys)
     }
 
     @Test

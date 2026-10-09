@@ -100,7 +100,10 @@ class FloppyBootstrapCoordinator(
             }
             if (existing?.materialized != true) {
                 preferences.setFloppyBootstrapPlanRaw(
-                    encodePlan(PersistedPlan(instance, operations.map(::toPersisted), materialized = true)),
+                    encodePlan(
+                        existing?.copy(materialized = true)
+                            ?: PersistedPlan(instance, operations.map(::toPersisted), materialized = true),
+                    ),
                 )
             }
             if (operations.isEmpty() && verifyRemote(snapshot ?: canonicalSnapshot())) {
@@ -166,7 +169,7 @@ class FloppyBootstrapCoordinator(
                     delivery.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED)
             }
         }
-        if (!incomplete && verifyRemote(canonicalSnapshot())) {
+        if (!incomplete && verifyRemote(canonicalSnapshot().withEpisodeOutcomes(instance, plan.episodeOutcomes))) {
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
             preferences.clearFloppyBootstrapPlan()
             return@withLock true
@@ -177,11 +180,21 @@ class FloppyBootstrapCoordinator(
     /** [materialized] is set once every operation has been queued. Room
      * retires acknowledged rows, so afterwards a missing row means "done",
      * not "never queued", and must not be re-queued. */
+    /** Records where Floppy stored episodes under another coordinate
+     * ("season:episode") or that it has no counterpart for ([NO_COUNTERPART]),
+     * keyed by operation id, so completion is verified against reality. */
+    suspend fun recordEpisodeOutcomes(instance: String, outcomes: Map<String, String>) = mutex.withLock {
+        if (outcomes.isEmpty()) return@withLock
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance } ?: return@withLock
+        preferences.setFloppyBootstrapPlanRaw(encodePlan(plan.copy(episodeOutcomes = plan.episodeOutcomes + outcomes)))
+    }
+
     @Serializable
     private data class PersistedPlan(
         val instanceId: String,
         val operations: List<PersistedOperation>,
         val materialized: Boolean = false,
+        val episodeOutcomes: Map<String, String> = emptyMap(),
     )
 
     @Serializable
@@ -202,6 +215,28 @@ class FloppyBootstrapCoordinator(
     private fun decodePlan(raw: String?): PersistedPlan? = raw?.let { runCatching { Json.decodeFromString(PersistedPlan.serializer(), it) }.getOrNull() }
 
     private companion object { const val CHUNK_SIZE = 100 }
+}
+
+internal const val NO_COUNTERPART = "-"
+
+/** The snapshot Floppy should now hold: episodes it stored under another
+ * coordinate are expected there, and episodes it has no counterpart for are
+ * not expected at all. Outcomes are keyed by bootstrap operation id. */
+internal fun TrackingSnapshot.withEpisodeOutcomes(instance: String, outcomes: Map<String, String>): TrackingSnapshot {
+    if (outcomes.isEmpty()) return this
+    return copy(
+        episodes = episodes.mapNotNull { episode ->
+            val showId = episode.showIds.tmdb ?: return@mapNotNull episode
+            when (val outcome = outcomes["bootstrap:$instance:episode:$showId:${episode.season}:${episode.episode}"]) {
+                null -> episode
+                NO_COUNTERPART -> null
+                else -> {
+                    val (season, number) = outcome.split(':').map(String::toInt)
+                    episode.copy(season = season, episode = number)
+                }
+            }
+        },
+    )
 }
 
 /** Pure operation construction kept separate so generation/timestamp

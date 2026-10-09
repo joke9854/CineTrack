@@ -228,6 +228,12 @@ sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exce
 data class ProviderPushResult(
     val completedOperationIds: Set<String>,
     val rejectedOperationIds: Map<String, String> = emptyMap(),
+    /** Definitive outcome "the provider has no counterpart" (id -> reason):
+     * closed as unsupported rather than retried, never acknowledged. */
+    val unmatchedOperationIds: Map<String, String> = emptyMap(),
+    /** Completed operations the provider stored under another coordinate
+     * (id -> "season:episode"). */
+    val storedCoordinates: Map<String, String> = emptyMap(),
 )
 
 /** Result of a provider's bidirectional MAIN pass after applying remote changes locally. */
