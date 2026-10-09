@@ -1,3 +1,9 @@
+# CineTrack 0.99.28 beta
+
+- When Floppy refuses individual episodes (for example episode numbers its metadata provider lists differently), the rest of the request is now saved and acknowledged; only the refused episodes stay unsynced, each listed in Settings > Logs with the reason.
+- Floppy 404 errors now show the server's reason instead of "API endpoint was not found", and log lines use readable error messages.
+- Requires Floppy CineTrack-API fb56e6b1 or later for per-episode results; older servers keep working with whole-request failures.
+
 # CineTrack 0.99.27 beta
 
 - The initial Floppy sync now resumes where it stopped after Retry, an error or a timeout, instead of re-sending everything already synced from 0 (which caused minutes of re-checking movies and a loop on TV episodes). An existing in-progress sync does one last full check, then resumes normally.
