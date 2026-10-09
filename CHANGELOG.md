@@ -1,3 +1,10 @@
+# CineTrack 0.99.24 beta
+
+- Floppy connection checks now use the dedicated CineTrack probe instead of `/user/preferences/`, so tracking-scoped tokens without `user:read` can sync; older servers without the probe still fall back to preferences.
+- Each connection check and Retry refreshes the server's Bootstrap V2 capabilities, and an existing connection keeps its identity (and its bootstrap plan) when moving to the probe's account id with the same API key.
+- Floppy errors are now classified (sign-in, token scope, API redirect, wrong route, rate limit, server, invalid response) instead of a generic "Floppy is unavailable".
+- One Floppy item the server permanently rejects no longer blocks the whole initial sync: it is left unresolved, the rest continues, and the sync ends as needing attention with the skipped count.
+
 # CineTrack 0.99.23 beta
 
 - Added Floppy Bootstrap V2 support for batched movie/show imports on compatible servers, removing unnecessary full movie-history preparation before export.
