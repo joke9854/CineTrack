@@ -225,6 +225,9 @@ class SyncCoordinator(
     suspend fun pendingBootstrapEpisodeOperations(connectionId: String, limit: Int): List<SyncOperation> =
         operations.bootstrapEpisodePending(connectionId, limit)
 
+    suspend fun pendingBootstrapShowEpisodes(connectionId: String, showId: Int): List<SyncOperation> =
+        operations.bootstrapShowEpisodesPending(connectionId, showId)
+
     suspend fun pendingBootstrapCount(connectionId: String): Int =
         operations.bootstrapPendingCount(connectionId)
 

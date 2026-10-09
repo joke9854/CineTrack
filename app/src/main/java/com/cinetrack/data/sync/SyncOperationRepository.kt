@@ -45,6 +45,11 @@ interface SyncOperationRepository {
         bootstrapPending(connectionId, limit).filter { it.type == SyncOperationType.EPISODE_WATCHED }
     suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
         bootstrapPending(connectionId, operationIds.size.coerceAtLeast(1)).filter { it.id in operationIds }
+    /** Every unresolved bootstrap episode of one show, regardless of plan order. */
+    suspend fun bootstrapShowEpisodesPending(connectionId: String, showId: Int): List<SyncOperation> =
+        bootstrapPending(connectionId, Int.MAX_VALUE).filter {
+            it.type == SyncOperationType.EPISODE_WATCHED && it.id.startsWith(floppyBootstrapShowEpisodePrefix(connectionId, showId))
+        }
     suspend fun bootstrapPendingCount(connectionId: String): Int =
         bootstrapPending(connectionId, Int.MAX_VALUE).size
     suspend fun cards(): List<SyncOperationCard>
@@ -132,6 +137,13 @@ class RoomSyncOperationRepository(
     override suspend fun bootstrapEpisodePending(connectionId: String, limit: Int): List<SyncOperation> =
         database.syncDao().pendingFloppyBootstrapEpisodeOperations("bootstrap:${connectionId}:", connectionId, limit)
             .mapNotNull { it.toSyncOperation(null) }
+
+    override suspend fun bootstrapShowEpisodesPending(connectionId: String, showId: Int): List<SyncOperation> =
+        database.syncDao().pendingFloppyBootstrapEpisodeOperations(
+            floppyBootstrapShowEpisodePrefix(connectionId, showId),
+            connectionId,
+            SHOW_EPISODE_FETCH_LIMIT,
+        ).mapNotNull { it.toSyncOperation(null) }
 
     override suspend fun bootstrapPendingByIds(connectionId: String, operationIds: Set<String>): List<SyncOperation> =
         if (operationIds.isEmpty()) emptyList()
@@ -745,6 +757,12 @@ class RoomSyncOperationRepository(
     }
 }
 
+/** Matches the id built by buildFloppyBootstrapOperations; the trailing colon
+ * keeps show 12 from matching show 123. */
+internal fun floppyBootstrapShowEpisodePrefix(connectionId: String, showId: Int) =
+    "bootstrap:$connectionId:episode:$showId:"
+
+private const val SHOW_EPISODE_FETCH_LIMIT = 5_000
 private const val LEGACY_DELIVERY_BACKFILL_AREA = "sync_delivery_backfill_089"
 private const val LEGACY_OPERATION_MATERIALIZATION_AREA = "sync_operation_materialization_096"
 

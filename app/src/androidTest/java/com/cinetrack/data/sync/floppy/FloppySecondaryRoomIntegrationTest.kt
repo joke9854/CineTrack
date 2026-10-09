@@ -442,6 +442,38 @@ class FloppySecondaryRoomIntegrationTest {
     }
 
     @Test
+    fun showEpisodeQueryReturnsAllPendingEpisodesOfOneShowOnly() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..30).flatMap { n ->
+            listOf(
+                com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 12), 1, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L)),
+                com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 123), 1, n, true, Instant.parse("2025-02-01T00:00:00Z").plusSeconds(n * 60L)),
+            )
+        }.reversed()
+        // Loads the persisted capabilities, as the worker does before delivery.
+        floppy.openBootstrapSession("integration-instance-a")
+        FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        ).start()
+
+        assertEquals(60, repository.bootstrapPendingCount("integration-instance-a"))
+        assertEquals(60, repository.bootstrapEpisodePending("integration-instance-a", 100).size)
+        val show12 = repository.bootstrapShowEpisodesPending("integration-instance-a", 12)
+
+        assertEquals(30, show12.size)
+        assertTrue(show12.all { it.mediaId == 12 && it.type == SyncOperationType.EPISODE_WATCHED })
+    }
+
+    @Test
     fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         val previous = requireNotNull(preferences.floppySettingsNow())

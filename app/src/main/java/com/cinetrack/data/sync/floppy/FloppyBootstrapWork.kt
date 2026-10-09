@@ -431,10 +431,21 @@ class FloppyBootstrapWorker(
                         continue
                     }
 
-                    val batch = fetchedBatch.bootstrapTransportUnit(
+                    val windowUnit = fetchedBatch.bootstrapTransportUnit(
                         canEnsureEpisodeEvents = transport.canEnsureEpisodeEvents,
                         canBootstrapV2 = transport.context.canBootstrapV2,
                     )
+                    // Plan order follows watch history, so one fetch window holds
+                    // only a few episodes per show. Explicit-event requests may
+                    // carry any of the show's episodes, so fill the request from
+                    // all of that show's unresolved episodes instead.
+                    val batch = if (transport.canEnsureEpisodeEvents && windowUnit.first().type == SyncOperationType.EPISODE_WATCHED) {
+                        application.container.syncCoordinator
+                            .pendingBootstrapShowEpisodes(expected, windowUnit.first().mediaId)
+                            .filterNot { it.id in skipped }
+                            .bootstrapTransportUnit(canEnsureEpisodeEvents = true, canBootstrapV2 = transport.context.canBootstrapV2)
+                            .ifEmpty { windowUnit }
+                    } else windowUnit
                     val first = batch.first()
                     if (first.type == SyncOperationType.EPISODE_WATCHED &&
                         !transport.canEnsureEpisodeEvents && !transport.context.episodeHistoryLoaded) {

@@ -1,7 +1,11 @@
 package com.cinetrack.data.sync.floppy
 
+import com.cinetrack.data.sync.MediaIds
 import com.cinetrack.data.sync.SyncOperation
 import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.TrackedEpisodeState
+import com.cinetrack.data.sync.TrackingSnapshot
+import com.cinetrack.data.sync.floppyBootstrapShowEpisodePrefix
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import org.junit.Assert.assertEquals
@@ -86,6 +90,30 @@ class FloppyBootstrapV2PlannerTest {
 
         assertEquals(50, wave.size)
         assertTrue(wave.all { unit -> unit.size == 2 })
+    }
+
+    @Test
+    fun historyOrderedPlanStillFillsOneShowRequestToFifty() {
+        // Watch history interleaves shows 12 and 123, so a small plan window
+        // holds only a few episodes of either show.
+        val history = (1..60).flatMap { n ->
+            listOf(
+                TrackedEpisodeState(MediaIds(tmdb = 12), 1 + (n - 1) / 20, 1 + (n - 1) % 20, true, java.time.Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L)),
+                TrackedEpisodeState(MediaIds(tmdb = 123), 1, n, true, java.time.Instant.parse("2025-02-01T00:00:00Z").plusSeconds(n * 60L)),
+            )
+        }.reversed()
+        val plan = buildFloppyBootstrapOperations("instance-a", TrackingSnapshot(episodes = history))
+
+        val window = plan.take(10).bootstrapTransportUnit(canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val showUnit = plan
+            .filter { it.id.startsWith(floppyBootstrapShowEpisodePrefix("instance-a", window.first().mediaId)) }
+            .bootstrapTransportUnit(canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+
+        assertEquals(5, window.size)
+        assertEquals(50, showUnit.size)
+        assertTrue(showUnit.all { it.mediaId == 12 })
+        assertEquals("1:1", showUnit.first().payload!!.split(":").take(2).joinToString(":"))
+        assertTrue(plan.filter { it.id.startsWith(floppyBootstrapShowEpisodePrefix("instance-a", 12)) }.none { it.mediaId == 123 })
     }
 
     private fun episode(id: String, season: Int, episode: Int) = SyncOperation(
