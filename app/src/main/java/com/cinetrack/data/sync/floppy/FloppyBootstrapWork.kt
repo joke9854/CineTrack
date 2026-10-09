@@ -39,6 +39,7 @@ import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import java.io.IOException
@@ -127,6 +128,27 @@ object FloppyBootstrapWorkScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(uniqueWorkName(connectionId), ExistingWorkPolicy.KEEP, request)
+    }
+
+    /** Continues the bootstrap in a fresh execution after the current one ends.
+     * Used when a run made progress before a transient failure, so a long
+     * sync does not exhaust WorkManager's per-request retry budget. */
+    fun continueLater(context: Context, connectionId: String, wifiOnly: Boolean, delaySeconds: Long) {
+        if (connectionId.isBlank()) return
+        val request = OneTimeWorkRequestBuilder<FloppyBootstrapWorker>()
+            .setInputData(workDataOf(
+                FloppyBootstrapWorker.EXPECTED_CONNECTION_ID to connectionId,
+                FloppyBootstrapWorker.BOOTSTRAP_RUN_ID to java.util.UUID.randomUUID().toString(),
+                FloppyBootstrapWorker.BOOTSTRAP_SCHEDULED_AT to System.currentTimeMillis(),
+            ))
+            .addTag("floppy-bootstrap")
+            .addTag("floppy-bootstrap:$connectionId")
+            .setInitialDelay(delaySeconds, TimeUnit.SECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED).build())
+            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+            .build()
+        // Appended: starts only after the current execution has finished.
+        WorkManager.getInstance(context).enqueueUniqueWork(uniqueWorkName(connectionId), ExistingWorkPolicy.APPEND_OR_REPLACE, request)
     }
 
     /** Explicit user retry for a stalled/failed job. The persisted plan and
@@ -589,6 +611,21 @@ class FloppyBootstrapWorker(
         }
         loopError?.let {
             report(warn = true, message = "Floppy bootstrap stopped: run=$runId processed=$processed total=$total error=${it.safeSummary()}")
+            // WorkManager's retry count spans the whole multi-hour sync. A run
+            // that made progress hands off to a fresh execution instead, so
+            // only failures without any progress use up automatic retries.
+            if (isRetryable(it) && processed > beforePlan.processed) {
+                FloppyBootstrapWorkScheduler.continueLater(
+                    applicationContext,
+                    expected,
+                    application.container.preferences.wifiOnly.first(),
+                    CONTINUE_AFTER_PROGRESS_SECONDS,
+                )
+                report("Floppy bootstrap continues in ${CONTINUE_AFTER_PROGRESS_SECONDS}s after progress: run=$runId processed ${beforePlan.processed} -> $processed of $total")
+                val waiting = FloppyBootstrapProgress(FloppyBootstrapStage.WAITING_FOR_SERVER, processed, total, processed, failed, expected)
+                setProgress(progressData(waiting))
+                return Result.success(progressData(waiting))
+            }
             return terminalResult(it)
         }
         if (!isCurrent(application, expected)) return Result.success()
@@ -714,6 +751,7 @@ class FloppyBootstrapWorker(
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
         private const val SLOW_BATCH_MS = 20_000L
+        private const val CONTINUE_AFTER_PROGRESS_SECONDS = 30L
         private const val BATCH_LOG_EVERY = 10
         private const val CHANNEL_ID = "cinetrack_background_sync"
         private const val NOTIFICATION_ID = 6011
