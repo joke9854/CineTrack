@@ -214,8 +214,17 @@ class FloppyRemoteDataSource(
             if (bootstrapContext?.canBootstrapV2 == true) {
                 return pushBootstrapV2(api, operations, bootstrapContext, session.instanceId)
             }
+            // On servers with explicit episode events, a live watch carrying its
+            // exact time goes out as an idempotent event: retries resolve to
+            // already_satisfied and a rewatch (new generation) is a new play.
+            // Watches without a known time keep the legacy path, which never
+            // invents one.
+            val liveEnsureEpisodes = if (bootstrapContext == null && session.capabilities.canEnsureEpisodeEvents) {
+                operations.filter { it.type == SyncOperationType.EPISODE_WATCHED && it.episodeParts().third != null }
+            } else emptyList()
+            val liveEnsureIds = liveEnsureEpisodes.mapTo(hashSetOf(), SyncOperation::id)
             val episodeIndex = bootstrapContext?.watchedEpisodeIndex
-                ?: if (operations.any { it.type == SyncOperationType.EPISODE_WATCHED }) {
+                ?: if (operations.any { it.type == SyncOperationType.EPISODE_WATCHED && it.id !in liveEnsureIds }) {
                     loadEpisodeIndex(api)
                 } else null
 
@@ -228,7 +237,7 @@ class FloppyRemoteDataSource(
             val bulkCompleted = if (bootstrapContext != null) {
                 pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId)
             } else {
-                emptySet()
+                pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId)
             }
             completed += bulkCompleted
 

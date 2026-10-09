@@ -273,6 +273,43 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun liveTimedEpisodeWatchUsesExplicitEventWithoutHistoryScan() = runBlocking {
+        val capable = session.copy(capabilities = session.capabilities.copy(canEnsureEpisodeEvents = true))
+        val watch = v2Operation("write:1", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 42, payload = "2:3:2026-10-09T20:41:07.500Z")
+        val rewatch = watch.copy(sourceVersion = 8L)
+        val ids = listOf(watch, watch, rewatch).map { episodeClientEventId(capable.instanceId, it) }
+        ids.forEach { id ->
+            server.enqueue(json("""{"results":[{"client_event_id":"$id","season_number":2,"episode_number":3,"status":"created"}]}"""))
+        }
+
+        listOf(watch, watch, rewatch).forEach { assertEquals(setOf(it.id), remote.push(capable, listOf(it)).completedOperationIds) }
+
+        assertEquals(3, server.requestCount)
+        val sent = (1..3).map {
+            val request = server.takeRequest()
+            assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/ensure/", request.path)
+            Json.parseToJsonElement(request.body.readUtf8()).jsonObject["events"]!!.jsonArray.single().jsonObject
+        }
+        assertEquals(Instant.parse("2026-10-09T20:41:07.500Z"), Instant.parse(sent[0]["watched_at"]!!.jsonPrimitive.content))
+        // A retry of the same generation repeats the id; a rewatch gets a new one.
+        assertEquals(sent[0]["client_event_id"], sent[1]["client_event_id"])
+        assertTrue(sent[0]["client_event_id"] != sent[2]["client_event_id"])
+    }
+
+    @Test
+    fun liveEpisodeWatchWithoutKnownTimeKeepsLegacyPath() = runBlocking {
+        val capable = session.copy(capabilities = session.capabilities.copy(canEnsureEpisodeEvents = true))
+        server.enqueue(typedPage())
+        server.enqueue(json("{}"))
+
+        remote.push(capable, listOf(v2Operation("write:2", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 42, payload = "2:3")))
+
+        assertEquals(2, server.requestCount)
+        assertTrue(server.takeRequest().path!!.startsWith("/proxy/api/v1/media/episode/"))
+        assertTrue(server.takeRequest().path!!.contains("/episodes/") )
+    }
+
+    @Test
     fun v2MovieWaveIsOneBatchRequestWithExactTimestampsAndEventIds() = runBlocking {
         val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
         val watchedAt = Instant.parse("2024-05-06T07:08:09.123Z")
