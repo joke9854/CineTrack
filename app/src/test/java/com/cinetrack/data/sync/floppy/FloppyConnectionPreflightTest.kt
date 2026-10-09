@@ -37,7 +37,7 @@ class FloppyConnectionPreflightTest {
 
         val settings = remote.connect(server.url("/proxy/").toString(), "tracking-token", allowInsecureLocalHttp = true)
 
-        assertEquals("opaque-account", settings.accountIdentity)
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-account", settings.accountIdentity)
         assertEquals("26.9.17", settings.serverVersion)
         assertTrue(settings.capabilities.canBootstrapV2)
         assertTrue(settings.capabilities.canEnsureEpisodeEvents)
@@ -61,6 +61,32 @@ class FloppyConnectionPreflightTest {
         assertEquals(ConnectionResult.Connected, result)
         assertEquals("/api/v1/info/", server.takeRequest().path)
         assertEquals("/api/v1/cinetrack/connection/", server.takeRequest().path)
+    }
+
+    @Test
+    fun serverWithoutProbeFallsBackToLegacyPreferences() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = false, canEnsureEpisodes = false))
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(json("""{"username":"alice"}"""))
+
+        val settings = remote.connect(server.url("/").toString(), "legacy-token", allowInsecureLocalHttp = true)
+
+        assertEquals("alice", settings.accountIdentity)
+        assertFalse(settings.capabilities.canBootstrapV2)
+        assertEquals("/api/v1/info/", server.takeRequest().path)
+        assertEquals("/api/v1/cinetrack/connection/", server.takeRequest().path)
+        assertEquals("/api/v1/user/preferences/", server.takeRequest().path)
+    }
+
+    @Test
+    fun forbiddenProbeNeverFallsBackToPreferences() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(MockResponse().setResponseCode(403))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertTrue((result as ConnectionResult.Failed).error is TrackingSyncError.TokenScope)
+        assertEquals(2, server.requestCount)
     }
 
     @Test

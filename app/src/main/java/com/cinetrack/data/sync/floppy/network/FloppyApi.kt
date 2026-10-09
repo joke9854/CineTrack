@@ -42,13 +42,9 @@ interface FloppyApi {
     @GET("api/v1/cinetrack/connection/")
     suspend fun connection(): FloppyConnectionProbeDto
 
-    /**
-     * Compatibility name for the pre-V2 connection call site. This no longer
-     * reads Floppy user preferences: it hits the dedicated authenticated
-     * CineTrack probe and returns only its safe connection JSON.
-     */
-    @GET("api/v1/cinetrack/connection/")
-    suspend fun preferences(): JsonObject
+    /** Legacy account lookup, used only when a server lacks the CineTrack probe. */
+    @GET("api/v1/user/preferences/")
+    suspend fun legacyPreferences(): JsonObject
 
     @GET("api/v1/media/{mediaType}/{source}/{mediaId}/")
     suspend fun mediaDetail(

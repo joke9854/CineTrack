@@ -408,7 +408,7 @@ class FloppyRemoteDataSourceTest {
         )
 
         assertEquals("v26.9.10", settings.serverVersion)
-        assertEquals("opaque-account", settings.accountIdentity)
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-account", settings.accountIdentity)
         assertTrue(settings.capabilities.canEnsureEpisodeEvents)
         assertTrue(settings.capabilities.canBootstrapV2)
         assertEquals(listOf(FloppyConnectionStage.AUTHENTICATING to "v26.9.10"), stages)

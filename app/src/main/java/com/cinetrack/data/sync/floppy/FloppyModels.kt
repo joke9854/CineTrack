@@ -169,6 +169,9 @@ data class FloppyConnectionSettings(
     val allowInsecureLocalHttp: Boolean = false,
 )
 
+/** Marks account identities that come from the CineTrack connection probe. */
+internal const val FLOPPY_PROBE_ACCOUNT_PREFIX = "floppy-probe-v1:"
+
 /**
  * Resolves whether two validated connections address the same logical Floppy
  * dataset. A credential rotation is not a provider-instance change when the
@@ -176,6 +179,10 @@ data class FloppyConnectionSettings(
  * account identity is unavailable, matching the key is the conservative
  * fallback; a changed key is treated as a new target rather than risking a
  * delivery to an unknown account.
+ *
+ * Identities from different schemes (a legacy preferences username versus the
+ * opaque CineTrack probe account id) cannot be compared, so the unchanged API
+ * key is the proof during that one-time migration.
  */
 internal fun sameFloppyRemoteTarget(
     previous: FloppyConnectionSettings,
@@ -186,7 +193,9 @@ internal fun sameFloppyRemoteTarget(
     if (previous.serverIdentity != candidate.serverIdentity) return false
     val previousAccount = previous.accountIdentity?.trim().orEmpty()
     val candidateAccount = candidate.accountIdentity?.trim().orEmpty()
-    return if (previousAccount.isNotBlank() && candidateAccount.isNotBlank()) {
+    val sameScheme = previousAccount.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX) ==
+        candidateAccount.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX)
+    return if (previousAccount.isNotBlank() && candidateAccount.isNotBlank() && sameScheme) {
         previousAccount == candidateAccount
     } else {
         previousApiKey?.takeIf(String::isNotBlank) == candidateApiKey?.takeIf(String::isNotBlank)

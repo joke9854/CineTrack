@@ -45,6 +45,24 @@ class FloppyRemoteTargetIdentityTest {
     }
 
     @Test
+    fun legacyUsernameToProbeAccountWithSameKeyPreservesTarget() {
+        val migrated = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque", connectionId = "candidate")
+        assertTrue(sameFloppyRemoteTarget(base, migrated, "key", "key"))
+    }
+
+    @Test
+    fun legacyUsernameToProbeAccountWithRotatedKeyIsConservative() {
+        val migrated = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque", connectionId = "candidate")
+        assertFalse(sameFloppyRemoteTarget(base, migrated, "old", "new"))
+    }
+
+    @Test
+    fun differentProbeAccountsAreDifferentTargets() {
+        val a = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "a")
+        assertFalse(sameFloppyRemoteTarget(a, a.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "b"), "key", "key"))
+    }
+
+    @Test
     fun differentServerIsDifferentTarget() {
         assertFalse(sameFloppyRemoteTarget(base, base.copy(serverIdentity = "https://other.example/"), "key", "key"))
     }

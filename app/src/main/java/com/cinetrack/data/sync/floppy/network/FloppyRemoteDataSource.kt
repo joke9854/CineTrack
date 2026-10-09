@@ -12,6 +12,7 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.MovieHistoryMutationContext
+import com.cinetrack.data.sync.floppy.FLOPPY_PROBE_ACCOUNT_PREFIX
 import com.cinetrack.data.sync.floppy.FloppyCapabilities
 import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.FloppyConsumption
@@ -126,10 +127,7 @@ class FloppyRemoteDataSource(
         val api = factory.get(identity.baseUrl, apiKey, allowInsecureLocalHttp)
         val info = api.info()
         onStage(FloppyConnectionStage.AUTHENTICATING, info.version)
-        val preferences = api.preferences()
-        val account = preferences["username"]?.jsonPrimitive?.contentOrNull
-            ?: preferences["user_name"]?.jsonPrimitive?.contentOrNull
-            ?: preferences["user"]?.jsonPrimitive?.contentOrNull
+        val account = authenticatedAccount(api)
         // Do not infer MAIN/read-complete capabilities from one harmless GET.
         val capabilities = FloppyCapabilities(
             canReadLibrary = true,
@@ -161,13 +159,32 @@ class FloppyRemoteDataSource(
         api.info()
         if (apiKey.isNullOrBlank()) ConnectionResult.AuthenticationRequired
         else {
-            api.preferences()
+            authenticatedAccount(api)
             ConnectionResult.Connected
         }
     } catch (error: Throwable) {
         val mapped = FloppyApiErrorMapper.map(error)
         if (mapped is TrackingSyncError.AuthenticationRequired) ConnectionResult.AuthenticationRequired
         else ConnectionResult.Failed(mapped)
+    }
+
+    /**
+     * Authenticates with the CineTrack probe and returns its opaque account id.
+     * Only a server without the probe route (404) falls back to the legacy
+     * preferences lookup; a 403 from the probe stays a token-scope failure.
+     */
+    private suspend fun authenticatedAccount(api: FloppyApi): String? {
+        val probe = try {
+            api.connection()
+        } catch (error: HttpException) {
+            if (error.code() != 404) throw error
+            val preferences = api.legacyPreferences()
+            return preferences["username"]?.jsonPrimitive?.contentOrNull
+                ?: preferences["user_name"]?.jsonPrimitive?.contentOrNull
+                ?: preferences["user"]?.jsonPrimitive?.contentOrNull
+        }
+        if (!probe.authenticated) throw TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
+        return probe.accountId.trim().takeIf(String::isNotBlank)?.let { FLOPPY_PROBE_ACCOUNT_PREFIX + it }
     }
 
     /** Compatibility overload; production calls use one immutable session. */
