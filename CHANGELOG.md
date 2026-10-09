@@ -1,3 +1,10 @@
+# CineTrack 0.99.26 beta
+
+- Episodes you watch are now sent to Floppy as exact, retry-safe events: no more scan of the whole Floppy history on every watch, and genuine rewatches are no longer dropped.
+- A show's specials (season 0) are sent in their own request, so a server that rejects them can no longer fail the show's regular episodes.
+- A few rejected items at the front of the initial sync no longer make every Retry stop again before any progress.
+- The sync log now records each batch's size and duration to help measure server speed.
+
 # CineTrack 0.99.25 beta
 
 - Much faster TV episode upload during the initial Floppy sync: each request now carries up to 50 of one show's unsynced episodes instead of only the few that happened to be next in watch-history order. The sync plan, exact timestamps and retry safety are unchanged, so an in-progress sync continues where it left off.
