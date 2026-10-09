@@ -1,3 +1,9 @@
+# CineTrack 0.99.30 beta
+
+- Episodes numbered differently on TMDB (two-part episodes TMDB merges, specials, split seasons) are now matched by air date and title through TVDB and saved on Floppy under the right TMDB episode, instead of being closed as having no counterpart. Episodes later in the same season are no longer stored one episode off.
+- Episodes the initial sync had already closed as "no Floppy counterpart" are retried once with the new matching; any still without a match are closed again.
+- Requires Floppy CineTrack-API dd6231a0 or later with a TVDB API key configured.
+
 # CineTrack 0.99.29 beta
 
 - Anime numbered continuously in one season (for example One Piece S01E62 and later) is now saved on Floppy under the matching TMDB season and episode.

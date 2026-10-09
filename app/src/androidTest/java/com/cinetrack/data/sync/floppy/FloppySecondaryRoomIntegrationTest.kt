@@ -596,6 +596,109 @@ class FloppySecondaryRoomIntegrationTest {
     }
 
     @Test
+    fun episodesClosedBeforeIdentityMatchingAreReopenedExactlyOnce() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val double = repository.bootstrapPending("integration-instance-a", 10).single()
+        suspend fun closeAsUnmatched() {
+            coordinator.pushPendingForProvider(
+                TrackingProviderId.FLOPPY,
+                setOf(double.id),
+                "integration-instance-a",
+                transport = {
+                    ProviderPushResult(completedOperationIds = emptySet(), unmatchedOperationIds = mapOf(double.id to "TV:2316 S04E19 has no Floppy counterpart"))
+                },
+            )
+            bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
+        }
+        closeAsUnmatched()
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        // A plan written before identity matching existed has no retry marker.
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartsRetried\":true", "")
+        preferences.setFloppyBootstrapPlanRaw(legacyPlan)
+
+        bootstrap.start()
+
+        assertEquals(listOf(double.id), repository.bootstrapPending("integration-instance-a", 10).map { it.id })
+
+        // Still unmatched after the retry: closed again, and never reopened.
+        closeAsUnmatched()
+        bootstrap.start()
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertTrue(verified!!.episodes.isEmpty())
+    }
+
+    @Test
+    fun reopenedEpisodeMatchedByIdentityIsVerifiedAtItsStoredCoordinate() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val double = repository.bootstrapPending("integration-instance-a", 10).single()
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(double.id),
+            "integration-instance-a",
+            transport = { ProviderPushResult(completedOperationIds = emptySet(), unmatchedOperationIds = mapOf(double.id to "no counterpart")) },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
+        preferences.setFloppyBootstrapPlanRaw(
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartsRetried\":true", ""),
+        )
+        bootstrap.start()
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(double.id),
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(completedOperationIds = setOf(double.id), storedCoordinates = mapOf(double.id to "4:14"))
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to "4:14"))
+
+        assertTrue(result.isSuccess)
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            listOf(Triple(2316L, 4, 14)),
+            verified!!.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+    }
+
+    @Test
     fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         val previous = requireNotNull(preferences.floppySettingsNow())

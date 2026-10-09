@@ -91,18 +91,35 @@ class FloppyBootstrapCoordinator(
                     .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
                 operations.filterNot { operation -> "${operation.id}:${operation.sourceVersion}" in materialized }
             }
+            // Episodes closed as "no counterpart" before Floppy could match
+            // them by TVDB identity get exactly one more attempt; anything
+            // still unmatched afterwards is closed again, never looped.
+            val closed = existing?.takeUnless { it.counterpartsRetried }
+                ?.episodeOutcomes?.filterValues { it == NO_COUNTERPART }?.keys.orEmpty()
+            val reopened = if (closed.isEmpty()) emptyList() else {
+                val queued = operationRepository.deliveries(closed)
+                    .filter { it.providerId == TrackingProviderId.FLOPPY }
+                    .mapTo(hashSetOf()) { it.operationId }
+                val missingIds = missing.mapTo(hashSetOf(), SyncOperation::id)
+                operations.filter { it.id in closed && it.id !in queued && it.id !in missingIds }
+            }
             var prepared = operations.size - missing.size
             onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
-            missing.chunked(CHUNK_SIZE).forEach { chunk ->
+            (missing + reopened).chunked(CHUNK_SIZE).forEach { chunk ->
                 operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
-                prepared += chunk.size
+                prepared = (prepared + chunk.size).coerceAtMost(operations.size)
                 onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
             }
-            if (existing?.materialized != true) {
+            // Written only after enqueueing: a crash in between re-finds the
+            // reopened rows as queued instead of losing them.
+            if (existing?.materialized != true || closed.isNotEmpty()) {
                 preferences.setFloppyBootstrapPlanRaw(
                     encodePlan(
-                        existing?.copy(materialized = true)
-                            ?: PersistedPlan(instance, operations.map(::toPersisted), materialized = true),
+                        existing?.copy(
+                            materialized = true,
+                            counterpartsRetried = true,
+                            episodeOutcomes = existing.episodeOutcomes - closed,
+                        ) ?: PersistedPlan(instance, operations.map(::toPersisted), materialized = true, counterpartsRetried = true),
                     ),
                 )
             }
@@ -195,6 +212,8 @@ class FloppyBootstrapCoordinator(
         val operations: List<PersistedOperation>,
         val materialized: Boolean = false,
         val episodeOutcomes: Map<String, String> = emptyMap(),
+        /** Set once "no counterpart" episodes had their identity-match retry. */
+        val counterpartsRetried: Boolean = false,
     )
 
     @Serializable
