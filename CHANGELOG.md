@@ -1,3 +1,9 @@
+# CineTrack 0.99.27 beta
+
+- The initial Floppy sync now resumes where it stopped after Retry, an error or a timeout, instead of re-sending everything already synced from 0 (which caused minutes of re-checking movies and a loop on TV episodes). An existing in-progress sync does one last full check, then resumes normally.
+- Floppy request errors now include the server's short reason (for example which episode was rejected).
+- The initial sync writes its key events to Settings > Logs: start, stalls, skipped items with the reason, why it stopped and whether it retries, slow batches and periodic progress.
+
 # CineTrack 0.99.26 beta
 
 - Episodes you watch are now sent to Floppy as exact, retry-safe events: no more scan of the whole Floppy history on every watch, and genuine rewatches are no longer dropped.
