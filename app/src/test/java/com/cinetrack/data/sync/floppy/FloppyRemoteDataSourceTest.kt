@@ -17,8 +17,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import com.cinetrack.data.sync.TrackingSyncError
 import java.time.Instant
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 
 class FloppyRemoteDataSourceTest {
     private lateinit var server: MockWebServer
@@ -267,6 +273,105 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun v2MovieWaveIsOneBatchRequestWithExactTimestampsAndEventIds() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val watchedAt = Instant.parse("2024-05-06T07:08:09.123Z")
+        val operations = listOf(
+            v2Operation("m42-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, value = "COMPLETED"),
+            v2Operation("m42-watch", SyncOperationType.MOVIE_WATCHED, MediaType.MOVIE, 42, payload = watchedAt.toString()),
+            v2Operation("m43-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 43, value = "PLAN_TO_WATCH"),
+            v2Operation("m44-watch", SyncOperationType.MOVIE_WATCHED, MediaType.MOVIE, 44, payload = "2023-01-02T03:04:05Z"),
+        )
+        server.enqueue(json(results("42" to "created", "43" to "already_satisfied", "44" to "created")))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/movies/ensure/", request.path)
+        val movies = Json.parseToJsonElement(request.body.readUtf8()).jsonObject["movies"]!!.jsonArray
+        assertEquals(listOf("42", "43", "44"), movies.map { it.jsonObject["media_id"]!!.jsonPrimitive.content })
+        val watch = movies[0].jsonObject["watch"]!!.jsonObject
+        assertEquals(watchedAt, Instant.parse(watch["watched_at"]!!.jsonPrimitive.content))
+        assertEquals("cinetrack:test-instance:m42-watch:7", watch["client_event_id"]!!.jsonPrimitive.content)
+        assertTrue(movies[1].jsonObject["watch"] == null || movies[1].jsonObject["watch"] is JsonNull)
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+    }
+
+    @Test
+    fun v2ShowBatchIsOneRequestAndNeverScansHistory() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val operations = (1..3).map { v2Operation("show-$it", SyncOperationType.LIBRARY_STATUS, MediaType.TV, 100 + it, value = "WATCHING") }
+        server.enqueue(json(results("101" to "created", "102" to "created", "103" to "already_satisfied")))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/shows/ensure/", request.path)
+        assertEquals(3, Json.parseToJsonElement(request.body.readUtf8()).jsonObject["shows"]!!.jsonArray.size)
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+    }
+
+    @Test
+    fun v2EpisodeUnitSpanningGapsAndSeasonsIsOneExplicitEventRequest() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val operations = listOf(
+            v2Operation("e1", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 42, payload = "1:1:2024-01-01T20:00:00.250Z"),
+            v2Operation("e3", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 42, payload = "1:3:2024-01-03T21:13:00Z"),
+            v2Operation("e21", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 42, payload = "2:1:2024-02-01T22:00:00Z"),
+        )
+        val ids = operations.map { episodeClientEventId(session.instanceId, it) }
+        val coordinates = listOf(1 to 1, 1 to 3, 2 to 1)
+        server.enqueue(json("""{"results":[${ids.zip(coordinates).joinToString(",") { (id, c) -> """{"client_event_id":"$id","season_number":${c.first},"episode_number":${c.second},"status":"created"}""" }}]}"""))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(1, server.requestCount)
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/episodes/ensure/", request.path)
+        val events = Json.parseToJsonElement(request.body.readUtf8()).jsonObject["events"]!!.jsonArray.map { it.jsonObject }
+        assertEquals(listOf(1 to 1, 1 to 3, 2 to 1), events.map { it["season_number"]!!.jsonPrimitive.content.toInt() to it["episode_number"]!!.jsonPrimitive.content.toInt() })
+        assertEquals(
+            listOf("2024-01-01T20:00:00.250Z", "2024-01-03T21:13:00Z", "2024-02-01T22:00:00Z").map(Instant::parse),
+            events.map { Instant.parse(it["watched_at"]!!.jsonPrimitive.content) },
+        )
+        assertEquals(ids, events.map { it["client_event_id"]!!.jsonPrimitive.content })
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+    }
+
+    @Test
+    fun v2BatchServerFailureAcknowledgesNothing() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canBootstrapV2 = true)
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        val error = runCatching {
+            remote.push(session, listOf(v2Operation("m42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, value = "COMPLETED")), context)
+        }.exceptionOrNull()
+
+        assertTrue(error is TrackingSyncError.ProviderUnavailable)
+    }
+
+    @Test
+    fun v2ResponseMissingAnItemAcknowledgesNothing() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canBootstrapV2 = true)
+        server.enqueue(json(results("42" to "created")))
+
+        val error = runCatching {
+            remote.push(
+                session,
+                listOf(
+                    v2Operation("m42", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, value = "COMPLETED"),
+                    v2Operation("m43", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 43, value = "COMPLETED"),
+                ),
+                context,
+            )
+        }.exceptionOrNull()
+
+        assertTrue(error != null)
+    }
+
+    @Test
     fun episodeUnwatchedUsesTheDedicatedDropRoute() = runBlocking {
         server.enqueue(json("{}"))
 
@@ -475,6 +580,27 @@ class FloppyRemoteDataSourceTest {
     private fun trackedEpisode(show: Int, season: Int, episode: Int, endDate: String?) =
         "{\"id\":$episode,\"consumption_id\":$episode,\"item\":{\"media_id\":\"$show\",\"source\":\"tmdb\",\"season_number\":$season,\"episode_number\":$episode},\"status\":3," +
             "\"end_date\":${endDate?.let { "\"$it\"" } ?: "null"}}"
+
+    private fun v2Operation(
+        id: String,
+        type: SyncOperationType,
+        mediaType: MediaType,
+        mediaId: Int,
+        value: String? = null,
+        payload: String? = null,
+    ) = SyncOperation(
+        id = id,
+        type = type,
+        mediaType = mediaType,
+        mediaId = mediaId,
+        title = "Title $mediaId",
+        value = value,
+        payload = payload,
+        sourceVersion = 7L,
+    )
+
+    private fun results(vararg outcomes: Pair<String, String>) =
+        """{"results":[${outcomes.joinToString(",") { (id, status) -> """{"source":"tmdb","media_id":"$id","status":"$status"}""" }}]}"""
 
     private fun json(body: String) = MockResponse()
         .addHeader("Content-Type", "application/json")
