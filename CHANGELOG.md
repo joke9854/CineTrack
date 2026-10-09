@@ -1,3 +1,10 @@
+# CineTrack 0.99.29 beta
+
+- Anime numbered continuously in one season (for example One Piece S01E62 and later) is now saved on Floppy under the matching TMDB season and episode.
+- Episodes with no TMDB counterpart on Floppy (two-part episodes TMDB merges, specials it does not list) no longer keep the initial sync from finishing: they are closed and listed in Settings > Logs.
+- A long initial sync no longer gives up after a few scattered temporary errors: a run that made progress continues in a fresh attempt 30 seconds later.
+- Requires Floppy CineTrack-API 216787ad or later for the anime translation and busy-database handling.
+
 # CineTrack 0.99.28 beta
 
 - When Floppy refuses individual episodes (for example episode numbers its metadata provider lists differently), the rest of the request is now saved and acknowledged; only the refused episodes stay unsynced, each listed in Settings > Logs with the reason.
