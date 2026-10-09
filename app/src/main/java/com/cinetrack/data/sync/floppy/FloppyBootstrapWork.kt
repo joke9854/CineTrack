@@ -58,6 +58,10 @@ internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error
     else -> false
 }
 
+/** One-line, bounded error description for logs; never a response body. */
+internal fun Throwable.safeSummary(): String =
+    this::class.java.simpleName + (message?.replace(Regex("\\s+"), " ")?.trim()?.take(200)?.let { ": $it" }.orEmpty())
+
 /**
  * A V2 request rejected for its own content (unknown media, missing season
  * metadata, a conflicting event) cannot succeed on retry. Its operations stay
@@ -194,7 +198,7 @@ class FloppyBootstrapWorker(
         // and preserves its durable processed count without regenerating it.
         val beforePlan = coordinator.progress(expected)
         val runId = inputData.getString(BOOTSTRAP_RUN_ID).orEmpty()
-        Log.i(TAG, "Floppy bootstrap preflight: run=$runId connection=$expected stage=AUTH_PROBE processed=${beforePlan.processed} total=${beforePlan.total}")
+        report("Floppy bootstrap preflight: run=$runId connection=$expected stage=AUTH_PROBE processed=${beforePlan.processed} total=${beforePlan.total}")
         setProgress(progressData(beforePlan.copy(stage = FloppyBootstrapStage.PREPARING)))
         val provider = application.container.trackingProviderRegistry.getProvider(TrackingProviderId.FLOPPY)
         val preflight = provider?.let {
@@ -206,7 +210,7 @@ class FloppyBootstrapWorker(
                 // another account. The provider then rotates connectionId; never
                 // deliver this old plan to that new provider instance.
                 if (!isCurrent(application, expected)) {
-                    Log.w(TAG, "Floppy bootstrap stopped after probe: provider instance changed")
+                    report(warn = true, message = "Floppy bootstrap stopped after probe: provider instance changed")
                     return Result.success()
                 }
             }
@@ -214,7 +218,7 @@ class FloppyBootstrapWorker(
                 application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
                 val failure = beforePlan.copy(stage = FloppyBootstrapStage.NEEDS_ATTENTION)
                 setProgress(progressData(failure))
-                Log.w(TAG, "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE reason=AUTH_REQUIRED")
+                report(warn = true, message = "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE reason=AUTH_REQUIRED")
                 return Result.failure(progressData(failure))
             }
             is ConnectionResult.Failed -> {
@@ -226,7 +230,7 @@ class FloppyBootstrapWorker(
                 }
                 val failure = beforePlan.copy(stage = waitingStage)
                 setProgress(progressData(failure))
-                Log.w(TAG, "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE error=${connection.error::class.java.simpleName}")
+                report(warn = true, message = "Floppy bootstrap preflight failed: run=$runId connection=$expected stage=AUTH_PROBE error=${connection.error.safeSummary()}")
                 return terminalResult(connection.error, progressData(failure))
             }
             null -> {
@@ -267,7 +271,7 @@ class FloppyBootstrapWorker(
         setProgress(progressData(initialPlan))
         val plan = coordinator.ensurePlan()
         val total = plan.size
-        Log.i(TAG, "Floppy bootstrap started: run=$runId connection=$expected planTotal=$total")
+        report("Floppy bootstrap started: run=$runId connection=$expected planTotal=$total pending=${application.container.syncCoordinator.pendingBootstrapCount(expected)}")
         if (total > 100) setForeground(createForegroundInfo(initialPlan.copy(total = total)))
         var processed = (total - application.container.syncCoordinator.pendingBootstrapCount(expected)).coerceIn(0, total)
         var failed = 0
@@ -293,6 +297,7 @@ class FloppyBootstrapWorker(
         // rest of this run only. A later run retries them first.
         val skipped = linkedSetOf<String>()
         var consecutiveSkipped = 0
+        var completedBatches = 0
         coroutineScope {
             val watchdog = launch {
                 while (isActive) {
@@ -305,7 +310,7 @@ class FloppyBootstrapWorker(
                     ) {
                         stalledPublished = true
                         val stalled = current!!.copy(stage = FloppyBootstrapStage.STALLED, lastProgressAtMillis = lastProgressAt)
-                        Log.w(TAG, "Floppy bootstrap no progress for 60s: run=$runId connection=$expected operation=${current?.currentOperationType}")
+                        report(warn = true, message = "Floppy bootstrap no progress for 60s: run=$runId connection=$expected operation=${current?.currentOperationType}")
                         setProgress(progressData(stalled))
                     }
                 }
@@ -388,7 +393,7 @@ class FloppyBootstrapWorker(
                                 if (shouldSkipFloppyBootstrapUnit(error, true, consecutiveSkipped)) {
                                     skipped += modernBatch.map(SyncOperation::id)
                                     consecutiveSkipped++
-                                    Log.w(TAG, "Floppy bootstrap unit skipped: run=$runId connection=$expected route=MOVIE_BOOTSTRAP_V2 size=${modernBatch.size} error=${error::class.java.simpleName}")
+                                    report(warn = true, message = "Floppy bootstrap unit skipped: run=$runId connection=$expected route=MOVIE_BOOTSTRAP_V2 size=${modernBatch.size} error=${error.safeSummary()}")
                                     continue
                                 }
                                 loopError = error
@@ -524,7 +529,7 @@ class FloppyBootstrapWorker(
                             skipped += batch.map(SyncOperation::id)
                             consecutiveSkipped++
                             val route = if (first.type == SyncOperationType.EPISODE_WATCHED) "EPISODE_ENSURE" else "SHOW_BOOTSTRAP_V2"
-                            Log.w(TAG, "Floppy bootstrap unit skipped: run=$runId connection=$expected route=$route size=${batch.size} media=${first.mediaType}:${first.mediaId} error=${error::class.java.simpleName}")
+                            report(warn = true, message = "Floppy bootstrap unit skipped: run=$runId connection=$expected route=$route size=${batch.size} media=${first.mediaType}:${first.mediaId} error=${error.safeSummary()}")
                             continue
                         }
                         val retryable = isRetryable(error)
@@ -545,7 +550,12 @@ class FloppyBootstrapWorker(
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
                     consecutiveSkipped = 0
-                    Log.i(TAG, "Floppy bootstrap batch complete: run=$runId connection=$expected size=${batch.size} durationMs=${(System.nanoTime() - batchStartedAt) / 1_000_000} processed=$processed total=$total")
+                    val batchMs = (System.nanoTime() - batchStartedAt) / 1_000_000
+                    completedBatches++
+                    val batchLine = "Floppy bootstrap batch complete: run=$runId size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId} durationMs=$batchMs processed=$processed total=$total"
+                    // The in-app log is capped, so only slow batches and a periodic
+                    // summary go there; every batch still reaches logcat.
+                    if (batchMs >= SLOW_BATCH_MS || completedBatches % BATCH_LOG_EVERY == 0) report(batchLine) else Log.i(TAG, batchLine)
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
@@ -553,8 +563,14 @@ class FloppyBootstrapWorker(
                 watchdog.cancel()
             }
         }
-        if (stoppedForInstanceChange) return Result.success()
-        loopError?.let { return terminalResult(it) }
+        if (stoppedForInstanceChange) {
+            report(warn = true, message = "Floppy bootstrap stopped: run=$runId provider instance changed")
+            return Result.success()
+        }
+        loopError?.let {
+            report(warn = true, message = "Floppy bootstrap stopped: run=$runId processed=$processed total=$total error=${it.safeSummary()}")
+            return terminalResult(it)
+        }
         if (!isCurrent(application, expected)) return Result.success()
         if (skipped.isNotEmpty()) {
             // Everything deliverable was delivered; the skipped operations stay
@@ -562,7 +578,7 @@ class FloppyBootstrapWorker(
             application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
             val attention = FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, skipped.size, expected)
             setProgress(progressData(attention))
-            Log.w(TAG, "Floppy bootstrap finished with skipped units: run=$runId connection=$expected skipped=${skipped.size} processed=$processed total=$total")
+            report(warn = true, message = "Floppy bootstrap finished with skipped units: run=$runId connection=$expected skipped=${skipped.size} processed=$processed total=$total")
             return Result.failure(progressData(attention))
         }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
@@ -574,7 +590,7 @@ class FloppyBootstrapWorker(
             return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
         }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
-        Log.i(TAG, "Floppy bootstrap READY: run=$runId connection=$expected $total/$total")
+        report("Floppy bootstrap READY: run=$runId connection=$expected $total/$total")
         return Result.success(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.COMPLETE, total, total, total, failed, expected)))
     }
 
@@ -583,6 +599,15 @@ class FloppyBootstrapWorker(
 
     private suspend fun terminalResult(error: Throwable, failureData: Data? = null): Result {
         val retryable = isFloppyBootstrapRetryable(error)
+        report(
+            warn = true,
+            message = when {
+                retryable && runAttemptCount < MAX_RETRIES ->
+                    "Floppy bootstrap will retry automatically: attempt ${runAttemptCount + 1}/$MAX_RETRIES error=${error.safeSummary()}"
+                retryable -> "Floppy bootstrap gave up after $MAX_RETRIES automatic retries: error=${error.safeSummary()}"
+                else -> "Floppy bootstrap needs attention (not retried automatically): error=${error.safeSummary()}"
+            },
+        )
         if (retryable && runAttemptCount < MAX_RETRIES) return Result.retry()
         val data = failureData ?: Data.EMPTY
         if (retryable) {
@@ -605,6 +630,14 @@ class FloppyBootstrapWorker(
     }
 
     private fun isRetryable(error: Throwable): Boolean = isFloppyBootstrapRetryable(error)
+
+    /** Logcat plus the in-app error log (Settings), so sync problems can be
+     * read on the device. Messages carry ids, counts and error summaries only. */
+    private fun report(message: String, warn: Boolean = false) {
+        if (warn) Log.w(TAG, message) else Log.i(TAG, message)
+        (applicationContext as? CineTrackApplication)?.container?.preferences
+            ?.appendErrorLog("${java.time.Instant.now()}  $message")
+    }
 
     private fun progressData(progress: FloppyBootstrapProgress): Data {
         val current = if (progress.bootstrapRunId == null) {
@@ -660,6 +693,8 @@ class FloppyBootstrapWorker(
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L
+        private const val SLOW_BATCH_MS = 20_000L
+        private const val BATCH_LOG_EVERY = 10
         private const val CHANNEL_ID = "cinetrack_background_sync"
         private const val NOTIFICATION_ID = 6011
         private const val TAG = "FloppyBootstrap"

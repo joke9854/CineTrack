@@ -57,6 +57,15 @@ class FloppyBootstrapRetryTest {
     }
 
     @Test
+    fun logSummaryIsOneBoundedLine() {
+        val summary = TrackingSyncError.InvalidRemoteData("Floppy returned HTTP 400:\n" + "x".repeat(500)).safeSummary()
+
+        assertTrue(summary.startsWith("InvalidRemoteData: Floppy returned HTTP 400: x"))
+        assertFalse(summary.contains('\n'))
+        assertTrue(summary.length <= "InvalidRemoteData: ".length + 200)
+    }
+
+    @Test
     fun legacyTransportNeverSkips() {
         assertFalse(shouldSkipFloppyBootstrapUnit(TrackingSyncError.Validation("rejected"), canBootstrapV2 = false, consecutiveSkipped = 0))
     }

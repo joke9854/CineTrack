@@ -291,7 +291,7 @@ class CineTrackViewModel(
                 .distinctUntilChanged()
                 .collect { message: String ->
                     val line = "${java.time.Instant.now()}  $message"
-                    _errorLogs.value = (_errorLogs.value + line).takeLast(200)
+                    _errorLogs.value = (_errorLogs.value + line).takeLast(500)
                     withContext(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
                 }
         }
@@ -1196,9 +1196,15 @@ class CineTrackViewModel(
         appendFloppyDiagnostic("Floppy connect: ${error.diagnosticName}")
     }
 
+    fun refreshErrorLogs() {
+        viewModelScope.launch {
+            _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
+        }
+    }
+
     private fun appendFloppyDiagnostic(message: String) {
         val line = "${java.time.Instant.now()}  $message"
-        _errorLogs.update { (it + line).takeLast(200) }
+        _errorLogs.update { (it + line).takeLast(500) }
         viewModelScope.launch(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
     }
 

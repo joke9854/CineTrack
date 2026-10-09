@@ -1719,6 +1719,8 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
 private fun LogsSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
     val logs by viewModel.errorLogs.collectAsStateWithLifecycle()
+    // Background workers append to the log file directly; re-read it on open.
+    androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.refreshErrorLogs() }
     SettingsSection(stringResource(R.string.logs)) {
         if (logs.isEmpty()) {
             ValueRow(stringResource(R.string.logs), stringResource(R.string.no_errors_logged), success = true)

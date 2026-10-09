@@ -45,6 +45,7 @@ import java.util.zip.ZipOutputStream
 
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
+private const val ERROR_LOG_LINES = 500
 
 class AppPreferences(private val context: Context) {
     fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
@@ -644,12 +645,15 @@ class AppPreferences(private val context: Context) {
     }
 
     fun readErrorLogs(): List<String> = runCatching {
-        if (errorLogFile.exists()) errorLogFile.readLines().filter(String::isNotBlank).takeLast(200) else emptyList()
+        if (errorLogFile.exists()) errorLogFile.readLines().filter(String::isNotBlank).takeLast(ERROR_LOG_LINES) else emptyList()
     }.getOrDefault(emptyList())
 
+    /** Synchronized: the UI and background workers append concurrently, and
+     * this is a read-modify-write of one file. */
+    @Synchronized
     fun appendErrorLog(line: String) {
         runCatching {
-            val lines = (readErrorLogs() + line).takeLast(200)
+            val lines = (readErrorLogs() + line).takeLast(ERROR_LOG_LINES)
             errorLogFile.writeText(lines.joinToString(separator = "\n", postfix = "\n"))
         }
     }
