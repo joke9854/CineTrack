@@ -192,14 +192,27 @@ class SyncCoordinator(
                 operations.completeReady(pending)
                 return@resultOf Unit
             }
-            try {
+            val result = try {
                 requireAuthenticated(provider)
                 pushTo(provider, supported, transport)
-                operations.acknowledge(providerId, supported)
             } catch (error: Throwable) {
                 if (error is CancellationException) throw error
                 operations.failDelivery(providerId, supported, error)
                 if (!operations.requiresPersistedDeliveryRows) operations.fail(supported, error)
+                throw error
+            }
+            // Mixed outcome: acknowledge exactly what was applied and leave only
+            // the refused operations unresolved.
+            val accepted = supported.filter { it.id in result.completedOperationIds }
+            val refused = supported.filterNot { it.id in result.completedOperationIds }
+            operations.acknowledge(providerId, accepted)
+            if (refused.isNotEmpty()) {
+                val error = TrackingSyncError.PartiallyRejected(
+                    refused.associate { it.id to result.rejectedOperationIds.getValue(it.id) },
+                )
+                operations.failDelivery(providerId, refused, error)
+                if (!operations.requiresPersistedDeliveryRows) operations.fail(refused, error)
+                operations.completeReady(pending)
                 throw error
             }
             if (providerId != configuration.mainProvider) {
@@ -340,13 +353,15 @@ class SyncCoordinator(
         provider: TrackingProvider,
         pending: List<SyncOperation>,
         transport: (suspend (List<SyncOperation>) -> ProviderPushResult)? = null,
-    ) {
+    ): ProviderPushResult {
         val unsupported = pending.firstOrNull { !provider.capabilities.supports(it) }
         if (unsupported != null) throw TrackingSyncError.UnsupportedOperation(provider.id, unsupported.type)
-        val completed = (transport?.invoke(pending) ?: provider.push(pending)).completedOperationIds
-        check(completed.containsAll(pending.map(SyncOperation::id))) {
+        val result = transport?.invoke(pending) ?: provider.push(pending)
+        // Every operation needs a known outcome: applied, or explicitly refused.
+        check(pending.all { it.id in result.completedOperationIds || it.id in result.rejectedOperationIds }) {
             "${provider.id.name} did not acknowledge every synchronization operation"
         }
+        return result
     }
 
     private suspend fun acknowledge(

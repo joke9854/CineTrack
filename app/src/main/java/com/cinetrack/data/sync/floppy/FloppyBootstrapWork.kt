@@ -59,8 +59,17 @@ internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error
 }
 
 /** One-line, bounded error description for logs; never a response body. */
-internal fun Throwable.safeSummary(): String =
-    this::class.java.simpleName + (message?.replace(Regex("\\s+"), " ")?.trim()?.take(200)?.let { ": $it" }.orEmpty())
+internal fun Throwable.safeSummary(): String {
+    // Release builds shorten class names, so app errors are described by their
+    // message (plus the HTTP status when there is one) rather than their type.
+    val text = message?.replace(Regex("\\s+"), " ")?.trim()?.take(200)
+    val http = (cause as? retrofit2.HttpException)?.code()?.let { " (HTTP $it)" }.orEmpty()
+    return if (this is TrackingSyncError) {
+        (text ?: "Sync error") + http
+    } else {
+        this::class.java.simpleName + text?.let { ": $it" }.orEmpty() + http
+    }
+}
 
 /**
  * A V2 request rejected for its own content (unknown media, missing season
@@ -523,6 +532,17 @@ class FloppyBootstrapWorker(
                         if (!isCurrent(application, expected)) {
                             stoppedForInstanceChange = true
                             break
+                        }
+                        if (error is TrackingSyncError.PartiallyRejected) {
+                            // The rest of the request was applied and acknowledged;
+                            // only the refused items stay unresolved for this run.
+                            failed += error.rejected.size
+                            skipped += error.rejected.keys
+                            if (error.rejected.size < batch.size) consecutiveSkipped = 0 else consecutiveSkipped++
+                            error.rejected.values.forEach { reason ->
+                                report(warn = true, message = "Floppy bootstrap item not accepted: run=$runId $reason")
+                            }
+                            continue
                         }
                         failed += batch.size
                         if (shouldSkipFloppyBootstrapUnit(error, transport.context.canBootstrapV2, consecutiveSkipped)) {

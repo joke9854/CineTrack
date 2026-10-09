@@ -510,6 +510,43 @@ class FloppySecondaryRoomIntegrationTest {
     }
 
     @Test
+    fun mixedOutcomeAcknowledgesAppliedAndKeepsOnlyRefusedUnresolved() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..2).map { n ->
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 6, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L))
+        }
+        floppy.openBootstrapSession("integration-instance-a")
+        FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        ).start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val (applied, refused) = pending
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = { ProviderPushResult(setOf(applied.id), mapOf(refused.id to "TV:2316 S06E02 not_found")) },
+        )
+
+        val error = result.exceptionOrNull()
+        assertTrue(error is TrackingSyncError.PartiallyRejected)
+        val left = repository.bootstrapPending("integration-instance-a", 10)
+        assertEquals(listOf(refused.id), left.map { it.id })
+        assertEquals(DeliveryStatus.FAILED, repository.deliveries(setOf(refused.id)).single().status)
+        assertTrue(repository.deliveries(setOf(applied.id)).isEmpty())
+    }
+
+    @Test
     fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         val previous = requireNotNull(preferences.floppySettingsNow())

@@ -199,6 +199,9 @@ sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exce
         TrackingSyncError("The ${provider.name.lowercase().replaceFirstChar(Char::uppercase)} token does not allow tracking synchronization")
     class ApiRedirect(val location: String? = null) :
         TrackingSyncError("Floppy redirected the API request. Use the final HTTPS server URL.")
+    /** Part of a batch was applied; these operations were refused (id -> reason). */
+    class PartiallyRejected(val rejected: Map<String, String>) :
+        TrackingSyncError("${rejected.size} item(s) not accepted: ${rejected.values.distinct().take(3).joinToString("; ")}")
     class NetworkUnavailable(cause: Throwable) : TrackingSyncError("Network unavailable", cause)
     class ProviderUnavailable(provider: TrackingProviderId, cause: Throwable? = null) :
         TrackingSyncError("${provider.name.lowercase().replaceFirstChar(Char::uppercase)} is unavailable", cause)
@@ -217,7 +220,15 @@ sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exce
     class Unknown(cause: Throwable) : TrackingSyncError(cause.message ?: cause::class.java.simpleName, cause)
 }
 
-data class ProviderPushResult(val completedOperationIds: Set<String>)
+/**
+ * [completedOperationIds] were applied remotely. [rejectedOperationIds] were
+ * definitively refused for their own content (id -> short reason) and stay
+ * unresolved; every pushed operation must appear in one of the two.
+ */
+data class ProviderPushResult(
+    val completedOperationIds: Set<String>,
+    val rejectedOperationIds: Map<String, String> = emptyMap(),
+)
 
 /** Result of a provider's bidirectional MAIN pass after applying remote changes locally. */
 data class ProviderSyncOutcome(

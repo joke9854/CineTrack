@@ -60,9 +60,10 @@ class FloppyBootstrapRetryTest {
     fun logSummaryIsOneBoundedLine() {
         val summary = TrackingSyncError.InvalidRemoteData("Floppy returned HTTP 400:\n" + "x".repeat(500)).safeSummary()
 
-        assertTrue(summary.startsWith("InvalidRemoteData: Floppy returned HTTP 400: x"))
+        // No class name: release builds shorten them to unreadable tokens.
+        assertTrue(summary.startsWith("Floppy returned HTTP 400: x"))
         assertFalse(summary.contains('\n'))
-        assertTrue(summary.length <= "InvalidRemoteData: ".length + 200)
+        assertTrue(summary.length <= 200)
     }
 
     @Test

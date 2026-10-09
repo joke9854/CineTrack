@@ -49,6 +49,8 @@ import retrofit2.HttpException
 import kotlinx.coroutines.delay
 
 private const val BULK_EPISODE_MAX = 50
+/** Per-event outcomes of the episode ensure endpoint; the last two are refusals. */
+private val EPISODE_EVENT_STATUSES = setOf("created", "already_satisfied", "not_found", "metadata_unavailable")
 private const val BULK_TASK_POLL_ATTEMPTS = 120
 private const val BULK_TASK_POLL_DELAY_MS = 500L
 
@@ -234,17 +236,18 @@ class FloppyRemoteDataSource(
             val episodeOperations = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
             // Bulk transport is deliberately restricted to managed bootstrap.
             // Realtime/delta pushes keep their existing singular semantics.
+            val rejected = linkedMapOf<String, String>()
             val bulkCompleted = if (bootstrapContext != null) {
-                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId)
+                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected)
             } else {
-                pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId)
+                pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId, rejected)
             }
             completed += bulkCompleted
 
             val byMovieGeneration = operations
                 .filter { it.mediaType == MediaType.MOVIE }
                 .groupBy { it.mediaId to it.sourceVersion }
-            val consumed = bulkCompleted.toMutableSet()
+            val consumed = (bulkCompleted + rejected.keys).toMutableSet()
             operations.forEach { operation ->
                 if (operation.id in consumed) return@forEach
                 val pair = byMovieGeneration[operation.mediaId to operation.sourceVersion].orEmpty()
@@ -264,10 +267,10 @@ class FloppyRemoteDataSource(
                     consumed += operation.id
                 }
             }
+            return ProviderPushResult(completed, rejected)
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
-        return ProviderPushResult(completed)
     }
 
     /** Fork V2 owns idempotency, so its import requests never need the
@@ -319,10 +322,11 @@ class FloppyRemoteDataSource(
             completed += shows.map(SyncOperation::id)
         }
         val episodes = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
-        if (episodes.isNotEmpty()) completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId)
-        val unsupported = operations.map(SyncOperation::id).toSet() - completed
+        val rejected = linkedMapOf<String, String>()
+        if (episodes.isNotEmpty()) completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected)
+        val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys
         if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
-        return ProviderPushResult(completed)
+        return ProviderPushResult(completed, rejected)
     }
 
     /**
@@ -339,6 +343,7 @@ class FloppyRemoteDataSource(
         episodeIndex: MutableSet<EpisodeKey>?,
         canEnsureEpisodeEvents: Boolean,
         providerInstanceId: String,
+        rejected: MutableMap<String, String> = mutableMapOf(),
     ): Set<String> {
         if (operations.isEmpty()) return emptySet()
         val completed = linkedSetOf<String>()
@@ -355,15 +360,22 @@ class FloppyRemoteDataSource(
                         )
                     }
                     val response = api.ensureEpisodes(source = "tmdb", mediaId = showId.toString(), request = FloppyEpisodeEnsureRequest(events))
-                    val accepted = response.results.filter { it.status == "created" || it.status == "already_satisfied" }
+                    // Every event needs exactly one known outcome. Applied ones
+                    // are acknowledged; refused ones (an episode number the
+                    // server's provider does not list) stay unresolved.
+                    val byEventId = response.results.associateBy { it.clientEventId }
                     val expectedIds = events.mapTo(linkedSetOf()) { it.clientEventId }
-                    if (accepted.mapTo(linkedSetOf()) { it.clientEventId } != expectedIds) {
-                        throw TrackingSyncError.InvalidRemoteData("Floppy ensure response did not confirm every submitted event")
+                    if (byEventId.keys != expectedIds || byEventId.values.any { it.status !in EPISODE_EVENT_STATUSES }) {
+                        throw TrackingSyncError.InvalidRemoteData("Floppy ensure response did not account for every submitted event")
                     }
-                    completed += chunk.map(SyncOperation::id)
-                    chunk.forEach { operation ->
-                        val (season, episode, _) = operation.episodeParts()
-                        episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), season, episode))
+                    chunk.zip(events).forEach { (operation, event) ->
+                        val status = byEventId.getValue(event.clientEventId).status
+                        if (status == "created" || status == "already_satisfied") {
+                            completed += operation.id
+                            episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), event.seasonNumber, event.episodeNumber))
+                        } else {
+                            rejected[operation.id] = "TV:$showId S%02dE%02d %s".format(event.seasonNumber, event.episodeNumber, status)
+                        }
                     }
                 }
             }

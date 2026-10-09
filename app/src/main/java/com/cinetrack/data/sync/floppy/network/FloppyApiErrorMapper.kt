@@ -32,7 +32,10 @@ object FloppyApiErrorMapper {
             301, 302, 303, 307, 308 -> TrackingSyncError.ApiRedirect(safeRedirectLocation(error))
             401 -> TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
             403 -> TrackingSyncError.TokenScope(TrackingProviderId.FLOPPY)
-            404 -> TrackingSyncError.WrongApi(TrackingProviderId.FLOPPY)
+            // A missing route is Django's HTML 404; a JSON detail means the
+            // endpoint exists and refused this request for its content.
+            404 -> detail(error)?.let { TrackingSyncError.InvalidRemoteData("Floppy returned HTTP 404: $it") }
+                ?: TrackingSyncError.WrongApi(TrackingProviderId.FLOPPY)
             409 -> TrackingSyncError.Conflict("Floppy returned a synchronization conflict")
             422 -> TrackingSyncError.Validation("Floppy rejected the synchronization operation")
             429 -> TrackingSyncError.RateLimited(error.response()?.headers()?.get("Retry-After")?.toLongOrNull())

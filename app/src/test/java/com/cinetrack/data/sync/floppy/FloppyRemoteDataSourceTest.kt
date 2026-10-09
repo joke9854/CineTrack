@@ -378,6 +378,46 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun refusedEpisodesAreReportedWhileTheRestOfTheRequestIsApplied() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val valid = v2Operation("e1", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "6:1:2024-01-01T20:00:00Z")
+        val unknown = v2Operation("e26", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "6:26:2024-01-02T20:00:00Z")
+        val validId = episodeClientEventId(session.instanceId, valid)
+        val unknownId = episodeClientEventId(session.instanceId, unknown)
+        server.enqueue(json("""{"results":[{"client_event_id":"$validId","season_number":6,"episode_number":1,"status":"created"},{"client_event_id":"$unknownId","season_number":6,"episode_number":26,"status":"not_found"}]}"""))
+
+        val result = remote.push(session, listOf(valid, unknown), context)
+
+        assertEquals(setOf("e1"), result.completedOperationIds)
+        assertEquals(mapOf("e26" to "TV:2316 S06E26 not_found"), result.rejectedOperationIds)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun episodeResponseWithAnUnknownStatusAcknowledgesNothing() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val op = v2Operation("e1", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "6:1:2024-01-01T20:00:00Z")
+        server.enqueue(json("""{"results":[{"client_event_id":"${episodeClientEventId(session.instanceId, op)}","season_number":6,"episode_number":1,"status":"maybe"}]}"""))
+
+        val error = runCatching { remote.push(session, listOf(op), context) }.exceptionOrNull()
+
+        assertTrue(error is TrackingSyncError.InvalidRemoteData)
+    }
+
+    @Test
+    fun jsonNotFoundIsARefusalNotAMissingRoute() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        server.enqueue(MockResponse().setResponseCode(404).setHeader("Content-Type", "application/json").setBody("""{"detail":"Could not resolve episode events."}"""))
+
+        val error = runCatching {
+            remote.push(session, listOf(v2Operation("e1", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "6:1:2024-01-01T20:00:00Z")), context)
+        }.exceptionOrNull()
+
+        assertTrue(error is TrackingSyncError.InvalidRemoteData)
+        assertEquals("Floppy returned HTTP 404: Could not resolve episode events.", error!!.message)
+    }
+
+    @Test
     fun v2BatchServerFailureAcknowledgesNothing() = runBlocking {
         val context = FloppyBootstrapTransportContext(session.instanceId, canBootstrapV2 = true)
         server.enqueue(MockResponse().setResponseCode(503))
