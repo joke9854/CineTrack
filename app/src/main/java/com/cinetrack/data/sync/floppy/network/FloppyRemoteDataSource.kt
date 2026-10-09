@@ -264,6 +264,9 @@ class FloppyRemoteDataSource(
     /** Fork V2 owns idempotency, so its import requests never need the
      * run-scoped full movie/episode index.  The returned ids stay exact: only
      * operations included in confirmed server entries are acknowledged. */
+    private fun confirmsEvery(resultCount: Int, submitted: Int, statuses: List<String>): Boolean =
+        resultCount == submitted && statuses.all { it == "created" || it == "already_satisfied" }
+
     private suspend fun pushBootstrapV2(
         api: FloppyApi,
         operations: List<SyncOperation>,
@@ -289,8 +292,8 @@ class FloppyRemoteDataSource(
             }
             if (entries.isNotEmpty()) {
                 val response = api.ensureBootstrapMovies(FloppyBootstrapMoviesRequest(entries))
-                require(response.results.size == entries.size && response.results.all { it.status in setOf("created", "already_satisfied") }) {
-                    "Floppy V2 movie response did not confirm every submitted movie"
+                if (!confirmsEvery(response.results.size, entries.size, response.results.map { it.status })) {
+                    throw TrackingSyncError.InvalidRemoteData("Floppy V2 movie response did not confirm every submitted movie")
                 }
                 completed += movies.values.flatten().map(SyncOperation::id)
             }
@@ -301,8 +304,8 @@ class FloppyRemoteDataSource(
                 FloppyBootstrapShow("tmdb", operation.mediaId.toString(), operation.title.takeIf(String::isNotBlank), status = operation.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull()?.toFloppyStatus() })
             }
             val response = api.ensureBootstrapShows(FloppyBootstrapShowsRequest(entries))
-            require(response.results.size == entries.size && response.results.all { it.status in setOf("created", "already_satisfied") }) {
-                "Floppy V2 show response did not confirm every submitted show"
+            if (!confirmsEvery(response.results.size, entries.size, response.results.map { it.status })) {
+                throw TrackingSyncError.InvalidRemoteData("Floppy V2 show response did not confirm every submitted show")
             }
             completed += shows.map(SyncOperation::id)
         }
@@ -345,8 +348,8 @@ class FloppyRemoteDataSource(
                     val response = api.ensureEpisodes(source = "tmdb", mediaId = showId.toString(), request = FloppyEpisodeEnsureRequest(events))
                     val accepted = response.results.filter { it.status == "created" || it.status == "already_satisfied" }
                     val expectedIds = events.mapTo(linkedSetOf()) { it.clientEventId }
-                    require(accepted.mapTo(linkedSetOf()) { it.clientEventId } == expectedIds) {
-                        "Floppy ensure response did not confirm every submitted event"
+                    if (accepted.mapTo(linkedSetOf()) { it.clientEventId } != expectedIds) {
+                        throw TrackingSyncError.InvalidRemoteData("Floppy ensure response did not confirm every submitted event")
                     }
                     completed += chunk.map(SyncOperation::id)
                     chunk.forEach { operation ->

@@ -368,7 +368,7 @@ class FloppyRemoteDataSourceTest {
             )
         }.exceptionOrNull()
 
-        assertTrue(error != null)
+        assertTrue(error is TrackingSyncError.InvalidRemoteData)
     }
 
     @Test

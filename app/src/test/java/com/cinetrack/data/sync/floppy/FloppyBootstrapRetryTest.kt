@@ -24,6 +24,44 @@ class FloppyBootstrapRetryTest {
     }
 
     @Test
+    fun itemLevelV2FailuresAreSkippedSoOneItemCannotBlockTheRun() {
+        listOf(
+            TrackingSyncError.WrongApi(com.cinetrack.data.sync.TrackingProviderId.FLOPPY),
+            TrackingSyncError.Validation("rejected"),
+            TrackingSyncError.Conflict("conflict"),
+            TrackingSyncError.InvalidRemoteData("Floppy returned HTTP 400"),
+        ).forEach { error ->
+            assertTrue(error::class.java.simpleName, shouldSkipFloppyBootstrapUnit(error, canBootstrapV2 = true, consecutiveSkipped = 0))
+        }
+    }
+
+    @Test
+    fun connectionLevelFailuresStopTheRun() {
+        listOf(
+            TrackingSyncError.AuthenticationRequired(com.cinetrack.data.sync.TrackingProviderId.FLOPPY),
+            TrackingSyncError.TokenScope(com.cinetrack.data.sync.TrackingProviderId.FLOPPY),
+            TrackingSyncError.ApiRedirect(),
+            TrackingSyncError.ProviderUnavailable(com.cinetrack.data.sync.TrackingProviderId.FLOPPY),
+            TrackingSyncError.RateLimited(null),
+            TrackingSyncError.DnsFailure(IllegalStateException("dns")),
+        ).forEach { error ->
+            assertFalse(error::class.java.simpleName, shouldSkipFloppyBootstrapUnit(error, canBootstrapV2 = true, consecutiveSkipped = 0))
+        }
+    }
+
+    @Test
+    fun repeatedItemFailuresStopTheRunAsSystemic() {
+        val error = TrackingSyncError.WrongApi(com.cinetrack.data.sync.TrackingProviderId.FLOPPY)
+        assertTrue(shouldSkipFloppyBootstrapUnit(error, canBootstrapV2 = true, consecutiveSkipped = MAX_CONSECUTIVE_SKIPPED_UNITS - 1))
+        assertFalse(shouldSkipFloppyBootstrapUnit(error, canBootstrapV2 = true, consecutiveSkipped = MAX_CONSECUTIVE_SKIPPED_UNITS))
+    }
+
+    @Test
+    fun legacyTransportNeverSkips() {
+        assertFalse(shouldSkipFloppyBootstrapUnit(TrackingSyncError.Validation("rejected"), canBootstrapV2 = false, consecutiveSkipped = 0))
+    }
+
+    @Test
     fun completedMoviePairIsOneLogicalUnitButCountsBothOperations() {
         val generation = 42L
         val library = SyncOperation("library", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 7, "Movie", LibraryStatus.COMPLETED.name, sourceVersion = generation)

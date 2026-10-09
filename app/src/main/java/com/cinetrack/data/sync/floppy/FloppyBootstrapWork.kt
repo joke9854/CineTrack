@@ -58,6 +58,29 @@ internal fun isFloppyBootstrapRetryable(error: Throwable): Boolean = when (error
     else -> false
 }
 
+/**
+ * A V2 request rejected for its own content (unknown media, missing season
+ * metadata, a conflicting event) cannot succeed on retry. Its operations stay
+ * unresolved while the run continues with the rest of the plan, unless the
+ * failures repeat back to back, which points at the server rather than items.
+ */
+internal fun shouldSkipFloppyBootstrapUnit(
+    error: Throwable,
+    canBootstrapV2: Boolean,
+    consecutiveSkipped: Int,
+): Boolean = canBootstrapV2 &&
+    consecutiveSkipped < MAX_CONSECUTIVE_SKIPPED_UNITS &&
+    when (error) {
+        is TrackingSyncError.WrongApi,
+        is TrackingSyncError.Validation,
+        is TrackingSyncError.Conflict,
+        is TrackingSyncError.InvalidRemoteData,
+        -> true
+        else -> false
+    }
+
+internal const val MAX_CONSECUTIVE_SKIPPED_UNITS = 3
+
 object FloppyBootstrapWorkScheduler {
     private const val PREFIX = "floppy-bootstrap:"
 
@@ -264,6 +287,10 @@ class FloppyBootstrapWorker(
         var current: FloppyBootstrapProgress? = null
         var stoppedForInstanceChange = false
         var loopError: Throwable? = null
+        // Unresolved operations from item-level V2 failures; excluded for the
+        // rest of this run only. A later run retries them first.
+        val skipped = linkedSetOf<String>()
+        var consecutiveSkipped = 0
         coroutineScope {
             val watchdog = launch {
                 while (isActive) {
@@ -288,7 +315,8 @@ class FloppyBootstrapWorker(
                         break
                     }
                     val fetchedBatch = application.container.syncCoordinator
-                        .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH)
+                        .pendingBootstrapOperations(expected, BOOTSTRAP_FETCH_BATCH + skipped.size)
+                        .filterNot { it.id in skipped }
                     if (fetchedBatch.isEmpty()) break
                     val movieWave = fetchedBatch.bootstrapMovieWave(
                         if (transport.context.canBootstrapV2) BOOTSTRAP_V2_MAX else MAX_CONCURRENT_MOVIE_UNITS,
@@ -355,9 +383,16 @@ class FloppyBootstrapWorker(
                             if (result.isFailure) {
                                 val error = result.exceptionOrNull() ?: IllegalStateException("Floppy V2 movie batch failed")
                                 failed += modernBatch.size
+                                if (shouldSkipFloppyBootstrapUnit(error, true, consecutiveSkipped)) {
+                                    skipped += modernBatch.map(SyncOperation::id)
+                                    consecutiveSkipped++
+                                    Log.w(TAG, "Floppy bootstrap unit skipped: run=$runId connection=$expected route=MOVIE_BOOTSTRAP_V2 size=${modernBatch.size} error=${error::class.java.simpleName}")
+                                    continue
+                                }
                                 loopError = error
                                 break
                             }
+                            consecutiveSkipped = 0
                         } else {
                             val outcomes = application.container.syncCoordinator.withFloppyBootstrapLane(expected) {
                                 supervisorScope {
@@ -471,6 +506,13 @@ class FloppyBootstrapWorker(
                             break
                         }
                         failed += batch.size
+                        if (shouldSkipFloppyBootstrapUnit(error, transport.context.canBootstrapV2, consecutiveSkipped)) {
+                            skipped += batch.map(SyncOperation::id)
+                            consecutiveSkipped++
+                            val route = if (first.type == SyncOperationType.EPISODE_WATCHED) "EPISODE_ENSURE" else "SHOW_BOOTSTRAP_V2"
+                            Log.w(TAG, "Floppy bootstrap unit skipped: run=$runId connection=$expected route=$route size=${batch.size} media=${first.mediaType}:${first.mediaId} error=${error::class.java.simpleName}")
+                            continue
+                        }
                         val retryable = isRetryable(error)
                         val terminalStage = if (retryable) FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.NEEDS_ATTENTION
                         if (!retryable) application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
@@ -488,6 +530,7 @@ class FloppyBootstrapWorker(
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
+                    consecutiveSkipped = 0
                     Log.i(TAG, "Floppy bootstrap batch complete: run=$runId connection=$expected processed=$processed total=$total")
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
@@ -499,6 +542,15 @@ class FloppyBootstrapWorker(
         if (stoppedForInstanceChange) return Result.success()
         loopError?.let { return terminalResult(it) }
         if (!isCurrent(application, expected)) return Result.success()
+        if (skipped.isNotEmpty()) {
+            // Everything deliverable was delivered; the skipped operations stay
+            // unresolved (never ACKed) and are retried first by the next run.
+            application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+            val attention = FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, skipped.size, expected)
+            setProgress(progressData(attention))
+            Log.w(TAG, "Floppy bootstrap finished with skipped units: run=$runId connection=$expected skipped=${skipped.size} processed=$processed total=$total")
+            return Result.failure(progressData(attention))
+        }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
         Log.i(TAG, "Floppy bootstrap verifying: run=$runId connection=$expected")
         val ready = coordinator.markReadyIfComplete()
