@@ -1,3 +1,7 @@
+# CineTrack 0.99.25 beta
+
+- Much faster TV episode upload during the initial Floppy sync: each request now carries up to 50 of one show's unsynced episodes instead of only the few that happened to be next in watch-history order. The sync plan, exact timestamps and retry safety are unchanged, so an in-progress sync continues where it left off.
+
 # CineTrack 0.99.24 beta
 
 - Floppy connection checks now use the dedicated CineTrack probe instead of `/user/preferences/`, so tracking-scoped tokens without `user:read` can sync; older servers without the probe still fall back to preferences.
