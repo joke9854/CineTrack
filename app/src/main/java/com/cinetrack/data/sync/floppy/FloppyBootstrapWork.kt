@@ -482,6 +482,7 @@ class FloppyBootstrapWorker(
                         }
                     }
                     Log.i(TAG, "Floppy bootstrap batch started: run=$runId connection=$expected size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId}")
+                    val batchStartedAt = System.nanoTime()
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
                         processed,
@@ -542,7 +543,7 @@ class FloppyBootstrapWorker(
                     stalledPublished = false
                     current = FloppyBootstrapProgress(FloppyBootstrapStage.SYNCING, processed, total, processed, failed, expected, first.type.name, first.title.takeIf(String::isNotBlank), lastProgressAt)
                     consecutiveSkipped = 0
-                    Log.i(TAG, "Floppy bootstrap batch complete: run=$runId connection=$expected processed=$processed total=$total")
+                    Log.i(TAG, "Floppy bootstrap batch complete: run=$runId connection=$expected size=${batch.size} durationMs=${(System.nanoTime() - batchStartedAt) / 1_000_000} processed=$processed total=$total")
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
