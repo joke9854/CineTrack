@@ -93,6 +93,17 @@ class FloppyBootstrapV2PlannerTest {
     }
 
     @Test
+    fun specialsNeverShareARequestWithRegularEpisodes() {
+        val mixed = listOf(episode("s0e1", 0, 1), episode("s0e2", 0, 2), episode("e1", 1, 1), episode("e202", 2, 2))
+
+        val regular = mixed.bootstrapTransportUnit(canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+        val specials = mixed.filterNot { it in regular }.bootstrapTransportUnit(canEnsureEpisodeEvents = true, canBootstrapV2 = true)
+
+        assertEquals(listOf("e1", "e202"), regular.map { it.id })
+        assertEquals(listOf("s0e1", "s0e2"), specials.map { it.id })
+    }
+
+    @Test
     fun historyOrderedPlanStillFillsOneShowRequestToFifty() {
         // Watch history interleaves shows 12 and 123, so a small plan window
         // holds only a few episodes of either show.

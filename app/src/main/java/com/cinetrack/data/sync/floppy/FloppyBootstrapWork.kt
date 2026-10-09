@@ -79,7 +79,9 @@ internal fun shouldSkipFloppyBootstrapUnit(
         else -> false
     }
 
-internal const val MAX_CONSECUTIVE_SKIPPED_UNITS = 3
+// Skipped units are only remembered within one run, so a low limit let a few
+// rejected units at the head of the queue stop every Retry before any progress.
+internal const val MAX_CONSECUTIVE_SKIPPED_UNITS = 25
 
 object FloppyBootstrapWorkScheduler {
     private const val PREFIX = "floppy-bootstrap:"
@@ -716,9 +718,14 @@ internal fun List<SyncOperation>.bootstrapTransportUnit(
         .firstOrNull()
     if (episode != null) {
         if (canEnsureEpisodeEvents) {
-            return filter {
+            val showEpisodes = filter {
                 it.type == SyncOperationType.EPISODE_WATCHED && it.mediaId == episode.mediaId
             }
+            // Specials travel in their own request: servers that predate
+            // season-0 support reject the whole request, which must not take
+            // the show's regular episodes down with it.
+            return showEpisodes.filter { it.episodePartsForBootstrap().first != 0 }
+                .ifEmpty { showEpisodes }
                 .sortedWith(compareBy<SyncOperation> { it.episodePartsForBootstrap().first }
                     .thenBy { it.episodePartsForBootstrap().second })
                 .take(50)
