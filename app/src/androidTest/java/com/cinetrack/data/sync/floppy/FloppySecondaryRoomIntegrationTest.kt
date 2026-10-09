@@ -187,7 +187,7 @@ class FloppySecondaryRoomIntegrationTest {
     fun connectedFloppyActivationPersistsSecondaryWithoutRestart() = runBlocking {
         preferences.setTrackingProviders(TrackingProviderId.SIMKL, null)
         server.enqueue(json("{\"version\":\"26.1\"}"))
-        server.enqueue(json("{\"username\":\"integration-user\"}"))
+        server.enqueue(probe())
         val routingMutex = TrackingRoutingMutex()
         val writer = DurableSyncOperationWriter(
             repository,
@@ -287,7 +287,7 @@ class FloppySecondaryRoomIntegrationTest {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         main.authenticated = true
         server.enqueue(json("{\"version\":\"26.1\"}"))
-        server.enqueue(json("{\"username\":\"integration-user\"}"))
+        server.enqueue(probe())
 
         val routingMutex = TrackingRoutingMutex()
         val writer = DurableSyncOperationWriter(
@@ -335,7 +335,7 @@ class FloppySecondaryRoomIntegrationTest {
         // Same-target reconnect keeps the instance, but the first delivery
         // attempt fails after activation so the row remains retryable.
         server.enqueue(json("{\"version\":\"26.1\"}"))
-        server.enqueue(json("{\"username\":\"integration-user\"}"))
+        server.enqueue(probe())
         server.enqueue(MockResponse().setResponseCode(500))
         val failed = service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true)
         assertTrue(
@@ -399,6 +399,64 @@ class FloppySecondaryRoomIntegrationTest {
         assertTrue(activation.committed.connectionId != previous.connectionId)
         assertEquals(ProviderBootstrapState.NOT_STARTED, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
     }
+
+    @Test
+    fun retryPreflightMigratesLegacyAccountAndReusesFailedPlan() = runBlocking {
+        val legacy = requireNotNull(preferences.floppySettingsNow())
+        preferences.setFloppyConnection(legacy.copy(allowInsecureLocalHttp = true), "integration-secret")
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        bootstrap.start()
+        val plan = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+
+        // The worker's Retry preflight: the stored identity is a legacy
+        // username, the server now answers with the opaque probe account.
+        server.enqueue(json("{\"version\":\"26.9.17\",\"api_extensions\":{\"cinetrack_bootstrap_v2\":true,\"cinetrack_episode_events_v1\":true}}"))
+        server.enqueue(probe())
+        assertEquals(ConnectionResult.Connected, floppy.testConnection())
+
+        val refreshed = requireNotNull(preferences.floppySettingsNow())
+        assertEquals("integration-instance-a", refreshed.connectionId)
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-integration-account", refreshed.accountIdentity)
+        assertTrue(refreshed.capabilities.canBootstrapV2)
+        assertTrue(refreshed.capabilities.canEnsureEpisodeEvents)
+        assertEquals(ProviderBootstrapState.FAILED, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+
+        bootstrap.start()
+        assertEquals(plan, preferences.floppyBootstrapPlanRawNow())
+    }
+
+    @Test
+    fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-integration-account", connectionId = "candidate"),
+            "rotated-secret",
+        )
+
+        assertTrue(activation.instanceChanged)
+        assertTrue(activation.committed.connectionId != previous.connectionId)
+    }
+
+    private fun probe() = json(
+        "{\"authenticated\":true,\"account_id\":\"opaque-integration-account\",\"user\":\"opaque-integration-account\",\"server_version\":\"26.9.17\",\"api_extensions\":{\"cinetrack_bootstrap_v2\":true,\"cinetrack_episode_events_v1\":true,\"episode_sql_pagination\":true}}",
+    )
 
     private fun json(body: String) = MockResponse()
         .addHeader("Content-Type", "application/json")
