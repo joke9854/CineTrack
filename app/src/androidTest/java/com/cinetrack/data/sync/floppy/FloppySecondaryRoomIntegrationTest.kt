@@ -474,6 +474,42 @@ class FloppySecondaryRoomIntegrationTest {
     }
 
     @Test
+    fun restartAfterPartialDeliveryDoesNotRequeueAcknowledgedOperations() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..3).map { n ->
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 12), 1, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L))
+        }
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        )
+        bootstrap.start()
+        assertEquals(3, repository.bootstrapPendingCount("integration-instance-a"))
+
+        // Floppy confirms one operation; Room retires its rows.
+        val delivered = repository.bootstrapPending("integration-instance-a", 1)
+        repository.acknowledge(TrackingProviderId.FLOPPY, delivered)
+        repository.completeReady(delivered)
+        assertEquals(2, repository.bootstrapPendingCount("integration-instance-a"))
+
+        // A Retry or worker restart must resume, not resend the finished work.
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+        bootstrap.start()
+
+        assertEquals(2, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(repository.bootstrapPending("integration-instance-a", 10).none { it.id == delivered.single().id })
+    }
+
+    @Test
     fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
         preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
         val previous = requireNotNull(preferences.floppySettingsNow())

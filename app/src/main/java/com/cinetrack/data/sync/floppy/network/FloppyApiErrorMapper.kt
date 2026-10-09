@@ -38,7 +38,9 @@ object FloppyApiErrorMapper {
             429 -> TrackingSyncError.RateLimited(error.response()?.headers()?.get("Retry-After")?.toLongOrNull())
             // Preserve the safe HTTP cause for bootstrap retry classification.
             in 500..599 -> TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY, error)
-            else -> TrackingSyncError.InvalidRemoteData("Floppy returned HTTP ${error.code()}")
+            else -> TrackingSyncError.InvalidRemoteData(
+                "Floppy returned HTTP ${error.code()}" + detail(error)?.let { ": $it" }.orEmpty(),
+            )
         }
         else -> TrackingSyncError.Unknown(error)
     }
@@ -49,6 +51,20 @@ object FloppyApiErrorMapper {
             json.parseToJsonElement(body).jsonObject["code"]?.jsonPrimitive?.content
         }
     }.getOrNull()
+
+    /** Floppy's short validation `detail` (e.g. which event was rejected), one
+     * line and bounded; the rest of the body is never kept. */
+    private fun detail(error: HttpException): String? = runCatching {
+        error.response()?.errorBody()?.string()?.let { body ->
+            json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content
+        }
+    }.getOrNull()
+        ?.replace(Regex("\\s+"), " ")
+        ?.trim()
+        ?.take(MAX_DETAIL_LENGTH)
+        ?.takeIf(String::isNotBlank)
+
+    private const val MAX_DETAIL_LENGTH = 160
 
     /** Location is diagnostic-only. Strip query/fragment so tunnel tokens or other
      * credentials can never be retained in logs/UI state. */

@@ -79,13 +79,17 @@ class FloppyBootstrapCoordinator(
             // plan even while the state is still NOT_STARTED and reuses its
             // exact operation ids/generations instead of rebuilding them.
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
-            val operationIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
-            val existingDeliveries = operationRepository.deliveries(operationIds)
-            val materialized = existingDeliveries
-                .filter { it.providerId == TrackingProviderId.FLOPPY }
-                .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
-            val missing = operations.filterNot { operation ->
-                "${operation.id}:${operation.sourceVersion}" in materialized
+            // Once fully queued, acknowledged operations disappear from Room;
+            // re-queueing "missing" rows then would resend finished work on
+            // every Retry or worker restart.
+            val missing = if (existing?.materialized == true) {
+                emptyList()
+            } else {
+                val operationIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
+                val materialized = operationRepository.deliveries(operationIds)
+                    .filter { it.providerId == TrackingProviderId.FLOPPY }
+                    .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
+                operations.filterNot { operation -> "${operation.id}:${operation.sourceVersion}" in materialized }
             }
             var prepared = operations.size - missing.size
             onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
@@ -93,6 +97,11 @@ class FloppyBootstrapCoordinator(
                 operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
                 prepared += chunk.size
                 onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
+            }
+            if (existing?.materialized != true) {
+                preferences.setFloppyBootstrapPlanRaw(
+                    encodePlan(PersistedPlan(instance, operations.map(::toPersisted), materialized = true)),
+                )
             }
             if (operations.isEmpty() && verifyRemote(snapshot ?: canonicalSnapshot())) {
                 preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
@@ -165,8 +174,15 @@ class FloppyBootstrapCoordinator(
         false
     }
 
+    /** [materialized] is set once every operation has been queued. Room
+     * retires acknowledged rows, so afterwards a missing row means "done",
+     * not "never queued", and must not be re-queued. */
     @Serializable
-    private data class PersistedPlan(val instanceId: String, val operations: List<PersistedOperation>)
+    private data class PersistedPlan(
+        val instanceId: String,
+        val operations: List<PersistedOperation>,
+        val materialized: Boolean = false,
+    )
 
     @Serializable
     private data class PersistedOperation(

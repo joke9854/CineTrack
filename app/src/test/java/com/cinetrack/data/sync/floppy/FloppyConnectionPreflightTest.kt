@@ -117,6 +117,21 @@ class FloppyConnectionPreflightTest {
     }
 
     @Test
+    fun badRequestCarriesFloppysShortDetail() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(
+            MockResponse().setResponseCode(400).setHeader("Content-Type", "application/json")
+                .setBody("""{"detail":"events[3] has invalid coordinates\nor watched_at.","extra":"x"}"""),
+        )
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        val error = (result as ConnectionResult.Failed).error
+        assertTrue(error is TrackingSyncError.InvalidRemoteData)
+        assertEquals("Floppy returned HTTP 400: events[3] has invalid coordinates or watched_at.", error.message)
+    }
+
+    @Test
     fun serverFailureRemainsRetryable() = runBlocking {
         server.enqueue(MockResponse().setResponseCode(503))
 
