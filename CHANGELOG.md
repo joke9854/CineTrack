@@ -1,3 +1,11 @@
+# CineTrack 0.99.31 beta
+
+- Anime numbered continuously by Simkl (Naruto, Naruto Shippuden, One Piece and similar) is now placed on its TMDB season on servers whose TMDB language is not English, and through TVDB's absolute order when TMDB's seasons do not line up.
+- Episodes of a season TMDB does not have at all (for example some specials) no longer stop the initial sync with "metadata_unavailable"; they are matched through TVDB or closed as having no Floppy counterpart.
+- Episodes closed as "no Floppy counterpart" by 0.99.30 are retried once more with the improved matching.
+- Settings > Logs now shows why Floppy could not place an episode (for example "not_in_tvdb" or "no_unique_tmdb_match").
+- Requires Floppy CineTrack-API 395d7266 or later.
+
 # CineTrack 0.99.30 beta
 
 - Episodes numbered differently on TMDB (two-part episodes TMDB merges, specials, split seasons) are now matched by air date and title through TVDB and saved on Floppy under the right TMDB episode, instead of being closed as having no counterpart. Episodes later in the same season are no longer stored one episode off.

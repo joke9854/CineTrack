@@ -91,10 +91,10 @@ class FloppyBootstrapCoordinator(
                     .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
                 operations.filterNot { operation -> "${operation.id}:${operation.sourceVersion}" in materialized }
             }
-            // Episodes closed as "no counterpart" before Floppy could match
-            // them by TVDB identity get exactly one more attempt; anything
+            // Episodes closed as "no counterpart" get one more attempt each
+            // time Floppy's matching improves (a new generation); anything
             // still unmatched afterwards is closed again, never looped.
-            val closed = existing?.takeUnless { it.counterpartsRetried }
+            val closed = existing?.takeIf { it.counterpartRetryGeneration() < COUNTERPART_RETRY_GENERATION }
                 ?.episodeOutcomes?.filterValues { it == NO_COUNTERPART }?.keys.orEmpty()
             val reopened = if (closed.isEmpty()) emptyList() else {
                 val queued = operationRepository.deliveries(closed)
@@ -117,9 +117,14 @@ class FloppyBootstrapCoordinator(
                     encodePlan(
                         existing?.copy(
                             materialized = true,
-                            counterpartsRetried = true,
+                            counterpartRetries = COUNTERPART_RETRY_GENERATION,
                             episodeOutcomes = existing.episodeOutcomes - closed,
-                        ) ?: PersistedPlan(instance, operations.map(::toPersisted), materialized = true, counterpartsRetried = true),
+                        ) ?: PersistedPlan(
+                            instance,
+                            operations.map(::toPersisted),
+                            materialized = true,
+                            counterpartRetries = COUNTERPART_RETRY_GENERATION,
+                        ),
                     ),
                 )
             }
@@ -212,9 +217,13 @@ class FloppyBootstrapCoordinator(
         val operations: List<PersistedOperation>,
         val materialized: Boolean = false,
         val episodeOutcomes: Map<String, String> = emptyMap(),
-        /** Set once "no counterpart" episodes had their identity-match retry. */
+        /** Written by 0.99.30: the first identity-match retry happened. */
         val counterpartsRetried: Boolean = false,
-    )
+        /** Highest [COUNTERPART_RETRY_GENERATION] already applied. */
+        val counterpartRetries: Int = 0,
+    ) {
+        fun counterpartRetryGeneration() = maxOf(counterpartRetries, if (counterpartsRetried) 1 else 0)
+    }
 
     @Serializable
     private data class PersistedOperation(
@@ -233,7 +242,12 @@ class FloppyBootstrapCoordinator(
     private fun encodePlan(plan: PersistedPlan) = Json.encodeToString(PersistedPlan.serializer(), plan)
     private fun decodePlan(raw: String?): PersistedPlan? = raw?.let { runCatching { Json.decodeFromString(PersistedPlan.serializer(), it) }.getOrNull() }
 
-    private companion object { const val CHUNK_SIZE = 100 }
+    private companion object {
+        const val CHUNK_SIZE = 100
+        /** Bumped when Floppy's episode matching improves: 1 = TVDB identity,
+         * 2 = TVDB absolute order and language-independent anime detection. */
+        const val COUNTERPART_RETRY_GENERATION = 2
+    }
 }
 
 internal const val NO_COUNTERPART = "-"

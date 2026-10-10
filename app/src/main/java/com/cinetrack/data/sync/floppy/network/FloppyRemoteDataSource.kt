@@ -391,8 +391,9 @@ class FloppyRemoteDataSource(
                                 }
                                 episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), storedSeason, storedEpisode))
                             }
-                            result.status == "not_found" && unmatched != null -> unmatched[operation.id] = "$label has no Floppy counterpart"
-                            else -> rejected[operation.id] = "$label ${result.status}"
+                            result.status == "not_found" && unmatched != null ->
+                                unmatched[operation.id] = "$label has no Floppy counterpart" + result.reason.asDetail()
+                            else -> rejected[operation.id] = "$label ${result.status}" + result.reason.asDetail()
                         }
                     }
                 }
@@ -1051,6 +1052,10 @@ internal fun episodeClientEventId(providerInstanceId: String, operation: SyncOpe
     UUID.nameUUIDFromBytes(
         "cinetrack:$providerInstanceId:${operation.id}:${operation.sourceVersion}".toByteArray(StandardCharsets.UTF_8),
     ).toString()
+
+/** Floppy's short cause, e.g. " (not_in_tvdb)"; only [a-z_] is kept. */
+private fun String?.asDetail(): String =
+    this?.filter { it.isLetterOrDigit() || it == '_' }?.take(40)?.takeIf { it.isNotEmpty() }?.let { " ($it)" }.orEmpty()
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
 

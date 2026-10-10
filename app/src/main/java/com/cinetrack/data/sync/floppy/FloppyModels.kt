@@ -290,6 +290,8 @@ data class FloppyEpisodeEnsureResult(
      * coordinate (continuous anime numbering translated to TMDB seasons). */
     @SerialName("stored_season_number") val storedSeasonNumber: Int? = null,
     @SerialName("stored_episode_number") val storedEpisodeNumber: Int? = null,
+    /** Why an event was not placed (not_found/metadata_unavailable). */
+    val reason: String? = null,
 )
 
 @Serializable
