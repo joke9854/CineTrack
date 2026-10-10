@@ -56,10 +56,10 @@ class DurableTrackingQueue(
         val configuration = providerRegistry.configuration()
         return providers.flatMap { providerId ->
             if (providerId != configuration.secondaryProvider) return@flatMap emptyList()
-            val provider = providerRegistry.getProvider(providerId)
+            val capabilities = providerRegistry.getProvider(providerId)?.currentCapabilities()
             val instanceId = providerInstanceId(providerId)
             operations.map { operation ->
-                val supported = provider?.capabilities?.supports(operation) == true
+                val supported = capabilities?.supports(operation) == true
                 SyncOperationDelivery(
                     operationId = operation.id,
                     operationVersion = operation.sourceVersion,
@@ -78,7 +78,7 @@ class DurableTrackingQueue(
     /** Reads the configuration once and returns the current SECONDARY target. */
     internal suspend fun snapshotSecondaryUnlocked(operation: SyncOperation): SyncOperationDelivery? {
         val providerId = providerRegistry.configuration().secondaryProvider ?: return null
-        val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+        val supported = providerRegistry.getProvider(providerId)?.currentCapabilities()?.supports(operation) == true
         val instanceId = providerInstanceId(providerId)
         return SyncOperationDelivery(
             operationId = operation.id,
@@ -113,7 +113,7 @@ class DurableTrackingQueue(
                 )
             }
             configuration.secondaryProvider?.let { providerId ->
-                val supported = providerRegistry.getProvider(providerId)?.capabilities?.supports(operation) == true
+                val supported = providerRegistry.getProvider(providerId)?.currentCapabilities()?.supports(operation) == true
                 val instanceId = providerInstanceId(providerId)
                 add(
                     SyncOperationDelivery(

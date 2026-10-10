@@ -1,3 +1,10 @@
+# CineTrack 0.99.37 beta
+
+- Fixed: episodes and movies marked watched shortly after the app started were silently not sent to Floppy (they were treated as unsupported until a Floppy connection check had run). Floppy's saved connection is now always used to decide.
+- Fixed: the episodes Floppy could not place at the end of a sync were sometimes forgotten, so "Not on Floppy" stayed empty and they were never retried.
+- To recover anything missed by these two bugs, the initial Floppy sync runs once more after this update. Items already on Floppy are recognised and not duplicated.
+- Settings > Logs now shows every Floppy write outside the initial sync: delivered, skipped or failed.
+
 # CineTrack 0.99.36 beta
 
 - Settings > Floppy now lists the watched episodes Floppy could not store ("Not on Floppy"), with their title and an "Open in Floppy" button that searches Floppy for them so they can be marked by hand. A special that TMDB lists as a movie (for example "A Parks and Recreation Special") opens the movie search.

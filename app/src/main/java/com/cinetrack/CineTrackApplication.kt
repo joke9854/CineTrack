@@ -152,6 +152,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     floppyBootstrapCoordinator.markReadyIfComplete()
                 }
             },
+            deliveryLog = { message -> preferences.appendErrorLog("${java.time.Instant.now()}  $message") },
         )
         floppySecondaryService = FloppySecondaryService(
             provider = floppy,

@@ -12,7 +12,19 @@ class SyncCoordinator(
     private val reconciler: SyncReconciler = SyncReconciler(),
     private val routingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val secondaryDeliveryObserver: SecondaryProviderDeliveryObserver? = null,
+    /** User-visible log (Settings > Logs) of SECONDARY live deliveries. */
+    private val deliveryLog: (suspend (String) -> Unit)? = null,
 ) {
+    private suspend fun logSecondary(provider: TrackingProviderId, what: String, operations: Collection<SyncOperation>, detail: String = "") {
+        if (operations.isEmpty()) return
+        val labels = operations.take(5).joinToString { operation ->
+            val coordinate = operation.payload?.split(':')?.take(2)?.takeIf { operation.type.name.startsWith("EPISODE") }
+                ?.let { (season, episode) -> " S${season.padStart(2, '0')}E${episode.padStart(2, '0')}" }.orEmpty()
+            "${operation.type.name} ${operation.mediaType.name}:${operation.mediaId}$coordinate"
+        } + if (operations.size > 5) ", +${operations.size - 5} more" else ""
+        runCatching { deliveryLog?.invoke("${provider.name} $what ${operations.size}: $labels$detail") }
+    }
+
     private val fullSyncMutex = Mutex()
     /** Each provider owns an independent network lane.  A slow SECONDARY
      * transport must never starve the authoritative MAIN provider. */
@@ -90,8 +102,10 @@ class SyncCoordinator(
             // already completed its authoritative pass above.
             if (secondary != null) {
                 val secondaryPending = pendingFor(pending, secondary.id)
-                val unsupported = secondaryPending.filterNot(secondary.capabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
+                val secondaryCapabilities = secondary.currentCapabilities()
+                val unsupported = secondaryPending.filterNot(secondaryCapabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
                 operations.skipUnsupported(secondary.id, secondaryPending.filter { it.id in unsupported })
+                logSecondary(secondary.id, "skipped as unsupported", secondaryPending.filter { it.id in unsupported })
                 val deliverable = secondaryPending.filter { it.id !in unsupported }
                 if (deliverable.isNotEmpty()) try {
                     withProviderIo(secondary.id) {
@@ -99,9 +113,11 @@ class SyncCoordinator(
                         pushTo(secondary, deliverable)
                     }
                     operations.acknowledge(secondary.id, deliverable)
+                    logSecondary(secondary.id, "delivered", deliverable)
                     secondaryDeliveryObserver?.onSecondaryDeliveryPassCompleted(secondary.id)
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
+                    logSecondary(secondary.id, "failed (will retry)", deliverable, " error=${error.message?.take(160) ?: error::class.simpleName}")
                     operations.failDelivery(secondary.id, deliverable, error)
                     if (!operations.requiresPersistedDeliveryRows) operations.fail(deliverable, error)
                 }
@@ -180,7 +196,8 @@ class SyncCoordinator(
                 )
             }
             val deliverable = pendingFor(pending, providerId)
-            val unsupported = deliverable.filterNot(provider.capabilities::supports)
+            val providerCapabilities = provider.currentCapabilities()
+            val unsupported = deliverable.filterNot(providerCapabilities::supports)
             if (unsupported.isNotEmpty()) {
                 if (providerId == configuration.mainProvider) {
                     throw TrackingSyncError.UnsupportedOperation(providerId, unsupported.first().type)
@@ -312,7 +329,8 @@ class SyncCoordinator(
         targets.forEach { provider ->
             withProviderIo(provider.id, heldProvider) {
             val providerPending = pendingFor(pending, provider.id)
-            val unsupported = providerPending.filterNot(provider.capabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
+            val providerCapabilities = provider.currentCapabilities()
+            val unsupported = providerPending.filterNot(providerCapabilities::supports).mapTo(linkedSetOf(), SyncOperation::id)
             if (provider.id == configuration.mainProvider && unsupported.isNotEmpty()) {
                 val error = TrackingSyncError.UnsupportedOperation(provider.id, providerPending.first { it.id in unsupported }.type)
                 operations.failDelivery(provider.id, unsupported, error)
@@ -320,6 +338,9 @@ class SyncCoordinator(
                 throw error
             }
             operations.skipUnsupported(provider.id, providerPending.filter { it.id in unsupported })
+            if (provider.id != configuration.mainProvider) {
+                logSecondary(provider.id, "skipped as unsupported", providerPending.filter { it.id in unsupported })
+            }
             val deliverable = providerPending.filter { it.id !in unsupported }
             if (deliverable.isNotEmpty()) {
                 try {
@@ -327,10 +348,14 @@ class SyncCoordinator(
                     pushTo(provider, deliverable)
                     operations.acknowledge(provider.id, deliverable)
                     if (provider.id != configuration.mainProvider) {
+                        logSecondary(provider.id, "delivered", deliverable)
                         secondaryDeliveryObserver?.onSecondaryDeliveryPassCompleted(provider.id)
                     }
                 } catch (error: Throwable) {
                     if (error is CancellationException) throw error
+                    if (provider.id != configuration.mainProvider) {
+                        logSecondary(provider.id, "failed (will retry)", deliverable, " error=${error.message?.take(160) ?: error::class.simpleName}")
+                    }
                     operations.failDelivery(provider.id, deliverable, error)
                     if (!operations.requiresPersistedDeliveryRows) operations.fail(deliverable, error)
                     if (provider.id == configuration.mainProvider) throw error
@@ -357,7 +382,8 @@ class SyncCoordinator(
         pending: List<SyncOperation>,
         transport: (suspend (List<SyncOperation>) -> ProviderPushResult)? = null,
     ): ProviderPushResult {
-        val unsupported = pending.firstOrNull { !provider.capabilities.supports(it) }
+        val capabilities = provider.currentCapabilities()
+        val unsupported = pending.firstOrNull { !capabilities.supports(it) }
         if (unsupported != null) throw TrackingSyncError.UnsupportedOperation(provider.id, unsupported.type)
         val result = transport?.invoke(pending) ?: provider.push(pending)
         // Every operation needs a known outcome: applied, or explicitly refused.
@@ -433,12 +459,13 @@ class SyncCoordinator(
         secondary: TrackingProvider?,
     ): List<SyncOperationDelivery> = buildList {
         val now = System.currentTimeMillis()
+        val secondaryCapabilities = secondary?.currentCapabilities()
         pending.forEach { operation ->
             main?.let { provider ->
                 add(SyncOperationDelivery(operation.id, operation.sourceVersion, provider.id, providerInstanceId = provider.currentDeliveryInstanceId(), createdAt = now, updatedAt = now))
             }
             secondary?.let { provider ->
-                val supported = provider.capabilities.supports(operation)
+                val supported = secondaryCapabilities?.supports(operation) == true
                 add(SyncOperationDelivery(operation.id, operation.sourceVersion, provider.id, required = supported, roleAtEnqueue = TrackingRole.SECONDARY, providerInstanceId = provider.currentDeliveryInstanceId(), status = if (supported) DeliveryStatus.PENDING else DeliveryStatus.SKIPPED_UNSUPPORTED, createdAt = now, updatedAt = now))
             }
         }

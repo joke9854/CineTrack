@@ -46,6 +46,15 @@ class FloppyTrackingProvider(
     override val capabilities: TrackingCapabilities
         get() = discovered.toTrackingCapabilities(bootstrapReady)
 
+    /** In-memory capabilities start empty in every process and were only
+     * filled by a connection check, so watches marked right after a start were
+     * filed as unsupported and never sent. The persisted connection is the
+     * source of truth between checks. */
+    override suspend fun currentCapabilities(): TrackingCapabilities {
+        preferences?.floppySettingsNow()?.let { discovered = it.capabilities }
+        return capabilities
+    }
+
     override suspend fun currentDeliveryInstanceId(): String? =
         preferences?.floppySettingsNow()?.connectionId?.takeIf(String::isNotBlank)
 

@@ -257,6 +257,11 @@ interface TrackingProvider {
     val id: TrackingProviderId
     val capabilities: TrackingCapabilities
 
+    /** Capabilities to decide delivery with. Providers that discover them at
+     * connection time load the persisted ones here, so a freshly started
+     * process never files writes as unsupported before any check ran. */
+    suspend fun currentCapabilities(): TrackingCapabilities = capabilities
+
     /** Stable target identity for durable deliveries, when the provider has one. */
     suspend fun currentDeliveryInstanceId(): String? = null
 

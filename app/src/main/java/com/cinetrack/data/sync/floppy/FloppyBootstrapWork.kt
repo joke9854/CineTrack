@@ -541,7 +541,21 @@ class FloppyBootstrapWorker(
                                 TrackingProviderId.FLOPPY,
                                 batch.mapTo(linkedSetOf()) { it.id },
                                 expected,
-                                transport = { operations -> transport.push(operations).also { pushed = it } },
+                                transport = { operations ->
+                                    transport.push(operations).also { outcome ->
+                                        pushed = outcome
+                                        // Record outcomes before the coordinator acknowledges
+                                        // the batch: its delivery observer may mark the
+                                        // bootstrap READY (clearing the plan) right after,
+                                        // which used to drop the last batch's unmatched and
+                                        // translated episodes.
+                                        coordinator.recordEpisodeOutcomes(
+                                            expected,
+                                            outcome.storedCoordinates + outcome.unmatchedOperationIds.mapValues { NO_COUNTERPART },
+                                            outcome.unmatchedTitles,
+                                        )
+                                    }
+                                },
                             )
                         }
                     } catch (timeout: TimeoutCancellationException) {
@@ -552,13 +566,6 @@ class FloppyBootstrapWorker(
                         SyncResult.failure(error)
                     }
                     pushed?.let { outcome ->
-                        // Remember where Floppy stored translated episodes and which
-                        // have no counterpart, so completion is verified correctly.
-                        coordinator.recordEpisodeOutcomes(
-                            expected,
-                            outcome.storedCoordinates + outcome.unmatchedOperationIds.mapValues { NO_COUNTERPART },
-                            outcome.unmatchedTitles,
-                        )
                         outcome.storedCoordinates.forEach { (id, coordinate) ->
                             report("Floppy bootstrap episode stored as TMDB $coordinate: run=$runId ${id.substringAfter(":episode:")}")
                         }

@@ -239,6 +239,7 @@ class FloppyBootstrapCoordinator(
     private suspend fun counterpartRetryAfterReady(instance: String): PersistedPlan? {
         val raw = preferences.floppyBootstrapResidualRawNow() ?: return LEGACY_READY
         val residual = decodePlan(raw)?.takeIf { it.instanceId == instance } ?: return null
+        if (residual.counterpartRetryGeneration() < FULL_RESEND_GENERATION) return LEGACY_READY
         return residual.takeIf {
             it.counterpartRetryGeneration() < COUNTERPART_RETRY_GENERATION && it.operations.isNotEmpty()
         }
@@ -323,8 +324,15 @@ class FloppyBootstrapCoordinator(
          * 3 = personal TVDB keys and TVDB ids from TMDB metadata,
          * 4 = double-episode days paired by order within the day,
          * 5 = absolute numbers in TMDB seasons, titles inside longer titles,
-         * 6 = Floppy returns the title of what it cannot place (Settings list). */
-        const val COUNTERPART_RETRY_GENERATION = 6
+         * 6 = Floppy returns the title of what it cannot place (Settings list),
+         * 7 = full re-send (see [FULL_RESEND_GENERATION]). */
+        const val COUNTERPART_RETRY_GENERATION = 7
+        /** Residuals older than this re-send the whole plan once: before it,
+         * writes marked right after a process start were filed as unsupported
+         * for Floppy (never sent), and READY could race the last batch's
+         * outcomes, losing unplaced episodes. Only a full idempotent re-send
+         * recovers both; synced items answer already_satisfied. */
+        const val FULL_RESEND_GENERATION = 7
         val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
     }
 }

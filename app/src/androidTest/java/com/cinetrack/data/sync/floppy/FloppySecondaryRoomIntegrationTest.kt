@@ -631,7 +631,7 @@ class FloppySecondaryRoomIntegrationTest {
         closeAsUnmatched()
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
         // A plan written before identity matching existed has no retry marker.
-        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5")
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6")
         preferences.setFloppyBootstrapPlanRaw(legacyPlan)
 
         bootstrap.start()
@@ -678,7 +678,7 @@ class FloppySecondaryRoomIntegrationTest {
         )
         bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
         preferences.setFloppyBootstrapPlanRaw(
-            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5"),
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6"),
         )
         bootstrap.start()
 
@@ -743,21 +743,30 @@ class FloppySecondaryRoomIntegrationTest {
 
         // A later Floppy matching generation than the one this sync used.
         preferences.setFloppyBootstrapResidualRaw(
-            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5"),
+            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6"),
         )
         assertTrue(bootstrap.hasPendingCounterpartRetry())
 
         bootstrap.start()
 
         assertEquals(ProviderBootstrapState.RUNNING, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
-        assertEquals(listOf(double.id), repository.bootstrapPending("integration-instance-a", 10).map { it.id })
+        // Residuals from before the full-resend generation re-send the whole
+        // plan once (writes skipped at process start and outcomes lost to the
+        // READY race can only be recovered that way); same deterministic ids.
+        val resent = repository.bootstrapPending("integration-instance-a", 10).map { it.id }.toSet()
+        assertEquals(setOf(anime.id, double.id), resent)
         coordinator.pushPendingForProvider(
             TrackingProviderId.FLOPPY,
-            setOf(double.id),
+            resent,
             "integration-instance-a",
-            transport = { ProviderPushResult(completedOperationIds = setOf(double.id), storedCoordinates = mapOf(double.id to "4:14")) },
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = resent,
+                    storedCoordinates = mapOf(anime.id to "2:1", double.id to "4:14"),
+                )
+            },
         )
-        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to "4:14"))
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to "4:14"))
         assertTrue(bootstrap.markReadyIfComplete())
         assertEquals(
             setOf(Triple(37854L, 2, 1), Triple(2316L, 4, 14)),
@@ -802,6 +811,33 @@ class FloppySecondaryRoomIntegrationTest {
         assertFalse(bootstrap.hasPendingCounterpartRetry())
         assertEquals(0, bootstrap.start())
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+    }
+
+    @Test
+    fun freshProviderInstanceStillDeliversWritesFromPersistedCapabilities() = runBlocking {
+        // A new process: the provider object has not run a connection check,
+        // so its in-memory capabilities are empty. The persisted connection
+        // must decide, or the watch is filed as unsupported and never sent.
+        val freshFloppy = FloppyTrackingProvider(
+            preferences = preferences,
+            remote = FloppyRemoteDataSource(FloppyApiClientFactory()),
+        )
+        val queue = DurableTrackingQueue(IntegrationRegistry(preferences, main, freshFloppy), TrackingRoutingMutex())
+        val operation = SyncOperation(
+            id = "live:episode:watch",
+            type = SyncOperationType.EPISODE_WATCHED,
+            mediaType = MediaType.TV,
+            mediaId = 136311,
+            title = "Shrinking",
+            payload = "2:7:2026-10-10T02:49:00Z",
+            sourceVersion = 1L,
+        )
+
+        val delivery = requireNotNull(queue.snapshotSecondaryUnlocked(operation))
+
+        assertEquals(TrackingProviderId.FLOPPY, delivery.providerId)
+        assertEquals(DeliveryStatus.PENDING, delivery.status)
+        assertTrue(delivery.required)
     }
 
     @Test
