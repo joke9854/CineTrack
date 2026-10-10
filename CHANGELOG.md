@@ -1,3 +1,9 @@
+# CineTrack 0.99.40 beta
+
+- Build toolchain upgraded (Android Gradle Plugin 9.4, Gradle 9.6, compileSdk 37, Compose BOM 2026.06.01) to prepare the new glass effects. No feature changes.
+- CineTrack now requires Android 7.1 or later (previously Android 6.0).
+- Dates, month labels and region names now follow a change of app language immediately.
+
 # CineTrack 0.99.39 beta
 
 - Episodes stored one episode off by older versions (after two-part episodes TMDB merges, e.g. The Office season 4, and anime numbered by air date) are moved to the right episode on Floppy, keeping their exact watch time. For this the initial Floppy sync runs once more after the update, in repair mode; items already correct are untouched and nothing is duplicated.

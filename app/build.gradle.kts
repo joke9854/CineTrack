@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
@@ -25,14 +24,14 @@ val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
 
 android {
     namespace = "com.cinetrack"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.cinetrack"
-        minSdk = 23
+        minSdk = 25
         targetSdk = 36
-        versionCode = 138
-        versionName = "0.99.39"
+        versionCode = 139
+        versionName = "0.99.40"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -79,7 +78,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions.jvmTarget = "17"
 
     buildFeatures {
         compose = true
@@ -108,9 +106,8 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     baselineProfile(project(":baselineprofile"))
-    // Compose 1.12 (BOM 2026.08.00) requires compileSdk 37 and AGP 9.1.
-    // Compose 1.9 is the stable API 36-compatible baseline for this project.
-    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
+    // Matches the Compose BOM PrismalAGSL 1.0.4 exposes (needs compileSdk 37, AGP 9).
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 

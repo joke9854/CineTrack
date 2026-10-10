@@ -999,7 +999,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
         SyncOperationStatus.PARTIAL -> androidx.compose.material3.MaterialTheme.colorScheme.error
         SyncOperationStatus.PENDING -> AccentLight
     }
-    val providerName = operation.providerId.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+    val providerName = operation.providerId.lowercase().replaceFirstChar { it.titlecase(com.cinetrack.ui.currentLocale()) }
     val actionLabel = when (operation.operation) {
         "LIBRARY_STATUS" -> stringResource(R.string.sync_library_change)
         "LIBRARY_STATUS_CONFLICT", "LIBRARY_CONFLICT" -> stringResource(R.string.sync_library_conflict)
@@ -1081,7 +1081,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackV
 
 @Composable
 private fun SyncDeliveryRow(delivery: SyncDeliveryCard) {
-    val provider = delivery.providerId.lowercase().replaceFirstChar { it.titlecase(Locale.getDefault()) }
+    val provider = delivery.providerId.lowercase().replaceFirstChar { it.titlecase(com.cinetrack.ui.currentLocale()) }
     val label = when (delivery.status) {
         "ACKNOWLEDGED" -> stringResource(R.string.sync_delivery_synced)
         "FAILED" -> stringResource(R.string.sync_delivery_retry)
@@ -1116,7 +1116,7 @@ private fun localizedSyncValue(value: String?): String = when (value) {
     "false" -> stringResource(R.string.not_watched)
     else -> value.orEmpty().replace(':', ' ').replace('_', ' ')
 }
-    .replaceFirstChar { it.titlecase(Locale.getDefault()) }
+    .replaceFirstChar { it.titlecase(com.cinetrack.ui.currentLocale()) }
 
 @Composable
 private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
@@ -1601,7 +1601,7 @@ private fun ApiCredentialSettings(
 @Composable
 private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     var activeChoice by rememberSaveable { mutableStateOf<String?>(null) }
-    val locale = Locale.getDefault()
+    val locale = com.cinetrack.ui.currentLocale()
     val defaultChoice = "system" to stringResource(R.string.system_default)
     val languages = listOf(defaultChoice) + remember(locale) {
         Locale.getISOLanguages().map { code -> code to Locale(code).getDisplayLanguage(locale) }.sortedBy { it.second }
@@ -1736,7 +1736,7 @@ private fun LanguageSettings(viewModel: CineTrackViewModel) {
         .substringBefore(',')
         .takeIf(String::isNotBlank)
         ?.substringBefore('-')
-        ?: Locale.getDefault().language
+        ?: com.cinetrack.ui.currentLocale().language
     var language by rememberSaveable { mutableStateOf(currentLanguage) }
     SettingsSection(stringResource(R.string.language)) {
         ChoiceRow(stringResource(R.string.italian), language == "it") {
@@ -1770,7 +1770,7 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 @Composable
 private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewModel) {
     var showRegions by remember { mutableStateOf(false) }
-    val locale = java.util.Locale.getDefault()
+    val locale = com.cinetrack.ui.currentLocale()
     val summary = if (state.contentRegions.isEmpty()) stringResource(R.string.all_regions) else
         state.contentRegions.sorted().joinToString(", ") { java.util.Locale("", it).getDisplayCountry(locale) }
     SettingsSection(stringResource(R.string.content_regions)) {
@@ -2092,7 +2092,7 @@ internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun currentAppLanguageLabel(): String {
     val language = AppCompatDelegate.getApplicationLocales().toLanguageTags().substringBefore('-').substringBefore(',')
-        .ifBlank { Locale.getDefault().language }
+        .ifBlank { com.cinetrack.ui.currentLocale().language }
     return stringResource(if (language == "it") R.string.italian else R.string.english)
 }
 

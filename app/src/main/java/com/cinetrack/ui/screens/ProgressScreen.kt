@@ -1214,7 +1214,7 @@ private fun TimelineRow(
             val date = timelineLocalDate(item.timestamp)
             Column(Modifier.width(54.dp).padding(end = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(date?.dayOfMonth?.toString()?.padStart(2, '0').orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Black)
-                Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(Locale.getDefault()).orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+                Text(date?.format(com.cinetrack.ui.UiDateFormatters.current.month)?.uppercase(com.cinetrack.ui.currentLocale()).orEmpty(), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
         }
         Box(Modifier.width(68.dp).fillMaxHeight().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Brush.linearGradient(listOf(Accent.copy(alpha = .5f), Info.copy(alpha = .32f))))) {
