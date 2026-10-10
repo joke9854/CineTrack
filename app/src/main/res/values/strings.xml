@@ -244,6 +244,8 @@
     <string name="not_connected">Not connected</string>
     <string name="tmdb_description">Catalog, search, metadata, artwork and providers</string>
     <string name="mdblist_description">Aggregated scores from external rating sources</string>
+    <string name="trakt_description">Exact air times for new episodes</string>
+    <string name="trakt_setup_copy">Paste the Client ID of a Trakt API app (trakt.tv → Settings → Your API Apps). Only the Client ID is needed; never enter the Client Secret. When set, Trakt provides episode air times and Simkl is used as the fallback.</string>
     <string name="background_sync">Background synchronization</string>
     <string name="wifi_only">Wi-Fi only</string>
     <string name="new_episodes">New TV episodes</string>
@@ -282,6 +284,15 @@
     <string name="content_regions_scope">Applies only to Discover rows and search, View all, upcoming TMDB catalog content and recommendations. Co-productions are kept when any origin country matches. Your Library, Progress, History, Calendar, their searches and Simkl imports are never filtered.</string>
     <string name="logs">Error logs</string>
     <string name="logs_summary">Review and export recent app errors</string>
+    <string name="logs_problems">Problems</string>
+    <string name="logs_show_all">Show all activity</string>
+    <string name="logs_today">Today</string>
+    <string name="logs_yesterday">Yesterday</string>
+    <string name="logs_undated">Earlier</string>
+    <string name="logs_error">Error</string>
+    <string name="logs_warning">Warning</string>
+    <string name="logs_info">Info</string>
+    <string name="logs_export_copy">The app shows problems by default. The exported file always contains the complete log, including normal sync activity.</string>
     <string name="export_logs">Export logs</string>
     <string name="no_errors_logged">No errors recorded</string>
     <string name="appearance">Appearance</string>

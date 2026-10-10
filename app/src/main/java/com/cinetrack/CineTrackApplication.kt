@@ -193,7 +193,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,
-            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
+            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services) { preferences.traktClientIdNow() },
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,

@@ -394,6 +394,7 @@ data class AppUiState(
     val uiAccent: String = "watching",
     val tmdbApiConfigured: Boolean = false,
     val mdbListApiConfigured: Boolean = false,
+    val traktConfigured: Boolean = false,
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
     val providerRegion: String = "system",

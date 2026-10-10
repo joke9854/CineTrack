@@ -223,6 +223,13 @@ class AppPreferences(private val context: Context) {
         return BuildConfig.TMDB_API_TOKEN
     }
 
+    /** Trakt client ID (public API key) used only to read exact air times. */
+    suspend fun traktClientIdNow(): String = secureCredential("trakt_client_id").orEmpty()
+
+    suspend fun setTraktClientId(value: String?) {
+        setSecureCredential("trakt_client_id", value?.trim()?.takeIf(String::isNotBlank))
+    }
+
     suspend fun mdbListApiKeyNow(): String {
         secureCredential("mdblist_api_override")?.takeIf(String::isNotBlank)?.let { return it }
         val legacy = context.cineTrackDataStore.data.first()[Keys.mdbListApiOverride]?.takeIf(String::isNotBlank)

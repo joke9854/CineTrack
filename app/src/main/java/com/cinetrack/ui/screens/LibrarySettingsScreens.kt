@@ -68,6 +68,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.SyncProblem
 import androidx.compose.material.icons.filled.Tv
@@ -182,6 +183,7 @@ object SettingsPages {
     const val ServiceFloppy = "service-floppy"
     const val ServiceTmdb = "service-tmdb"
     const val ServiceMdblist = "service-mdblist"
+    const val ServiceTrakt = "service-trakt"
     const val Logs = "logs"
 }
 
@@ -625,6 +627,7 @@ fun SettingsDetailScreen(
         SettingsPages.ServiceFloppy -> "Floppy"
         SettingsPages.ServiceTmdb -> "TMDB"
         SettingsPages.ServiceMdblist -> "MDBList"
+        SettingsPages.ServiceTrakt -> "Trakt"
         SettingsPages.Logs -> stringResource(R.string.logs)
         else -> stringResource(R.string.about_app)
     }
@@ -638,7 +641,7 @@ fun SettingsDetailScreen(
                 }
             }
             item {
-                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceFloppy, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist)) SettingsDetailHero(page, title)
+                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceFloppy, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist, SettingsPages.ServiceTrakt)) SettingsDetailHero(page, title)
                 when (page) {
                     SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
                     SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
@@ -657,6 +660,15 @@ fun SettingsDetailScreen(
                     SettingsPages.ServiceMdblist -> Column {
                         ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
                         RatingSettings(state, viewModel)
+                    }
+                    SettingsPages.ServiceTrakt -> Column {
+                        ApiCredentialSettings("Trakt", state.traktConfigured, viewModel::verifyAndSetTraktClientId)
+                        Text(
+                            stringResource(R.string.trakt_setup_copy),
+                            color = TextMuted,
+                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
+                        )
                     }
                     SettingsPages.Appearance -> AppearanceSettings(state, viewModel)
                     SettingsPages.Notifications -> NotificationSettings(state, viewModel)
@@ -678,6 +690,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.ServiceFloppy -> "Floppy"
         SettingsPages.ServiceTmdb -> "TMDB"
         SettingsPages.ServiceMdblist -> "MDBList"
+        SettingsPages.ServiceTrakt -> "Trakt"
         else -> null
     }
     val icon = when (page) {
@@ -693,6 +706,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.ServiceFloppy -> Icons.Filled.CloudSync
         SettingsPages.ServiceTmdb -> Icons.Filled.Movie
         SettingsPages.ServiceMdblist -> Icons.Filled.Star
+        SettingsPages.ServiceTrakt -> Icons.Filled.Schedule
         else -> Icons.Filled.Download
     }
     val description = when (page) {
@@ -707,6 +721,7 @@ private fun SettingsDetailHero(page: String, title: String) {
         SettingsPages.ServiceFloppy -> stringResource(R.string.floppy_self_hosted_description)
         SettingsPages.ServiceTmdb -> stringResource(R.string.tmdb_description)
         SettingsPages.ServiceMdblist -> stringResource(R.string.mdblist_description)
+        SettingsPages.ServiceTrakt -> stringResource(R.string.trakt_description)
         SettingsPages.Logs -> stringResource(R.string.logs_summary)
         else -> "ZIP · JSONL · CSV"
     }
@@ -1109,6 +1124,8 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
         ProviderRow("TMDB", stringResource(R.string.tmdb_description), state.tmdbApiConfigured) { onPage(SettingsPages.ServiceTmdb) }
         GlassDivider()
         ProviderRow("MDBList", stringResource(R.string.mdblist_description), state.mdbListApiConfigured) { onPage(SettingsPages.ServiceMdblist) }
+        GlassDivider()
+        ProviderRow("Trakt", stringResource(R.string.trakt_description), state.traktConfigured) { onPage(SettingsPages.ServiceTrakt) }
         GlassDivider()
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
         GlassDivider()
@@ -1752,22 +1769,98 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
     val logs by viewModel.errorLogs.collectAsStateWithLifecycle()
     // Background workers append to the log file directly; re-read it on open.
     androidx.compose.runtime.LaunchedEffect(Unit) { viewModel.refreshErrorLogs() }
+    var showAll by rememberSaveable { mutableStateOf(false) }
+    val entries = remember(logs) { logs.map { com.cinetrack.domain.parseLogLine(it) }.asReversed() }
+    val problems = entries.count { it.severity != com.cinetrack.domain.LogSeverity.INFO }
+    val visible = (if (showAll) entries else entries.filter { it.severity != com.cinetrack.domain.LogSeverity.INFO }).take(150)
+    val zone = java.time.ZoneId.systemDefault()
+    val today = java.time.LocalDate.now(zone)
     SettingsSection(stringResource(R.string.logs)) {
-        if (logs.isEmpty()) {
-            ValueRow(stringResource(R.string.logs), stringResource(R.string.no_errors_logged), success = true)
-        } else {
-            logs.takeLast(20).asReversed().forEachIndexed { index, entry ->
-                Text(entry, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 14.sp, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm))
-                if (index != logs.takeLast(20).lastIndex) GlassDivider()
+        ValueRow(
+            stringResource(R.string.logs_problems),
+            if (problems == 0) stringResource(R.string.no_errors_logged) else problems.toString(),
+            success = problems == 0,
+        )
+        GlassDivider()
+        ToggleRow(stringResource(R.string.logs_show_all), showAll) { showAll = it }
+    }
+    if (visible.isNotEmpty()) {
+        visible.groupBy { entry -> entry.at?.atZone(zone)?.toLocalDate() }.forEach { (day, dayEntries) ->
+            val dayLabel = when (day) {
+                null -> stringResource(R.string.logs_undated)
+                today -> stringResource(R.string.logs_today)
+                today.minusDays(1) -> stringResource(R.string.logs_yesterday)
+                else -> day.format(com.cinetrack.ui.UiDateFormatters.current.date)
+            }
+            SettingsSection(dayLabel) {
+                dayEntries.forEachIndexed { index, entry ->
+                    if (index > 0) GlassDivider()
+                    LogEntryRow(entry, zone)
+                }
             }
         }
     }
+    Text(
+        stringResource(R.string.logs_export_copy),
+        color = TextMuted,
+        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
+    )
     PrimaryAction(
         text = stringResource(R.string.export_logs),
         icon = Icons.Filled.Download,
         modifier = Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md),
         enabled = logs.isNotEmpty(),
     ) { viewModel.exportLogs(context) }
+}
+
+@Composable
+private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.ZoneId) {
+    var expanded by remember(entry) { mutableStateOf(false) }
+    val (tag, color) = when (entry.severity) {
+        com.cinetrack.domain.LogSeverity.ERROR -> stringResource(R.string.logs_error) to com.cinetrack.ui.theme.StatusDropped
+        com.cinetrack.domain.LogSeverity.WARNING -> stringResource(R.string.logs_warning) to com.cinetrack.ui.theme.StatusPaused
+        com.cinetrack.domain.LogSeverity.INFO -> stringResource(R.string.logs_info) to com.cinetrack.ui.theme.Info
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                tag,
+                color = color,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .background(color.copy(alpha = .16f), androidx.compose.foundation.shape.RoundedCornerShape(50))
+                    .padding(horizontal = 8.dp, vertical = 2.dp),
+            )
+            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+            entry.at?.let {
+                Text(
+                    it.atZone(zone).format(com.cinetrack.ui.UiDateFormatters.current.time),
+                    color = TextMuted,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                )
+            }
+        }
+        Text(
+            entry.summary,
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        if (expanded && entry.detail != entry.summary) {
+            Text(
+                entry.detail,
+                color = TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                lineHeight = 14.sp,
+                modifier = Modifier.padding(top = 4.dp),
+            )
+        }
+    }
 }
 
 @Composable

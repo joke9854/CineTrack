@@ -244,6 +244,8 @@
     <string name="not_connected">Non collegato</string>
     <string name="tmdb_description">Catalogo, ricerca, metadati, immagini e provider</string>
     <string name="mdblist_description">Valutazioni aggregate da fonti esterne</string>
+    <string name="trakt_description">Orari esatti di uscita dei nuovi episodi</string>
+    <string name="trakt_setup_copy">Incolla il Client ID di un\’app API di Trakt (trakt.tv → Settings → Your API Apps). Serve solo il Client ID; non inserire mai il Client Secret. Se impostato, Trakt fornisce gli orari di uscita degli episodi e Simkl viene usato come riserva.</string>
     <string name="background_sync">Sincronizzazione in background</string>
     <string name="wifi_only">Solo Wi-Fi</string>
     <string name="new_episodes">Nuovi episodi TV</string>
@@ -282,6 +284,15 @@
     <string name="content_regions_scope">Si applica solo alle righe e alla ricerca di Scopri, a Vedi tutto, ai contenuti TMDB in arrivo e ai consigli. Le coproduzioni restano visibili quando almeno un paese di origine corrisponde. Raccolta, Progressi, Cronologia, Calendario, le relative ricerche e le importazioni Simkl non vengono mai filtrati.</string>
     <string name="logs">Registro errori</string>
     <string name="logs_summary">Consulta ed esporta gli errori recenti dell’app</string>
+    <string name="logs_problems">Problemi</string>
+    <string name="logs_show_all">Mostra tutta l’attività</string>
+    <string name="logs_today">Oggi</string>
+    <string name="logs_yesterday">Ieri</string>
+    <string name="logs_undated">Precedenti</string>
+    <string name="logs_error">Errore</string>
+    <string name="logs_warning">Avviso</string>
+    <string name="logs_info">Info</string>
+    <string name="logs_export_copy">L’app mostra solo i problemi. Il file esportato contiene sempre il log completo, inclusa la normale attività di sincronizzazione.</string>
     <string name="export_logs">Esporta registro</string>
     <string name="no_errors_logged">Nessun errore registrato</string>
     <string name="appearance">Aspetto</string>

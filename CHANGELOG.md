@@ -1,3 +1,8 @@
+# CineTrack 0.99.38 beta
+
+- Exact air times from Trakt: add a Trakt Client ID in Settings > Integrations > Trakt and new episodes use Trakt's exact release time (including streaming release times) for yesterday and the coming week. Simkl's calendar remains the fallback and covers the following month. Episodes are matched by their TMDB id, so different numbering (e.g. anime) does not matter.
+- Logs show only problems by default (errors and warnings), grouped by day with a short headline; tap an entry for details. "Show all activity" reveals everything, and the exported file always contains the complete log.
+
 # CineTrack 0.99.37 beta
 
 - Fixed: episodes and movies marked watched shortly after the app started were silently not sent to Floppy (they were treated as unsupported until a Floppy connection check had run). Floppy's saved connection is now always used to decide.

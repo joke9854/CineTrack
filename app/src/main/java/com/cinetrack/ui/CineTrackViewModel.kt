@@ -1378,6 +1378,18 @@ class CineTrackViewModel(
         }
     }
 
+    fun verifyAndSetTraktClientId(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTraktClientId(value) }
+            if (result.isSuccess) {
+                _state.value = _state.value.copy(traktConfigured = true, error = null)
+                // Pull exact air times now rather than at the next schedule refresh.
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true))
+            }
+            onResult(result)
+        }
+    }
+
     fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { repository.verifyAndSetMdbListApiKey(value) }

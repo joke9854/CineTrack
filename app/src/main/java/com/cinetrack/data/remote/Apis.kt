@@ -361,12 +361,37 @@ interface SimklCalendarService {
     @GET("calendar/anime.json") suspend fun anime(): List<SimklCalendarItem>
 }
 
+/** Trakt public calendar: exact first-air instants (including streaming
+ * release times) for every show, read with a client ID only (no sign-in). */
+interface TraktCalendarService {
+    @GET("calendars/all/shows/{start}/{days}")
+    suspend fun shows(
+        @retrofit2.http.Header("trakt-api-key") clientId: String,
+        @retrofit2.http.Path("start") start: String,
+        @retrofit2.http.Path("days") days: Int,
+    ): List<TraktCalendarItem>
+}
+
+@Serializable data class TraktCalendarItem(
+    @SerialName("first_aired") val firstAired: String? = null,
+    val episode: TraktCalendarEpisode = TraktCalendarEpisode(),
+    val show: TraktCalendarShow = TraktCalendarShow(),
+)
+@Serializable data class TraktCalendarEpisode(
+    val season: Int = 0,
+    val number: Int = 0,
+    val ids: TraktIds = TraktIds(),
+)
+@Serializable data class TraktCalendarShow(val ids: TraktIds = TraktIds())
+@Serializable data class TraktIds(val tmdb: Int? = null)
+
 data class ApiServices(
     val tmdb: TmdbService,
     val mdbList: MdbListService,
     val simklAuth: SimklAuthService,
     val simklSync: SimklSyncService,
     val simklCalendar: SimklCalendarService,
+    val traktCalendar: TraktCalendarService? = null,
 )
 
 object NetworkFactory {
@@ -453,6 +478,18 @@ object NetworkFactory {
             simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
             simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
             simklCalendar = retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java),
+            traktCalendar = retrofit(
+                "https://api.trakt.tv/",
+                common.newBuilder().addInterceptor { chain ->
+                    chain.proceed(
+                        chain.request().newBuilder()
+                            .header("Content-Type", "application/json")
+                            .header("trakt-api-version", "2")
+                            .header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
+                            .build(),
+                    )
+                }.build(),
+            ).create(TraktCalendarService::class.java),
         )
     }
 }

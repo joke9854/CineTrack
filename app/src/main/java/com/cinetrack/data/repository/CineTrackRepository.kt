@@ -1108,6 +1108,7 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
             uiAccent = uiAccentDeferred.await(),
             tmdbApiConfigured = tmdbApiKey().isNotBlank(),
             mdbListApiConfigured = mdbListApiKey().isNotBlank(),
+            traktConfigured = preferences.traktClientIdNow().isNotBlank(),
             metadataLanguage = metadataLanguageDeferred.await(),
             metadataRegion = metadataRegionDeferred.await(),
             providerRegion = providerRegionDeferred.await(),
@@ -2978,6 +2979,15 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
         services.mdbList.mediaInfo(mediaType = "movie", id = 550, apiKey = candidate)
         preferences.setMdbListApiKey(candidate)
         onMdbListApiKeyChanged(candidate)
+    }
+
+    /** Checks the client ID against Trakt's public calendar before saving it. */
+    suspend fun verifyAndSetTraktClientId(value: String): Result<Unit> = cancellableResult {
+        val candidate = value.trim()
+        require(candidate.isNotBlank()) { "Trakt client ID cannot be empty" }
+        val service = checkNotNull(services.traktCalendar) { "Trakt is unavailable" }
+        service.shows(candidate, java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString(), 1)
+        preferences.setTraktClientId(candidate)
     }
 
     suspend fun setTmdbApiKey(value: String?) {
