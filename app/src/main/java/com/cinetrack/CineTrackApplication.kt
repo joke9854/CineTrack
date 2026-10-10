@@ -270,7 +270,14 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                         // Leave a permanent failure visible as NEEDS_ATTENTION;
                         // the settings Retry action explicitly enqueues it.
                         ProviderBootstrapState.FAILED -> Unit
-                        ProviderBootstrapState.READY -> Unit
+                        // Unmatched episodes get another attempt once Floppy's
+                        // episode matching improves (a new retry generation).
+                        ProviderBootstrapState.READY ->
+                            if (::floppyBootstrapCoordinator.isInitialized && floppyBootstrapCoordinator.hasPendingCounterpartRetry()) {
+                                preferences.floppySettingsNow()?.connectionId?.let { instance ->
+                                    FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first())
+                                }
+                            }
                     }
                 }
             }

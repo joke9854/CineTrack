@@ -50,10 +50,22 @@ class FloppyBootstrapCoordinator(
             val instance = instanceId()
             // A stale queued WorkManager record can outlive a successful
             // empty-plan bootstrap. Never rebuild a new plan for an instance
-            // that is already semantically READY.
+            // that is already semantically READY, unless Floppy's episode
+            // matching improved since episodes were closed as unmatched.
             if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
                 decodePlan(preferences.floppyBootstrapPlanRawNow()) == null
-            ) return@withLock 0
+            ) {
+                when (val retry = counterpartRetryAfterReady(instance)) {
+                    null -> return@withLock 0
+                    // READY before unmatched episodes were recorded: one full,
+                    // idempotent re-send rebuilds them (synced items answer
+                    // already_satisfied without new writes).
+                    LEGACY_READY -> Unit
+                    else -> preferences.setFloppyBootstrapPlanRaw(encodePlan(retry))
+                }
+                preferences.setFloppyBootstrapResidualRaw(null)
+                preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+            }
             val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
                 ?.takeIf {
                     it.instanceId == instance &&
@@ -129,6 +141,9 @@ class FloppyBootstrapCoordinator(
                 )
             }
             if (operations.isEmpty() && verifyRemote(snapshot ?: canonicalSnapshot())) {
+                preferences.setFloppyBootstrapResidualRaw(
+                    encodePlan(PersistedPlan(instance, emptyList(), materialized = true, counterpartRetries = COUNTERPART_RETRY_GENERATION)),
+                )
                 preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
                 preferences.clearFloppyBootstrapPlan()
             }
@@ -192,11 +207,41 @@ class FloppyBootstrapCoordinator(
             }
         }
         if (!incomplete && verifyRemote(canonicalSnapshot().withEpisodeOutcomes(instance, plan.episodeOutcomes))) {
+            // Keep what stayed unplaced (and every outcome, which completion
+            // checks need) so a later Floppy matching improvement can retry it.
+            val unmatched = plan.episodeOutcomes.filterValues { it == NO_COUNTERPART }.keys
+            preferences.setFloppyBootstrapResidualRaw(
+                encodePlan(
+                    plan.copy(
+                        operations = plan.operations.filter { it.id in unmatched },
+                        materialized = true,
+                        counterpartRetries = plan.counterpartRetryGeneration(),
+                    ),
+                ),
+            )
             preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
             preferences.clearFloppyBootstrapPlan()
             return@withLock true
         }
         false
+    }
+
+    /** Whether a READY bootstrap has unmatched episodes the current Floppy
+     * matching generation has not retried yet (or predates that record). */
+    suspend fun hasPendingCounterpartRetry(): Boolean = mutex.withLock {
+        preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
+            decodePlan(preferences.floppyBootstrapPlanRawNow()) == null &&
+            counterpartRetryAfterReady(instanceId()) != null
+    }
+
+    /** null: nothing to retry; [LEGACY_READY]: no record, re-send everything;
+     * otherwise the residual plan to resume with. */
+    private suspend fun counterpartRetryAfterReady(instance: String): PersistedPlan? {
+        val raw = preferences.floppyBootstrapResidualRawNow() ?: return LEGACY_READY
+        val residual = decodePlan(raw)?.takeIf { it.instanceId == instance } ?: return null
+        return residual.takeIf {
+            it.counterpartRetryGeneration() < COUNTERPART_RETRY_GENERATION && it.operations.isNotEmpty()
+        }
     }
 
     /** [materialized] is set once every operation has been queued. Room
@@ -245,8 +290,10 @@ class FloppyBootstrapCoordinator(
     private companion object {
         const val CHUNK_SIZE = 100
         /** Bumped when Floppy's episode matching improves: 1 = TVDB identity,
-         * 2 = TVDB absolute order and language-independent anime detection. */
-        const val COUNTERPART_RETRY_GENERATION = 2
+         * 2 = TVDB absolute order and language-independent anime detection,
+         * 3 = personal TVDB keys and TVDB ids from TMDB metadata. */
+        const val COUNTERPART_RETRY_GENERATION = 3
+        val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
     }
 }
 

@@ -631,7 +631,7 @@ class FloppySecondaryRoomIntegrationTest {
         closeAsUnmatched()
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
         // A plan written before identity matching existed has no retry marker.
-        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":2", ",\"counterpartsRetried\":true")
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":3", ",\"counterpartRetries\":2")
         preferences.setFloppyBootstrapPlanRaw(legacyPlan)
 
         bootstrap.start()
@@ -676,7 +676,7 @@ class FloppySecondaryRoomIntegrationTest {
         )
         bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
         preferences.setFloppyBootstrapPlanRaw(
-            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":2", ",\"counterpartsRetried\":true"),
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":3", ",\"counterpartRetries\":2"),
         )
         bootstrap.start()
 
@@ -696,6 +696,110 @@ class FloppySecondaryRoomIntegrationTest {
             listOf(Triple(2316L, 4, 14)),
             verified!!.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
         )
+    }
+
+    @Test
+    fun readyBootstrapRetriesUnmatchedEpisodesWhenMatchingImproves() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 37854), 1, 62, true, Instant.parse("2025-01-01T00:00:00Z")),
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val anime = pending.single { it.mediaId == 37854 }
+        val double = pending.single { it.mediaId == 2316 }
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = setOf(anime.id),
+                    unmatchedOperationIds = mapOf(double.id to "no counterpart"),
+                    storedCoordinates = mapOf(anime.id to "2:1"),
+                )
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to NO_COUNTERPART))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+
+        // A later Floppy matching generation than the one this sync used.
+        preferences.setFloppyBootstrapResidualRaw(
+            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":3", ",\"counterpartRetries\":2"),
+        )
+        assertTrue(bootstrap.hasPendingCounterpartRetry())
+
+        bootstrap.start()
+
+        assertEquals(ProviderBootstrapState.RUNNING, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+        assertEquals(listOf(double.id), repository.bootstrapPending("integration-instance-a", 10).map { it.id })
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(double.id),
+            "integration-instance-a",
+            transport = { ProviderPushResult(completedOperationIds = setOf(double.id), storedCoordinates = mapOf(double.id to "4:14")) },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to "4:14"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            setOf(Triple(37854L, 2, 1), Triple(2316L, 4, 14)),
+            verified!!.episodes.mapTo(hashSetOf()) { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+    }
+
+    @Test
+    fun readyWithoutUnmatchedRecordResendsThePlanOnce() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { true },
+        )
+        // Completed by a version that kept no record of unmatched episodes.
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        assertTrue(bootstrap.hasPendingCounterpartRetry())
+
+        bootstrap.start()
+
+        val resent = repository.bootstrapPending("integration-instance-a", 10).single()
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(resent.id),
+            "integration-instance-a",
+            transport = { ProviderPushResult(completedOperationIds = setOf(resent.id)) },
+        )
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+        assertEquals(0, bootstrap.start())
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
     }
 
     @Test

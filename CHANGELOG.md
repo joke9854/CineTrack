@@ -1,3 +1,10 @@
+# CineTrack 0.99.32 beta
+
+- Episodes that were closed as "no Floppy counterpart (tvdb_id_unknown)" are retried: Floppy now uses your personal TVDB key and the TVDB id TMDB already provides, so anime and renumbered episodes can be matched.
+- A finished initial sync now remembers the episodes it could not place and retries them automatically when Floppy's matching improves, instead of forgetting them.
+- If your initial sync finished before this version, it runs once more after the update; items already on Floppy are recognised and not duplicated.
+- Requires Floppy CineTrack-API 3e424def or later.
+
 # CineTrack 0.99.31 beta
 
 - Anime numbered continuously by Simkl (Naruto, Naruto Shippuden, One Piece and similar) is now placed on its TMDB season on servers whose TMDB language is not English, and through TVDB's absolute order when TMDB's seasons do not line up.

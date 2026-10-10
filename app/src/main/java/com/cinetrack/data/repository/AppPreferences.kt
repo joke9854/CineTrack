@@ -127,6 +127,8 @@ class AppPreferences(private val context: Context) {
         val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
         val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
         val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
+        /** What a finished bootstrap left unplaced, kept for later retries. */
+        val floppyBootstrapResidual = stringPreferencesKey("floppy_bootstrap_residual_v1")
         val floppyAllowInsecureLocalHttp = booleanPreferencesKey("floppy_allow_insecure_local_http")
     }
 
@@ -310,6 +312,7 @@ class AppPreferences(private val context: Context) {
                 values.remove(Keys.floppyCapabilities)
                 values.remove(Keys.floppyConnectedAt)
                 values.remove(Keys.floppyBootstrapPlan)
+                values.remove(Keys.floppyBootstrapResidual)
                 values.remove(Keys.floppyAllowInsecureLocalHttp)
                 values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
                 values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
@@ -337,6 +340,7 @@ class AppPreferences(private val context: Context) {
                 values[Keys.floppyAllowInsecureLocalHttp] = settings.allowInsecureLocalHttp
                 if (identityChanged) {
                     values.remove(Keys.floppyBootstrapPlan)
+                    values.remove(Keys.floppyBootstrapResidual)
                     values.remove(trackingLastCheckKey(TrackingProviderId.FLOPPY))
                     values.remove(syncBaselineKey(TrackingProviderId.FLOPPY))
                     values[providerBootstrapKey(TrackingProviderId.FLOPPY)] = ProviderBootstrapState.NOT_STARTED.name
@@ -431,6 +435,15 @@ class AppPreferences(private val context: Context) {
 
     suspend fun clearFloppyBootstrapPlan() {
         context.cineTrackDataStore.edit { it.remove(Keys.floppyBootstrapPlan) }
+    }
+
+    suspend fun floppyBootstrapResidualRawNow(): String? =
+        context.cineTrackDataStore.data.first()[Keys.floppyBootstrapResidual]
+
+    suspend fun setFloppyBootstrapResidualRaw(raw: String?) {
+        context.cineTrackDataStore.edit { values ->
+            if (raw.isNullOrBlank()) values.remove(Keys.floppyBootstrapResidual) else values[Keys.floppyBootstrapResidual] = raw
+        }
     }
 
     suspend fun syncBaselineNow(provider: TrackingProviderId = TrackingProviderId.SIMKL): TrackingSnapshot? {
