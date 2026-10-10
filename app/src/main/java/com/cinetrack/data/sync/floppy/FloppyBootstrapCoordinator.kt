@@ -52,6 +52,7 @@ class FloppyBootstrapCoordinator(
             // empty-plan bootstrap. Never rebuild a new plan for an instance
             // that is already semantically READY, unless Floppy's episode
             // matching improved since episodes were closed as unmatched.
+            var resendAfterReady = false
             if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
                 decodePlan(preferences.floppyBootstrapPlanRawNow()) == null
             ) {
@@ -59,8 +60,10 @@ class FloppyBootstrapCoordinator(
                     null -> return@withLock 0
                     // READY before unmatched episodes were recorded: one full,
                     // idempotent re-send rebuilds them (synced items answer
-                    // already_satisfied without new writes).
-                    LEGACY_READY -> Unit
+                    // already_satisfied without new writes). It runs in repair
+                    // mode so plays older versions stored on the wrong episode
+                    // are moved to where the current rules place them.
+                    LEGACY_READY -> resendAfterReady = true
                     else -> preferences.setFloppyBootstrapPlanRaw(encodePlan(retry))
                 }
                 preferences.setFloppyBootstrapResidualRaw(null)
@@ -83,7 +86,9 @@ class FloppyBootstrapCoordinator(
             // is written before enqueueing so a restart can reconstruct the
             // same deterministic operation ids.
             if (existing == null) {
-                preferences.setFloppyBootstrapPlanRaw(encodePlan(PersistedPlan(instance, operations.map(::toPersisted))))
+                preferences.setFloppyBootstrapPlanRaw(
+                    encodePlan(PersistedPlan(instance, operations.map(::toPersisted), repairCoordinates = resendAfterReady)),
+                )
             }
             onPreparationProgress(FloppyBootstrapStage.BUILDING_PLAN, 0, operations.size)
             // Persist the immutable plan before advertising RUNNING. If the
@@ -136,6 +141,7 @@ class FloppyBootstrapCoordinator(
                             operations.map(::toPersisted),
                             materialized = true,
                             counterpartRetries = COUNTERPART_RETRY_GENERATION,
+                            repairCoordinates = resendAfterReady,
                         ),
                     ),
                 )
@@ -226,6 +232,11 @@ class FloppyBootstrapCoordinator(
         false
     }
 
+    /** Whether the current plan is a repair re-send (see [PersistedPlan.repairCoordinates]). */
+    suspend fun repairCoordinatesActive(instance: String): Boolean = mutex.withLock {
+        decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance }?.repairCoordinates == true
+    }
+
     /** Whether a READY bootstrap has unmatched episodes the current Floppy
      * matching generation has not retried yet (or predates that record). */
     suspend fun hasPendingCounterpartRetry(): Boolean = mutex.withLock {
@@ -296,6 +307,8 @@ class FloppyBootstrapCoordinator(
         val counterpartRetries: Int = 0,
         /** Floppy (TVDB) titles of episodes closed as unmatched. */
         val unplacedTitles: Map<String, String> = emptyMap(),
+        /** A re-send after READY that asks Floppy to move misplaced plays. */
+        val repairCoordinates: Boolean = false,
     ) {
         fun counterpartRetryGeneration() = maxOf(counterpartRetries, if (counterpartsRetried) 1 else 0)
     }
@@ -325,14 +338,15 @@ class FloppyBootstrapCoordinator(
          * 4 = double-episode days paired by order within the day,
          * 5 = absolute numbers in TMDB seasons, titles inside longer titles,
          * 6 = Floppy returns the title of what it cannot place (Settings list),
-         * 7 = full re-send (see [FULL_RESEND_GENERATION]). */
-        const val COUNTERPART_RETRY_GENERATION = 7
+         * 7 = full re-send (see [FULL_RESEND_GENERATION]),
+         * 8 = full re-send in repair mode (plays moved to their episode). */
+        const val COUNTERPART_RETRY_GENERATION = 8
         /** Residuals older than this re-send the whole plan once: before it,
          * writes marked right after a process start were filed as unsupported
          * for Floppy (never sent), and READY could race the last batch's
          * outcomes, losing unplaced episodes. Only a full idempotent re-send
          * recovers both; synced items answer already_satisfied. */
-        const val FULL_RESEND_GENERATION = 7
+        const val FULL_RESEND_GENERATION = 8
         val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
     }
 }

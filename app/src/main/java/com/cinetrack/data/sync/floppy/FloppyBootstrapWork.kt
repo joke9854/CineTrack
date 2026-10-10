@@ -312,7 +312,7 @@ class FloppyBootstrapWorker(
             .getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider
             ?: return terminalResult(TrackingSyncError.ProviderUnavailable(TrackingProviderId.FLOPPY))
         val transport = try {
-            floppy.openBootstrapSession(expected)
+            floppy.openBootstrapSession(expected, coordinator.repairCoordinatesActive(expected))
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: Throwable) {

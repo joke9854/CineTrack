@@ -576,11 +576,14 @@
     <string name="floppy_initial_sync_needs_attention">Initial synchronization needs attention</string>
     <string name="floppy_unplaced_title">Not on Floppy</string>
     <string name="floppy_unplaced_copy">These watched episodes have no matching TMDB episode, so Floppy could not store them. Open each one in Floppy and mark it by hand (a special is often listed there as a movie).</string>
+    <string name="floppy_unplaced_dismiss">Dismiss</string>
+    <string name="floppy_unplaced_marked">Done, hide</string>
+    <string name="floppy_unplaced_special">Special %1$s</string>
     <string name="floppy_unplaced_open">Open in Floppy</string>
     <string name="retry_now">Retry now</string>
     <string name="floppy_leave_screen_copy">You can leave this screen. Sync will continue in the background.</string>
     <string name="floppy_progress_count">%1$d of %2$d</string>
-    <string name="floppy_ready_short">Ready</string>
+    <string name="floppy_ready_short">Complete</string>
     <string name="current">Current</string>
 </resources>
 

@@ -576,11 +576,14 @@
     <string name="floppy_initial_sync_needs_attention">La sincronizzazione iniziale richiede attenzione</string>
     <string name="floppy_unplaced_title">Non presenti su Floppy</string>
     <string name="floppy_unplaced_copy">Questi episodi visti non hanno un episodio TMDB corrispondente, quindi Floppy non ha potuto salvarli. Aprili in Floppy e segnali a mano (uno speciale spesso è elencato come film).</string>
+    <string name="floppy_unplaced_dismiss">Ignora</string>
+    <string name="floppy_unplaced_marked">Fatto, nascondi</string>
+    <string name="floppy_unplaced_special">Speciale %1$s</string>
     <string name="floppy_unplaced_open">Apri in Floppy</string>
     <string name="retry_now">Riprova ora</string>
     <string name="floppy_leave_screen_copy">Puoi lasciare questa schermata. La sincronizzazione continuerà in background.</string>
     <string name="floppy_progress_count">%1$d di %2$d</string>
-    <string name="floppy_ready_short">Pronto</string>
+    <string name="floppy_ready_short">Completata</string>
     <string name="current">Attuale</string>
 </resources>
 

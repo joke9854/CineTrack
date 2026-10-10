@@ -347,6 +347,9 @@ data class FloppyUnplacedItem(
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
 
+    /** Stable key used to remember a dismissed entry. */
+    val dismissKey: String get() = "$showId:$season:$episode"
+
     /** Floppy search for the item: a titled special is usually filed by TMDB
      * as a movie (e.g. "A Parks and Recreation Special"); anything else opens
      * the show, where the episode can be marked. */

@@ -61,6 +61,7 @@ class FloppyBootstrapTransportContext internal constructor(
     val providerInstanceId: String,
     val canEnsureEpisodeEvents: Boolean = false,
     val canBootstrapV2: Boolean = false,
+    val repairCoordinates: Boolean = false,
 ) {
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
@@ -241,7 +242,7 @@ class FloppyRemoteDataSource(
             val stored = linkedMapOf<String, String>()
             val unmatchedTitles = linkedMapOf<String, String>()
             val bulkCompleted = if (bootstrapContext != null) {
-                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected, unmatched, stored, unmatchedTitles)
+                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected, unmatched, stored, unmatchedTitles, bootstrapContext.repairCoordinates)
             } else {
                 pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId, rejected)
             }
@@ -330,7 +331,7 @@ class FloppyRemoteDataSource(
         val stored = linkedMapOf<String, String>()
         val unmatchedTitles = linkedMapOf<String, String>()
         if (episodes.isNotEmpty()) {
-            completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected, unmatched, stored, unmatchedTitles)
+            completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected, unmatched, stored, unmatchedTitles, context.repairCoordinates)
         }
         val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys - unmatched.keys
         if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
@@ -357,6 +358,7 @@ class FloppyRemoteDataSource(
         unmatched: MutableMap<String, String>? = null,
         stored: MutableMap<String, String> = mutableMapOf(),
         unmatchedTitles: MutableMap<String, String> = mutableMapOf(),
+        repairCoordinates: Boolean = false,
     ): Set<String> {
         if (operations.isEmpty()) return emptySet()
         val completed = linkedSetOf<String>()
@@ -372,7 +374,7 @@ class FloppyRemoteDataSource(
                             clientEventId = episodeClientEventId(providerInstanceId, operation),
                         )
                     }
-                    val response = api.ensureEpisodes(source = "tmdb", mediaId = showId.toString(), request = FloppyEpisodeEnsureRequest(events))
+                    val response = api.ensureEpisodes(source = "tmdb", mediaId = showId.toString(), request = FloppyEpisodeEnsureRequest(events, repairCoordinates))
                     // Every event needs exactly one known outcome. Applied ones
                     // are acknowledged; refused ones (an episode number the
                     // server's provider does not list) stay unresolved.

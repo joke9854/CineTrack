@@ -13,6 +13,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.remote.SimklAuthService
@@ -129,6 +130,8 @@ class AppPreferences(private val context: Context) {
         val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
         /** What a finished bootstrap left unplaced, kept for later retries. */
         val floppyBootstrapResidual = stringPreferencesKey("floppy_bootstrap_residual_v1")
+        /** "showId:season:episode" of "Not on Floppy" entries the user dismissed. */
+        val floppyUnplacedDismissed = stringSetPreferencesKey("floppy_unplaced_dismissed_v1")
         val floppyAllowInsecureLocalHttp = booleanPreferencesKey("floppy_allow_insecure_local_http")
     }
 
@@ -442,6 +445,15 @@ class AppPreferences(private val context: Context) {
 
     suspend fun clearFloppyBootstrapPlan() {
         context.cineTrackDataStore.edit { it.remove(Keys.floppyBootstrapPlan) }
+    }
+
+    suspend fun floppyUnplacedDismissedNow(): Set<String> =
+        context.cineTrackDataStore.data.first()[Keys.floppyUnplacedDismissed].orEmpty()
+
+    suspend fun dismissFloppyUnplaced(key: String) {
+        context.cineTrackDataStore.edit { values ->
+            values[Keys.floppyUnplacedDismissed] = values[Keys.floppyUnplacedDismissed].orEmpty() + key
+        }
     }
 
     suspend fun floppyBootstrapResidualRawNow(): String? =

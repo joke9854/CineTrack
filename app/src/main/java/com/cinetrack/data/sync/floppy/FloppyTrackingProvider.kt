@@ -178,7 +178,7 @@ class FloppyTrackingProvider(
     /** Opens the run-scoped transport used exclusively by Floppy bootstrap.
      * The immutable session and expected instance protect retries from ever
      * sending an old plan to a newly activated account. */
-    suspend fun openBootstrapSession(expectedInstanceId: String): FloppyBootstrapTransportSession {
+    suspend fun openBootstrapSession(expectedInstanceId: String, repairCoordinates: Boolean = false): FloppyBootstrapTransportSession {
         val session = captureSession()
         if (session.instanceId != expectedInstanceId) {
             throw TrackingSyncError.ProviderUnavailable(
@@ -193,6 +193,7 @@ class FloppyTrackingProvider(
                 expectedInstanceId,
                 canEnsureEpisodeEvents = session.capabilities.canEnsureEpisodeEvents,
                 canBootstrapV2 = session.capabilities.canBootstrapV2,
+                repairCoordinates = repairCoordinates,
             ),
             ensureCurrent = { currentDeliveryInstanceId() == expectedInstanceId },
         )

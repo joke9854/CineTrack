@@ -1221,8 +1221,19 @@ class CineTrackViewModel(
 
     fun refreshFloppyUnplaced() {
         viewModelScope.launch {
-            _floppyUnplaced.value = withContext(Dispatchers.IO) { runCatching { repository.floppyUnplacedItems() }.getOrDefault(emptyList()) }
+            _floppyUnplaced.value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dismissed = repository.preferences.floppyUnplacedDismissedNow()
+                    repository.floppyUnplacedItems().filterNot { it.dismissKey in dismissed }
+                }.getOrDefault(emptyList())
+            }
         }
+    }
+
+    /** Hides an entry the user handled (or chose to ignore); it stays hidden. */
+    fun dismissFloppyUnplaced(item: com.cinetrack.domain.FloppyUnplacedItem) {
+        _floppyUnplaced.update { items -> items.filterNot { it.dismissKey == item.dismissKey } }
+        viewModelScope.launch(Dispatchers.IO) { repository.preferences.dismissFloppyUnplaced(item.dismissKey) }
     }
 
     fun refreshErrorLogs() {

@@ -631,7 +631,7 @@ class FloppySecondaryRoomIntegrationTest {
         closeAsUnmatched()
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
         // A plan written before identity matching existed has no retry marker.
-        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6")
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7")
         preferences.setFloppyBootstrapPlanRaw(legacyPlan)
 
         bootstrap.start()
@@ -678,7 +678,7 @@ class FloppySecondaryRoomIntegrationTest {
         )
         bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
         preferences.setFloppyBootstrapPlanRaw(
-            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6"),
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7"),
         )
         bootstrap.start()
 
@@ -743,7 +743,7 @@ class FloppySecondaryRoomIntegrationTest {
 
         // A later Floppy matching generation than the one this sync used.
         preferences.setFloppyBootstrapResidualRaw(
-            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":7", ",\"counterpartRetries\":6"),
+            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7"),
         )
         assertTrue(bootstrap.hasPendingCounterpartRetry())
 
@@ -755,6 +755,8 @@ class FloppySecondaryRoomIntegrationTest {
         // READY race can only be recovered that way); same deterministic ids.
         val resent = repository.bootstrapPending("integration-instance-a", 10).map { it.id }.toSet()
         assertEquals(setOf(anime.id, double.id), resent)
+        // ...in repair mode, so Floppy moves plays older versions misplaced.
+        assertTrue(bootstrap.repairCoordinatesActive("integration-instance-a"))
         coordinator.pushPendingForProvider(
             TrackingProviderId.FLOPPY,
             resent,

@@ -1,3 +1,11 @@
+# CineTrack 0.99.39 beta
+
+- Episodes stored one episode off by older versions (after two-part episodes TMDB merges, e.g. The Office season 4, and anime numbered by air date) are moved to the right episode on Floppy, keeping their exact watch time. For this the initial Floppy sync runs once more after the update, in repair mode; items already correct are untouched and nothing is duplicated.
+- A successful initial sync now shows "Complete" instead of "Ready".
+- "Not on Floppy": each entry is a clearer card (show, episode, title) with "Open in Floppy", and can be dismissed ("Done, hide" or ×); dismissed entries stay hidden.
+- Trakt now shows its own logo in Integrations, on its settings page and in About (tap to open trakt.tv).
+- Requires Floppy CineTrack-API 48f7707c or later for the repair.
+
 # CineTrack 0.99.38 beta
 
 - Exact air times from Trakt: add a Trakt Client ID in Settings > Integrations > Trakt and new episodes use Trakt's exact release time (including streaming release times) for yesterday and the coming week. Simkl's calendar remains the fallback and covers the following month. Episodes are matched by their TMDB id, so different numbering (e.g. anime) does not matter.

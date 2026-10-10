@@ -394,6 +394,20 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun repairResendAsksFloppyToMoveMisplacedPlays() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, repairCoordinates = true)
+        val episode = v2Operation("e15", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 2316, payload = "4:15:2024-01-01T20:00:00Z")
+        val eventId = episodeClientEventId(session.instanceId, episode)
+        server.enqueue(json("""{"results":[{"client_event_id":"$eventId","season_number":4,"episode_number":15,"status":"already_satisfied","stored_season_number":4,"stored_episode_number":14}]}"""))
+
+        val result = remote.push(session, listOf(episode), context)
+
+        assertEquals(setOf("e15"), result.completedOperationIds)
+        val sent = server.takeRequest().body.readUtf8()
+        assertTrue(sent, sent.contains("\"repair_coordinates\":true"))
+    }
+
+    @Test
     fun bootstrapNotFoundIsFinalAndTranslatedCoordinatesAreReported() = runBlocking {
         val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
         val translated = v2Operation("e62", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 37854, payload = "1:62:2024-01-01T20:00:00Z")

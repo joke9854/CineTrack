@@ -712,7 +712,7 @@ private fun SettingsDetailHero(page: String, title: String) {
     val description = when (page) {
         SettingsPages.Sync -> stringResource(R.string.simkl_description)
         SettingsPages.SyncOperations -> stringResource(R.string.sync_operations_summary)
-        SettingsPages.Integrations -> "TMDB · MDBList · Simkl"
+        SettingsPages.Integrations -> "TMDB · MDBList · Simkl · Trakt"
         SettingsPages.Notifications -> stringResource(R.string.new_episodes)
         SettingsPages.Appearance -> stringResource(R.string.appearance_summary)
         SettingsPages.Language -> stringResource(R.string.italian)
@@ -1161,7 +1161,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             GlassDivider(); ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
             state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
             GlassDivider(); ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
-                FloppyUiState.READY -> stringResource(R.string.floppy_ready)
+                FloppyUiState.READY -> stringResource(R.string.floppy_ready_short)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
             })
@@ -1207,36 +1207,78 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
     LaunchedEffect(state.floppyUiState, observedBootstrapProgress?.stage) { viewModel.refreshFloppyUnplaced() }
     val floppyBaseUrl = state.floppyBaseUrl
     if (state.floppyConnected && unplaced.isNotEmpty() && !floppyBaseUrl.isNullOrBlank()) {
-        val uriHandler = LocalUriHandler.current
         SettingsSection(stringResource(R.string.floppy_unplaced_title) + " (${unplaced.size})") {
             Text(
                 stringResource(R.string.floppy_unplaced_copy),
                 color = TextMuted,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs),
+                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
             )
-            unplaced.forEachIndexed { index, item ->
-                if (index > 0) GlassDivider()
-                Row(
-                    Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text("${item.showTitle} · ${item.label}", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-                        item.episodeTitle?.let {
-                            Text(it, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
-                        }
-                    }
-                    TextButton(onClick = { runCatching { uriHandler.openUri(item.floppySearchUrl(floppyBaseUrl)) } }) {
-                        Text(stringResource(R.string.floppy_unplaced_open))
-                    }
-                }
+            unplaced.forEach { item ->
+                FloppyUnplacedCard(item, floppyBaseUrl, onDismiss = { viewModel.dismissFloppyUnplaced(item) })
             }
+            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
         }
     }
     FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)
     if (state.floppyConnected) {
         PrimaryAction(stringResource(R.string.floppy_disconnect), Icons.Filled.Link, Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs), containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error, onClick = viewModel::disconnectFloppy)
+    }
+}
+
+@Composable
+private fun FloppyUnplacedCard(
+    item: com.cinetrack.domain.FloppyUnplacedItem,
+    floppyBaseUrl: String,
+    onDismiss: () -> Unit,
+) {
+    val uriHandler = LocalUriHandler.current
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.xs)
+            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+            .padding(com.cinetrack.ui.theme.Spacing.md),
+    ) {
+        Row(verticalAlignment = Alignment.Top) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    item.showTitle,
+                    color = TextPrimary,
+                    fontWeight = FontWeight.Bold,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    listOfNotNull(
+                        if (item.season == 0) stringResource(R.string.floppy_unplaced_special, item.label) else item.label,
+                        item.episodeTitle,
+                    ).joinToString(" · "),
+                    color = TextSecondary,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.floppy_unplaced_dismiss), tint = TextMuted, modifier = Modifier.size(18.dp))
+            }
+        }
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            androidx.compose.material3.FilledTonalButton(
+                onClick = { runCatching { uriHandler.openUri(item.floppySearchUrl(floppyBaseUrl)) } },
+                contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+            ) {
+                Icon(Icons.Filled.Link, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.floppy_unplaced_open), style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+            }
+            TextButton(onClick = onDismiss) {
+                Text(stringResource(R.string.floppy_unplaced_marked), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+            }
+        }
     }
 }
 
@@ -1404,7 +1446,7 @@ private fun FloppyStatePreviewContent(state: AppUiState) {
             GlassDivider()
             ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
             GlassDivider()
-            ValueRow(stringResource(R.string.floppy_initial_sync), if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) stringResource(R.string.floppy_initial_sync_failed) else stringResource(R.string.floppy_ready))
+            ValueRow(stringResource(R.string.floppy_initial_sync), if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) stringResource(R.string.floppy_initial_sync_failed) else stringResource(R.string.floppy_ready_short))
         }
     }
 }
@@ -1925,9 +1967,10 @@ private fun AboutSettings(viewModel: CineTrackViewModel) {
             ServiceLogo("TMDB", "https://www.themoviedb.org/")
             ServiceLogo("MDBList", "https://mdblist.com/")
             ServiceLogo("Simkl", "https://simkl.com/")
+            ServiceLogo("Trakt", "https://trakt.tv/")
         }
         Spacer(Modifier.height(9.dp))
-        Text("TMDB · MDBList · Simkl · Room", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        Text("TMDB · MDBList · Simkl · Trakt · Room", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         Spacer(Modifier.height(18.dp))
         val statusText = when (val current = updateState) {
             AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
@@ -2104,6 +2147,7 @@ private fun ServiceLogo(name: String, siteUrl: String? = null) {
         "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
         "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
         "floppy" -> Triple(R.drawable.ic_service_floppy, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 23.dp)
+        "trakt" -> Triple(R.drawable.ic_service_trakt, androidx.compose.ui.graphics.Color(0xFFED1C24), 26.dp)
         else -> Triple(R.drawable.ic_service_simkl, com.cinetrack.ui.theme.SurfacePalette.WarmText, 24.dp)
     }
     Box(

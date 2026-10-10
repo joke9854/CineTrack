@@ -278,7 +278,13 @@ data class FloppyEpisodeEnsureEvent(
 )
 
 @Serializable
-data class FloppyEpisodeEnsureRequest(val events: List<FloppyEpisodeEnsureEvent>)
+data class FloppyEpisodeEnsureRequest(
+    val events: List<FloppyEpisodeEnsureEvent>,
+    /** One-time repair re-send: Floppy places each event by its rules and
+     * moves the event's own play there if an older version stored it on
+     * another episode (e.g. after a TMDB-merged two-part episode). */
+    @SerialName("repair_coordinates") val repairCoordinates: Boolean = false,
+)
 
 @Serializable
 data class FloppyEpisodeEnsureResult(
