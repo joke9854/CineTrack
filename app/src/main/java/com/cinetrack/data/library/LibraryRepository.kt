@@ -9,6 +9,7 @@ import com.cinetrack.data.local.UpNextEntity
 import com.cinetrack.data.local.UserMediaStateEntity
 import com.cinetrack.data.local.WatchHistoryEntity
 import com.cinetrack.data.local.toEntity
+import com.cinetrack.data.repository.nextAfterLastWatched
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.TrackingProviderRegistry
@@ -489,8 +490,6 @@ class RoomLibraryRepository(
         val releaseNow = Instant.now()
         val excludeSpecials = preferences.excludeSpecials.first()
         val watched = watchedEpisodeNumbers(showId)
-        val lastWatched = watched.asSequence().filter { it.first > 0 }
-            .maxWithOrNull(compareBy<Pair<Int, Int>>({ it.first }, { it.second }))
         val candidates = database.mediaDao().episodesForShow(showId).asSequence()
             .map { entity ->
                 EpisodeCard(
@@ -510,9 +509,7 @@ class RoomLibraryRepository(
             .filterNot { (it.season to it.number) in watched }
             .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
             .toList()
-        val next = lastWatched?.let { last ->
-            candidates.firstOrNull { it.season > last.first || (it.season == last.first && it.number > last.second) }
-        } ?: candidates.firstOrNull()
+        val next = nextAfterLastWatched(candidates, watched)
         database.upNextDao().delete(showId)
         if (next != null) {
             database.upNextDao().upsertAll(

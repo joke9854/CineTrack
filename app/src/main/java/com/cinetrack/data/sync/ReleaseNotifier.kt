@@ -25,6 +25,7 @@ import com.cinetrack.MainActivity
 import com.cinetrack.R
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
@@ -333,6 +334,8 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
         ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
+        // The released episode should be in Progress without opening the show.
+        runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
         return Result.success()
     }
 }
@@ -349,6 +352,8 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                     val repository = (context.applicationContext as CineTrackApplication).container.repository
                     repository.awaitStartup()
                     repository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
+                    // Fetch the following episode if it is not cached yet.
+                    runCatching { repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
                 }
             } finally { result.finish() }
         }

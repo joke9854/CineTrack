@@ -5,6 +5,7 @@ import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.EpisodeCard
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.Instant
@@ -69,6 +70,20 @@ class PlaybackOrderingTest {
     }
 
     @Test
+    fun showJustAdvancedByHandStaysAboveAnEpisodeThatAiredYesterday() {
+        val now = Instant.parse("2026-09-16T12:00:00Z").toEpochMilli()
+        // Its own next episode aired three days ago, but it was watched a minute ago.
+        val advanced = PlaybackCard(
+            media = media.copy(id = 1, title = "Zed", libraryUpdatedAt = now - 60_000L),
+            progress = 0f,
+            episodeAirDate = "2026-09-13T12:00:00Z",
+        )
+        val aired = PlaybackCard(media = media.copy(id = 2, title = "Abbott", libraryUpdatedAt = 0L), progress = 0f, episodeAirDate = "2026-09-15T12:00:00Z")
+        val ordered = listOf(aired, advanced).sortedWith { a, b -> compareProgressAttention(a, b, emptyMap(), now) }
+        assertEquals("Zed", ordered.first().media.title)
+    }
+
+    @Test
     fun recentlyAiredEpisodeSurfacesUntilNewerViewingActivityArrives() {
         val now = Instant.parse("2026-09-16T12:00:00Z").toEpochMilli()
         val aired = PlaybackCard(media = media.copy(id = 1, title = "Ted"), progress = 0f, episodeAirDate = "2026-09-16T11:55:00Z")
@@ -82,10 +97,12 @@ class PlaybackOrderingTest {
     }
 
     @Test
-    fun outOfOrderHistoryStillSelectsTheEarliestUnwatchedEpisode() {
+    fun caughtUpShowDoesNotOfferEpisodesSkippedBeforeTheLastWatched() {
+        // Progress follows the furthest episode watched (user decision,
+        // 2026-10-10): skipped earlier episodes stay on the detail screen.
         val now = Instant.parse("2026-09-16T12:00:00Z")
         val episodes = (1..8).map { number -> episode(42, 4, number, "2026-09-${number.toString().padStart(2, '0')}") }
-        assertEquals(1, selectNextProgressEpisode(42, episodes, setOf(Triple(42, 4, 8)), now, java.time.ZoneId.of("UTC"), false)?.number)
+        assertNull(selectNextProgressEpisode(42, episodes, setOf(Triple(42, 4, 8)), now, java.time.ZoneId.of("UTC"), false))
     }
 
     @Test
@@ -143,11 +160,25 @@ class PlaybackOrderingTest {
     }
 
     @Test
-    fun anUnwatchedGapBeatsLaterWatchedEpisode() {
+    fun nextEpisodeFollowsTheLastWatchedNotASkippedGap() {
         val now = Instant.parse("2026-09-16T12:00:00Z")
         val episodes = (1..5).map { episode(42, 2, it, "2026-01-01") }
         val watched = setOf(Triple(42, 2, 1), Triple(42, 2, 2), Triple(42, 2, 4))
-        assertEquals(3, selectNextProgressEpisode(42, episodes, watched, now, java.time.ZoneId.of("UTC"), false)?.number)
+        assertEquals(5, selectNextProgressEpisode(42, episodes, watched, now, java.time.ZoneId.of("UTC"), false)?.number)
+    }
+
+    @Test
+    fun aStoredRowForASkippedEpisodeDoesNotReplaceTheNextOne() {
+        val now = Instant.parse("2026-09-16T12:00:00Z")
+        val episodes = (1..5).map { episode(42, 2, it, "2026-01-01") }
+        val watched = setOf(Triple(42, 2, 1), Triple(42, 2, 2), Triple(42, 2, 4))
+        val card = selectProgressCard(
+            media.copy(id = 42), episodes, watched, null, storedNext = episodes[2], now, java.time.ZoneId.of("UTC"), false,
+        )
+        assertEquals(5, card?.episodeNumber)
+        // Without cached metadata a stored row before the last watched is stale.
+        assertNull(selectProgressCard(media.copy(id = 42), emptyList(), watched, null, episodes[2], now, java.time.ZoneId.of("UTC"), false))
+        assertEquals(5, selectProgressCard(media.copy(id = 42), emptyList(), watched, null, episodes[4], now, java.time.ZoneId.of("UTC"), false)?.episodeNumber)
     }
 
     @Test

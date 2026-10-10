@@ -153,7 +153,9 @@ internal fun compareProgressAttention(
         // activity regains priority. This lets an episode airing now surface
         // without allowing schedule metadata to permanently dominate.
         val recentAir = air?.takeIf { it <= nowMillis && nowMillis - it <= attentionWindow }
-        val event = upcoming ?: recentAir ?: activity
+        // Viewing newer than the air date wins: a show the user just advanced
+        // by hand must not drop below one whose episode merely aired recently.
+        val event = upcoming ?: maxOf(recentAir ?: 0L, activity)
         return Triple(kotlin.math.abs(event - nowMillis), upcoming != null, event)
     }
     val a = key(left)
@@ -1947,9 +1949,6 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
         val releaseNow = Instant.now()
         val excludeSpecials = preferences.excludeSpecials.first()
         val watched = watchedEpisodeNumbers(showId)
-        val lastWatched = watched.asSequence()
-            .filter { it.first > 0 }
-            .maxWithOrNull(compareBy<Pair<Int, Int>>({ it.first }, { it.second }))
         val candidates = database.mediaDao().episodesForShow(showId).asSequence()
             .map { it.toDomain() }
             .filter { !excludeSpecials || it.season > 0 }
@@ -1959,11 +1958,7 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
             .filterNot { (it.season to it.number) in watched }
             .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
             .toList()
-        val next = lastWatched?.let { last ->
-            candidates.firstOrNull {
-                it.season > last.first || (it.season == last.first && it.number > last.second)
-            }
-        } ?: candidates.firstOrNull()
+        val next = nextAfterLastWatched(candidates, watched)
         database.withTransaction {
             database.upNextDao().delete(showId)
             if (next != null) {

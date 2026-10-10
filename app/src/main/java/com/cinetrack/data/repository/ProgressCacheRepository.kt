@@ -19,6 +19,20 @@ import java.util.concurrent.atomic.AtomicInteger
 internal const val UPCOMING_PROGRESS_ATTENTION_DAYS: Long = 7L
 private const val PLAYBACK_COMPLETION_THRESHOLD = 1f
 
+/**
+ * The one "next episode" rule for Progress: the first released, unwatched
+ * episode after the furthest regular episode watched. An earlier skipped
+ * episode is not offered; without any regular history the earliest candidate
+ * is. [candidates] are released and unwatched, sorted by season and number.
+ */
+internal fun nextAfterLastWatched(candidates: List<EpisodeCard>, watched: Collection<Pair<Int, Int>>): EpisodeCard? {
+    val last = watched.asSequence()
+        .filter { it.first > 0 }
+        .maxWithOrNull(compareBy<Pair<Int, Int>>({ it.first }, { it.second }))
+        ?: return candidates.firstOrNull()
+    return candidates.firstOrNull { it.season > last.first || (it.season == last.first && it.number > last.second) }
+}
+
 internal fun selectNextProgressEpisode(
     showId: Int,
     episodes: List<EpisodeCard>,
@@ -48,12 +62,29 @@ internal fun selectNextProgressEpisode(
     val aired = candidates.filter { episode ->
         releaseDateTime(episode.airDate, zone)?.toInstant()?.let { !it.isAfter(now) } == true
     }
-    aired.firstOrNull()?.let { return it }
+    val showWatched = watched.asSequence().filter { it.first == showId }.map { it.second to it.third }.toList()
+    nextAfterLastWatched(aired, showWatched)?.let { return it }
     // Unknown release metadata is not proof of availability. The cache loader
     // refreshes the relevant season instead of rendering a speculative card.
     return null
 }
 
+
+/** Seasons to try first: the last watched one and the next, or without any
+ * history the first regular season the show is known to have. */
+internal fun progressStartSeasons(lastWatchedSeason: Int?, knownSeasons: Collection<Int>): List<Int> =
+    lastWatchedSeason?.let { listOf(it, it + 1) }
+        ?: listOf(knownSeasons.filter { it > 0 }.minOrNull() ?: 1)
+
+/** Whether a season's cached episodes cannot be trusted to contain the next
+ * episode. With a known episode count every number must be cached; without
+ * one, a gap (for example only a schedule row for E8) means earlier episodes
+ * were never fetched. */
+internal fun cachedSeasonIncomplete(cachedNumbers: Set<Int>, expected: Int): Boolean = when {
+    cachedNumbers.isEmpty() -> true
+    expected > 0 -> (1..expected).any { it !in cachedNumbers }
+    else -> (1..cachedNumbers.max()).any { it !in cachedNumbers }
+}
 
 /**
  * Builds one TV Progress card from durable watch state. Membership is
@@ -97,13 +128,15 @@ internal fun selectProgressCard(
         // durable row after current metadata says the episode is unavailable.
         return air != null && !air.isAfter(now)
     }
-    val next = when {
-        computed == null -> storedNext?.takeIf(::storedIsEligible)
-        storedNext == null || !storedIsEligible(storedNext) -> computed
-        else -> if (
-            compareBy<EpisodeCard> { it.season }.thenBy { it.number }
-                .compare(computed, storedNext) <= 0
-        ) computed else storedNext
+    // Both follow the same rule; the stored row only fills in when the next
+    // episode's metadata is not cached here.
+    val next = computed ?: storedNext?.takeIf { stored ->
+        storedIsEligible(stored) &&
+            Triple(show.id, stored.season, stored.number) !in watched &&
+            nextAfterLastWatched(
+                listOf(stored),
+                watched.asSequence().filter { it.first == show.id }.map { it.second to it.third }.toList(),
+            ) != null
     } ?: return null
 
     return PlaybackCard(
@@ -173,8 +206,10 @@ internal class ProgressCacheRepository(
                                     .filter { it.second > 0 }
                                     .maxWithOrNull(compareBy<Triple<Int, Int, Int>>({ it.second }, { it.third }))
                                     ?.second
-                                val historySeasons = lastWatchedSeason?.let { listOf(it, it + 1) }
-                                    ?: listOf(1)
+                                val historySeasons = progressStartSeasons(
+                                    lastWatchedSeason,
+                                    seasonCounts.keys + candidates.map { it.season },
+                                )
                                 val seasons = (historySeasons + candidates.map { it.season } + seasonCounts.keys)
                                     .filter { it > 0 }
                                     .distinct()
@@ -185,8 +220,7 @@ internal class ProgressCacheRepository(
                                         .filter { it.season == season }
                                         .map(EpisodeCard::number)
                                         .toSet()
-                                    val incomplete = cachedNumbers.isEmpty() || (expected > 0 &&
-                                        (1..expected).any { it !in cachedNumbers })
+                                    val incomplete = cachedSeasonIncomplete(cachedNumbers, expected)
                                     // A sparse late episode is not evidence
                                     // that earlier episodes do not exist.
                                     if (episode != null && episode.season < season) break

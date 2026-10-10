@@ -6,6 +6,8 @@ import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PlaybackCard
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
@@ -15,6 +17,23 @@ class ProgressMembershipTest {
     private val now = Instant.parse("2026-09-16T15:00:00Z")
     private val zone = ZoneId.of("UTC")
     private val show = MediaCard(42, MediaType.TV, "Test show", status = LibraryStatus.WATCHING)
+
+    @Test fun sparseSeasonCacheWithOnlyALaterScheduleRowIsIncomplete() {
+        // Only S2E8 (a schedule row) is cached: E1-E7 were never fetched.
+        assertTrue(cachedSeasonIncomplete(setOf(8), expected = 0))
+        assertTrue(cachedSeasonIncomplete(setOf(1, 2, 4), expected = 0))
+        assertFalse(cachedSeasonIncomplete(setOf(1, 2, 3), expected = 0))
+        assertTrue(cachedSeasonIncomplete(setOf(1, 2, 3), expected = 4))
+        assertTrue(cachedSeasonIncomplete(emptySet(), expected = 0))
+    }
+
+    @Test fun showWithoutHistoryStartsAtItsFirstRegularSeason() {
+        assertEquals(listOf(3, 4), progressStartSeasons(3, listOf(1, 2, 3)))
+        // A show whose seasons start at 2 (or list specials as 0) must not
+        // look for a season 1 that does not exist.
+        assertEquals(listOf(2), progressStartSeasons(null, listOf(0, 2, 3)))
+        assertEquals(listOf(1), progressStartSeasons(null, emptyList()))
+    }
 
     @Test fun fullyWatchedEndedShowHasNoCard() {
         val eps = listOf(episode(1, "2026-01-01"), episode(2, "2026-01-02"))

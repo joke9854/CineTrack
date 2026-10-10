@@ -1,3 +1,11 @@
+# CineTrack 0.99.33 beta
+
+- Progress now always shows the episode after the last one you watched. A skipped earlier episode no longer replaces it, and a show you are caught up on no longer shows an old skipped episode.
+- Marking an episode watched from a show's page moves its Progress card to the next episode immediately instead of after the network refresh.
+- A show you just advanced stays above shows whose episode merely aired in the last few days.
+- Progress updates when you return to the app, in background refreshes, after a release notification or its "mark watched" action, and after changing the metadata timezone or language, so newly released episodes appear without opening the show.
+- Progress fetches missing earlier episodes when only a later one was cached, and starts shows without history at their first regular season.
+
 # CineTrack 0.99.32 beta
 
 - Episodes that were closed as "no Floppy counterpart (tvdb_id_unknown)" are retried: Floppy now uses your personal TVDB key and the TVDB id TMDB already provides, so anime and renumbered episodes can be matched.

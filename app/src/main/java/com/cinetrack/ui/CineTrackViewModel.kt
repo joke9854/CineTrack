@@ -100,10 +100,16 @@ class CineTrackViewModel(
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
     private var pendingProgressRefresh = ProgressRefreshRequest()
+    private var pendingProgressRepublish = false
     private var startupStateBuilding = true
     private val foregroundObserver = LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_RESUME && !startupStateBuilding && !syncMutex.isLocked) {
-            viewModelScope.launch { performTrackingSync(force = false) }
+            viewModelScope.launch {
+                performTrackingSync(force = false)
+                // A skipped sync (not due, or no provider) must still re-select
+                // Progress: episodes may have been released in the background.
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+            }
         }
     }
     private val pendingEpisodeEdits = PendingEpisodeEdits()
@@ -835,12 +841,20 @@ class CineTrackViewModel(
     }
 
     private suspend fun refreshCachedState(refreshProgress: Boolean = false, promoteShowId: Int? = null) {
-        val current = _state.value
         if (refreshProgress) {
+            // The local transaction already advanced the show's next episode;
+            // show that at once instead of the watched one until the network
+            // refresh (which may fetch an uncached next season) completes.
+            publishCachedState(promoteShowId)
             withContext(Dispatchers.IO) {
                 repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true))
             }
         }
+        publishCachedState(promoteShowId)
+    }
+
+    private suspend fun publishCachedState(promoteShowId: Int?) {
+        val current = _state.value
         val cached = readCachedState()
         val watchedNumbers = cached.history.mapNotNull { event ->
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
@@ -988,21 +1002,27 @@ class CineTrackViewModel(
      * Refreshes derived Progress metadata without extending the visible Simkl
      * synchronization or queueing duplicate refreshes after rapid status taps.
      */
+    /** [republish] re-reads Progress even when the cache needed no refresh,
+     * because selection depends on the current time and timezone. */
     private fun scheduleProgressCacheRefresh(
         request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
+        republish: Boolean = false,
     ) {
         progressRefreshRequested = true
         pendingProgressRefresh = pendingProgressRefresh.mergedWith(request)
+        pendingProgressRepublish = pendingProgressRepublish || republish
         if (progressRefreshJob?.isActive == true) return
         progressRefreshJob = viewModelScope.launch {
             do {
                 progressRefreshRequested = false
                 val refreshRequest = pendingProgressRefresh
                 pendingProgressRefresh = ProgressRefreshRequest()
+                val republish = pendingProgressRepublish
+                pendingProgressRepublish = false
                 val refreshResult = withContext(Dispatchers.IO) {
                     runCatching { repository.refreshProgressCache(refreshRequest) }
                 }
-                if (refreshResult.getOrDefault(false)) {
+                if (refreshResult.getOrDefault(false) || republish) {
                     val cached = readCachedState()
                     val current = _state.value
                     _state.value = cached.copy(
@@ -1380,7 +1400,11 @@ class CineTrackViewModel(
         detailMediaCache.clear()
         detailCastCache.clear()
         detailEpisodeCache.clear()
-        viewModelScope.launch { repository.setMetadataLanguage(value) }
+        viewModelScope.launch {
+            repository.setMetadataLanguage(value)
+            // Cached episode titles are in the previous language.
+            scheduleProgressCacheRefresh()
+        }
     }
 
     fun setMetadataRegion(value: String) {
@@ -1391,7 +1415,11 @@ class CineTrackViewModel(
 
     fun setMetadataTimezone(value: String) {
         _state.value = _state.value.copy(metadataTimezone = value)
-        viewModelScope.launch { repository.setMetadataTimezone(value) }
+        viewModelScope.launch {
+            repository.setMetadataTimezone(value)
+            // Which episodes count as released depends on the timezone.
+            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+        }
     }
 
     fun dismissError() {

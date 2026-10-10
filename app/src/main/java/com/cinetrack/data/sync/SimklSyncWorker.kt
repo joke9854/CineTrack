@@ -1,5 +1,6 @@
 package com.cinetrack.data.sync
 
+import com.cinetrack.data.repository.ProgressRefreshRequest
 import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
@@ -45,8 +46,14 @@ open class TrackingSyncWorker(
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
-        if (!application.container.syncCoordinator.isMainProviderConnected()) return Result.success()
-        if (!application.container.repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) return Result.success()
+        // Even without a sync, keep Progress current: the release schedule and
+        // next episodes refresh on their own cadence (cheap when nothing is due).
+        if (!application.container.syncCoordinator.isMainProviderConnected() ||
+            !application.container.repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))
+        ) {
+            runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
+            return Result.success()
+        }
         return application.container.syncCoordinator.sync { }.fold(
             onSuccess = {
                 application.container.preferences.mainTrackingProvider.first()?.let { provider ->
