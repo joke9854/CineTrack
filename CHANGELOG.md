@@ -1,3 +1,10 @@
+# CineTrack 0.99.35 beta
+
+- Anime that TMDB numbers absolutely inside its seasons (One Piece, Naruto Shippuden and similar) is now matched on Floppy by episode number, not by air date, which TMDB and TVDB often disagree on. This also applies to every future episode.
+- Specials whose TMDB title carries the show name (for example "Game of Thrones: The Last Watch") are now matched.
+- Episodes closed as "no Floppy counterpart" are retried once with these rules.
+- Requires Floppy CineTrack-API 180aae4c or later. Episodes already stored one off by the old air-date match can be moved with the server command repair_cinetrack_absolute_episode_plays.
+
 # CineTrack 0.99.34 beta
 
 - The initial Floppy sync no longer gets stuck at the very end: on Floppy servers with the batch API, completion is confirmed by Floppy's answer for every item instead of re-downloading the whole Floppy history, which timed out on large libraries.

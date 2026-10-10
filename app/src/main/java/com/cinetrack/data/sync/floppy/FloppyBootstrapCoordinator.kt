@@ -292,8 +292,9 @@ class FloppyBootstrapCoordinator(
         /** Bumped when Floppy's episode matching improves: 1 = TVDB identity,
          * 2 = TVDB absolute order and language-independent anime detection,
          * 3 = personal TVDB keys and TVDB ids from TMDB metadata,
-         * 4 = double-episode days paired by order within the day. */
-        const val COUNTERPART_RETRY_GENERATION = 4
+         * 4 = double-episode days paired by order within the day,
+         * 5 = absolute numbers in TMDB seasons, titles inside longer titles. */
+        const val COUNTERPART_RETRY_GENERATION = 5
         val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
     }
 }
