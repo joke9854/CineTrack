@@ -145,6 +145,7 @@ import java.util.Locale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.hazeEffect
+import com.styropyr0.prismal.sources.prismalGlassLayer
 import kotlin.math.abs
 
 @Composable
@@ -316,6 +317,8 @@ fun AdaptiveBackground(
     secondaryGlow: Color? = null,
     hazeState: HazeState? = null,
     blurBackdrop: Boolean = false,
+    /** Record the background so liquidGlass controls in [content] can refract it. */
+    liquidGlass: Boolean = false,
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.() -> Unit,
 ) {
@@ -355,7 +358,14 @@ fun AdaptiveBackground(
                 )
                 drawRect(Brush.verticalGradient(listOf(Color.Transparent, Background0.copy(alpha = .16f))))
             }
-    if (hazeState == null) {
+    val glassBackdrop = if (liquidGlass && hazeState == null) rememberGlassBackdrop() else null
+    if (glassBackdrop != null) {
+        Box(modifier.fillMaxSize()) {
+            // Sibling layer: the glass controls sample only the background, never themselves.
+            Box(Modifier.matchParentSize().prismalGlassLayer(glassBackdrop).then(backgroundModifier))
+            androidx.compose.runtime.CompositionLocalProvider(LocalGlassBackdrop provides glassBackdrop) { content() }
+        }
+    } else if (hazeState == null) {
         Box(modifier.then(backgroundModifier), content = content)
     } else {
         Box(modifier.fillMaxSize()) {

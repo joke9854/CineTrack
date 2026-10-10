@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import dev.chrisbanes.haze.hazeEffect
@@ -23,6 +24,19 @@ import androidx.compose.ui.unit.dp
 import com.cinetrack.ui.theme.Background0
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Dp
+import com.styropyr0.prismal.PrismalGlassEffectProvider
+import com.styropyr0.prismal.depth.PrismalDepthShadow
+import com.styropyr0.prismal.drawPrismalGlass
+import com.styropyr0.prismal.effects.applyPrismalGlassEffects
+import com.styropyr0.prismal.shapes.PrismalCapsule
+import com.styropyr0.prismal.specular.PrismalSpecular
+import com.styropyr0.prismal.sources.PrismalGlassLayer
+import com.styropyr0.prismal.sources.rememberPrismalGlassLayer
 
 // One material family: lightweight content, compact controls, and live overlays.
 internal object GlassMaterial {
@@ -88,6 +102,84 @@ internal fun rememberDetailGlassState(): HazeState? {
         if (android.os.Build.VERSION.SDK_INT >= 31 && !manager.isLowRamDevice) HazeState() else null
     }
 }
+
+/** The page background that liquid-glass controls refract; null keeps the flat material. */
+internal val LocalGlassBackdrop = staticCompositionLocalOf<PrismalGlassLayer?> { null }
+
+/** Same device policy as the live blur: Android 12+ and not low-RAM, otherwise null. */
+@Composable
+internal fun rememberGlassBackdrop(): PrismalGlassLayer? {
+    val context = LocalContext.current
+    val layer = rememberPrismalGlassLayer()
+    val eligible = remember(context) {
+        val manager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        android.os.Build.VERSION.SDK_INT >= 31 && !manager.isLowRamDevice
+    }
+    return layer.takeIf { eligible }
+}
+
+private val LiquidCapsule = PrismalCapsule()
+private val LiquidShape = { LiquidCapsule }
+private val LiquidRim = PrismalSpecular(width = .8.dp)
+private val LiquidRimProvider = { LiquidRim }
+private val LiquidShadow = PrismalDepthShadow(radius = 8.dp, color = Color.Black.copy(alpha = .14f))
+private val LiquidShadowProvider = { LiquidShadow }
+
+/**
+ * Liquid glass for compact controls only (pills, progress tracks, round buttons):
+ * refracts the page backdrop through a capsule with a specular rim. [surface] is the
+ * material drawn on the glass so text keeps its contrast; [onCard] also redraws the
+ * card material the control covers, since the backdrop is the page behind the card.
+ * Without a backdrop (older or low-RAM devices) [fallback] keeps the flat material.
+ */
+@Composable
+internal fun Modifier.liquidGlass(
+    onCard: Boolean,
+    surface: Color,
+    refraction: Dp,
+    shadow: Boolean = true,
+    fallback: Modifier.() -> Modifier,
+): Modifier {
+    val backdrop = LocalGlassBackdrop.current ?: return fallback()
+    val density = LocalDensity.current
+    val effects: PrismalGlassEffectProvider.() -> Unit = remember(density, refraction) {
+        {
+            applyPrismalGlassEffects(
+                density = density,
+                adaptiveLuminance = false,
+                luminance = .5f,
+                blurRadiusPx = with(density) { 4.dp.toPx() },
+                refractionHeightPx = with(density) { refraction.toPx() },
+                refractionAmountPx = with(density) { (refraction * 2).toPx() },
+                saturation = 1.4f,
+            )
+        }
+    }
+    val drawSurface: DrawScope.() -> Unit = remember(onCard, surface) {
+        {
+            if (onCard) drawRect(GlassMaterial.Content)
+            drawRect(surface)
+        }
+    }
+    return drawPrismalGlass(
+        backdrop = backdrop,
+        shape = LiquidShape,
+        effects = effects,
+        specular = LiquidRimProvider,
+        depthShadow = if (shadow) LiquidShadowProvider else null,
+        onDrawSurface = drawSurface,
+    )
+}
+
+/** [glassIcon] as liquid glass: same 6dp inset and circular control material. */
+@Composable
+internal fun Modifier.liquidGlassIcon(): Modifier =
+    padding(6.dp).liquidGlass(onCard = true, surface = GlassMaterial.Control, refraction = 6.dp) {
+        shadow(8.dp, CircleShape, clip = false)
+            .clip(CircleShape)
+            .background(GlassMaterial.Control)
+            .border(.55.dp, GlassEdgeBrush, CircleShape)
+    }
 
 /** The popup material, clipped to an action. Capture only the separate artwork/backdrop. */
 @Composable

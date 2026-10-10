@@ -1,3 +1,8 @@
+# CineTrack 0.99.41 beta
+
+- Liquid glass on the Progress page: the tab pills, the order and "Show all" buttons, the watched button and the progress bars on each card now refract the page colours, with a light rim highlight. Cards, posters and layout are unchanged.
+- Glass needs Android 12 or later and is skipped on low-memory devices, which keep the previous look.
+
 # CineTrack 0.99.40 beta
 
 - Build toolchain upgraded (Android Gradle Plugin 9.4, Gradle 9.6, compileSdk 37, Compose BOM 2026.06.01) to prepare the new glass effects. No feature changes.

@@ -124,6 +124,9 @@ import com.cinetrack.ui.components.SharedGlassSheet
 import com.cinetrack.ui.components.SharedGlassDialog
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.glassIcon
+import com.cinetrack.ui.components.GlassMaterial
+import com.cinetrack.ui.components.liquidGlass
+import com.cinetrack.ui.components.liquidGlassIcon
 import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
@@ -243,7 +246,7 @@ fun ProgressScreen(
         state.history,
         state.calendar,
     ) { state.allMedia }
-    AdaptiveBackground(artworkUrl = artwork) {
+    AdaptiveBackground(artworkUrl = artwork, liquidGlass = true) {
         LongPullRefreshContainer(
             refreshing = isSyncRunning,
             onRefresh = onSync,
@@ -470,7 +473,8 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
                 label = "progressPillScale",
             )
             Row(
-                Modifier.scale(pillScale).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                Modifier.scale(pillScale)
+                    .liquidGlass(onCard = false, surface = GlassMaterial.Content, refraction = 8.dp) { glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)) }
                     .background(pillColor)
                     .clickable(onClick = selectAction).padding(vertical = com.cinetrack.ui.theme.Spacing.sm, horizontal = com.cinetrack.ui.theme.Spacing.lg),
                 horizontalArrangement = Arrangement.Center,
@@ -544,7 +548,9 @@ private fun ExpandablePlaybackSection(
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).padding(bottom = com.cinetrack.ui.theme.Spacing.md))
             if (showEpisodeControl) {
                 Row(
-                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).heightIn(min = 48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction { showOrderSheet = true })
+                    Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm).heightIn(min = 48.dp)
+                        .liquidGlass(onCard = false, surface = GlassMaterial.Content, refraction = 8.dp) { glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)) }
+                        .clickable(onClick = rememberUiAction { showOrderSheet = true })
                         .padding(horizontal = com.cinetrack.ui.theme.Spacing.sm, vertical = com.cinetrack.ui.theme.Spacing.xs),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
@@ -617,7 +623,8 @@ private fun ExpandablePlaybackSection(
         if (orderedItems.size > 3) {
             Row(
                 Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xl).offset(y = buttonOffset).fillMaxWidth().height(48.dp)
-                    .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable { expanded = !expanded },
+                    .liquidGlass(onCard = false, surface = GlassMaterial.Content, refraction = 8.dp) { glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)) }
+                    .clickable { expanded = !expanded },
                 horizontalArrangement = Arrangement.Center,
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -807,7 +814,7 @@ private fun PlaybackRow(
             IconButton(
                 onClick = rememberUiAction { confirming = true },
                 enabled = !confirming,
-                modifier = Modifier.align(Alignment.Bottom).padding(end = 6.dp, bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp).glassIcon(),
+                modifier = Modifier.align(Alignment.Bottom).padding(end = 6.dp, bottom = com.cinetrack.ui.theme.Spacing.sm).size(48.dp).liquidGlassIcon(),
             ) {
                 Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(18.dp).scale(checkScale))
             }
@@ -841,7 +848,12 @@ private fun PlaybackRow(
 private fun AnimatedProgressBar(progress: Float, modifier: Modifier = Modifier) {
     val safeProgress = progress.coerceIn(0f, 1f)
     val animatedProgress by animateFloatAsState(safeProgress, tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
-    Box(modifier.fillMaxWidth().height(10.dp).clip(CircleShape).background(com.cinetrack.ui.theme.Glass)) {
+    Box(
+        modifier.fillMaxWidth().height(10.dp)
+            .liquidGlass(onCard = true, surface = com.cinetrack.ui.theme.Glass, refraction = 3.dp, shadow = false) {
+                clip(CircleShape).background(com.cinetrack.ui.theme.Glass)
+            },
+    ) {
         Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }
 }

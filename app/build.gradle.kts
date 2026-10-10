@@ -30,8 +30,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 25
         targetSdk = 36
-        versionCode = 139
-        versionName = "0.99.40"
+        versionCode = 140
+        versionName = "0.99.41"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -145,6 +145,8 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     // Stable Haze API compatible with the app's current Compose toolchain.
     implementation("dev.chrisbanes.haze:haze:1.6.10")
+    // Liquid glass (AGSL refraction, specular rim) for compact controls.
+    implementation("com.github.styropyr0:PrismalAGSL:1.0.4")
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 
