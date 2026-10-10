@@ -1,3 +1,10 @@
+# CineTrack 0.99.34 beta
+
+- The initial Floppy sync no longer gets stuck at the very end: on Floppy servers with the batch API, completion is confirmed by Floppy's answer for every item instead of re-downloading the whole Floppy history, which timed out on large libraries.
+- Settings > Logs now says whether the final verification passed and, if not, which items are missing on Floppy or why Floppy could not be read.
+- Anime double-episode days (two episodes aired the same day) are now matched on Floppy; the episodes closed for this reason are retried once.
+- Requires Floppy CineTrack-API 96a76622 or later.
+
 # CineTrack 0.99.33 beta
 
 - Progress now always shows the episode after the last one you watched. A skipped earlier episode no longer replaces it, and a show you are caught up on no longer shows an old skipped episode.

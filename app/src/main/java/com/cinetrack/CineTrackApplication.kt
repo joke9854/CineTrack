@@ -219,12 +219,34 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             operationWriter = durableOperationWriter,
             canonicalSnapshot = { repository.canonicalTrackingSnapshot() },
             verifyRemote = { expected ->
-                runCatching {
-                    FloppyBootstrapVerifier().verify(
-                        expected,
-                        floppy.verificationProjection(),
+                fun log(message: String) = preferences.appendErrorLog("${java.time.Instant.now()}  $message")
+                val capabilities = preferences.floppySettingsNow()?.capabilities
+                if (capabilities?.canBootstrapV2 == true && capabilities.canEnsureEpisodeEvents) {
+                    // Modern Floppy answers every movie, show and episode with
+                    // its exact outcome, and only those outcomes acknowledge an
+                    // operation, so they are the verification. Re-reading the
+                    // whole remote history would be the global scan the modern
+                    // path must never do (it timed out on large libraries).
+                    log("Floppy bootstrap verified by per-item outcomes (no history scan)")
+                    true
+                } else {
+                    runCatching {
+                        FloppyBootstrapVerifier().failures(expected, floppy.verificationProjection())
+                    }.fold(
+                        onSuccess = { failures ->
+                            if (failures.isEmpty()) {
+                                log("Floppy bootstrap verification passed")
+                            } else {
+                                log("Floppy bootstrap verification: ${failures.size} item(s) missing on Floppy, e.g. ${failures.take(5).joinToString()}")
+                            }
+                            failures.isEmpty()
+                        },
+                        onFailure = { error ->
+                            log("Floppy bootstrap verification could not read Floppy: ${error.message?.take(160) ?: error::class.simpleName}")
+                            false
+                        },
                     )
-                }.getOrDefault(false)
+                }
             },
         )
 

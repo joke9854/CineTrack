@@ -658,6 +658,7 @@ class FloppyBootstrapWorker(
         Log.i(TAG, "Floppy bootstrap verifying: run=$runId connection=$expected")
         val ready = coordinator.markReadyIfComplete()
         if (!ready) {
+            report(warn = true, message = "Floppy bootstrap not marked ready: run=$runId connection=$expected verification did not pass (see the line above)")
             application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
             setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))
             return Result.failure(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.NEEDS_ATTENTION, processed, total, processed, failed, expected)))

@@ -7,6 +7,7 @@ import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.domain.LibraryStatus
 import java.time.Instant
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,6 +42,17 @@ class FloppyBootstrapVerifierTest {
         )
 
         assertTrue(verifier.verify(expected, actual))
+    }
+
+    @Test
+    fun failuresNameEveryMissingItemForTheLog() {
+        val expected = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.WATCHING)),
+            episodes = listOf(TrackedEpisodeState(MediaIds(tmdb = 7), 2, 3, true, watchedAt)),
+        )
+        val actual = FloppyVerificationProjection(movies = emptyMap(), shows = emptyMap(), episodes = emptySet())
+
+        assertEquals(listOf("Movie:42", "TV:7 S02E03"), verifier.failures(expected, actual))
     }
 
     @Test
