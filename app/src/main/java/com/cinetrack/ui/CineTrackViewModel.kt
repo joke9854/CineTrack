@@ -127,6 +127,9 @@ class CineTrackViewModel(
         .map { progress: SyncProgress -> progress.running }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val _floppyUnplaced = MutableStateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>>(emptyList())
+    /** Episodes Floppy could not place; the settings screen links each to Floppy. */
+    val floppyUnplaced: StateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>> = _floppyUnplaced.asStateFlow()
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
@@ -1214,6 +1217,12 @@ class CineTrackViewModel(
             error = error,
         )
         appendFloppyDiagnostic("Floppy connect: ${error.diagnosticName}")
+    }
+
+    fun refreshFloppyUnplaced() {
+        viewModelScope.launch {
+            _floppyUnplaced.value = withContext(Dispatchers.IO) { runCatching { repository.floppyUnplacedItems() }.getOrDefault(emptyList()) }
+        }
     }
 
     fun refreshErrorLogs() {

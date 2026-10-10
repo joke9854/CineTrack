@@ -203,6 +203,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())
                 }
             },
+            floppyUnplacedEpisodes = {
+                if (::floppyBootstrapCoordinator.isInitialized) floppyBootstrapCoordinator.unplacedEpisodes() else emptyList()
+            },
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))

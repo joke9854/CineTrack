@@ -250,10 +250,37 @@ class FloppyBootstrapCoordinator(
     /** Records where Floppy stored episodes under another coordinate
      * ("season:episode") or that it has no counterpart for ([NO_COUNTERPART]),
      * keyed by operation id, so completion is verified against reality. */
-    suspend fun recordEpisodeOutcomes(instance: String, outcomes: Map<String, String>) = mutex.withLock {
+    suspend fun recordEpisodeOutcomes(
+        instance: String,
+        outcomes: Map<String, String>,
+        unplacedTitles: Map<String, String> = emptyMap(),
+    ) = mutex.withLock {
         if (outcomes.isEmpty()) return@withLock
         val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance } ?: return@withLock
-        preferences.setFloppyBootstrapPlanRaw(encodePlan(plan.copy(episodeOutcomes = plan.episodeOutcomes + outcomes)))
+        preferences.setFloppyBootstrapPlanRaw(
+            encodePlan(
+                plan.copy(
+                    episodeOutcomes = plan.episodeOutcomes + outcomes,
+                    unplacedTitles = plan.unplacedTitles + unplacedTitles,
+                ),
+            ),
+        )
+    }
+
+    /** Episodes Floppy could not place (closed as no counterpart), from the
+     * running plan or, once READY, the kept residual; for marking by hand. */
+    suspend fun unplacedEpisodes(): List<FloppyUnplacedEpisode> = mutex.withLock {
+        val instance = instanceId()
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance }
+            ?: decodePlan(preferences.floppyBootstrapResidualRawNow())?.takeIf { it.instanceId == instance }
+            ?: return@withLock emptyList()
+        plan.episodeOutcomes.filterValues { it == NO_COUNTERPART }.keys.mapNotNull { id ->
+            val parts = id.substringAfter(":episode:", "").split(':')
+            val showId = parts.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            val season = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            val episode = parts.getOrNull(2)?.toIntOrNull() ?: return@mapNotNull null
+            FloppyUnplacedEpisode(showId, season, episode, plan.unplacedTitles[id])
+        }.sortedWith(compareBy(FloppyUnplacedEpisode::showId, FloppyUnplacedEpisode::season, FloppyUnplacedEpisode::episode))
     }
 
     @Serializable
@@ -266,6 +293,8 @@ class FloppyBootstrapCoordinator(
         val counterpartsRetried: Boolean = false,
         /** Highest [COUNTERPART_RETRY_GENERATION] already applied. */
         val counterpartRetries: Int = 0,
+        /** Floppy (TVDB) titles of episodes closed as unmatched. */
+        val unplacedTitles: Map<String, String> = emptyMap(),
     ) {
         fun counterpartRetryGeneration() = maxOf(counterpartRetries, if (counterpartsRetried) 1 else 0)
     }
@@ -293,13 +322,17 @@ class FloppyBootstrapCoordinator(
          * 2 = TVDB absolute order and language-independent anime detection,
          * 3 = personal TVDB keys and TVDB ids from TMDB metadata,
          * 4 = double-episode days paired by order within the day,
-         * 5 = absolute numbers in TMDB seasons, titles inside longer titles. */
-        const val COUNTERPART_RETRY_GENERATION = 5
+         * 5 = absolute numbers in TMDB seasons, titles inside longer titles,
+         * 6 = Floppy returns the title of what it cannot place (Settings list). */
+        const val COUNTERPART_RETRY_GENERATION = 6
         val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
     }
 }
 
 internal const val NO_COUNTERPART = "-"
+
+/** A watched episode Floppy has no counterpart for; the user marks it by hand. */
+data class FloppyUnplacedEpisode(val showId: Int, val season: Int, val episode: Int, val title: String?)
 
 /** The snapshot Floppy should now hold: episodes it stored under another
  * coordinate are expected there, and episodes it has no counterpart for are

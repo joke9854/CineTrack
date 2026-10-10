@@ -1186,6 +1186,37 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             }
         }
     }
+    val unplaced by viewModel.floppyUnplaced.collectAsStateWithLifecycle()
+    LaunchedEffect(state.floppyUiState, observedBootstrapProgress?.stage) { viewModel.refreshFloppyUnplaced() }
+    val floppyBaseUrl = state.floppyBaseUrl
+    if (state.floppyConnected && unplaced.isNotEmpty() && !floppyBaseUrl.isNullOrBlank()) {
+        val uriHandler = LocalUriHandler.current
+        SettingsSection(stringResource(R.string.floppy_unplaced_title) + " (${unplaced.size})") {
+            Text(
+                stringResource(R.string.floppy_unplaced_copy),
+                color = TextMuted,
+                style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs),
+            )
+            unplaced.forEachIndexed { index, item ->
+                if (index > 0) GlassDivider()
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text("${item.showTitle} · ${item.label}", style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+                        item.episodeTitle?.let {
+                            Text(it, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    TextButton(onClick = { runCatching { uriHandler.openUri(item.floppySearchUrl(floppyBaseUrl)) } }) {
+                        Text(stringResource(R.string.floppy_unplaced_open))
+                    }
+                }
+            }
+        }
+    }
     FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)
     if (state.floppyConnected) {
         PrimaryAction(stringResource(R.string.floppy_disconnect), Icons.Filled.Link, Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs), containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error, onClick = viewModel::disconnectFloppy)

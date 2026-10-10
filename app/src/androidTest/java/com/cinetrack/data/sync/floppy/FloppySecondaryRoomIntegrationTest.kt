@@ -626,12 +626,12 @@ class FloppySecondaryRoomIntegrationTest {
                     ProviderPushResult(completedOperationIds = emptySet(), unmatchedOperationIds = mapOf(double.id to "TV:2316 S04E19 has no Floppy counterpart"))
                 },
             )
-            bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
+            bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART), mapOf(double.id to "Double Part 2"))
         }
         closeAsUnmatched()
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
         // A plan written before identity matching existed has no retry marker.
-        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":5", ",\"counterpartRetries\":4")
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5")
         preferences.setFloppyBootstrapPlanRaw(legacyPlan)
 
         bootstrap.start()
@@ -644,6 +644,8 @@ class FloppySecondaryRoomIntegrationTest {
         assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
         assertTrue(bootstrap.markReadyIfComplete())
         assertTrue(verified!!.episodes.isEmpty())
+        // Kept after READY so the user can be pointed at it to mark by hand.
+        assertEquals(listOf(FloppyUnplacedEpisode(2316, 4, 19, "Double Part 2")), bootstrap.unplacedEpisodes())
     }
 
     @Test
@@ -676,7 +678,7 @@ class FloppySecondaryRoomIntegrationTest {
         )
         bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
         preferences.setFloppyBootstrapPlanRaw(
-            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":5", ",\"counterpartRetries\":4"),
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5"),
         )
         bootstrap.start()
 
@@ -741,7 +743,7 @@ class FloppySecondaryRoomIntegrationTest {
 
         // A later Floppy matching generation than the one this sync used.
         preferences.setFloppyBootstrapResidualRaw(
-            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":5", ",\"counterpartRetries\":4"),
+            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":6", ",\"counterpartRetries\":5"),
         )
         assertTrue(bootstrap.hasPendingCounterpartRetry())
 

@@ -234,6 +234,8 @@ data class ProviderPushResult(
     /** Completed operations the provider stored under another coordinate
      * (id -> "season:episode"). */
     val storedCoordinates: Map<String, String> = emptyMap(),
+    /** The provider title for unmatched operations, when it knows one. */
+    val unmatchedTitles: Map<String, String> = emptyMap(),
 )
 
 /** Result of a provider's bidirectional MAIN pass after applying remote changes locally. */

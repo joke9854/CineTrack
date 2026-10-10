@@ -400,13 +400,14 @@ class FloppyRemoteDataSourceTest {
         val double = v2Operation("e26", SyncOperationType.EPISODE_WATCHED, MediaType.TV, 37854, payload = "6:26:2024-01-02T20:00:00Z")
         val translatedId = episodeClientEventId(session.instanceId, translated)
         val doubleId = episodeClientEventId(session.instanceId, double)
-        server.enqueue(json("""{"results":[{"client_event_id":"$translatedId","season_number":1,"episode_number":62,"status":"created","stored_season_number":2,"stored_episode_number":1},{"client_event_id":"$doubleId","season_number":6,"episode_number":26,"status":"not_found","reason":"not_in_tvdb"}]}"""))
+        server.enqueue(json("""{"results":[{"client_event_id":"$translatedId","season_number":1,"episode_number":62,"status":"created","stored_season_number":2,"stored_episode_number":1},{"client_event_id":"$doubleId","season_number":6,"episode_number":26,"status":"not_found","reason":"not_in_tvdb","title":"A Parks and Recreation Special"}]}"""))
 
         val result = remote.push(session, listOf(translated, double), context)
 
         assertEquals(setOf("e62"), result.completedOperationIds)
         assertEquals(mapOf("e62" to "2:1"), result.storedCoordinates)
         assertEquals(mapOf("e26" to "TV:37854 S06E26 has no Floppy counterpart (not_in_tvdb)"), result.unmatchedOperationIds)
+        assertEquals(mapOf("e26" to "A Parks and Recreation Special"), result.unmatchedTitles)
         assertTrue(result.rejectedOperationIds.isEmpty())
     }
 

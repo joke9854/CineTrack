@@ -1,3 +1,9 @@
+# CineTrack 0.99.36 beta
+
+- Settings > Floppy now lists the watched episodes Floppy could not store ("Not on Floppy"), with their title and an "Open in Floppy" button that searches Floppy for them so they can be marked by hand. A special that TMDB lists as a movie (for example "A Parks and Recreation Special") opens the movie search.
+- The episodes still unplaced are retried once so Floppy can return their titles.
+- Requires Floppy CineTrack-API d765504f or later for the titles; older servers show the show and episode number only.
+
 # CineTrack 0.99.35 beta
 
 - Anime that TMDB numbers absolutely inside its seasons (One Piece, Naruto Shippuden and similar) is now matched on Floppy by episode number, not by air date, which TMDB and TVDB often disagree on. This also applies to every future episode.

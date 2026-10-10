@@ -335,6 +335,27 @@ data class TrackingProviderState(
     val bootstrapState: String = "NOT_STARTED",
 )
 
+/** A watched episode Floppy could not place, to be marked by hand there. */
+@Immutable
+data class FloppyUnplacedItem(
+    val showId: Int,
+    val showTitle: String,
+    val season: Int,
+    val episode: Int,
+    /** The episode title as TVDB knows it, when Floppy returned one. */
+    val episodeTitle: String?,
+) {
+    val label: String get() = "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
+
+    /** Floppy search for the item: a titled special is usually filed by TMDB
+     * as a movie (e.g. "A Parks and Recreation Special"); anything else opens
+     * the show, where the episode can be marked. */
+    fun floppySearchUrl(baseUrl: String): String {
+        val (type, query) = if (season == 0 && !episodeTitle.isNullOrBlank()) "movie" to episodeTitle else "tv" to showTitle
+        return baseUrl.trimEnd('/') + "/search?media_type=$type&q=" + java.net.URLEncoder.encode(query, "UTF-8")
+    }
+}
+
 @Immutable
 data class AppUiState(
     val loading: Boolean = true,

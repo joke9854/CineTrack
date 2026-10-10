@@ -557,6 +557,7 @@ class FloppyBootstrapWorker(
                         coordinator.recordEpisodeOutcomes(
                             expected,
                             outcome.storedCoordinates + outcome.unmatchedOperationIds.mapValues { NO_COUNTERPART },
+                            outcome.unmatchedTitles,
                         )
                         outcome.storedCoordinates.forEach { (id, coordinate) ->
                             report("Floppy bootstrap episode stored as TMDB $coordinate: run=$runId ${id.substringAfter(":episode:")}")

@@ -239,8 +239,9 @@ class FloppyRemoteDataSource(
             val rejected = linkedMapOf<String, String>()
             val unmatched = linkedMapOf<String, String>()
             val stored = linkedMapOf<String, String>()
+            val unmatchedTitles = linkedMapOf<String, String>()
             val bulkCompleted = if (bootstrapContext != null) {
-                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected, unmatched, stored)
+                pushEpisodeBatches(api, episodeOperations, episodeIndex, bootstrapContext.canEnsureEpisodeEvents, session.instanceId, rejected, unmatched, stored, unmatchedTitles)
             } else {
                 pushEpisodeBatches(api, liveEnsureEpisodes, null, true, session.instanceId, rejected)
             }
@@ -269,7 +270,7 @@ class FloppyRemoteDataSource(
                     consumed += operation.id
                 }
             }
-            return ProviderPushResult(completed, rejected, unmatched, stored)
+            return ProviderPushResult(completed, rejected, unmatched, stored, unmatchedTitles)
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
@@ -327,12 +328,13 @@ class FloppyRemoteDataSource(
         val rejected = linkedMapOf<String, String>()
         val unmatched = linkedMapOf<String, String>()
         val stored = linkedMapOf<String, String>()
+        val unmatchedTitles = linkedMapOf<String, String>()
         if (episodes.isNotEmpty()) {
-            completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected, unmatched, stored)
+            completed += pushEpisodeBatches(api, episodes, null, true, providerInstanceId, rejected, unmatched, stored, unmatchedTitles)
         }
         val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys - unmatched.keys
         if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
-        return ProviderPushResult(completed, rejected, unmatched, stored)
+        return ProviderPushResult(completed, rejected, unmatched, stored, unmatchedTitles)
     }
 
     /**
@@ -354,6 +356,7 @@ class FloppyRemoteDataSource(
         // retried. Live watches keep it retryable in case metadata was stale.
         unmatched: MutableMap<String, String>? = null,
         stored: MutableMap<String, String> = mutableMapOf(),
+        unmatchedTitles: MutableMap<String, String> = mutableMapOf(),
     ): Set<String> {
         if (operations.isEmpty()) return emptySet()
         val completed = linkedSetOf<String>()
@@ -391,8 +394,10 @@ class FloppyRemoteDataSource(
                                 }
                                 episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), storedSeason, storedEpisode))
                             }
-                            result.status == "not_found" && unmatched != null ->
+                            result.status == "not_found" && unmatched != null -> {
                                 unmatched[operation.id] = "$label has no Floppy counterpart" + result.reason.asDetail()
+                                result.title?.trim()?.takeIf(String::isNotEmpty)?.let { unmatchedTitles[operation.id] = it.take(200) }
+                            }
                             else -> rejected[operation.id] = "$label ${result.status}" + result.reason.asDetail()
                         }
                     }

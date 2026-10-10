@@ -292,6 +292,8 @@ data class FloppyEpisodeEnsureResult(
     @SerialName("stored_episode_number") val storedEpisodeNumber: Int? = null,
     /** Why an event was not placed (not_found/metadata_unavailable). */
     val reason: String? = null,
+    /** TVDB title for an event that was not placed. */
+    val title: String? = null,
 )
 
 @Serializable

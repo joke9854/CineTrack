@@ -208,6 +208,7 @@ class CineTrackRepository(
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val floppySecondaryService: FloppySecondaryService? = null,
     private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
+    private val floppyUnplacedEpisodes: (suspend () -> List<com.cinetrack.data.sync.floppy.FloppyUnplacedEpisode>)? = null,
 ) : SimklSyncHost {
     suspend fun connectFloppy(
         baseUrl: String,
@@ -225,6 +226,18 @@ class CineTrackRepository(
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
     }
     suspend fun retryFloppyBootstrap() { floppyRetryBootstrap?.invoke() }
+
+    /** Episodes Floppy could not place, with their show titles. */
+    suspend fun floppyUnplacedItems(): List<com.cinetrack.domain.FloppyUnplacedItem> =
+        floppyUnplacedEpisodes?.invoke().orEmpty().map { episode ->
+            com.cinetrack.domain.FloppyUnplacedItem(
+                showId = episode.showId,
+                showTitle = database.mediaDao().get(MediaType.TV.name, episode.showId)?.title ?: "TMDB ${episode.showId}",
+                season = episode.season,
+                episode = episode.episode,
+                episodeTitle = episode.title,
+            )
+        }
     suspend fun awaitStartup() {
         awaitStartupReady()
         // Queue repair is idempotent and also runs defensively before every
