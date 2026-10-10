@@ -26,11 +26,11 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
 import com.styropyr0.prismal.PrismalGlassEffectProvider
-import com.styropyr0.prismal.depth.PrismalDepthShadow
 import com.styropyr0.prismal.drawPrismalGlass
 import com.styropyr0.prismal.effects.applyPrismalGlassEffects
 import com.styropyr0.prismal.shapes.PrismalCapsule
@@ -122,8 +122,17 @@ private val LiquidCapsule = PrismalCapsule()
 private val LiquidShape = { LiquidCapsule }
 private val LiquidRim = PrismalSpecular(width = .8.dp)
 private val LiquidRimProvider = { LiquidRim }
-private val LiquidShadow = PrismalDepthShadow(radius = 8.dp, color = Color.Black.copy(alpha = .14f))
-private val LiquidShadowProvider = { LiquidShadow }
+
+/** The same two-step lift as [glass], drawn outside the clipped glass. */
+private fun Modifier.capsuleDepth(): Modifier = drawWithCache {
+    val corner = androidx.compose.ui.geometry.CornerRadius(size.height / 2f)
+    val near = androidx.compose.ui.geometry.Offset(0f, 2.dp.toPx())
+    val far = androidx.compose.ui.geometry.Offset(0f, 7.dp.toPx())
+    onDrawBehind {
+        drawRoundRect(Color.Black.copy(alpha = .026f), topLeft = far, size = size, cornerRadius = corner)
+        drawRoundRect(Color.Black.copy(alpha = .072f), topLeft = near, size = size, cornerRadius = corner)
+    }
+}
 
 /**
  * Liquid glass for compact controls only (pills, progress tracks, round buttons):
@@ -161,20 +170,24 @@ internal fun Modifier.liquidGlass(
             drawRect(surface)
         }
     }
-    return drawPrismalGlass(
-        backdrop = backdrop,
-        shape = LiquidShape,
-        effects = effects,
-        specular = LiquidRimProvider,
-        depthShadow = if (shadow) LiquidShadowProvider else null,
-        onDrawSurface = drawSurface,
-    )
+    // Prismal draws the blurred backdrop a few dp past the shape; clip it, or on a card
+    // that margin shows the page colour as a halo (a hard disc inside an IconButton).
+    return (if (shadow) capsuleDepth() else this)
+        .clip(CircleShape)
+        .drawPrismalGlass(
+            backdrop = backdrop,
+            shape = LiquidShape,
+            effects = effects,
+            specular = LiquidRimProvider,
+            depthShadow = null,
+            onDrawSurface = drawSurface,
+        )
 }
 
-/** [glassIcon] as liquid glass: same 6dp inset and circular control material. */
+/** [glassIcon] as liquid glass: same 6dp inset and circular control material; no lift, the IconButton clips it. */
 @Composable
 internal fun Modifier.liquidGlassIcon(): Modifier =
-    padding(6.dp).liquidGlass(onCard = true, surface = GlassMaterial.Control, refraction = 6.dp) {
+    padding(6.dp).liquidGlass(onCard = true, surface = GlassMaterial.Control, refraction = 6.dp, shadow = false) {
         shadow(8.dp, CircleShape, clip = false)
             .clip(CircleShape)
             .background(GlassMaterial.Control)

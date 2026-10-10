@@ -1,3 +1,7 @@
+# CineTrack 0.99.42 beta
+
+- Fixed the dark disc around the watched button on Progress cards: the glass is now clipped to its own shape, so the page colour no longer shows around controls that sit on a card. The pills keep a soft shadow.
+
 # CineTrack 0.99.41 beta
 
 - Liquid glass on the Progress page: the tab pills, the order and "Show all" buttons, the watched button and the progress bars on each card now refract the page colours, with a light rim highlight. Cards, posters and layout are unchanged.
