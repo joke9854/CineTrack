@@ -276,6 +276,7 @@ data class SimklOAuthResponse(
     @SerialName("token_type") val tokenType: String? = null,
     val scope: String? = null,
     @SerialName("expires_in") val expiresIn: Long? = null,
+    @SerialName("refresh_token") val refreshToken: String? = null,
 )
 
 @Serializable data class SimklUserSettings(val user: SimklUserProfile? = null)
@@ -339,9 +340,10 @@ data class SimklOAuthResponse(
     @SerialName("not_found") val notFound: SimklNotFoundItems = SimklNotFoundItems(),
 )
 
+/** Simkl AUTH V2 (OAuth 2.0 with mandatory PKCE). */
 interface SimklAuthService {
     @FormUrlEncoded
-    @POST("oauth/token")
+    @POST("oauth2/token")
     suspend fun exchangeCode(
         @Field("code") code: String,
         @Field("client_id") clientId: String,
@@ -349,6 +351,23 @@ interface SimklAuthService {
         @Field("redirect_uri") redirectUri: String,
         @Field("grant_type") grantType: String = "authorization_code",
     ): SimklOAuthResponse
+
+    /** Non-rotating: the same refresh token comes back; the previous access token dies at once. */
+    @FormUrlEncoded
+    @POST("oauth2/token")
+    suspend fun refresh(
+        @Field("refresh_token") refreshToken: String,
+        @Field("client_id") clientId: String,
+        @Field("grant_type") grantType: String = "refresh_token",
+    ): SimklOAuthResponse
+
+    /** Always answers 200 (RFC 7009), so the response says nothing about what was revoked. */
+    @FormUrlEncoded
+    @POST("oauth2/revoke")
+    suspend fun revoke(
+        @Field("token") token: String,
+        @Field("client_id") clientId: String,
+    ): retrofit2.Response<okhttp3.ResponseBody>
 }
 
 interface SimklSyncService {
@@ -416,6 +435,8 @@ object NetworkFactory {
         metadataLanguage: () -> String,
         metadataRegion: () -> String,
         metadataTimezone: () -> String,
+        /** Called on a Simkl 401 with the token that was rejected; returns the token to retry with. */
+        refreshSimklToken: (rejected: String) -> String? = { null },
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
@@ -468,6 +489,12 @@ object NetworkFactory {
                 header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
             }.build()
             chain.proceed(request)
+        }.authenticator { _, response ->
+            // A 7-day V2 token expired (or was replaced): refresh once and retry once.
+            val rejected = response.request.header("Authorization")?.removePrefix("Bearer ")?.takeIf(String::isNotBlank)
+            if (rejected == null || response.priorResponse != null) return@authenticator null
+            val fresh = refreshSimklToken(rejected)?.takeIf { it != rejected } ?: return@authenticator null
+            response.request.newBuilder().header("Authorization", "Bearer $fresh").build()
         }.build()
         val simklAuthClient = common.newBuilder().addInterceptor { chain ->
             chain.proceed(

@@ -554,7 +554,9 @@ class CineTrackRepository(
     }
 
     override fun syncError(error: Throwable): String =
-        error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
+        if (error is retrofit2.HttpException && error.code() == 429) {
+            "Simkl's daily request limit was reached. Your changes are saved and will be sent automatically."
+        } else error.message?.takeIf(String::isNotBlank) ?: error::class.java.simpleName
     private suspend fun localZone(): ZoneId {
         val configured = preferences.metadataTimezone.first()
         return if (configured == "system") ZoneId.systemDefault()
@@ -2977,8 +2979,8 @@ class CineTrackRepository(
         }
     }
 
-    suspend fun completeLogin(code: String, state: String?): Result<Unit> =
-        preferences.completeSimklLogin(code, state, services.simklAuth).onSuccess {
+    suspend fun completeLogin(code: String, state: String?, issuer: String?): Result<Unit> =
+        preferences.completeSimklLogin(code, state, issuer, services.simklAuth).onSuccess {
             database.syncDao().delete("all")
             onTokenChanged(preferences.tokenNow())
         }
@@ -2990,7 +2992,12 @@ class CineTrackRepository(
             ?.also { preferences.setSimklUsername(it) }
 
     suspend fun disconnectSimkl() {
+        // Revoking either half ends the grant; a 200 confirms nothing, so the local copy goes regardless.
+        (preferences.simklRefreshTokenNow() ?: currentToken())?.let { grant ->
+            runCatching { services.simklAuth.revoke(grant, com.cinetrack.BuildConfig.SIMKL_CLIENT_ID) }
+        }
         preferences.setSimklUsername(null)
+        preferences.setSimklFirstSyncMode(null)
         preferences.setToken(null)
         database.syncDao().delete("all")
         onTokenChanged(null)

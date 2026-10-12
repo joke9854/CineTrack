@@ -52,6 +52,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
@@ -227,6 +228,9 @@ fun DetailScreen(
     var pendingPreviousEpisodes by remember(media.stableKey) {
         mutableStateOf<Pair<EpisodeCard, List<EpisodeCard>>?>(null)
     }
+    /** Aired, unwatched episodes waiting for the user to confirm marking the whole show. */
+    var pendingShowEpisodes by remember(media.stableKey) { mutableStateOf<List<EpisodeCard>?>(null) }
+    var confirmUnmarkShow by remember(media.stableKey) { mutableStateOf(false) }
     val openLibrarySheet = rememberUiAction { librarySheet = true }
     LaunchedEffect(media.status, media.watched, media.libraryUpdatedAt) {
         // Keep the action label/pill tied to the shared Room state even when a
@@ -345,11 +349,23 @@ fun DetailScreen(
                                 liveGlass = true,
                                 hazeState = detailGlassState,
                             ) {
-                                val target = if (completed) {
-                                    if (detail.type == MediaType.TV) LibraryStatus.WATCHING else LibraryStatus.PLAN_TO_WATCH
-                                } else LibraryStatus.COMPLETED
-                                detail = detail.copy(status = target, watched = target == LibraryStatus.COMPLETED)
-                                onStatus(detail, target)
+                                // Marking a series completed makes Simkl mark every episode, so
+                                // it asks first and then marks only the aired episodes, one by one.
+                                val unwatchedAired = if (detail.type == MediaType.TV && !completed) unwatchedAiredEpisodes(detailEpisodes) else emptyList()
+                                if (unwatchedAired.isNotEmpty()) {
+                                    pendingShowEpisodes = unwatchedAired
+                                } else if (detail.type == MediaType.TV && !completed && detailEpisodes.isEmpty()) {
+                                    // Episodes still loading: never fall back to a blanket "completed".
+                                } else if (detail.type == MediaType.TV && completed) {
+                                    // Undoing a watched series removes it from every list and unmarks its episodes.
+                                    confirmUnmarkShow = true
+                                } else {
+                                    val target = if (completed) {
+                                        if (detail.type == MediaType.TV) LibraryStatus.WATCHING else LibraryStatus.PLAN_TO_WATCH
+                                    } else LibraryStatus.COMPLETED
+                                    detail = detail.copy(status = target, watched = target == LibraryStatus.COMPLETED)
+                                    onStatus(detail, target)
+                                }
                             }
                             Box(
                                 Modifier.size(48.dp).liquidGlassPill(under = com.cinetrack.ui.components.GlassMaterial.DetailSurface)
@@ -524,6 +540,39 @@ fun DetailScreen(
             showFullCast = false
             selectedPerson = person
         }
+    }
+    if (confirmUnmarkShow) {
+        val watchedCount = detailEpisodes.count { it.season > 0 && it.watched }
+        UnmarkShowPrompt(
+            title = detail.title,
+            watchedCount = watchedCount,
+            onDismiss = { confirmUnmarkShow = false },
+            onConfirm = {
+                // Removing from every list clears the series' episode history here and on Simkl.
+                detailEpisodes = detailEpisodes.map { it.copy(watched = false) }
+                detail = detail.copy(status = LibraryStatus.NONE, watched = false)
+                onStatus(detail, LibraryStatus.NONE)
+                confirmUnmarkShow = false
+            },
+        )
+    }
+    pendingShowEpisodes?.let { episodes ->
+        MarkShowWatchedPrompt(
+            title = detail.title,
+            episodeCount = episodes.size,
+            onDismiss = { pendingShowEpisodes = null },
+            onConfirm = {
+                val numbers = episodes.map { it.season to it.number }.toSet()
+                detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = true) else it }
+                viewModel.setEpisodesWatched(episodes, true)
+                // Completed only once nothing is left to air; otherwise the series keeps going.
+                if (detailEpisodes.none { it.season > 0 && !it.watched }) {
+                    detail = detail.copy(status = LibraryStatus.COMPLETED, watched = true)
+                    onStatus(detail, LibraryStatus.COMPLETED)
+                }
+                pendingShowEpisodes = null
+            },
+        )
     }
     pendingPreviousEpisodes?.let { (episode, previous) ->
         PreviousEpisodesPrompt(
@@ -1280,6 +1329,17 @@ private fun WatchSummaryLine(summary: WatchSummary) {
 }
 
 /** The first aired episode after the last one you watched, or null for a show you haven't started. */
+/** Regular episodes that have aired (today included) and are not watched yet. */
+private fun unwatchedAiredEpisodes(episodes: List<EpisodeCard>): List<EpisodeCard> {
+    val today = java.time.LocalDate.now()
+    return episodes
+        .filter { episode ->
+            episode.season > 0 && !episode.watched &&
+                episode.airDate?.take(10)?.let { runCatching { java.time.LocalDate.parse(it) }.getOrNull() }?.let { !it.isAfter(today) } == true
+        }
+        .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+}
+
 private fun nextAiredEpisode(episodes: List<EpisodeCard>): EpisodeCard? {
     val ordered = episodes.filter { it.season > 0 }.sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
     val last = ordered.lastOrNull(EpisodeCard::watched) ?: return null
@@ -1663,6 +1723,65 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPer
                         CastAvatar(person, onPerson)
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MarkShowWatchedPrompt(
+    title: String,
+    episodeCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+            Text(stringResource(R.string.mark_show_watched_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                androidx.compose.ui.res.pluralStringResource(R.plurals.mark_show_watched_message, episodeCount, episodeCount, title),
+                color = TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(16.dp))
+            PrimaryAction(
+                androidx.compose.ui.res.pluralStringResource(R.plurals.mark_show_watched_confirm, episodeCount, episodeCount),
+                Icons.Filled.Check,
+                Modifier.fillMaxWidth(),
+                onClick = onConfirm,
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)) {
+                Text(stringResource(R.string.cancel), color = TextPrimary, fontWeight = FontWeight.Bold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun UnmarkShowPrompt(
+    title: String,
+    watchedCount: Int,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    SharedGlassSheet(onDismiss) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+            Text(stringResource(R.string.unmark_show_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(7.dp))
+            Text(
+                androidx.compose.ui.res.pluralStringResource(R.plurals.unmark_show_message, watchedCount, watchedCount, title),
+                color = TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                lineHeight = 18.sp,
+            )
+            Spacer(Modifier.height(16.dp))
+            PrimaryAction(stringResource(R.string.unmark_show_confirm), Icons.Outlined.RemoveDone, Modifier.fillMaxWidth(), containerColor = Color(0xFFB3423F), onClick = onConfirm)
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)) {
+                Text(stringResource(R.string.cancel), color = TextPrimary, fontWeight = FontWeight.Bold)
             }
         }
     }

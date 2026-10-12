@@ -57,6 +57,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
@@ -302,6 +303,17 @@ class CineTrackViewModel(
 
     init {
         observeSearch()
+        viewModelScope.launch {
+            combine(repository.preferences.simklConnected, repository.preferences.simklReconnectReason, ::Pair)
+                .distinctUntilChanged()
+                .collect { (connected, reconnect) -> _state.update { it.copy(simklConnected = connected, simklReconnectReason = reconnect) } }
+        }
+        viewModelScope.launch {
+            repository.preferences.simklFirstSyncMode
+                .map { it == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK }
+                .distinctUntilChanged()
+                .collect { pending -> _state.update { it.copy(simklFirstSyncPending = pending) } }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         viewModelScope.launch {
             libraryArtworkRefreshManager.progress.collectLatest { progress ->
@@ -933,7 +945,13 @@ class CineTrackViewModel(
         var cached: AppUiState
         do {
             version = pendingEpisodeEdits.version
-            cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            cached = withContext(Dispatchers.IO) {
+                // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
+                repository.loadCachedState().copy(
+                    simklReconnectReason = repository.preferences.simklReconnectReason.first(),
+                    simklFirstSyncPending = repository.preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
+                )
+            }
         } while (version != pendingEpisodeEdits.version)
         val watched = cached.history.mapNotNull { event ->
             val season = event.season ?: return@mapNotNull null
@@ -1164,21 +1182,32 @@ class CineTrackViewModel(
         }
     }
 
-    fun completeSimklLogin(code: String?, state: String?, callbackError: String?) {
+    fun completeSimklLogin(code: String?, state: String?, callbackError: String?, issuer: String?) {
         viewModelScope.launch {
             if (!callbackError.isNullOrBlank()) {
-                _state.value = _state.value.copy(error = callbackError)
+                _state.value = _state.value.copy(error = com.cinetrack.domain.SimklAuthRules.callbackErrorMessage(callbackError))
                 return@launch
             }
             if (code.isNullOrBlank()) {
                 _state.value = _state.value.copy(error = "Simkl did not return an authorization code. Please connect again")
                 return@launch
             }
-            repository.completeLogin(code, state).onSuccess {
-                _state.value = _state.value.copy(simklConnected = true, error = null)
+            repository.completeLogin(code, state, issuer).onSuccess {
+                // The first sync waits for chooseSimklFirstSync.
+                _state.value = _state.value.copy(simklConnected = true, simklFirstSyncPending = true, error = null)
                 loadSimklUsername()
-                sync()
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    /** Merge keeps everything on this device and uploads what Simkl lacks; otherwise the account replaces it. */
+    fun chooseSimklFirstSync(merge: Boolean) {
+        viewModelScope.launch {
+            repository.preferences.setSimklFirstSyncMode(
+                if (merge) com.cinetrack.data.sync.simkl.SimklFirstSyncMode.MERGE else com.cinetrack.data.sync.simkl.SimklFirstSyncMode.REPLACE,
+            )
+            _state.update { it.copy(simklFirstSyncPending = false) }
+            sync()
         }
     }
 

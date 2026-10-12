@@ -763,7 +763,14 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
     val notConnected = stringResource(R.string.not_connected)
     val services = listOf(
         ServiceStatus("TMDB", SettingsPages.ServiceTmdb, state.tmdbApiConfigured, if (state.tmdbApiConfigured) configured else notConfigured),
-        ServiceStatus("Simkl", SettingsPages.ServiceSimkl, state.simklConnected, if (state.simklConnected) connected else notConnected),
+        ServiceStatus(
+            "Simkl", SettingsPages.ServiceSimkl, state.simklConnected,
+            when {
+                state.simklConnected -> connected
+                state.simklReconnectReason != null -> stringResource(R.string.simkl_reconnect_needed)
+                else -> notConnected
+            },
+        ),
         ServiceStatus("Trakt", SettingsPages.ServiceTrakt, state.traktConfigured, if (state.traktConfigured) configured else notConfigured),
         ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyStatusLabel(state.floppyUiState) else notConnected),
         ServiceStatus("MDBList", SettingsPages.ServiceMdblist, state.mdbListApiConfigured, if (state.mdbListApiConfigured) configured else notConfigured),
@@ -1022,6 +1029,11 @@ private fun SyncSettings(
         if (state.simklConnected && state.simklUsername == null) viewModel.loadSimklUsername()
     }
     val library = state.rails[RailIds.LIBRARY].orEmpty()
+    if (!state.simklConnected) when (state.simklReconnectReason) {
+        "upgrade" -> KitNotice(stringResource(R.string.simkl_reconnect_notice))
+        "signed_out" -> KitNotice(stringResource(R.string.simkl_signed_out_notice))
+    }
+    if (state.simklConnected && state.simklFirstSyncPending) KitNotice(stringResource(R.string.simkl_first_sync_pending))
     if (state.simklConnected) {
         KitStatTiles(
             listOf(
@@ -1061,7 +1073,14 @@ private fun SyncSettings(
     }
     state.error?.takeIf(String::isNotBlank)?.let { KitNotice(it) }
     sync.message?.takeIf { sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { KitNotice(it) }
-    if (state.simklConnected) KitDangerText(stringResource(R.string.disconnect_account), viewModel::disconnectSimkl)
+    if (state.simklConnected) {
+        ConfirmedDangerText(
+            text = stringResource(R.string.disconnect_account),
+            title = stringResource(R.string.disconnect_simkl_title),
+            body = stringResource(R.string.disconnect_simkl_body),
+            onConfirm = viewModel::disconnectSimkl,
+        )
+    }
 }
 
 @Composable
@@ -1470,7 +1489,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         stringResource(R.string.floppy_api_guide),
     ) { runCatching { floppyUri.openUri(FLOPPY_API_GUIDE_URL) } }
     KitFootnote(stringResource(R.string.floppy_connection_security))
-    if (state.floppyConnected) KitDangerText(stringResource(R.string.floppy_disconnect), viewModel::disconnectFloppy)
+    if (state.floppyConnected) {
+        ConfirmedDangerText(
+            text = stringResource(R.string.floppy_disconnect),
+            title = stringResource(R.string.disconnect_floppy_title),
+            body = stringResource(R.string.disconnect_floppy_body),
+            onConfirm = viewModel::disconnectFloppy,
+        )
+    }
 }
 
 @Composable
@@ -2641,6 +2667,26 @@ private fun KitDangerText(text: String, onClick: () -> Unit) {
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = 12.dp),
+        )
+    }
+}
+
+/** A destructive text button that asks for confirmation before running [onConfirm]. */
+@Composable
+private fun ConfirmedDangerText(text: String, title: String, body: String, onConfirm: () -> Unit) {
+    var asking by rememberSaveable { mutableStateOf(false) }
+    KitDangerText(text) { asking = true }
+    if (asking) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(title) },
+            text = { Text(body, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium) },
+            confirmButton = {
+                TextButton(onClick = { asking = false; onConfirm() }) {
+                    Text(stringResource(R.string.disconnect), color = Color(0xFFF09595), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }

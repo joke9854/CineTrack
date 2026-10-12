@@ -37,6 +37,8 @@ import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkScheduler
 import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
 import com.cinetrack.data.work.LibraryArtworkRefreshManager
 import com.cinetrack.data.sync.simkl.SimklTrackingProvider
+import com.cinetrack.data.sync.simkl.SimklTokenManager
+import com.cinetrack.data.sync.simkl.SimklTokenStore
 import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
@@ -100,8 +102,21 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     private val metadataRegion = AtomicReference("system")
     private val metadataTimezone = AtomicReference("system")
     private val database = AppDatabase.create(application)
-    private val services = NetworkFactory.create(
-        token = token::get,
+    private val simklTokens: SimklTokenManager = SimklTokenManager(
+        store = object : SimklTokenStore {
+            override suspend fun accessToken() = preferences.tokenNow()
+            override fun refreshToken() = preferences.simklRefreshTokenNow()
+            override suspend fun expiresAt() = preferences.simklTokenExpiresAtNow()
+            override suspend fun storeRefreshed(accessToken: String, refreshToken: String?, expiresAt: Long?) =
+                preferences.storeRefreshedSimklTokens(accessToken, refreshToken, expiresAt)
+            override suspend fun dropGrant() = preferences.dropSimklGrant()
+        },
+        auth = { services.simklAuth },
+        current = token,
+    )
+    private val services: com.cinetrack.data.remote.ApiServices = NetworkFactory.create(
+        token = { simklTokens.tokenForRequest() },
+        refreshSimklToken = { rejected -> simklTokens.refreshAfterRejection(rejected) },
         tmdbApiKey = tmdbApiKey::get,
         metadataLanguage = metadataLanguage::get,
         metadataRegion = metadataRegion::get,
@@ -132,6 +147,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             services = services,
             preferences = preferences,
             syncEngine = { simklSyncEngine },
+            onRateLimited = { retryAfter -> TrackingWorkScheduler.scheduleRateLimitRetry(application, retryAfter) },
         )
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
@@ -181,7 +197,11 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             services = services,
             preferences = preferences,
             awaitStartupReady = startupReady::await,
-            onTokenChanged = token::set,
+            onTokenChanged = { value ->
+                if (value == null) simklTokens.onSignedOut()
+                else applicationScope.launch(Dispatchers.IO) { simklTokens.onSignedIn() }
+                token.set(value)
+            },
             currentToken = token::get,
             onTmdbApiKeyChanged = tmdbApiKey::set,
             tmdbApiKey = tmdbApiKey::get,
@@ -258,7 +278,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             runCatching {
                 trackingConfigurationService.repair()
                 coroutineScope {
-                    val token = async { preferences.tokenNow() }
+                    val token = async { simklTokens.load() }
                     val tmdbApiKey = async { preferences.tmdbApiKeyNow() }
                     val mdbListApiKey = async { preferences.mdbListApiKeyNow() }
                     val metadataLanguage = async { preferences.metadataLanguage.first() }

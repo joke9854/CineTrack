@@ -1,3 +1,22 @@
+# CineTrack 0.99.45 beta
+
+**Simkl sign-in (AUTH V2)**
+- CineTrack now uses Simkl's new sign-in. After updating, Settings > Simkl shows "Reconnect needed": sign in once. Your library, history and unsent changes stay on this device.
+- Sign-in stays valid on its own (tokens refresh automatically), asks only for the access CineTrack needs, and "Don't allow" now reads as cancelled.
+- Disconnecting tells Simkl to end the connection.
+
+**Connecting an account**
+- After signing in you choose how to combine this device with the account: **Merge** adds what only this device has to Simkl (with the original watch times) and Simkl's library here, removing nothing; **Use Simkl's library** makes this device match the account.
+- Disconnecting Simkl or Floppy now asks for confirmation.
+
+**Series**
+- "Mark as watched" on a series asks first and marks only the aired episodes you haven't watched. On a watched series it offers to remove it from every list and unmark its episodes.
+- Moving a series to another list no longer unmarks its episodes.
+- Marking or unmarking many episodes at once sends them to Simkl in one request. If Simkl's daily limit is reached, changes stay saved and are sent automatically later.
+
+**Fixes**
+- Progress keeps the order of what you watched most recently after a sync; before, a sync could push the show you just watched down and sort the rest alphabetically.
+
 # CineTrack 0.99.44 beta
 
 - Discover mosaic keeps loading as you scroll, for every view (trending, popular, upcoming, box office, top rated and genres). Before, it stopped after about 60 titles, or 20 in the default view.

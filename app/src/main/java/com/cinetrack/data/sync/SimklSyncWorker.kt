@@ -5,6 +5,8 @@ import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
@@ -29,6 +31,38 @@ object TrackingWorkScheduler {
             .setConstraints(Constraints.Builder().setRequiredNetworkType(networkType).build())
             .build()
         workManager.enqueueUniquePeriodicWork(WORK_NAME, ExistingPeriodicWorkPolicy.UPDATE, request)
+    }
+
+    private const val RATE_LIMIT_RETRY = "simkl-rate-limit-retry"
+
+    /**
+     * After Simkl's 429, send the queued changes once its allowance is back: after Retry-After
+     * when Simkl gives one, otherwise in an hour. A newer 429 replaces the pending retry.
+     */
+    fun scheduleRateLimitRetry(context: Context, retryAfterSeconds: Long?) {
+        val delay = (retryAfterSeconds ?: TimeUnit.HOURS.toSeconds(1)).coerceIn(60, TimeUnit.DAYS.toSeconds(1))
+        val request = OneTimeWorkRequestBuilder<PendingDeliveryWorker>()
+            .setInitialDelay(delay, TimeUnit.SECONDS)
+            .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(RATE_LIMIT_RETRY, ExistingWorkPolicy.REPLACE, request)
+    }
+}
+
+/** Sends the durable queue without a full sync; used to resume after Simkl's rate limit. */
+class PendingDeliveryWorker(
+    appContext: Context,
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
+    override suspend fun doWork(): Result {
+        val container = (applicationContext as CineTrackApplication).container
+        container.repository.awaitStartup()
+        if (!container.syncCoordinator.isMainProviderConnected()) return Result.success()
+        return container.syncCoordinator.pushPending().fold(
+            onSuccess = { Result.success() },
+            // A new 429 has already scheduled the next attempt.
+            onFailure = { error -> if (error is TrackingSyncError.RateLimited || runAttemptCount >= 3) Result.success() else Result.retry() },
+        )
     }
 }
 

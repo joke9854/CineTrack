@@ -28,6 +28,8 @@ import com.cinetrack.data.sync.floppy.FloppyCapabilities
 import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.sameFloppyRemoteTarget
 import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
+import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -80,6 +82,11 @@ class AppPreferences(private val context: Context) {
     private object Keys {
         val simklToken = stringPreferencesKey("simkl_token")
         val simklLastCheckAt = longPreferencesKey("simkl_last_check_at")
+        val simklTokenExpiresAt = longPreferencesKey("simkl_token_expires_at")
+        /** Why a Simkl grant was dropped ("upgrade" for a retired V1 token, "signed_out" otherwise), until the user reconnects. */
+        val simklReconnectReason = stringPreferencesKey("simkl_reconnect_reason")
+        /** How the next sync combines a newly connected account with this device; absent once done. */
+        val simklFirstSyncMode = stringPreferencesKey("simkl_first_sync_mode")
         val pkceVerifier = stringPreferencesKey("simkl_pkce_verifier")
         val pkceState = stringPreferencesKey("simkl_pkce_state")
         val backgroundSync = booleanPreferencesKey("background_sync")
@@ -140,10 +147,11 @@ class AppPreferences(private val context: Context) {
         val floppyAllowInsecureLocalHttp = booleanPreferencesKey("floppy_allow_insecure_local_http")
     }
 
-    val simklToken: Flow<String?> = context.cineTrackDataStore.data.map { prefs ->
-        secureCredential("simkl_token") ?: prefs[Keys.simklToken]
+    val simklToken: Flow<String?> = context.cineTrackDataStore.data.map {
+        secureCredential("simkl_token")?.takeIf(SimklAuthRules::isV2AccessToken)
     }
     val simklConnected: Flow<Boolean> = simklToken.map { !it.isNullOrBlank() }
+    val simklReconnectReason: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.simklReconnectReason] }
     val mainTrackingProvider: Flow<TrackingProviderId?> = context.cineTrackDataStore.data.map { prefs ->
         when (val stored = prefs[Keys.mainTrackingProvider]) {
             null -> TrackingProviderId.SIMKL
@@ -221,12 +229,51 @@ class AppPreferences(private val context: Context) {
         it[Keys.introductionCompleted] ?: false
     }
 
+    /**
+     * The Simkl AUTH V2 access token. A stored AUTH V1 token (no `simkl_at_` prefix, or the
+     * old DataStore copy) cannot be used with the V2 client ID, so it is dropped and the user
+     * is asked to reconnect once; the local library and queued changes are kept.
+     */
     suspend fun tokenNow(): String? {
-        secureCredential("simkl_token")?.takeIf(String::isNotBlank)?.let { return it }
-        val legacy = context.cineTrackDataStore.data.first()[Keys.simklToken]?.takeIf(String::isNotBlank) ?: return null
-        setSecureCredential("simkl_token", legacy)
-        context.cineTrackDataStore.edit { it.remove(Keys.simklToken) }
-        return legacy
+        val stored = secureCredential("simkl_token")?.takeIf(String::isNotBlank)
+        if (SimklAuthRules.isV2AccessToken(stored)) return stored
+        val legacy = context.cineTrackDataStore.data.first()[Keys.simklToken]?.takeIf(String::isNotBlank)
+        if (stored != null || legacy != null) {
+            setToken(null)
+            context.cineTrackDataStore.edit { it[Keys.simklReconnectReason] = "upgrade" }
+        }
+        return null
+    }
+
+    /** Simkl rejected the refresh token (revoked or unused for 180 days): sign out and ask to reconnect. */
+    suspend fun dropSimklGrant() {
+        setToken(null)
+        context.cineTrackDataStore.edit { it[Keys.simklReconnectReason] = "signed_out" }
+    }
+
+    val simklFirstSyncMode: Flow<SimklFirstSyncMode?> = context.cineTrackDataStore.data.map { prefs ->
+        prefs[Keys.simklFirstSyncMode]?.let { runCatching { SimklFirstSyncMode.valueOf(it) }.getOrNull() }
+    }
+
+    suspend fun simklFirstSyncModeNow(): SimklFirstSyncMode? = simklFirstSyncMode.first()
+
+    suspend fun setSimklFirstSyncMode(mode: SimklFirstSyncMode?) {
+        context.cineTrackDataStore.edit { prefs ->
+            if (mode == null) prefs.remove(Keys.simklFirstSyncMode) else prefs[Keys.simklFirstSyncMode] = mode.name
+        }
+    }
+
+    fun simklRefreshTokenNow(): String? = secureCredential("simkl_refresh_token")?.takeIf(String::isNotBlank)
+
+    suspend fun simklTokenExpiresAtNow(): Long? = context.cineTrackDataStore.data.first()[Keys.simklTokenExpiresAt]
+
+    /** Stores a refreshed grant without touching sync state: it is the same account and connection. */
+    suspend fun storeRefreshedSimklTokens(accessToken: String, refreshToken: String?, expiresAt: Long?) {
+        setSecureCredential("simkl_token", accessToken)
+        refreshToken?.takeIf(String::isNotBlank)?.let { setSecureCredential("simkl_refresh_token", it) }
+        context.cineTrackDataStore.edit { prefs ->
+            if (expiresAt != null) prefs[Keys.simklTokenExpiresAt] = expiresAt else prefs.remove(Keys.simklTokenExpiresAt)
+        }
     }
 
     suspend fun tmdbApiKeyNow(): String {
@@ -519,8 +566,10 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setToken(value: String?) {
         setSecureCredential("simkl_token", value)
+        if (value == null) setSecureCredential("simkl_refresh_token", null)
         context.cineTrackDataStore.edit { prefs ->
             prefs.remove(Keys.simklToken)
+            if (value == null) prefs.remove(Keys.simklTokenExpiresAt)
             // A different account must always receive its own initial activity check.
             prefs.remove(Keys.simklLastCheckAt)
             prefs.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
@@ -797,10 +846,11 @@ class AppPreferences(private val context: Context) {
             it[Keys.pkceVerifier] = verifier
             it[Keys.pkceState] = state
         }
-        val uri = Uri.parse("https://simkl.com/oauth/authorize").buildUpon()
+        val uri = Uri.parse(SimklAuthRules.AUTHORIZE_URL).buildUpon()
             .appendQueryParameter("response_type", "code")
             .appendQueryParameter("client_id", BuildConfig.SIMKL_CLIENT_ID)
             .appendQueryParameter("redirect_uri", BuildConfig.SIMKL_REDIRECT_URI)
+            .appendQueryParameter("scope", SimklAuthRules.REQUESTED_SCOPE)
             .appendQueryParameter("code_challenge", challenge)
             .appendQueryParameter("code_challenge_method", "S256")
             .appendQueryParameter("state", state)
@@ -810,26 +860,37 @@ class AppPreferences(private val context: Context) {
         CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, uri)
     }
 
-    suspend fun completeSimklLogin(code: String, returnedState: String?, service: SimklAuthService): Result<Unit> = runCatching {
+    suspend fun completeSimklLogin(code: String, returnedState: String?, issuer: String?, service: SimklAuthService): Result<Unit> = runCatching {
         val session = context.cineTrackDataStore.data.first()
         val verifier = session[Keys.pkceVerifier]
-            ?: error("The Simkl login session has expired")
-        val expectedState = session[Keys.pkceState]
-            ?: error("The Simkl login state is missing. Please connect again")
-        check(!returnedState.isNullOrBlank() && returnedState == expectedState) {
-            "Simkl returned an invalid login state. Please connect again"
+        SimklAuthRules.callbackProblem(session[Keys.pkceState]?.takeIf { verifier != null }, returnedState, issuer)?.let(::error)
+        // The code is single-use and burned even by a failed exchange, so this is never retried.
+        context.cineTrackDataStore.edit {
+            it.remove(Keys.pkceVerifier)
+            it.remove(Keys.pkceState)
         }
         val response = service.exchangeCode(
             code = code,
             clientId = BuildConfig.SIMKL_CLIENT_ID,
-            codeVerifier = verifier,
+            codeVerifier = checkNotNull(verifier),
             redirectUri = BuildConfig.SIMKL_REDIRECT_URI,
         )
+        if (!SimklAuthRules.grantsWrite(response.scope)) {
+            runCatching { service.revoke(response.refreshToken ?: response.accessToken, BuildConfig.SIMKL_CLIENT_ID) }
+            error("Simkl granted read-only access, so CineTrack could not sync changes. Please connect again and allow access")
+        }
+        check(SimklAuthRules.isV2AccessToken(response.accessToken)) { "Simkl returned an unexpected access token. Please connect again" }
+        // A new grant replaces any previous one this device held.
+        simklRefreshTokenNow()?.let { previous -> runCatching { service.revoke(previous, BuildConfig.SIMKL_CLIENT_ID) } }
         setSecureCredential("simkl_token", response.accessToken)
+        setSecureCredential("simkl_refresh_token", response.refreshToken)
         context.cineTrackDataStore.edit {
             it.remove(Keys.simklToken)
-            it.remove(Keys.pkceVerifier)
-            it.remove(Keys.pkceState)
+            it.remove(Keys.simklReconnectReason)
+            // Nothing syncs until the user chooses how to combine this account with the device.
+            it[Keys.simklFirstSyncMode] = SimklFirstSyncMode.ASK.name
+            SimklAuthRules.expiresAt(response.expiresIn, System.currentTimeMillis())
+                ?.let { expiry -> it[Keys.simklTokenExpiresAt] = expiry } ?: it.remove(Keys.simklTokenExpiresAt)
             it.remove(Keys.simklLastCheckAt)
             it.remove(trackingLastCheckKey(TrackingProviderId.SIMKL))
             it.remove(syncBaselineKey(TrackingProviderId.SIMKL))

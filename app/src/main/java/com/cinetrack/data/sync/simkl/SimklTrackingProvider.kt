@@ -34,6 +34,8 @@ class SimklTrackingProvider(
     private val preferences: AppPreferences,
     private val syncEngine: () -> SimklSyncEngine,
     private val normalizedSnapshot: (suspend () -> TrackingSnapshot)? = null,
+    /** Simkl answered 429 (daily quota): schedule a retry after this many seconds, when known. */
+    private val onRateLimited: (retryAfterSeconds: Long?) -> Unit = {},
 ) : TrackingProvider {
     override val id = TrackingProviderId.SIMKL
     override val capabilities = TrackingCapabilities(
@@ -49,18 +51,60 @@ class SimklTrackingProvider(
 
     override suspend fun push(operations: List<SyncOperation>): ProviderPushResult {
         if (!isAuthenticated()) throw TrackingSyncError.AuthenticationRequired(id)
-        operations.forEach { operation ->
-            when (operation.type) {
-                SyncOperationType.LIBRARY_STATUS -> pushLibraryStatus(operation)
-                SyncOperationType.MOVIE_WATCHED -> pushMovieHistory(operation, watched = true)
-                SyncOperationType.MOVIE_UNWATCHED -> pushMovieHistory(operation, watched = false)
-                SyncOperationType.EPISODE_WATCHED,
-                SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeHistory(operation)
-                SyncOperationType.MEDIA_HISTORY_REMOVE -> removeMediaHistory(operation)
-                SyncOperationType.SET_RATING -> throw TrackingSyncError.UnsupportedOperation(id, operation.type)
+        // Bulk episode changes (a whole series, "previous episodes too") share requests so
+        // they fit Simkl's per-user daily quota; a single change is still one request.
+        rateLimitAware {
+            planSimklPush(operations).forEach { step ->
+                when (step) {
+                    is SimklPushStep.Single -> pushSingle(step.operation)
+                    is SimklPushStep.EpisodeBatch -> pushEpisodeBatch(step)
+                }
             }
         }
         return ProviderPushResult(operations.mapTo(linkedSetOf(), SyncOperation::id))
+    }
+
+    private suspend fun pushSingle(operation: SyncOperation) {
+        when (operation.type) {
+            SyncOperationType.LIBRARY_STATUS -> pushLibraryStatus(operation)
+            SyncOperationType.MOVIE_WATCHED -> pushMovieHistory(operation, watched = true)
+            SyncOperationType.MOVIE_UNWATCHED -> pushMovieHistory(operation, watched = false)
+            SyncOperationType.EPISODE_WATCHED,
+            SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeHistory(operation)
+            SyncOperationType.MEDIA_HISTORY_REMOVE -> removeMediaHistory(operation)
+            SyncOperationType.SET_RATING -> throw TrackingSyncError.UnsupportedOperation(id, operation.type)
+        }
+    }
+
+    /** One request for many episodes: each keeps its own exact watched time. */
+    private suspend fun pushEpisodeBatch(step: SimklPushStep.EpisodeBatch) {
+        val shows = step.operations.groupBy(SyncOperation::mediaId).map { (showId, operations) ->
+            val seasons = operations.map(SyncOperation::simklEpisodeTarget)
+                .groupBy(SimklEpisodeTarget::season)
+                .toSortedMap()
+                .map { (season, targets) ->
+                    SimklSeason(season, targets.sortedBy(SimklEpisodeTarget::episode).map { SimklEpisode(it.episode, it.watchedAt) })
+                }
+            SimklSyncItem(ids = SimklIds(tmdb = showId.toString()), seasons = seasons)
+        }
+        val request = SimklSyncRequest(shows = shows)
+        if (step.watched) services.simklSync.addHistory(request) else services.simklSync.removeHistory(request)
+    }
+
+    /**
+     * Simkl's 429 means the user's daily request allowance is spent. Nothing is lost: the
+     * queued changes stay pending, a retry is scheduled, and the error says so.
+     */
+    private suspend fun <T> rateLimitAware(block: suspend () -> T): T = try {
+        block()
+    } catch (error: retrofit2.HttpException) {
+        if (error.code() != 429) throw error
+        val retryAfter = error.response()?.headers()?.get("Retry-After")?.trim()?.toLongOrNull()
+        onRateLimited(retryAfter)
+        throw TrackingSyncError.RateLimited(
+            retryAfter,
+            "Simkl's daily request limit was reached. Your changes are saved and will be sent automatically.",
+        )
     }
 
     override suspend fun pullSnapshot(): TrackingSnapshot {
@@ -96,7 +140,7 @@ class SimklTrackingProvider(
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
         if (!isAuthenticated()) throw TrackingSyncError.AuthenticationRequired(id)
-        return syncEngine().sync(operations, onProgress)
+        return rateLimitAware { syncEngine().sync(operations, onProgress) }
     }
 
     override suspend fun testConnection(): ConnectionResult {
@@ -124,33 +168,11 @@ class SimklTrackingProvider(
     }
 
     private suspend fun pushEpisodeHistory(operation: SyncOperation) {
-        // Room's legacy SyncOperationEntity has no payload column for
-        // provider-only mirror rows. Reconstruct their stable episode key and
-        // use the operation generation as the watched timestamp.
-        val parts = operation.payload?.split(':', limit = 3)
-            ?: operation.id.split(':').let { idParts ->
-                if (idParts.size >= 5 && idParts[0] == "mirror" && idParts[1] == "episode-watched") {
-                    listOf(idParts[3], idParts[4])
-                } else emptyList()
-            }
-        val season = parts.getOrNull(0)?.toIntOrNull()
-            ?: throw TrackingSyncError.InvalidRemoteData("Invalid queued season")
-        val episode = parts.getOrNull(1)?.toIntOrNull()
-            ?: throw TrackingSyncError.InvalidRemoteData("Invalid queued episode")
-        val watchedAt = parts.getOrNull(2)
-            ?.let { runCatching { Instant.parse(it) }.getOrNull()?.toString() }
-            ?: Instant.ofEpochMilli(operation.sourceVersion).toString().takeIf {
-                operation.type == SyncOperationType.EPISODE_WATCHED
-            }
+        val target = operation.simklEpisodeTarget()
         val request = operation.request(
             SimklSyncItem(
                 ids = SimklIds(tmdb = operation.mediaId.toString()),
-                seasons = listOf(
-                    SimklSeason(
-                        season,
-                        listOf(SimklEpisode(episode, watchedAt.takeIf { operation.type == SyncOperationType.EPISODE_WATCHED })),
-                    ),
-                ),
+                seasons = listOf(SimklSeason(target.season, listOf(SimklEpisode(target.episode, target.watchedAt)))),
             ),
         )
         if (operation.type == SyncOperationType.EPISODE_WATCHED) services.simklSync.addHistory(request)

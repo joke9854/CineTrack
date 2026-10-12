@@ -156,6 +156,14 @@ class SimklSyncEngine(
         val previousReport = preferences.syncReportNow()
         return cancellableResult {
         check(!preferences.tokenNow().isNullOrBlank()) { "Connect Simkl first" }
+        // The first sync after connecting waits for the user's choice; MERGE never removes local data.
+        val firstSyncMode = preferences.simklFirstSyncModeNow()
+        if (firstSyncMode == SimklFirstSyncMode.ASK) {
+            // Not a failure: wait quietly for the choice; every queued operation stays pending.
+            onProgress(SyncProgress(false, 0f, SyncStage.IDLE, null, previousSuccessfulSync, previousReport))
+            return@cancellableResult ProviderSyncOutcome(itemsChanged = false, report = previousReport)
+        }
+        val mergeMode = firstSyncMode == SimklFirstSyncMode.MERGE
         // Repair stale queue rows before reading the local push set. This is
         // idempotent and is deliberately repeated defensively before sync.
         repairSyncQueue()
@@ -202,7 +210,10 @@ class SimklSyncEngine(
         // This repairs accounts where an earlier delta sync imported a show status but
         // did not receive every watched episode in that show.
         val episodeBaselineComplete = database.syncDao().get("episode_baseline_037") != null
-        val librarySnapshotComplete = database.syncDao().get("library_snapshot_051") != null
+        // library_times_045: one full snapshot rewrites every title's library time from Simkl,
+        // repairing times that earlier syncs stamped with the sync moment (Progress order ties).
+        val librarySnapshotComplete = database.syncDao().get("library_snapshot_051") != null &&
+            database.syncDao().get("library_times_045") != null
         val previousShows = if (episodeBaselineComplete) database.syncDao().get("shows")?.remoteTimestamp else null
         val previousAnime = if (episodeBaselineComplete) database.syncDao().get("anime")?.remoteTimestamp else null
         val previousMovies = database.syncDao().get("movies")?.remoteTimestamp
@@ -212,10 +223,11 @@ class SimklSyncEngine(
         // Anime and ordinary shows share CineTrack's TV media type. If either
         // removal generation changes, fetch both complete lists before comparing
         // membership so one category can never erase the other.
-        val tvRemovalChanged = !librarySnapshotComplete ||
+        // A merge compares against the complete account, so it always downloads full lists.
+        val tvRemovalChanged = mergeMode || !librarySnapshotComplete ||
             previousShowsRemoved != activity.tvShows.removedFromList ||
             previousAnimeRemoved != activity.anime.removedFromList
-        val movieRemovalChanged = !librarySnapshotComplete ||
+        val movieRemovalChanged = mergeMode || !librarySnapshotComplete ||
             previousMoviesRemoved != activity.movies.removedFromList
         val remoteChanged = previousSyncState?.remoteTimestamp != activity.all ||
             previousShows != activity.tvShows.all ||
@@ -240,6 +252,7 @@ class SimklSyncEngine(
                 progress(true, value, SyncStage.PROCESSING)
             }
             val checkedAt = System.currentTimeMillis()
+            if (firstSyncMode != null) preferences.setSimklFirstSyncMode(null)
             val report = SyncReport(
                 unchanged = database.stateDao().stateSnapshot().count { it.status != LibraryStatus.NONE.name },
                 lastFullSync = previousReport.lastFullSync,
@@ -354,7 +367,13 @@ class SimklSyncEngine(
                     .toMap()
             }
         } else emptyMap()
-        val remoteStates = resolvedItems.mapNotNull { it.item.toState(it.type, it.tmdbId) }
+        // A title Simkl gives no time for keeps this device's time instead of the sync moment.
+        val remoteStates = resolvedItems.mapNotNull {
+            it.item.toState(it.type, it.tmdbId, localStatesByKey["${it.type.name}:${it.tmdbId}"]?.updatedAt)
+        }.let { states ->
+            if (!mergeMode) states
+            else states.map { it.mergedWithLocal(localStatesByKey["${it.mediaType}:${it.mediaId}"]) }
+        }
         val remoteTvKeys = resolvedShows.map { "${MediaType.TV.name}:${it.tmdbId}" }.toSet()
         val remoteMovieKeys = resolvedMovies.map { "${MediaType.MOVIE.name}:${it.tmdbId}" }.toSet()
         val localTvCount = localStates.count { it.mediaType == MediaType.TV.name && it.status != LibraryStatus.NONE.name }
@@ -368,7 +387,7 @@ class SimklSyncEngine(
             (remoteShows.isNotEmpty() || localTvCount == 0)
         val completeMovieSnapshot = movieRemovalChanged && resolvedMovies.size == remoteMovies.size &&
             (remoteMovies.isNotEmpty() || localMovieCount == 0)
-        val remoteRemovedStates = localStates.mapNotNull { state ->
+        val remoteRemovedStates = if (mergeMode) emptyList() else localStates.mapNotNull { state ->
             if (state.dirty || state.status == LibraryStatus.NONE.name) return@mapNotNull null
             val key = "${state.mediaType}:${state.mediaId}"
             val removed = when (state.mediaType) {
@@ -565,6 +584,25 @@ class SimklSyncEngine(
             pushOperation(operation)
             transportedOperationIds += operation.id
         }
+        // Merge: send Simkl what only this device has, in a few batched requests, before
+        // committing. A failure here leaves the local database untouched and MERGE pending,
+        // and the retry recomputes the difference from fresh full lists.
+        val mergePlan = if (mergeMode) {
+            planSimklMerge(
+                localStates = localStates,
+                localHistory = historyBeforeSync,
+                remote = SimklRemoteLibrary(
+                    keys = remoteTvKeys + remoteMovieKeys,
+                    simklIds = (remoteShows + remoteMovies).mapNotNullTo(linkedSetOf()) { (it.show ?: it.movie)?.ids?.simkl },
+                    watchedMovies = resolvedMovies.filter { it.item.lastWatchedAt != null }.mapTo(linkedSetOf()) { it.tmdbId },
+                    watchedEpisodes = resolvedShows.flatMapTo(linkedSetOf()) { resolved ->
+                        resolved.item.seasons.flatMap { season -> season.episodes.map { Triple(resolved.tmdbId, season.number, it.number) } }
+                    },
+                ),
+            )
+        } else null
+        mergePlan?.listRequests?.forEach { services.simklSync.addToList(it) }
+        mergePlan?.historyRequests?.forEach { services.simklSync.addHistory(it) }
         val episodeWritesToPushExact = episodeWritesToPush.filter { writeOperationId(it.id) in transportedOperationIds }
         val historyRemovalsToPushExact = historyRemovalsToPush.filter { writeOperationId(it.id) in transportedOperationIds }
         // Commit Simkl's identifiers and list state immediately. TMDB artwork
@@ -658,6 +696,7 @@ class SimklSyncEngine(
             add(SyncStateEntity("episode_baseline_037", activity.all, committedAt))
             if (librarySnapshotComplete || (completeTvSnapshot && completeMovieSnapshot)) {
                 add(SyncStateEntity("library_snapshot_051", activity.all, committedAt))
+                add(SyncStateEntity("library_times_045", activity.all, committedAt))
             }
         }
         val committedAsMain = withMainAuthority {
@@ -754,6 +793,12 @@ class SimklSyncEngine(
                 database.stateDao().upsertAll(currentPendingStates)
             }
             for (mutation in reconciliation.localMutations) {
+                // A merge only adds: never unwatch or drop something this device has.
+                if (mergeMode && (
+                        (mutation is LocalMutation.SetWatched && !mutation.watched) ||
+                            (mutation is LocalMutation.SetLibraryStatus && mutation.status == LibraryStatus.NONE)
+                        )
+                ) continue
                 val type = mutation.mediaType.name
                 val id = mutation.mediaId.toInt()
                 val before = localStatesByKey["$type:$id"]
@@ -791,11 +836,11 @@ class SimklSyncEngine(
                 when (mutation) {
                     is LocalMutation.SetLibraryStatus -> {
                         database.stateDao().upsert(
-                            UserMediaStateEntity(type, id, mutation.status.name, previous?.watched ?: false, previous?.simklId, committedAt, dirty = false),
+                            UserMediaStateEntity(type, id, mutation.status.name, previous?.watched ?: false, previous?.simklId, remoteActivityAt(remoteStatesByKey["$type:$id"]?.updatedAt, null, previous?.updatedAt, committedAt), dirty = false),
                         )
                     }
                     is LocalMutation.SetWatched -> {
-                        database.stateDao().upsert(UserMediaStateEntity(type, id, previous?.status ?: LibraryStatus.NONE.name, mutation.watched, previous?.simklId, committedAt, dirty = false))
+                        database.stateDao().upsert(UserMediaStateEntity(type, id, previous?.status ?: LibraryStatus.NONE.name, mutation.watched, previous?.simklId, remoteActivityAt(remoteStatesByKey["$type:$id"]?.updatedAt, mutation.watchedAt?.toEpochMilli(), previous?.updatedAt, committedAt), dirty = false))
                         if (mutation.season != null && mutation.episode != null) {
                             if (mutation.watched) database.timelineDao().insertHistory(WatchHistoryEntity(mediaType = type, mediaId = id, season = mutation.season, episodeNumber = mutation.episode, watchedAt = mutation.watchedAt?.toString() ?: Instant.now().toString()))
                             else database.timelineDao().deleteEpisodeHistory(type, id, mutation.season, mutation.episode)
@@ -809,11 +854,14 @@ class SimklSyncEngine(
                     database.timelineDao().deleteMediaHistories(mediaType, ids)
                 }
             }
-            baselineShowIds.chunked(500).forEach { ids ->
-                database.timelineDao().deleteMediaHistories(MediaType.TV.name, ids)
-            }
-            historyRowsToReplace.chunked(500).forEach { ids ->
-                database.timelineDao().deleteHistoryRows(ids)
+            // These replace local episode history with Simkl's; a merge keeps every local row.
+            if (!mergeMode) {
+                baselineShowIds.chunked(500).forEach { ids ->
+                    database.timelineDao().deleteMediaHistories(MediaType.TV.name, ids)
+                }
+                historyRowsToReplace.chunked(500).forEach { ids ->
+                    database.timelineDao().deleteHistoryRows(ids)
+                }
             }
             // Room can bind the complete import in one prepared batch instead
             // of executing one INSERT statement for every watched episode.
@@ -821,10 +869,16 @@ class SimklSyncEngine(
                 // Retain the local row once, even if the download already includes
                 // that same episode. Otherwise watch-time statistics double-count it.
                 val localKeys = locallyAdded.mapNotNull { it.episodeKey() }.toSet()
+                // A merge keeps local rows, so only episodes and movies this device lacks are added.
+                val mergeKeptKeys = if (mergeMode) currentKeys else emptySet()
+                val mergeKeptMovies = if (mergeMode) {
+                    currentHistory.filter { it.mediaType == MediaType.MOVIE.name && it.season == null }.mapTo(linkedSetOf()) { it.mediaId }
+                } else emptySet()
                 database.timelineDao().insertHistoryItems(
                     importedHistory.filterNot {
                         it.episodeKey() in locallyRemoved || it.episodeKey() in localKeys ||
-                            (it.mediaType == MediaType.MOVIE.name && it.mediaId in protectedMovieIds)
+                            it.episodeKey() in mergeKeptKeys ||
+                            (it.mediaType == MediaType.MOVIE.name && (it.mediaId in protectedMovieIds || it.mediaId in mergeKeptMovies))
                     },
                 )
             }
@@ -950,7 +1004,7 @@ class SimklSyncEngine(
         val fullSync = !episodeBaselineComplete || !librarySnapshotComplete || completeTvSnapshot || completeMovieSnapshot
         val report = SyncReport(
             downloaded = resolvedItems.size + importedHistory.size,
-            uploaded = pendingCount,
+            uploaded = pendingCount + (mergePlan?.let { it.titles + it.movies + it.episodes } ?: 0),
             added = addedCount,
             removed = remoteRemovedStates.size,
             unchanged = (localStates.size - addedCount - remoteRemovedStates.size).coerceAtLeast(0),
@@ -961,6 +1015,7 @@ class SimklSyncEngine(
             databaseUntouched = false,
         )
         preferences.saveSyncReport(report)
+        if (firstSyncMode != null) preferences.setSimklFirstSyncMode(null)
         val tvLibraryChanged = (remoteStates + remoteRemovedStates + localStatesToPushExact)
             .any { it.mediaType == MediaType.TV.name }
         val episodeHistoryChanged = importedHistory.any { it.mediaType == MediaType.TV.name } ||
@@ -999,9 +1054,19 @@ class SimklSyncEngine(
 
 }
 
+/**
+ * The library time to store when a Simkl change is applied locally. It feeds Progress's recency
+ * order, so it is the change's own time on Simkl (the watch, or the title's last activity), or
+ * else the time this device already had, and the commit time only for a title never seen.
+ * Stamping every applied change with the commit time tied all of them at the sync moment, which
+ * pushed a show watched just before the sync below the rest and sorted the others by title.
+ */
+internal fun remoteActivityAt(remoteUpdatedAt: Long?, watchedAt: Long?, previousUpdatedAt: Long?, committedAt: Long): Long =
+    watchedAt ?: remoteUpdatedAt ?: previousUpdatedAt ?: committedAt
+
 private fun String.fromCineTrackStatus(): LibraryStatus =
     runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
-private fun SimklLibraryItem.toState(type: MediaType, resolvedTmdbId: Int? = null): UserMediaStateEntity? {
+private fun SimklLibraryItem.toState(type: MediaType, resolvedTmdbId: Int? = null, localUpdatedAt: Long? = null): UserMediaStateEntity? {
     val item = show ?: movie ?: return null
     val tmdbId = resolvedTmdbId ?: item.ids.tmdb?.toIntOrNull() ?: return null
     return UserMediaStateEntity(
@@ -1012,7 +1077,7 @@ private fun SimklLibraryItem.toState(type: MediaType, resolvedTmdbId: Int? = nul
         simklId = item.ids.simkl,
         updatedAt = listOfNotNull(lastWatchedAt, addedAt).firstNotNullOfOrNull { raw ->
             runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
-        } ?: System.currentTimeMillis(),
+        } ?: localUpdatedAt ?: System.currentTimeMillis(),
         dirty = false,
     )
 }

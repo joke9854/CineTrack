@@ -13,6 +13,8 @@ data class SimklAuthCallback(
     val code: String? = null,
     val state: String? = null,
     val error: String? = null,
+    /** RFC 9207 issuer, checked against Simkl before the code is exchanged. */
+    val issuer: String? = null,
 )
 
 class MainActivity : AppCompatActivity() {
@@ -48,7 +50,8 @@ class MainActivity : AppCompatActivity() {
             authCallback.value = SimklAuthCallback(
                 code = uri.getQueryParameter("code"),
                 state = uri.getQueryParameter("state"),
-                error = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error"),
+                error = uri.getQueryParameter("error"),
+                issuer = uri.getQueryParameter("iss"),
             )
         } else if (uri.scheme == "cinetrack" && uri.host == "app") {
             navigationRequest.value = when (uri.path) {

@@ -92,6 +92,21 @@
     <string name="cast_and_crew">Cast e troupe</string>
     <string name="full_cast">Cast e troupe completi</string>
     <string name="previous_episodes_title">Episodi precedenti non visti</string>
+    <string name="mark_show_watched_title">Segnare tutta la serie come vista?</string>
+    <string name="unmark_show_title">Togliere la serie dai visti?</string>
+    <string name="unmark_show_confirm">Rimuovi e togli dai visti</string>
+    <plurals name="unmark_show_message">
+        <item quantity="one">%2$s verrà rimossa da tutte le tue liste e il suo %1$d episodio visto non sarà più segnato, qui e sui servizi collegati. Per mantenerlo, sposta la serie in un\'altra lista dal menu del segnalibro.</item>
+        <item quantity="other">%2$s verrà rimossa da tutte le tue liste e i suoi %1$d episodi visti non saranno più segnati, qui e sui servizi collegati. Per mantenerli, sposta la serie in un\'altra lista dal menu del segnalibro.</item>
+    </plurals>
+    <plurals name="mark_show_watched_message">
+        <item quantity="one">%1$d episodio già uscito di %2$s non è ancora visto. Verrà segnato come visto ora, qui e sui servizi collegati.</item>
+        <item quantity="other">%1$d episodi già usciti di %2$s non sono ancora visti. Verranno segnati come visti ora, qui e sui servizi collegati.</item>
+    </plurals>
+    <plurals name="mark_show_watched_confirm">
+        <item quantity="one">Segna %1$d episodio</item>
+        <item quantity="other">Segna %1$d episodi</item>
+    </plurals>
     <string name="previous_episodes_message">%1$d episodi precedenti non sono segnati come visti. Segnarli tutti?</string>
     <string name="mark_previous_too">Segna anche i precedenti</string>
     <string name="only_this_episode">Solo questo episodio</string>
@@ -238,6 +253,20 @@
     <string name="about_app">Informazioni sull’app</string>
     <string name="simkl_description">Liste, cronologia, riproduzione e sincronizzazione bidirezionale</string>
     <string name="connect_simkl">Collega Simkl</string>
+    <string name="simkl_reconnect_needed">Da ricollegare</string>
+    <string name="disconnect_simkl_title">Disconnettere Simkl?</string>
+    <string name="disconnect_simkl_body">CineTrack uscirà da questo account Simkl e smetterà di sincronizzarsi. Libreria e cronologia restano su questo dispositivo e su Simkl. Quando ti ricolleghi, CineTrack ti chiederà come combinarle.</string>
+    <string name="disconnect_floppy_title">Disconnettere Floppy?</string>
+    <string name="disconnect_floppy_body">CineTrack smetterà di sincronizzarsi con questo server Floppy e dimenticherà indirizzo e chiave API. Non viene eliminato nulla né su questo dispositivo né sul server.</string>
+    <string name="simkl_first_sync_title">Unisci con Simkl</string>
+    <string name="simkl_first_sync_body">Come vuoi combinare la libreria di questo dispositivo con l\'account Simkl?</string>
+    <string name="simkl_first_sync_merge">Unisci</string>
+    <string name="simkl_first_sync_merge_sub">Titoli ed episodi visti presenti solo su questo dispositivo vengono aggiunti a Simkl, e quelli di Simkl vengono aggiunti qui. Non viene rimosso nulla da nessuna parte; un titolo presente in entrambi mantiene lo stato di Simkl.</string>
+    <string name="simkl_first_sync_replace">Usa la libreria di Simkl</string>
+    <string name="simkl_first_sync_replace_sub">Questo dispositivo diventa uguale all\'account: i titoli che non sono su Simkl vengono rimossi qui, insieme alla loro cronologia.</string>
+    <string name="simkl_first_sync_pending">Scegli come combinare questo dispositivo con Simkl per iniziare la sincronizzazione.</string>
+    <string name="simkl_signed_out_notice">Simkl ha disconnesso CineTrack, ad esempio perché l\'accesso è stato rimosso dalle app collegate di Simkl o l\'app non è stata usata per sei mesi. Ricollega l\'account per riprendere la sincronizzazione. Libreria, cronologia e modifiche non ancora inviate restano su questo dispositivo.</string>
+    <string name="simkl_reconnect_notice">Simkl ha aggiornato il proprio accesso. Ricollega l\'account una volta: l\'accesso si apre su simkl.com nel browser e CineTrack non vede mai la tua password. Libreria, cronologia e modifiche non ancora inviate restano su questo dispositivo.</string>
     <string name="connect_simkl_to_sync">Collega Simkl per caricare i tuoi progressi reali.</string>
     <string name="no_playback">Simkl non ha restituito riproduzioni in pausa.</string>
     <string name="no_history">La cronologia è vuota.</string>

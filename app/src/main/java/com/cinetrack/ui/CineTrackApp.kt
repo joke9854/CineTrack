@@ -197,9 +197,16 @@ fun CineTrackApp(
 
     LaunchedEffect(callback) {
         callback?.let {
-            viewModel.completeSimklLogin(it.code, it.state, it.error)
+            viewModel.completeSimklLogin(it.code, it.state, it.error, it.issuer)
             authCallback.value = null
         }
+    }
+    if (state.simklConnected && state.simklFirstSyncPending) {
+        com.cinetrack.ui.screens.SimklFirstSyncDialog(
+            onMerge = { viewModel.chooseSimklFirstSync(merge = true) },
+            onReplace = { viewModel.chooseSimklFirstSync(merge = false) },
+            onDisconnect = viewModel::disconnectSimkl,
+        )
     }
     LaunchedEffect(requestedRoute) {
         requestedRoute?.let { destination ->

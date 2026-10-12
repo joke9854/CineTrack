@@ -91,8 +91,9 @@ class RoomLibraryRepository(
                 database.timelineDao().movieHistory(MediaType.MOVIE.name, media.id)
             } else emptyList()
             val previousMovieWatched = previous?.watched == true || previousMovieHistory.isNotEmpty()
-            val shouldClearHistory = media.type == MediaType.TV &&
-                (status == LibraryStatus.NONE || (previous?.watched == true && status != LibraryStatus.COMPLETED))
+            // Only removing a series from every list unmarks its episodes; moving it
+            // between lists (even out of Completed) keeps the watched episodes as they are.
+            val shouldClearHistory = media.type == MediaType.TV && status == LibraryStatus.NONE
             val episodeHistoryToClear = if (shouldClearHistory) {
                 database.timelineDao().episodeHistoryForShow(MediaType.TV.name, media.id)
             } else emptyList()

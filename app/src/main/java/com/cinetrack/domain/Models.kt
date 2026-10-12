@@ -379,6 +379,10 @@ data class AppUiState(
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
     val simklUsername: String? = null,
+    /** Why a Simkl grant was dropped ("upgrade" or "signed_out"); null while connected or never connected. */
+    val simklReconnectReason: String? = null,
+    /** A Simkl account was just connected and the user has not chosen merge or replace yet. */
+    val simklFirstSyncPending: Boolean = false,
     val floppyConnected: Boolean = false,
     val floppyServerVersion: String? = null,
     val floppyBaseUrl: String? = null,
