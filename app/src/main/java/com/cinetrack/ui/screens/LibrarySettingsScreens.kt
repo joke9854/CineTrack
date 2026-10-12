@@ -558,7 +558,7 @@ private fun LibraryList(
                     .clickable {
                         if (bulkMode) onToggle(media)
                         else {
-                            com.cinetrack.ui.components.SharedPosterSource.active = posterSlot
+                            com.cinetrack.ui.components.SharedPosterSource.select(posterSlot, media.stableKey)
                             onMedia(media)
                         }
                     }

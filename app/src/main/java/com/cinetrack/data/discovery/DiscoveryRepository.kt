@@ -10,6 +10,7 @@ interface DiscoveryRepository {
     suspend fun refresh()
     suspend fun page(railId: String, page: Int): DiscoverPage
     suspend fun discover(filters: DiscoverMovieFilters): List<MediaCard>
+    suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int): DiscoverPage
     suspend fun search(query: String): List<MediaCard>
 }
 
@@ -17,6 +18,7 @@ class DefaultDiscoveryRepository(private val media: MediaRepository) : Discovery
     override suspend fun refresh() = media.refreshDiscover()
     override suspend fun page(railId: String, page: Int) = media.loadDiscoverPage(railId, page)
     override suspend fun discover(filters: DiscoverMovieFilters) = media.discoverMovies(filters)
+    override suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int) = media.discoverBatch(filters, batch)
     override suspend fun search(query: String) = media.search(query)
 }
 

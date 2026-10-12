@@ -1,3 +1,11 @@
+# CineTrack 0.99.44 beta
+
+- Discover mosaic keeps loading as you scroll, for every view (trending, popular, upcoming, box office, top rated and genres). Before, it stopped after about 60 titles, or 20 in the default view.
+- Episodes open from a series page by growing their thumbnail into the episode page, and shrink back into the row when you go back. The episode image no longer briefly shows another picture first.
+- Titles opened from "More like this" or a saga show their page at once instead of an empty loading page. Going back keeps the saga and recommendation rows where they were, and the poster flies back with its image.
+- Poster colours also pick up muted posters (e.g. Lanterns turns green); black-and-white posters keep your accent.
+- Detail and episode pages label the plot with an "Overview" heading.
+
 # CineTrack 0.99.43 beta
 
 A redesign of the whole app, plus a few new features.

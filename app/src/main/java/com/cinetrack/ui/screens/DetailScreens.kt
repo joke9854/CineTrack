@@ -213,8 +213,8 @@ fun DetailScreen(
     var detailEpisodes by remember(media.stableKey) {
         mutableStateOf(mergeWatchedEpisodes(cachedEpisodes.ifEmpty { episodes }, episodes, history))
     }
-    var collectionItems by remember(media.stableKey) { mutableStateOf<List<MediaCard>>(emptyList()) }
-    var moreLikeThis by remember(media.stableKey) { mutableStateOf(recommended) }
+    var collectionItems by remember(media.stableKey) { mutableStateOf(viewModel.cachedCollection(media)) }
+    var moreLikeThis by remember(media.stableKey) { mutableStateOf(viewModel.cachedRecommendations(media).ifEmpty { recommended }) }
     var librarySheet by remember { mutableStateOf(false) }
     var trailerSheet by remember(media.stableKey) { mutableStateOf(false) }
     var trailerKey by remember(media.stableKey) { mutableStateOf<String?>(null) }
@@ -667,7 +667,7 @@ private fun DetailHero(media: MediaCard) {
                 .shadow(18.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large), clip = false)
                 .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(Accent, com.cinetrack.ui.theme.SurfacePalette.BlueSurface)))
         ) {
-                if (!media.posterUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(media.posterUrl, media.title, Modifier.fillMaxSize(), ContentScale.FillBounds)
+                if (!media.posterUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(media.posterUrl, media.title, media.stableKey, Modifier.fillMaxSize(), ContentScale.FillBounds)
         }
     }
 }
@@ -733,6 +733,8 @@ private fun PlotSection(text: String) {
         Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().animateContentSize()
             .clickable(enabled = overflows || expanded, interactionSource = remember { MutableInteractionSource() }, indication = null) { expanded = !expanded },
     ) {
+        SectionHeader(stringResource(R.string.overview))
+        Spacer(Modifier.height(8.dp))
         Text(
             text, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, lineHeight = 22.sp,
             maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
@@ -815,6 +817,9 @@ private fun LoadedSection(loaded: Boolean, skeleton: @Composable () -> Unit, con
 @Composable
 private fun OverviewSkeleton() {
     Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth()) {
+        // Same heading as the loaded plot, so nothing moves when the text arrives.
+        SectionHeader(stringResource(R.string.overview))
+        Spacer(Modifier.height(10.dp))
         listOf(1f, .96f, .92f, .58f).forEach { width ->
             SkeletonPill(Modifier.fillMaxWidth(width).height(12.dp))
             Spacer(Modifier.height(10.dp))
@@ -1325,16 +1330,26 @@ private fun EpisodeRow(
 ) {
     val stillShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)
     var infoVisible by rememberSaveable(episode.showId, episode.season, episode.number) { mutableStateOf(false) }
+    // The still grows into the episode page's large still when the row is opened.
+    val stillSlot = com.cinetrack.ui.components.rememberPosterSlot()
+    val sharedKey = "ep:${episode.showId}:${episode.season}:${episode.number}"
     Column(Modifier.fillMaxWidth()) {
     Row(
-        Modifier.fillMaxWidth().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).clickable(onClick = onClick).padding(vertical = 8.dp),
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+            .clickable {
+                com.cinetrack.ui.components.SharedPosterSource.select(stillSlot, sharedKey)
+                onClick()
+            }
+            .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
-            Modifier.width(96.dp).aspectRatio(16f / 9f).clip(stillShape).background(com.cinetrack.ui.theme.SurfacePalette.ArtworkBackdrop)
+            Modifier.width(96.dp).aspectRatio(16f / 9f)
+                .sharedBackdrop(sharedKey, stillSlot)
+                .clip(stillShape).background(com.cinetrack.ui.theme.SurfacePalette.ArtworkBackdrop)
                 .then(if (highlight != null) Modifier.border(1.6.dp, highlight, stillShape) else Modifier),
         ) {
-            episode.stillUrl?.let { AsyncImage(it, episode.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+            episode.stillUrl?.let { com.cinetrack.ui.components.SharedPosterImage(it, episode.title, stillSlot, Modifier.fillMaxSize(), ContentScale.Crop) }
         }
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
@@ -2036,7 +2051,7 @@ fun EpisodeDetailScreen(
                         Box(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = 74.dp, bottom = 46.dp).aspectRatio(16f / 9f)
                             .sharedBackdrop("ep:${displayedEpisode.showId}:${displayedEpisode.season}:${displayedEpisode.number}", slot = null)
                             .shadow(22.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large), clip = false).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.EpisodeTeal, com.cinetrack.ui.theme.SurfacePalette.EpisodeSurface)))) {
-                            if (!displayedEpisode.stillUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(displayedEpisode.stillUrl, displayedEpisode.title, Modifier.fillMaxSize(), ContentScale.Crop)
+                            if (!displayedEpisode.stillUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(displayedEpisode.stillUrl, displayedEpisode.title, "ep:${displayedEpisode.showId}:${displayedEpisode.season}:${displayedEpisode.number}", Modifier.fillMaxSize(), ContentScale.Crop)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .54f)))))
                         }
                     }

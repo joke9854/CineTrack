@@ -165,6 +165,7 @@ fun CineTrackApp(
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
     val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
+    val mosaicCanLoadMore by viewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
     val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
     val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
@@ -232,7 +233,10 @@ fun CineTrackApp(
         if (showBottomNav) kotlinx.coroutines.delay(230)
         value = showBottomNav
     }
-    val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media -> navController.navigate("detail/${media.type.name}/${media.id}") }
+    val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media ->
+        viewModel.rememberOpened(media)
+        navController.navigate("detail/${media.type.name}/${media.id}")
+    }
 
     val popupBlur = remember { com.cinetrack.ui.components.PopupBlurController() }
     Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
@@ -313,6 +317,8 @@ fun CineTrackApp(
                     onCompactNav = { compactNav = it },
                     mosaicResults = mosaicResults,
                     onMosaicQuery = viewModel::loadMosaic,
+                    mosaicCanLoadMore = mosaicCanLoadMore,
+                    onMosaicMore = viewModel::loadMoreMosaic,
                 )
             }
             screen(Routes.Progress) {
@@ -424,6 +430,7 @@ fun CineTrackApp(
                     ?: searchResults.firstOrNull { it.type == type && it.id == id }
                     ?: discoverFilterResults.firstOrNull { it.type == type && it.id == id }
                     ?: mosaicResults?.second?.firstOrNull { it.type == type && it.id == id }
+                    ?: viewModel.openedMedia(type, id)
                 var resolvedMedia by remember(type, id) { mutableStateOf(cachedMedia) }
                 val selectedSeason by entry.savedStateHandle
                     .getStateFlow("selectedSeason", -1)

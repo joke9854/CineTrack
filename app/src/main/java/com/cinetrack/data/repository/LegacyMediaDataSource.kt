@@ -16,6 +16,7 @@ class LegacyMediaDataSource(private val facade: CineTrackRepository) : MediaData
     override suspend fun refreshDiscover() = facade.refreshDiscover()
     override suspend fun loadDiscoverPage(railId: String, page: Int) = facade.loadDiscoverPage(railId, page)
     override suspend fun discoverMovies(filters: DiscoverMovieFilters) = facade.discoverMovies(filters)
+    override suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int) = facade.discoverBatch(filters, batch)
     override suspend fun search(query: String) = facade.search(query)
     override suspend fun searchPeople(query: String) = facade.searchPeople(query)
     override suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String?, failOnError: Boolean) = facade.loadStreamingProviders(mediaType, selectedRegion, failOnError)

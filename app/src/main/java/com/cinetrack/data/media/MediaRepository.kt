@@ -16,6 +16,7 @@ interface MediaRepository {
     suspend fun refreshDiscover()
     suspend fun loadDiscoverPage(railId: String, page: Int): DiscoverPage
     suspend fun discoverMovies(filters: DiscoverMovieFilters): List<MediaCard>
+    suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int): DiscoverPage
     suspend fun search(query: String): List<MediaCard>
     suspend fun searchPeople(query: String): List<PersonCard>
     suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String? = null, failOnError: Boolean = false): List<StreamingProvider>
@@ -45,6 +46,7 @@ class DefaultMediaRepository(private val source: MediaDataSource) : MediaReposit
     override suspend fun refreshDiscover() { source.refreshDiscover() }
     override suspend fun loadDiscoverPage(railId: String, page: Int) = source.loadDiscoverPage(railId, page)
     override suspend fun discoverMovies(filters: DiscoverMovieFilters) = source.discoverMovies(filters)
+    override suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int) = source.discoverBatch(filters, batch)
     override suspend fun search(query: String) = source.search(query)
     override suspend fun searchPeople(query: String) = source.searchPeople(query)
     override suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String?, failOnError: Boolean) =

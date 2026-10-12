@@ -30,6 +30,17 @@ val LocalNavVisibility = compositionLocalOf<AnimatedVisibilityScope?> { null }
  */
 object SharedPosterSource {
     var active by mutableStateOf<String?>(null)
+    /** What the tapped source opened (a title's key, or "ep:show:season:episode"). */
+    var activeTarget: String? = null
+
+    /** Records the tapped source and the item it opens. */
+    fun select(slot: String, target: String) {
+        active = slot
+        activeTarget = target
+    }
+
+    /** The tapped source's image, but only for the page it actually opened. */
+    fun imageKeyFor(target: String): coil.memory.MemoryCache.Key? = if (activeTarget == target) activeImageKey else null
     /** Memory-cache key of each poster's loaded image, so the detail page can show it at once. */
     internal val loadedKeys = java.util.concurrent.ConcurrentHashMap<String, coil.memory.MemoryCache.Key>()
     val activeImageKey: coil.memory.MemoryCache.Key? get() = active?.let(loadedKeys::get)
@@ -66,8 +77,16 @@ fun Modifier.sharedPoster(mediaKey: String, slot: String?): Modifier {
 /** A list poster that records its loaded image for [sharedPoster]'s target. */
 @Composable
 fun SharedPosterImage(url: String, contentDescription: String?, slot: String, modifier: Modifier, contentScale: androidx.compose.ui.layout.ContentScale) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // A page rebuilt on going back shows its poster from memory at once, so the poster
+    // flying back into it is never an empty box while the image reloads.
+    val request = androidx.compose.runtime.remember(url, slot) {
+        coil.request.ImageRequest.Builder(context).data(url)
+            .placeholderMemoryCacheKey(SharedPosterSource.loadedKeys[slot])
+            .build()
+    }
     coil.compose.AsyncImage(
-        model = url,
+        model = request,
         contentDescription = contentDescription,
         contentScale = contentScale,
         modifier = modifier,
@@ -80,9 +99,9 @@ fun SharedPosterImage(url: String, contentDescription: String?, slot: String, mo
  * poster from memory, so the flying poster never shows an empty placeholder.
  */
 @Composable
-fun SharedPosterTargetImage(url: String, contentDescription: String?, modifier: Modifier, contentScale: androidx.compose.ui.layout.ContentScale) {
+fun SharedPosterTargetImage(url: String, contentDescription: String?, sharedKey: String, modifier: Modifier, contentScale: androidx.compose.ui.layout.ContentScale) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val placeholder = androidx.compose.runtime.remember(url) { SharedPosterSource.activeImageKey }
+    val placeholder = androidx.compose.runtime.remember(url) { SharedPosterSource.imageKeyFor(sharedKey) }
     val request = androidx.compose.runtime.remember(url, placeholder) {
         coil.request.ImageRequest.Builder(context).data(url).placeholderMemoryCacheKey(placeholder).crossfade(220).build()
     }

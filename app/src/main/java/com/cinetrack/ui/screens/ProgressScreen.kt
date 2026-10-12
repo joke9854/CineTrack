@@ -796,7 +796,7 @@ private fun PlaybackRow(
         "ep:${item.media.id}:${item.season}:${item.episodeNumber}"
     } else item.media.stableKey
     val openItemAction = rememberUiAction {
-        com.cinetrack.ui.components.SharedPosterSource.active = cardSlot
+        com.cinetrack.ui.components.SharedPosterSource.select(cardSlot, sharedKey)
         openItem()
     }
     RevealOnMount("${item.media.stableKey}:${item.season}:${item.episodeNumber}") {

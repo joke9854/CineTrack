@@ -467,9 +467,11 @@ private suspend fun extractPosterAccent(context: android.content.Context, url: S
             for (x in 0 until bitmap.width step 2) {
                 AndroidColor.colorToHSV(bitmap.getPixel(x, y), hsv)
                 counted++
-                if (hsv[1] < .30f || hsv[2] < .22f) continue
+                // Muted tones count too (a green-tinted sky), weighted by saturation squared
+                // so vivid areas still win; near-black and near-white pixels are ignored.
+                if (hsv[1] < .10f || hsv[2] < .15f || hsv[2] > .97f) continue
                 val band = ((hsv[0] / 30f).toInt()).coerceIn(0, 11)
-                val weight = (hsv[1] * hsv[2]).toDouble()
+                val weight = (hsv[1] * hsv[1] * hsv[2]).toDouble()
                 weights[band] += weight
                 sums[band][0] += hsv[1] * weight
                 sums[band][1] += hsv[2] * weight
@@ -478,7 +480,7 @@ private suspend fun extractPosterAccent(context: android.content.Context, url: S
         }
         val best = weights.indices.maxByOrNull { weights[it] } ?: return@runCatching null
         // Too little colour overall: leave the app accent.
-        if (counted == 0 || weights[best] / counted < .035) return@runCatching null
+        if (counted == 0 || weights[best] / counted < .004) return@runCatching null
         val hue = (sums[best][2] / weights[best]).toFloat()
         val saturation = (sums[best][0] / weights[best]).toFloat().coerceIn(.45f, .75f)
         Color(AndroidColor.HSVToColor(floatArrayOf(hue, saturation, .82f)))
@@ -604,7 +606,7 @@ fun MediaPoster(
             indication = null,
             role = if (selectionMode) Role.Checkbox else Role.Button,
             onClick = {
-                SharedPosterSource.active = posterSlot
+                SharedPosterSource.select(posterSlot, media.stableKey)
                 onClick()
             },
             onLongClick = {

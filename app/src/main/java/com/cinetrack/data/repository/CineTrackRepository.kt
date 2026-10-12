@@ -733,8 +733,17 @@ class CineTrackRepository(
         com.cinetrack.domain.DiscoverPage(cards, page < 500 && responses.any { page < it.second.totalPages })
     }
 
-    suspend fun discoverMovies(filters: DiscoverMovieFilters): List<MediaCard> = coroutineScope {
+    suspend fun discoverMovies(filters: DiscoverMovieFilters): List<MediaCard> = discoverBatch(filters, 1).items
+
+    /**
+     * One batch of discover results: batch n covers TMDB pages 3n-2..3n. [DiscoverPage.hasMore]
+     * says whether TMDB has pages beyond this batch, so the mosaic can keep loading.
+     */
+    suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int): com.cinetrack.domain.DiscoverPage = coroutineScope {
         check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
+        val firstPage = (batch - 1) * 3 + 1
+        // Unknown until TMDB answers; each response narrows it.
+        var totalPages = Int.MAX_VALUE
         val allowedRegions = preferences.contentRegions.first()
         val hiddenDiscovery = preferences.hiddenDiscovery.first()
         val regionQuery = allowedRegions.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("|")
@@ -746,10 +755,12 @@ class CineTrackRepository(
         val decadeFrom = filters.dateFrom ?: filters.decadeStart?.let { "$it-01-01" }
         val decadeTo = filters.dateTo ?: filters.decadeStart?.let { "${it + 9}-12-31" }
         val minimumVotes = filters.minimumVotes ?: filters.minimumRating?.let { 50 }
-        val entities = (1..3).flatMap { page ->
+        val entities = (firstPage until firstPage + 3).filter { it <= 500 }.flatMap { page ->
+            if (page > totalPages) return@flatMap emptyList()
             val window = filters.trendingWindow
             if (window != null) {
-                services.tmdb.trending(if (filters.mediaType == MediaType.TV) "tv" else "movie", window, page).results
+                services.tmdb.trending(if (filters.mediaType == MediaType.TV) "tv" else "movie", window, page)
+                    .also { totalPages = it.totalPages }.results
                     .filter { dto -> filters.genreIds.isEmpty() || dto.genreIds.any(filters.genreIds::contains) }
             } else if (filters.mediaType == MediaType.TV) {
                 services.tmdb.discoverTv(
@@ -768,7 +779,7 @@ class CineTrackRepository(
                     dateFrom = decadeFrom,
                     dateTo = decadeTo,
                     page = page,
-                ).results
+                ).also { totalPages = it.totalPages }.results
             } else {
                 services.tmdb.discoverMovies(
                     originCountries = regionQuery,
@@ -786,7 +797,7 @@ class CineTrackRepository(
                     dateFrom = decadeFrom,
                     dateTo = decadeTo,
                     page = page,
-                ).results
+                ).also { totalPages = it.totalPages }.results
             }
         }.filter { dto ->
             val regionAllowed = allowedRegions.isEmpty() || dto.originCountries.isEmpty() || dto.originCountries.any(allowedRegions::contains)
@@ -799,10 +810,12 @@ class CineTrackRepository(
         }.distinctBy(TmdbMediaDto::id)
             .map { it.toEntity(filters.mediaType) }
         database.mediaDao().upsertMedia(entities)
-        entities.map { entity -> entity.toDomain(states["${entity.mediaType}:${entity.tmdbId}"]) }
+        val items = entities.map { entity -> entity.toDomain(states["${entity.mediaType}:${entity.tmdbId}"]) }
             .filterNot { it.stableKey in hiddenDiscovery }
             .filterNot { filters.hideWatched && (it.watched || it.status == LibraryStatus.COMPLETED) }
             .filterNot { filters.hideDropped && it.status == LibraryStatus.DROPPED }
+        val lastPage = firstPage + 2
+        com.cinetrack.domain.DiscoverPage(items, lastPage < 500 && lastPage < totalPages)
     }
 
     suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String? = null, failOnError: Boolean = false): List<StreamingProvider> {

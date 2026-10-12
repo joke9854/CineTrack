@@ -151,6 +151,8 @@ fun DiscoverScreen(
     onCompactNav: (Boolean) -> Unit,
     mosaicResults: Pair<com.cinetrack.domain.DiscoverMovieFilters, List<MediaCard>>? = null,
     onMosaicQuery: (com.cinetrack.domain.DiscoverMovieFilters) -> Unit = {},
+    mosaicCanLoadMore: Boolean = false,
+    onMosaicMore: () -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
@@ -180,11 +182,13 @@ fun DiscoverScreen(
     // Film / Serie turns the grid like a page, from the side of the new choice.
     val mosaicSlide = rememberDirectionalSlide(if (mosaicTv) 1 else 0)
     val mosaicItems = remember(state.rails, mosaicTv, mosaicQuery, mosaicResults) {
+        val defaultView = mosaicGenres.isEmpty() &&
+            ((mosaicKind == MosaicKind.TRENDING && mosaicWindow == MosaicWindow.DAY) || (mosaicKind == MosaicKind.POPULAR && mosaicWindow == MosaicWindow.ALL))
         when {
-            // The default views are the rails Discover already loaded.
-            mosaicQuery == null && mosaicKind == MosaicKind.POPULAR -> state.rails[if (mosaicTv) RailIds.POPULAR_TV else RailIds.POPULAR_MOVIES].orEmpty()
-            mosaicQuery == null -> state.rails[if (mosaicTv) RailIds.TRENDING_TV else RailIds.TRENDING_MOVIES].orEmpty()
-            mosaicResults?.first == mosaicQuery -> mosaicResults.second
+            mosaicResults != null && mosaicQuery != null && mosaicResults.first == mosaicQuery -> mosaicResults.second
+            // Until the first batch arrives the default views show the rows Discover already loaded.
+            defaultView && mosaicKind == MosaicKind.POPULAR -> state.rails[if (mosaicTv) RailIds.POPULAR_TV else RailIds.POPULAR_MOVIES].orEmpty()
+            defaultView -> state.rails[if (mosaicTv) RailIds.TRENDING_TV else RailIds.TRENDING_MOVIES].orEmpty()
             else -> emptyList()
         }.distinctBy(MediaCard::stableKey)
     }
@@ -265,6 +269,13 @@ fun DiscoverScreen(
                     Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xxl))
                 }
                 if (mosaic) mosaicGrid(mosaicItems, MosaicActions(onMedia, onStatus, onNotInterested), mosaicSlide)
+                // Reaching the end asks for the next batch while TMDB has more.
+                if (mosaic && mosaicItems.isNotEmpty() && mosaicCanLoadMore && mosaicResults?.first == mosaicQuery) item(key = "mosaic_more") {
+                    LaunchedEffect(mosaicItems.size) { onMosaicMore() }
+                    Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), color = TextMuted, strokeWidth = 2.dp)
+                    }
+                }
                 if (!mosaic && heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested, loadTagline, state.metadataLanguage) }
                 if (state.allMedia.isEmpty() && !state.loading) item {
                     Text(
@@ -320,8 +331,6 @@ private data class MosaicChoice(val tv: Boolean, val kind: MosaicKind, val windo
 
 /** TMDB query for a Mosaic choice; null for the default views Discover has already loaded. */
 private fun mosaicFilters(tv: Boolean, kind: MosaicKind, window: MosaicWindow, genres: Set<Int>, today: java.time.LocalDate): com.cinetrack.domain.DiscoverMovieFilters? {
-    if (genres.isEmpty() && kind == MosaicKind.TRENDING && window == MosaicWindow.DAY) return null
-    if (genres.isEmpty() && kind == MosaicKind.POPULAR && window == MosaicWindow.ALL) return null
     val base = com.cinetrack.domain.DiscoverMovieFilters(mediaType = if (tv) MediaType.TV else MediaType.MOVIE, genreIds = genres)
     // Past windows end today; upcoming windows start tomorrow.
     val since = when (window) {
@@ -568,7 +577,7 @@ private fun MosaicTile(media: MediaCard, wide: Boolean, modifier: Modifier, acti
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    com.cinetrack.ui.components.SharedPosterSource.active = posterSlot
+                    com.cinetrack.ui.components.SharedPosterSource.select(posterSlot, media.stableKey)
                     actions.onMedia(media)
                 },
                 onLongClick = {
@@ -745,7 +754,7 @@ internal fun HeroCard(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
-                    com.cinetrack.ui.components.SharedPosterSource.active = coverSlot
+                    com.cinetrack.ui.components.SharedPosterSource.select(coverSlot, media.stableKey)
                     onMedia(media)
                 },
                 onLongClick = {

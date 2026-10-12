@@ -115,6 +115,11 @@ class CineTrackViewModel(
     private val pendingEpisodeEdits = PendingEpisodeEdits()
     private val detailCastCache = BoundedLruCache<String, List<PersonCard>>(32)
     private val detailMediaCache = BoundedLruCache<String, MediaCard>(64)
+    // Rows of a detail page, kept so going back to it shows the same page at once.
+    private val detailCollectionCache = BoundedLruCache<String, List<MediaCard>>(32)
+    private val detailRecommendationsCache = BoundedLruCache<String, List<MediaCard>>(32)
+    // Titles opened from rows that are not in the library, so their page can draw at once.
+    private val openedMediaCache = BoundedLruCache<String, MediaCard>(32)
     private val detailRatingsCache = BoundedLruCache<String, List<RatingScore>>(64)
     private val detailEpisodeCache = BoundedLruCache<Int, List<EpisodeCard>>(32)
     private val _state = MutableStateFlow(
@@ -210,6 +215,11 @@ class CineTrackViewModel(
     private val _mosaicResults = MutableStateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?>(null)
     val mosaicResults: StateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?> = _mosaicResults.asStateFlow()
     private val mosaicCache = mutableMapOf<DiscoverMovieFilters, List<MediaCard>>()
+    // Next batch to load for each mosaic view; absent once TMDB has no more.
+    private val mosaicNextBatch = mutableMapOf<DiscoverMovieFilters, Int>()
+    private var mosaicMoreJob: Job? = null
+    private val _mosaicCanLoadMore = MutableStateFlow(false)
+    val mosaicCanLoadMore: StateFlow<Boolean> = _mosaicCanLoadMore.asStateFlow()
     private var mosaicJob: kotlinx.coroutines.Job? = null
     private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
@@ -528,16 +538,47 @@ class CineTrackViewModel(
     }
 
     fun loadMosaic(filters: DiscoverMovieFilters) {
-        mosaicCache[filters]?.let { _mosaicResults.value = filters to it; return }
+        mosaicCache[filters]?.let {
+            _mosaicResults.value = filters to it
+            _mosaicCanLoadMore.value = filters in mosaicNextBatch
+            return
+        }
         mosaicJob?.cancel()
+        mosaicMoreJob?.cancel()
+        _mosaicCanLoadMore.value = false
         mosaicJob = viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discover(filters) } }
-                .onSuccess {
-                    if (mosaicCache.size > 24) mosaicCache.clear()
-                    mosaicCache[filters] = it
-                    _mosaicResults.value = filters to it
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, 1) } }
+                .onSuccess { page ->
+                    if (mosaicCache.size > 24) {
+                        mosaicCache.clear()
+                        mosaicNextBatch.clear()
+                    }
+                    mosaicCache[filters] = page.items
+                    if (page.hasMore) mosaicNextBatch[filters] = 2 else mosaicNextBatch.remove(filters)
+                    _mosaicResults.value = filters to page.items
+                    _mosaicCanLoadMore.value = page.hasMore
                 }
                 .onFailure { if (it !is kotlinx.coroutines.CancellationException) _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    /** Appends the next batch to the mosaic on screen; called as its end scrolls into view. */
+    fun loadMoreMosaic() {
+        val filters = _mosaicResults.value?.first ?: return
+        val batch = mosaicNextBatch[filters] ?: return
+        if (mosaicMoreJob?.isActive == true) return
+        mosaicMoreJob = viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, batch) } }
+                .onSuccess { page ->
+                    val merged = (mosaicCache[filters].orEmpty() + page.items).distinctBy(MediaCard::stableKey)
+                    mosaicCache[filters] = merged
+                    // A batch that added nothing new (all duplicates or hidden) still moves on.
+                    if (page.hasMore) mosaicNextBatch[filters] = batch + 1 else mosaicNextBatch.remove(filters)
+                    if (_mosaicResults.value?.first == filters) {
+                        _mosaicResults.value = filters to merged
+                        _mosaicCanLoadMore.value = page.hasMore
+                    }
+                }
         }
     }
 
@@ -1375,8 +1416,20 @@ class CineTrackViewModel(
         ?: withContext(Dispatchers.IO) { mediaRepository.loadAllEpisodes(show) }.also { if (it.isNotEmpty()) detailEpisodeCache[show.id] = it }
     suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard? = withContext(Dispatchers.IO) { mediaRepository.loadEpisode(show, season, number) }
     suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodeCast(show, season, number) }
+    fun cachedCollection(media: MediaCard): List<MediaCard> = detailCollectionCache[media.stableKey].orEmpty()
+    fun cachedRecommendations(media: MediaCard): List<MediaCard> = detailRecommendationsCache[media.stableKey].orEmpty()
     suspend fun loadCollection(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadCollection(media) }
+        .also { if (it.isNotEmpty()) detailCollectionCache[media.stableKey] = it }
     suspend fun loadRecommendations(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadRecommendations(media) }
+        .also { if (it.isNotEmpty()) detailRecommendationsCache[media.stableKey] = it }
+
+    /** Remembers a title being opened, so its page can draw before it is loaded. */
+    fun rememberOpened(media: MediaCard) {
+        openedMediaCache[media.stableKey] = media
+    }
+
+    fun openedMedia(type: MediaType, id: Int): MediaCard? =
+        openedMediaCache["${type.name}:$id"] ?: detailMediaCache["${type.name}:$id"]
     suspend fun loadTrailerKey(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTrailerKey(media) }
 
     fun setBackgroundSync(enabled: Boolean) {
