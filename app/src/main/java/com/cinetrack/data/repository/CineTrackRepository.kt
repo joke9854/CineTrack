@@ -95,6 +95,7 @@ import kotlinx.coroutines.delay
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
@@ -742,10 +743,15 @@ class CineTrackRepository(
         val excludedGenreQuery = filters.excludedGenreIds.takeIf { it.isNotEmpty() }?.sorted()?.joinToString(",")
         val providerQuery = filters.providerIds.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("|")
         val watchRegion = effectiveProviderRegion()
-        val decadeFrom = filters.decadeStart?.let { "$it-01-01" }
-        val decadeTo = filters.decadeStart?.let { "${it + 9}-12-31" }
+        val decadeFrom = filters.dateFrom ?: filters.decadeStart?.let { "$it-01-01" }
+        val decadeTo = filters.dateTo ?: filters.decadeStart?.let { "${it + 9}-12-31" }
+        val minimumVotes = filters.minimumVotes ?: filters.minimumRating?.let { 50 }
         val entities = (1..3).flatMap { page ->
-            if (filters.mediaType == MediaType.TV) {
+            val window = filters.trendingWindow
+            if (window != null) {
+                services.tmdb.trending(if (filters.mediaType == MediaType.TV) "tv" else "movie", window, page).results
+                    .filter { dto -> filters.genreIds.isEmpty() || dto.genreIds.any(filters.genreIds::contains) }
+            } else if (filters.mediaType == MediaType.TV) {
                 services.tmdb.discoverTv(
                     originCountries = regionQuery,
                     sortBy = filters.sortBy.replace("primary_release_date", "first_air_date"),
@@ -753,7 +759,8 @@ class CineTrackRepository(
                     genreIds = genreQuery,
                     excludedGenreIds = excludedGenreQuery,
                     minimumRating = filters.minimumRating,
-                    minimumVotes = filters.minimumRating?.let { 50 },
+                    minimumVotes = minimumVotes,
+                    maximumVotes = filters.maximumVotes,
                     providerIds = providerQuery,
                     watchRegion = watchRegion,
                     maximumRuntime = filters.maximumRuntime,
@@ -770,7 +777,8 @@ class CineTrackRepository(
                     genreIds = genreQuery,
                     excludedGenreIds = excludedGenreQuery,
                     minimumRating = filters.minimumRating,
-                    minimumVotes = filters.minimumRating?.let { 50 },
+                    minimumVotes = minimumVotes,
+                    maximumVotes = filters.maximumVotes,
                     providerIds = providerQuery,
                     watchRegion = watchRegion,
                     maximumRuntime = filters.maximumRuntime,
@@ -876,6 +884,9 @@ class CineTrackRepository(
         val quietHoursStartDeferred = async { preferences.quietHoursStart.first() }
         val quietHoursEndDeferred = async { preferences.quietHoursEnd.first() }
         val heroLayoutDeferred = async { preferences.heroLayout.first() }
+        val discoverLayoutDeferred = async { preferences.discoverLayout.first() }
+        val seasonPickerDeferred = async { preferences.seasonPicker.first() }
+        val posterAccentDeferred = async { preferences.posterAccent.first() }
         val posterFormatDeferred = async { preferences.posterFormat.first() }
         val posterSizeDeferred = async { preferences.posterSize.first() }
         val cardDensityDeferred = async { preferences.cardDensity.first() }
@@ -1064,7 +1075,12 @@ class CineTrackRepository(
                     excludeSpecials = excludeSpecials,
                 )
             }
-val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
+            // Latest viewing first, so a show advanced locally stays on top
+            // without waiting for a sync to rewrite the library rail order.
+            .sortedWith { left, right ->
+                compareProgressAttention(left, right, latestWatchedAtByShow, releaseNow.toEpochMilli(), releaseZone)
+            }
+        val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutableList()
         val movieKeys = moviePlayback.map { it.media.stableKey }.toSet()
         moviePlayback += rails[RailIds.LIBRARY].orEmpty()
             .filter { it.type == MediaType.MOVIE && it.status == LibraryStatus.WATCHING && it.stableKey !in movieKeys }
@@ -1113,10 +1129,14 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
             metadataRegion = metadataRegionDeferred.await(),
             providerRegion = providerRegionDeferred.await(),
             metadataTimezone = metadataTimezoneDeferred.await(),
+            simklUsername = preferences.simklUsername.first(),
             excludeSpecials = excludeSpecials,
             preferredProviders = preferredProvidersDeferred.await(),
             visibleProviderTypes = visibleProviderTypesDeferred.await(),
             heroLayout = heroLayoutDeferred.await(),
+            discoverLayout = discoverLayoutDeferred.await(),
+            seasonPicker = seasonPickerDeferred.await(),
+            posterAccent = posterAccentDeferred.await(),
             posterFormat = posterFormatDeferred.await(),
             posterSize = posterSizeDeferred.await(),
             cardDensity = cardDensityDeferred.await(),
@@ -2774,6 +2794,7 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
                     stillUrl = it.stillPath?.let { path -> "https://image.tmdb.org/t/p/w1280$path" },
                     runtimeMinutes = it.runtime,
                     watched = watched,
+                    score = it.voteAverage?.takeIf { score -> score > 0 },
                 ).also { episode -> database.mediaDao().upsertEpisodes(listOf(episode.toEntity())) }
             }
         }.getOrNull() ?: cached
@@ -2949,7 +2970,14 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
             onTokenChanged(preferences.tokenNow())
         }
 
+    /** Reads the Simkl account name for the Settings page; null when it cannot be read. */
+    suspend fun refreshSimklUsername(): String? =
+        runCatching { services.simklSync.userSettings().user?.name?.trim() }.getOrNull()
+            ?.takeIf(String::isNotBlank)
+            ?.also { preferences.setSimklUsername(it) }
+
     suspend fun disconnectSimkl() {
+        preferences.setSimklUsername(null)
         preferences.setToken(null)
         database.syncDao().delete("all")
         onTokenChanged(null)
@@ -3144,6 +3172,9 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
                 put("providerRegion", state.providerRegion)
                 put("visibleProviderTypes", state.visibleProviderTypes.sorted().joinToString("|"))
                 put("heroLayout", state.heroLayout)
+                put("discoverLayout", state.discoverLayout)
+                put("seasonPicker", state.seasonPicker)
+                put("posterAccent", state.posterAccent)
                 put("posterFormat", state.posterFormat)
                 put("posterSize", state.posterSize)
                 put("cardDensity", state.cardDensity)
@@ -3186,7 +3217,9 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
     suspend fun restoreAutomaticBackup(): Int = restoreBackupFiles(preferences.readAutomaticBackup())
 
     /** Validates the complete archive before a single Room row is changed. */
-    suspend fun restoreBackupFiles(files: Map<String, String>): Int {
+    /** [onStage] is told "verify" before checksums are checked and "write" before the database write. */
+    suspend fun restoreBackupFiles(files: Map<String, String>, onStage: (String) -> Unit = {}): Int {
+        onStage("verify")
         val manifestText = files["manifest.json"] ?: error("Backup manifest is missing")
         val manifest = Json.parseToJsonElement(manifestText).jsonObject
         check(manifest["formatVersion"]?.jsonPrimitive?.contentOrNull?.startsWith("1.") == true) {
@@ -3261,6 +3294,7 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
         ).joinToString(":")
         val existingHistoryKeys = database.timelineDao().historySnapshot().mapTo(mutableSetOf()) { it.restoreKey() }
         val historyToInsert = history.distinctBy { it.restoreKey() }.filter { existingHistoryKeys.add(it.restoreKey()) }
+        onStage("write")
         database.withTransaction {
             if (media.isNotEmpty()) database.mediaDao().upsertMedia(media.distinctBy { "${it.mediaType}:${it.tmdbId}" })
             if (states.isNotEmpty()) database.stateDao().upsertAll(states.distinctBy { "${it.mediaType}:${it.mediaId}" })
@@ -3300,6 +3334,9 @@ val moviePlayback = playback.filter { it.media.type == MediaType.MOVIE }.toMutab
             saved["visibleProviderTypes"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?.let { preferences.setVisibleProviderTypes(it) }
             saved["heroLayout"]?.jsonPrimitive?.contentOrNull?.let { preferences.setHeroLayout(it) }
+            saved["discoverLayout"]?.jsonPrimitive?.contentOrNull?.let { preferences.setDiscoverLayout(it) }
+            saved["seasonPicker"]?.jsonPrimitive?.contentOrNull?.let { preferences.setSeasonPicker(it) }
+            saved["posterAccent"]?.jsonPrimitive?.booleanOrNull?.let { preferences.setPosterAccent(it) }
             saved["posterFormat"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterFormat(it) }
             saved["posterSize"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterSize(it) }
             saved["cardDensity"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCardDensity(it) }

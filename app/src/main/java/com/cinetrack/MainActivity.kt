@@ -30,6 +30,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Leaving the app is when the home screen widget becomes visible again.
+        UpNextWidgetProvider.refresh(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)

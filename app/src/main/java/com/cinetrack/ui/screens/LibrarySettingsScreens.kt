@@ -2,6 +2,53 @@
 
 package com.cinetrack.ui.screens
 
+import com.cinetrack.ui.components.tonalPill
+import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Restore
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.Bedtime
+import androidx.compose.material.icons.filled.NotificationsOff
+import androidx.compose.material.icons.filled.Public
+import androidx.compose.material.icons.filled.Place
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.Upload
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.animation.core.tween
+import com.cinetrack.ui.components.directionalSlide
+import com.cinetrack.ui.components.rememberDirectionalSlide
+import com.cinetrack.ui.components.slidingTabIndicator
+import com.cinetrack.ui.components.tabSpan
+import com.cinetrack.ui.components.rememberTabIndicator
+import com.cinetrack.ui.components.sharedPoster
+import com.cinetrack.ui.components.softTab
+import androidx.compose.ui.graphics.graphicsLayer
+import com.cinetrack.ui.components.collapsingTitle
+import com.cinetrack.ui.components.pinnedHeader
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.zIndex
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material.icons.filled.ViewList
+import androidx.compose.material.icons.filled.GridView
+import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.graphics.Brush
+import com.cinetrack.ui.components.liquidGlass
+import com.cinetrack.ui.components.liquidGlassIcon
+import com.cinetrack.ui.components.liquidGlassPill
+import androidx.compose.ui.graphics.compositeOver
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -190,6 +237,7 @@ object SettingsPages {
 private const val FLOPPY_API_GUIDE_URL = "https://github.com/dannyvfilms/Floppy/wiki/7.-API-and-MCP-Server"
 private const val TMDB_API_KEY_URL = "https://www.themoviedb.org/settings/api"
 private const val MDBLIST_API_KEY_URL = "https://mdblist.com/preferences"
+private const val TRAKT_API_APPS_URL = "https://trakt.tv/oauth/applications"
 
 private enum class LibraryOrder { TITLE, RATING, YEAR, RECENTLY_WATCHED, RECENTLY_ADDED }
 
@@ -211,8 +259,11 @@ fun LibraryScreen(
     var bulkMode by rememberSaveable { mutableStateOf(false) }
     var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
     var showBulkSheet by rememberSaveable { mutableStateOf(false) }
+    var listView by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
     NavCollapseGridEffect(gridState, onCompactNav)
+    NavCollapseEffect(listState, onCompactNav)
     val typeItems = state.rails[RailIds.LIBRARY].orEmpty().filter { it.type == type }
     val filteredItems = typeItems.filter { status == null || it.status == status }
     val watchedAtByKey = remember(state.history) {
@@ -249,76 +300,151 @@ fun LibraryScreen(
             onRefresh = onRefreshArtwork,
             enabled = state.tmdbApiConfigured,
         ) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-                PageTitle(stringResource(R.string.library), Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).glassIcon()) {
-                        Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
-                    }
-                    IconButton(onClick = rememberUiAction { showOrderSheet = true }, modifier = Modifier.size(48.dp).glassIcon()) {
-                        Icon(Icons.Filled.Sort, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(21.dp))
-                    }
-                    if (state.libraryArtworkProgress != null && !state.libraryArtworkProgressVisible) {
-                        IconButton(onClick = rememberUiAction(onRefreshArtwork), modifier = Modifier.size(48.dp).glassIcon()) {
-                            Icon(Icons.Filled.Refresh, stringResource(R.string.refresh), tint = AccentLight, modifier = Modifier.size(21.dp))
+        Box(Modifier.fillMaxSize().statusBarsPadding()) {
+            val statusIndex = filterChoices.indexOfFirst { it.first == status }.coerceAtLeast(0)
+            // Each tab keeps its own scroll position. The grid would otherwise keep the
+            // first visible item by key, which lands mid-list when returning to "Tutti".
+            val tabScroll = remember { mutableMapOf<String, Pair<Int, Int>>() }
+            var shownTab by remember { mutableStateOf("$type:$status") }
+            val currentTab = "$type:$status"
+            if (shownTab != currentTab) {
+                tabScroll[shownTab] = if (listView) listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
+                else gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
+                shownTab = currentTab
+                val (index, offset) = tabScroll[currentTab] ?: (0 to 0)
+                gridState.requestScrollToItem(index, offset)
+                listState.requestScrollToItem(index, offset)
+            }
+            // Warm the image cache with the first posters of every tab, so switching tabs
+            // shows artwork straight away instead of popping it in.
+            val prefetchContext = LocalContext.current
+            val posterPx = with(androidx.compose.ui.platform.LocalDensity.current) {
+                val columns = com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)
+                ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 40.dp - 12.dp * (columns - 1)) / columns).roundToPx()
+            }
+            LaunchedEffect(typeItems, posterPx) {
+                val loader = coil.Coil.imageLoader(prefetchContext)
+                filterChoices.forEach { (value, _, _) ->
+                    typeItems.filter { value == null || it.status == value }.take(12).forEach { media ->
+                        media.posterUrl?.let { url ->
+                            loader.enqueue(coil.request.ImageRequest.Builder(prefetchContext).data(url).size(posterPx, posterPx * 3 / 2).build())
                         }
                     }
                 }
             }
-            Row(
-                Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            val typeSlide = rememberDirectionalSlide(if (type == MediaType.TV) 0 else 1)
+            val statusSlide = rememberDirectionalSlide(statusIndex)
+            val scrollToTop = {
+                gridState.requestScrollToItem(0)
+                listState.requestScrollToItem(0)
+                onCompactNav(false)
+            }
+            // As in Progress: the headline row scrolls away, tabs and toolbar stay pinned.
+            var titlePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            var headerPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            val headerScroll = remember(listView) {
+                {
+                    if (listView) { if (listState.firstVisibleItemIndex > 0) Int.MAX_VALUE else listState.firstVisibleItemScrollOffset }
+                    else { if (gridState.firstVisibleItemIndex > 0) Int.MAX_VALUE else gridState.firstVisibleItemScrollOffset }
+                }
+            }
+            Column(
+                Modifier.zIndex(1f).fillMaxWidth()
+                    .onSizeChanged { headerPx = it.height }
+                    .pinnedHeader({ titlePx }, headerScroll),
             ) {
+            // Headline toggle (Serie TV / Film) and the list / grid switch.
+            Row(Modifier.fillMaxWidth().onSizeChanged { titlePx = it.height }.collapsingTitle({ titlePx }, headerScroll).padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                 listOf(MediaType.TV, MediaType.MOVIE).forEach { item ->
                     val selected = item == type
-                    Row(
-                        Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-                            .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
-                            .clickable {
-                                if (selected) {
-                                    gridState.requestScrollToItem(0)
-                                    onCompactNav(false)
-                                } else type = item
-                            },
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(if (item == MediaType.TV) Icons.Filled.Tv else Icons.Filled.Movie, null, tint = if (selected) AccentLight else TextMuted, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.size(6.dp))
-                        val count = state.rails[RailIds.LIBRARY].orEmpty().count { it.type == item }
-                        Text("${if (item == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)} · $count", color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
+                    val headlineColor by androidx.compose.animation.animateColorAsState(
+                        if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),
+                        tween(com.cinetrack.ui.theme.Motion.Extended),
+                        label = "libraryHeadline",
+                    )
+                    Text(
+                        stringResource(if (item == MediaType.TV) R.string.tv_shows else R.string.movies),
+                        color = headlineColor,
+                        style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.ExtraBold,
+                        modifier = Modifier.padding(end = 18.dp).softTab(selected) {
+                            if (selected) scrollToTop() else type = item
+                        },
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                Row(Modifier.height(44.dp).liquidGlassPill().padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+                    listOf(true to Icons.Filled.ViewList, false to Icons.Filled.GridView).forEach { (list, icon) ->
+                        val active = listView == list
+                        Box(
+                            Modifier.size(38.dp).clip(CircleShape).background(if (active) Accent.copy(alpha = .30f) else Color.Transparent)
+                                .selectable(selected = active, role = Role.RadioButton) { listView = list },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(icon, stringResource(if (list) R.string.view_list else R.string.view_grid), tint = if (active) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             }
-            LazyRow(contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(
-                    filterChoices,
-                    key = { (value, _, _) -> value?.name ?: "all" },
-                ) { (value, label, color) ->
+            // Status as underlined tabs with counts; one underline glides between them.
+            val indicator = rememberTabIndicator()
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = com.cinetrack.ui.theme.Spacing.xl)
+                    .slidingTabIndicator(indicator, statusIndex),
+                horizontalArrangement = Arrangement.spacedBy(20.dp),
+            ) {
+                filterChoices.forEachIndexed { index, (value, label, _) ->
                     val selected = status == value
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }
+                    val labelColor by androidx.compose.animation.animateColorAsState(
+                        if (selected) TextPrimary else TextPrimary.copy(alpha = .5f),
+                        tween(com.cinetrack.ui.theme.Motion.Long),
+                        label = "libraryTabLabel",
+                    )
                     Row(
-                        modifier = Modifier.heightIn(min = 48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-                            .background(if (selected) Accent.copy(alpha = .25f) else Color.Transparent)
-                            .clickable {
-                                if (selected) {
-                                    gridState.requestScrollToItem(0)
-                                    onCompactNav(false)
-                                } else status = value
-                            }.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
+                        Modifier.tabSpan(indicator, index)
+                            .softTab(selected) { if (selected) scrollToTop() else status = value }
+                            .heightIn(min = 44.dp)
+                            .padding(vertical = 12.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(7.dp),
                     ) {
-                        if (value != null) Box(Modifier.size(8.dp).clip(CircleShape).background(color))
-                        Text("$label · $count", color = if (selected) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        Text(label, color = labelColor, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1)
+                        Spacer(Modifier.width(5.dp))
+                        Text(count.toString(), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .08f)))
+            // Sort chip, search, artwork refresh and bulk edit.
+            Row(
+                Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.xs),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Row(
+                    Modifier.height(40.dp).liquidGlassPill().clickable(onClick = rememberUiAction { showOrderSheet = true }).padding(start = 14.dp, end = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(libraryOrderLabel(order), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    Spacer(Modifier.width(4.dp))
+                    Icon(Icons.Filled.ExpandMore, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(16.dp))
+                }
                 Spacer(Modifier.weight(1f))
-                TextButton(onClick = { bulkMode = !bulkMode; selectedKeys = emptySet() }) {
-                    Text(stringResource(if (bulkMode) R.string.cancel else R.string.bulk_edit), color = TextPrimary)
+                IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                    Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(19.dp))
+                }
+                if (state.libraryArtworkProgress != null && !state.libraryArtworkProgressVisible) {
+                    IconButton(onClick = rememberUiAction(onRefreshArtwork), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                        Icon(Icons.Filled.Refresh, stringResource(R.string.refresh), tint = AccentLight, modifier = Modifier.size(19.dp))
+                    }
+                }
+                IconButton(onClick = { bulkMode = !bulkMode; selectedKeys = emptySet() }, modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                    Icon(
+                        if (bulkMode) Icons.Filled.Close else Icons.Filled.Checklist,
+                        stringResource(if (bulkMode) R.string.cancel else R.string.bulk_edit),
+                        tint = if (bulkMode) AccentLight else TextSecondary,
+                        modifier = Modifier.size(19.dp),
+                    )
                 }
             }
             if (bulkMode) {
@@ -329,8 +455,11 @@ fun LibraryScreen(
                     enabled = selectedKeys.isNotEmpty(),
                 ) { showBulkSheet = true }
             }
+            }
+            val headerHeight = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
+            Box(Modifier.fillMaxSize().directionalSlide(typeSlide, statusSlide)) {
             if (items.isEmpty()) {
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize().padding(top = headerHeight), contentAlignment = Alignment.Center) {
                     Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.AutoAwesome, null, tint = AccentLight, modifier = Modifier.size(40.dp))
                         Text(stringResource(if (status != null) R.string.library_no_matches else R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
@@ -339,11 +468,16 @@ fun LibraryScreen(
                         else TextButton(onClick = onSearch) { Text(stringResource(R.string.accessibility_search), color = TextPrimary) }
                     }
                 }
+            } else if (listView) {
+                val statusLabels = filterChoices.mapNotNull { (value, label, _) -> value?.let { it to label } }.toMap()
+                LibraryList(items, listState, bulkMode, selectedKeys, progressByKey, statusLabels, onMedia, topPadding = headerHeight) { media ->
+                    selectedKeys = if (media.stableKey in selectedKeys) selectedKeys - media.stableKey else selectedKeys + media.stableKey
+                }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                     state = gridState,
-                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
+                    contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = headerHeight + 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
@@ -367,6 +501,7 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
             }
         }
         }
@@ -396,6 +531,70 @@ fun LibraryScreen(
     }
     if (state.libraryArtworkProgressVisible && state.libraryArtworkProgress != null) {
         LibraryArtworkProgressDialog(state.libraryArtworkProgress, onDismissArtworkProgress)
+    }
+}
+
+/** Library list view: poster, year and genre, title, status and progress. */
+@Composable
+private fun LibraryList(
+    items: List<MediaCard>,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    bulkMode: Boolean,
+    selectedKeys: Set<String>,
+    progressByKey: Map<String, Float>,
+    statusLabels: Map<LibraryStatus, String>,
+    onMedia: (MediaCard) -> Unit,
+    topPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    onToggle: (MediaCard) -> Unit,
+) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 4.dp, bottom = 112.dp)) {
+        items(items, key = MediaCard::stableKey) { media ->
+            val selected = bulkMode && media.stableKey in selectedKeys
+            val rowShape = RoundedCornerShape(14.dp)
+            val posterSlot = com.cinetrack.ui.components.rememberPosterSlot()
+            Row(
+                Modifier.fillMaxWidth().clip(rowShape)
+                    .then(if (selected) Modifier.border(1.5.dp, AccentLight, rowShape) else Modifier)
+                    .clickable {
+                        if (bulkMode) onToggle(media)
+                        else {
+                            com.cinetrack.ui.components.SharedPosterSource.active = posterSlot
+                            onMedia(media)
+                        }
+                    }
+                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Box(
+                    Modifier.width(70.dp).height(105.dp).sharedPoster(media.stableKey, posterSlot).shadow(10.dp, RoundedCornerShape(10.dp), clip = false).clip(RoundedCornerShape(10.dp))
+                        .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid))),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val art = media.posterUrl ?: media.backdropUrl
+                    if (!art.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterImage(art, media.title, posterSlot, Modifier.fillMaxSize(), androidx.compose.ui.layout.ContentScale.Crop)
+                    else Text(media.title.take(1).uppercase(), color = TextPrimary.copy(alpha = .8f), style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+                }
+                Spacer(Modifier.width(16.dp))
+                Column(Modifier.weight(1f)) {
+                    val meta = listOfNotNull(media.year.takeIf(String::isNotBlank), media.genres.firstOrNull()).joinToString(" · ")
+                    if (meta.isNotBlank()) Text(meta.uppercase(com.cinetrack.ui.currentLocale()), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, maxLines = 1)
+                    Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    statusLabels[media.status]?.let { label ->
+                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.size(7.dp).clip(CircleShape).background(libraryStatusColor(media.status)))
+                            Spacer(Modifier.width(7.dp))
+                            Text(label, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
+                        }
+                    }
+                    progressByKey[media.stableKey]?.takeIf { it > 0f }?.let { progress ->
+                        Box(Modifier.padding(top = 10.dp).fillMaxWidth().height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .08f))) {
+                            Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Accent))
+                        }
+                    }
+                }
+            }
+            Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .06f)))
+        }
     }
 }
 
@@ -538,31 +737,59 @@ private data class SettingsItem(val page: String, val title: String, val subtitl
 fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (Boolean) -> Unit) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
-    val services = listOf(
-        SettingsItem(SettingsPages.Integrations, stringResource(R.string.integrations),
-            "TMDB · ${stringResource(if (state.tmdbApiConfigured) R.string.configured else R.string.not_configured)}  /  Simkl · ${stringResource(if (state.simklConnected) R.string.connected else R.string.not_connected)}", Icons.Filled.Link),
-        SettingsItem(SettingsPages.Streaming, stringResource(R.string.streaming_services),
-            stringResource(R.string.providers_selected_count, state.preferredProviders.size), Icons.Filled.Tv),
+    val accentName = stringResource(
+        when (com.cinetrack.ui.theme.AccentPalette.normalize(state.uiAccent)) {
+            "green" -> R.string.color_green
+            "silver" -> R.string.color_silver
+            "champagne" -> R.string.color_champagne
+            else -> R.string.color_blue
+        },
     )
+    val layoutName = stringResource(if (state.discoverLayout == "b") R.string.discover_layout_mosaic else R.string.discover_layout_classic)
     val preferences = listOf(
-        SettingsItem(SettingsPages.Appearance, stringResource(R.string.appearance), stringResource(R.string.appearance_summary), Icons.Filled.Palette),
+        SettingsItem(SettingsPages.Appearance, stringResource(R.string.appearance), "$accentName · $layoutName", Icons.Filled.Palette),
         SettingsItem(SettingsPages.Notifications, stringResource(R.string.notifications), stringResource(R.string.notifications_summary), Icons.Filled.Notifications),
         SettingsItem(SettingsPages.Language, stringResource(R.string.language), currentAppLanguageLabel(), Icons.Filled.Language),
     )
     val dataAndDiagnostics = listOf(
-        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_health_summary, state.sync.report.pendingLocalChanges, state.sync.report.failedOperations, state.sync.report.conflicts), Icons.Filled.SyncProblem),
         SettingsItem(SettingsPages.Export, stringResource(R.string.export_data), stringResource(R.string.export_data_summary), Icons.Filled.Download),
+        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_health_summary, state.sync.report.pendingLocalChanges, state.sync.report.failedOperations, state.sync.report.conflicts), Icons.Filled.SyncProblem),
         SettingsItem(SettingsPages.Logs, stringResource(R.string.logs), stringResource(R.string.logs_summary), Icons.Filled.BugReport),
     )
     val more = listOf(SettingsItem(SettingsPages.About, stringResource(R.string.about_app), stringResource(R.string.version_label, BuildConfig.VERSION_NAME), Icons.Filled.Info))
+    val configured = stringResource(R.string.configured)
+    val notConfigured = stringResource(R.string.not_configured)
+    val connected = stringResource(R.string.connected)
+    val notConnected = stringResource(R.string.not_connected)
+    val services = listOf(
+        ServiceStatus("TMDB", SettingsPages.ServiceTmdb, state.tmdbApiConfigured, if (state.tmdbApiConfigured) configured else notConfigured),
+        ServiceStatus("Simkl", SettingsPages.ServiceSimkl, state.simklConnected, if (state.simklConnected) connected else notConnected),
+        ServiceStatus("Trakt", SettingsPages.ServiceTrakt, state.traktConfigured, if (state.traktConfigured) configured else notConfigured),
+        ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyStatusLabel(state.floppyUiState) else notConnected),
+        ServiceStatus("MDBList", SettingsPages.ServiceMdblist, state.mdbListApiConfigured, if (state.mdbListApiConfigured) configured else notConfigured),
+    )
+    // Catalogue, tracking and server get a full brand card; the two add-ons share a row.
+    val featured = services.filter { it.name in setOf("TMDB", "Simkl", "Floppy") }.let { list ->
+        listOf("TMDB", "Simkl", "Floppy").mapNotNull { name -> list.firstOrNull { it.name == name } }
+    }
+    val compact = services.filter { it.name in setOf("Trakt", "MDBList") }
     AdaptiveBackground {
         LazyColumn(
             state = listState,
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(bottom = 112.dp),
         ) {
-            item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg)) }
-            item { SettingsGroup(stringResource(R.string.settings_services), services, onPage) }
+            item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.md)) }
+            // Services first: each one's state at a glance, one tap to set it up.
+            item {
+                Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    SettingsGroupLabel(stringResource(R.string.settings_services))
+                    featured.forEach { ServiceBrandCard(it, onPage) }
+                    Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        compact.forEach { ServiceStatusCard(it, Modifier.weight(1f).fillMaxHeight(), onPage) }
+                    }
+                }
+            }
             item { SettingsGroup(stringResource(R.string.settings_preferences), preferences, onPage) }
             item { SettingsGroup(stringResource(R.string.settings_data), dataAndDiagnostics, onPage) }
             item { SettingsGroup(stringResource(R.string.settings_more), more, onPage) }
@@ -570,15 +797,108 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
     }
 }
 
+private data class ServiceStatus(val name: String, val page: String, val active: Boolean, val status: String, val icon: ImageVector? = null)
+
+@Composable
+private fun ServiceStatusCard(service: ServiceStatus, modifier: Modifier, onPage: (String) -> Unit) {
+    val shape = RoundedCornerShape(18.dp)
+    val clickAction = rememberUiAction { onPage(service.page) }
+    val description = "${service.name}: ${service.status}"
+    Column(
+        modifier.glass(shape).clickable(onClick = clickAction)
+            .semantics(mergeDescendants = true) { contentDescription = description }
+            .padding(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (service.icon != null) {
+                Box(Modifier.size(32.dp).clip(RoundedCornerShape(10.dp)).background(Accent.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
+                    Icon(service.icon, null, tint = AccentLight, modifier = Modifier.size(18.dp))
+                }
+            } else {
+                ServiceLogo(service.name, size = 32.dp)
+            }
+            Spacer(Modifier.weight(1f))
+            StatusDot(service.active)
+        }
+        Spacer(Modifier.height(10.dp))
+        Text(service.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(service.status, color = if (service.active) TextSecondary else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Full-width card in the service's own colours, its mark repeated large and faint on the right. */
+@Composable
+private fun ServiceBrandCard(service: ServiceStatus, onPage: (String) -> Unit) {
+    val shape = RoundedCornerShape(26.dp)
+    val (brush, logo) = when (service.name) {
+        "TMDB" -> Brush.linearGradient(listOf(Color(0xFF0D253F), Color(0xFF0B5C7A), Color(0xFF01B4E4))) to R.drawable.ic_service_tmdb
+        "Simkl" -> Brush.linearGradient(listOf(Color(0xFF151515), Color(0xFF262626), Color(0xFF141414))) to R.drawable.ic_service_simkl
+        else -> Brush.linearGradient(listOf(Color(0xFF0E1B33), Color(0xFF1C2F5C), Color(0xFF14204A))) to R.drawable.floppy_app_icon
+    }
+    val clickAction = rememberUiAction { onPage(service.page) }
+    val description = "${service.name}: ${service.status}"
+    Box(
+        Modifier.fillMaxWidth().height(116.dp).clip(shape).background(brush)
+            .border(.6.dp, Color.White.copy(alpha = .10f), shape)
+            .clickable(onClick = clickAction)
+            .semantics(mergeDescendants = true) { contentDescription = description },
+    ) {
+        Image(
+            painterResource(logo),
+            null,
+            // Rounded like an app icon, so the faint mark has no hard square corners.
+            modifier = Modifier.align(Alignment.CenterEnd).padding(end = 44.dp).size(84.dp)
+                .clip(RoundedCornerShape(24.dp)).graphicsLayer { alpha = .13f },
+        )
+        Column(Modifier.align(Alignment.CenterStart).padding(start = 20.dp, end = 120.dp)) {
+            if (service.name == "Floppy") {
+                // Floppy's official wordmark, mascot included.
+                Image(painterResource(R.drawable.floppy_wordmark), "Floppy", modifier = Modifier.height(42.dp))
+            } else {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    ServiceLogo(service.name, size = 34.dp)
+                    Spacer(Modifier.width(12.dp))
+                    Text(service.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
+                }
+            }
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 10.dp)) {
+                StatusDot(service.active)
+                Spacer(Modifier.width(7.dp))
+                Text(service.status, color = Color.White.copy(alpha = .82f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        Icon(Icons.Filled.ChevronRight, null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp).size(24.dp))
+    }
+}
+
+@Composable
+private fun StatusDot(active: Boolean) {
+    Box(
+        Modifier.size(9.dp).clip(CircleShape)
+            .background(if (active) Color(0xFF5DCAA5) else TextMuted.copy(alpha = .45f)),
+    )
+}
+
+@Composable
+private fun SettingsGroupLabel(label: String) {
+    Text(
+        label.uppercase(com.cinetrack.ui.currentLocale()),
+        color = TextMuted,
+        style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.6.sp,
+        modifier = Modifier.padding(start = 4.dp, top = com.cinetrack.ui.theme.Spacing.sm),
+    )
+}
+
 @Composable
 private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (String) -> Unit) {
     Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
-        com.cinetrack.ui.components.SectionHeader(label)
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) {
-            items.forEachIndexed { index, item ->
+        SettingsGroupLabel(label)
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) {
+            items.forEach { item ->
                 SettingsRow(item, onPage)
-                if (index != items.lastIndex) GlassDivider()
             }
         }
     }
@@ -588,13 +908,11 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val clickAction = rememberUiAction { onPage(item.page) }
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(36.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).background(Accent.copy(alpha = .18f)), contentAlignment = Alignment.Center) {
-            Icon(item.icon, null, tint = AccentLight, modifier = Modifier.size(19.dp))
-        }
-        Spacer(Modifier.size(12.dp))
+        Icon(item.icon, null, tint = TextSecondary, modifier = Modifier.size(21.dp))
+        Spacer(Modifier.size(14.dp))
         Column(Modifier.weight(1f)) {
             Text(item.title, color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
-            Text(item.subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(item.subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
@@ -631,17 +949,27 @@ fun SettingsDetailScreen(
         SettingsPages.Logs -> stringResource(R.string.logs)
         else -> stringResource(R.string.about_app)
     }
+    val brand = serviceBrand(page)
+    if (page == SettingsPages.Appearance) {
+        // Aspetto keeps its preview fixed under the title while the choices scroll.
+        AdaptiveBackground { AppearancePage(title, state, viewModel, onBack) }
+        return
+    }
     AdaptiveBackground {
-        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 32.dp)) {
+        LazyColumn(Modifier.fillMaxSize().statusBarsPadding(), contentPadding = PaddingValues(bottom = 40.dp)) {
             item {
-                Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-                    GlassBackButton(onClick = onBack)
-                    Spacer(Modifier.size(8.dp))
-                    PageTitle(title, Modifier.weight(1f))
+                if (brand != null) {
+                    // Service pages open on a header in the service's own colours.
+                    ServiceHero(brand, state, onBack)
+                } else {
+                    Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
+                        GlassBackButton(onClick = onBack)
+                        Spacer(Modifier.size(8.dp))
+                        PageTitle(title, Modifier.weight(1f))
+                    }
                 }
             }
             item {
-                if (page in setOf(SettingsPages.ServiceSimkl, SettingsPages.ServiceFloppy, SettingsPages.ServiceTmdb, SettingsPages.ServiceMdblist, SettingsPages.ServiceTrakt)) SettingsDetailHero(page, title)
                 when (page) {
                     SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
                     SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
@@ -650,27 +978,21 @@ fun SettingsDetailScreen(
                     SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceFloppy -> FloppySettingsHost(state, viewModel)
                     SettingsPages.ServiceTmdb -> Column {
-                        ApiCredentialSettings("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
+                        CredentialBlock("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(state, viewModel)
-                        ContentRegionSettings(state, viewModel)
-                        SettingsSection(stringResource(R.string.streaming_services)) {
-                            SettingsRow(SettingsItem(SettingsPages.Streaming, stringResource(R.string.preferred_providers), stringResource(R.string.providers_selected_count, state.preferredProviders.size), Icons.Filled.Tv), onPage)
-                        }
+                        ContentRegionSettings(state, viewModel, onPage)
                     }
                     SettingsPages.ServiceMdblist -> Column {
-                        ApiCredentialSettings("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
+                        CredentialBlock("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
                         RatingSettings(state, viewModel)
                     }
                     SettingsPages.ServiceTrakt -> Column {
-                        ApiCredentialSettings("Trakt", state.traktConfigured, viewModel::verifyAndSetTraktClientId)
-                        Text(
-                            stringResource(R.string.trakt_setup_copy),
-                            color = TextMuted,
-                            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-                        )
+                        CredentialBlock("Trakt", state.traktConfigured, viewModel::verifyAndSetTraktClientId)
+                        SettingsSection(stringResource(R.string.section_what_it_adds)) {
+                            KitRow(Icons.Filled.Schedule, stringResource(R.string.trakt_adds_times), stringResource(R.string.trakt_adds_times_sub))
+                            KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.trakt_adds_calendar), stringResource(R.string.trakt_adds_calendar_sub))
+                        }
                     }
-                    SettingsPages.Appearance -> AppearanceSettings(state, viewModel)
                     SettingsPages.Notifications -> NotificationSettings(state, viewModel)
                     SettingsPages.Language -> LanguageSettings(viewModel)
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
@@ -679,61 +1001,6 @@ fun SettingsDetailScreen(
                     else -> AboutSettings(viewModel)
                 }
             }
-        }
-    }
-}
-
-@Composable
-private fun SettingsDetailHero(page: String, title: String) {
-    val serviceName = when (page) {
-        SettingsPages.ServiceSimkl -> "Simkl"
-        SettingsPages.ServiceFloppy -> "Floppy"
-        SettingsPages.ServiceTmdb -> "TMDB"
-        SettingsPages.ServiceMdblist -> "MDBList"
-        SettingsPages.ServiceTrakt -> "Trakt"
-        else -> null
-    }
-    val icon = when (page) {
-        SettingsPages.Sync -> Icons.Filled.CloudSync
-        SettingsPages.SyncOperations -> Icons.Filled.SyncProblem
-        SettingsPages.Integrations -> Icons.Filled.Link
-        SettingsPages.Notifications -> Icons.Filled.Notifications
-        SettingsPages.Appearance -> Icons.Filled.Palette
-        SettingsPages.Language -> Icons.Filled.Language
-        SettingsPages.Ratings -> Icons.Filled.Star
-        SettingsPages.Logs -> Icons.Filled.BugReport
-        SettingsPages.ServiceSimkl -> Icons.Filled.CloudSync
-        SettingsPages.ServiceFloppy -> Icons.Filled.CloudSync
-        SettingsPages.ServiceTmdb -> Icons.Filled.Movie
-        SettingsPages.ServiceMdblist -> Icons.Filled.Star
-        SettingsPages.ServiceTrakt -> Icons.Filled.Schedule
-        else -> Icons.Filled.Download
-    }
-    val description = when (page) {
-        SettingsPages.Sync -> stringResource(R.string.simkl_description)
-        SettingsPages.SyncOperations -> stringResource(R.string.sync_operations_summary)
-        SettingsPages.Integrations -> "TMDB · MDBList · Simkl · Trakt"
-        SettingsPages.Notifications -> stringResource(R.string.new_episodes)
-        SettingsPages.Appearance -> stringResource(R.string.appearance_summary)
-        SettingsPages.Language -> stringResource(R.string.italian)
-        SettingsPages.Ratings -> "IMDb · TMDB · Metacritic · Rotten Tomatoes"
-        SettingsPages.ServiceSimkl -> stringResource(R.string.simkl_description)
-        SettingsPages.ServiceFloppy -> stringResource(R.string.floppy_self_hosted_description)
-        SettingsPages.ServiceTmdb -> stringResource(R.string.tmdb_description)
-        SettingsPages.ServiceMdblist -> stringResource(R.string.mdblist_description)
-        SettingsPages.ServiceTrakt -> stringResource(R.string.trakt_description)
-        SettingsPages.Logs -> stringResource(R.string.logs_summary)
-        else -> "ZIP · JSONL · CSV"
-    }
-    Row(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).padding(com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-        if (serviceName != null) ServiceLogo(serviceName)
-        else Box(Modifier.size(42.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(Accent.copy(alpha = .20f)), contentAlignment = Alignment.Center) {
-            Icon(icon, null, tint = AccentLight, modifier = Modifier.size(21.dp))
-        }
-        Spacer(Modifier.width(12.dp))
-        Column {
-            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
-            Text(description, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -751,64 +1018,50 @@ private fun SyncSettings(
     viewModel: CineTrackViewModel,
     onConnect: () -> Unit,
 ) {
-    SettingsSection(stringResource(R.string.status)) {
-        ValueRow(stringResource(R.string.synchronization), if (state.simklConnected) stringResource(R.string.connected) else stringResource(R.string.not_connected), state.simklConnected)
+    LaunchedEffect(state.simklConnected, state.simklUsername) {
+        if (state.simklConnected && state.simklUsername == null) viewModel.loadSimklUsername()
     }
+    val library = state.rails[RailIds.LIBRARY].orEmpty()
+    if (state.simklConnected) {
+        KitStatTiles(
+            listOf(
+                library.count { it.type == MediaType.TV }.toString() to stringResource(R.string.stat_shows),
+                library.count { it.type == MediaType.MOVIE }.toString() to stringResource(R.string.stat_movies),
+                (sync.report.lastIncrementalSync ?: sync.report.lastFullSync)?.let { relativeSyncTime(it) } .orEmpty().ifBlank { stringResource(R.string.never) } to stringResource(R.string.stat_last_sync),
+            ),
+        )
+    }
+    KitPrimaryButton(
+        text = when {
+            !state.simklConnected -> stringResource(R.string.connect_simkl)
+            sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
+            else -> stringResource(R.string.sync_now)
+        },
+        icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
+        color = Color(0xFF3B8F5A),
+        onClick = if (state.simklConnected) viewModel::sync else onConnect,
+    )
     SettingsSection(stringResource(R.string.synchronization)) {
-        ToggleRow(stringResource(R.string.background_sync), state.backgroundSync, viewModel::setBackgroundSync)
-        GlassDivider()
-        ToggleRow(stringResource(R.string.wifi_only), state.wifiOnly, viewModel::setWifiOnly)
+        KitToggleRow(Icons.Filled.Refresh, stringResource(R.string.background_sync), stringResource(R.string.background_sync_sub), state.backgroundSync, viewModel::setBackgroundSync)
+        KitToggleRow(Icons.Filled.Wifi, stringResource(R.string.wifi_only), stringResource(R.string.wifi_only_sub), state.wifiOnly, viewModel::setWifiOnly)
     }
     if (sync.report.lastIncrementalSync != null || sync.report.failedOperations > 0) {
         val report = sync.report
         SettingsSection(stringResource(R.string.sync_activity)) {
-            ValueRow(stringResource(R.string.downloaded), report.downloaded.toString())
-            GlassDivider(); ValueRow(stringResource(R.string.uploaded), report.uploaded.toString())
-            GlassDivider(); ValueRow(stringResource(R.string.added_removed), "${report.added} / ${report.removed}")
-            GlassDivider(); ValueRow(stringResource(R.string.unchanged), report.unchanged.toString())
-            GlassDivider(); ValueRow(stringResource(R.string.pending_local_changes), report.pendingLocalChanges.toString(), report.pendingLocalChanges == 0)
-            GlassDivider(); ValueRow(stringResource(R.string.failed_operations), report.failedOperations.toString(), report.failedOperations == 0)
-            GlassDivider(); ValueRow(stringResource(R.string.sync_conflicts), report.conflicts.toString(), report.conflicts == 0)
+            KitRow(Icons.Filled.Download, stringResource(R.string.downloaded), value = report.downloaded.toString())
+            KitRow(Icons.Filled.Upload, stringResource(R.string.uploaded), value = report.uploaded.toString())
+            KitRow(Icons.Filled.SwapVert, stringResource(R.string.added_removed), value = "${report.added} / ${report.removed}")
+            KitRow(Icons.Filled.Schedule, stringResource(R.string.pending_local_changes), value = report.pendingLocalChanges.toString())
+            KitRow(Icons.Filled.ErrorOutline, stringResource(R.string.failed_operations), value = report.failedOperations.toString())
+            KitRow(Icons.Filled.SyncProblem, stringResource(R.string.sync_conflicts), value = report.conflicts.toString())
             report.lastFullSync?.let {
-                GlassDivider(); ValueRow(stringResource(R.string.last_full_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
-            }
-            report.lastIncrementalSync?.let {
-                GlassDivider(); ValueRow(stringResource(R.string.last_incremental_sync), java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)))
-            }
-            if (report.databaseUntouched) {
-                GlassDivider(); ValueRow(stringResource(R.string.database_status), stringResource(R.string.database_untouched), true)
+                KitRow(Icons.Filled.History, stringResource(R.string.last_full_sync), value = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)))
             }
         }
     }
-    state.error?.takeIf(String::isNotBlank)?.let { error ->
-        Text(
-            error,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(com.cinetrack.ui.theme.Spacing.md),
-        )
-    }
-    sync.message?.takeIf { sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { error ->
-        Text(
-            error,
-            color = androidx.compose.material3.MaterialTheme.colorScheme.error,
-            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(com.cinetrack.ui.theme.Spacing.md),
-        )
-    }
-    Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-        PrimaryAction(
-            text = when {
-                !state.simklConnected -> stringResource(R.string.connect_simkl)
-                sync.report.failedOperations > 0 -> stringResource(R.string.retry_failed_sync)
-                else -> stringResource(R.string.sync_now)
-            },
-            icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
-            modifier = Modifier.weight(1f),
-            onClick = if (state.simklConnected) viewModel::sync else onConnect,
-        )
-        if (state.simklConnected) Button(onClick = viewModel::disconnectSimkl, modifier = Modifier.height(46.dp), shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), colors = ButtonDefaults.buttonColors(containerColor = com.cinetrack.ui.theme.GlassSubtle)) { Text(stringResource(R.string.disconnect), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
-    }
+    state.error?.takeIf(String::isNotBlank)?.let { KitNotice(it) }
+    sync.message?.takeIf { sync.stage == com.cinetrack.domain.SyncStage.ERROR && it.isNotBlank() }?.let { KitNotice(it) }
+    if (state.simklConnected) KitDangerText(stringResource(R.string.disconnect_account), viewModel::disconnectSimkl)
 }
 
 @Composable
@@ -841,13 +1094,13 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
     // summary. A Floppy HTTP failure is transport attention, never a local
     // reconciliation conflict.
     val bootstrapFailed = effectiveProgress?.stage == FloppyBootstrapStage.NEEDS_ATTENTION
-    SettingsSection(stringResource(R.string.sync_operations_status)) {
-        ValueRow(stringResource(R.string.pending_writes), pending.size.toString(), pending.isEmpty())
-        GlassDivider()
-        ValueRow(stringResource(R.string.failed_actions), (failed.size + if (bootstrapFailed) 1 else 0).toString(), failed.isEmpty() && !bootstrapFailed)
-        GlassDivider()
-        ValueRow(stringResource(R.string.sync_conflicts), conflicts.size.toString(), conflicts.isEmpty())
-    }
+    KitStatTiles(
+        listOf(
+            pending.size.toString() to stringResource(R.string.pending_writes),
+            (failed.size + if (bootstrapFailed) 1 else 0).toString() to stringResource(R.string.failed_actions),
+            conflicts.size.toString() to stringResource(R.string.sync_conflicts),
+        ),
+    )
 
     if (effectiveProgress != null) {
         SettingsSection(stringResource(R.string.initial_synchronization)) {
@@ -857,14 +1110,7 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
 
     val managedActive = effectiveProgress?.stage?.isManagedActive() == true
     if (operations.isEmpty() && !managedActive) {
-        Text(
-            stringResource(R.string.no_sync_operations),
-            color = TextSecondary,
-            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)
-                .fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                .padding(com.cinetrack.ui.theme.Spacing.lg),
-        )
+        KitStatusCard(ok = true, title = stringResource(R.string.ops_all_synced), subtitle = stringResource(R.string.ops_all_synced_sub))
     }
     if (conflicts.isNotEmpty()) SyncOperationSection(stringResource(R.string.conflicts_to_resolve), conflicts, viewModel)
     if (failed.isNotEmpty()) SyncOperationSection(stringResource(R.string.failed_actions), failed, viewModel)
@@ -983,7 +1229,6 @@ private fun SyncOperationSection(
     SettingsSection(title) {
         operations.forEachIndexed { index, operation ->
             SyncOperationRow(operation, viewModel)
-            if (index != operations.lastIndex) GlassDivider()
         }
     }
 }
@@ -1122,13 +1367,9 @@ private fun localizedSyncValue(value: String?): String = when (value) {
 private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
     SettingsSection(stringResource(R.string.integrations)) {
         ProviderRow("TMDB", stringResource(R.string.tmdb_description), state.tmdbApiConfigured) { onPage(SettingsPages.ServiceTmdb) }
-        GlassDivider()
         ProviderRow("MDBList", stringResource(R.string.mdblist_description), state.mdbListApiConfigured) { onPage(SettingsPages.ServiceMdblist) }
-        GlassDivider()
         ProviderRow("Trakt", stringResource(R.string.trakt_description), state.traktConfigured) { onPage(SettingsPages.ServiceTrakt) }
-        GlassDivider()
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
-        GlassDivider()
         ProviderRow("Floppy", floppyIntegrationSubtitle(state), state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
     }
 }
@@ -1155,12 +1396,13 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
     val connectionUiState by viewModel.floppyConnectionUiState.collectAsStateWithLifecycle()
     val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
-    SettingsSection(stringResource(R.string.floppy_status)) {
+    // The header already says "not connected"; the status details matter once connected.
+    if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
         ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
-            GlassDivider(); ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
-            state.floppyServerVersion?.let { GlassDivider(); ValueRow(stringResource(R.string.floppy_server_version), it) }
-            GlassDivider(); ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
+            ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
+            state.floppyServerVersion?.let { ValueRow(stringResource(R.string.floppy_server_version), it) }
+            ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
                 FloppyUiState.READY -> stringResource(R.string.floppy_ready_short)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
@@ -1221,9 +1463,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         }
     }
     FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)
-    if (state.floppyConnected) {
-        PrimaryAction(stringResource(R.string.floppy_disconnect), Icons.Filled.Link, Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs), containerColor = androidx.compose.material3.MaterialTheme.colorScheme.error, onClick = viewModel::disconnectFloppy)
-    }
+    val floppyUri = LocalUriHandler.current
+    KitSteps(
+        stringResource(R.string.where_find_token),
+        listOf(stringResource(R.string.floppy_step_1), stringResource(R.string.floppy_step_2), stringResource(R.string.floppy_step_3), stringResource(R.string.floppy_step_4)),
+        stringResource(R.string.floppy_api_guide),
+    ) { runCatching { floppyUri.openUri(FLOPPY_API_GUIDE_URL) } }
+    KitFootnote(stringResource(R.string.floppy_connection_security))
+    if (state.floppyConnected) KitDangerText(stringResource(R.string.floppy_disconnect), viewModel::disconnectFloppy)
 }
 
 @Composable
@@ -1302,15 +1549,25 @@ internal fun FloppyConnectionSettingsForm(
 
     SettingsSection(stringResource(R.string.floppy_connection)) {
         Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md)) {
-            Text(stringResource(R.string.floppy_how_to_connect), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-            Text(stringResource(R.string.floppy_how_to_connect_steps), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
-            Text(stringResource(R.string.floppy_connection_security), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm))
-            TextButton(onClick = { runCatching { uriHandler.openUri(FLOPPY_API_GUIDE_URL) } }, modifier = Modifier.fillMaxWidth()) {
-                Icon(Icons.Filled.Link, contentDescription = stringResource(R.string.floppy_api_guide), modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
-                Text(stringResource(R.string.floppy_api_guide), color = AccentLight)
+            // Three steps: server address, token, verify. The bar fills as each is done.
+            val step = when {
+                !validUrl -> 1
+                apiKey.isBlank() && !editing -> 2
+                else -> 3
             }
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.lg))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                repeat(3) { index ->
+                    Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(if (index < step) Color(0xFF85B7EB) else Color.White.copy(alpha = .12f)))
+                }
+            }
+            Text(
+                stringResource(R.string.floppy_step_label, step, 3) + " · " + stringResource(
+                    when (step) { 1 -> R.string.floppy_step_server; 2 -> R.string.floppy_step_token; else -> R.string.floppy_step_verify },
+                ),
+                color = TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+            )
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -1377,9 +1634,9 @@ internal fun FloppyConnectionSettingsForm(
                     onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
                 },
                 enabled = canSubmit,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).testTag("floppy_connect_button"),
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_connect_button"),
                 shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
-                colors = ButtonDefaults.buttonColors(containerColor = Accent),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
             ) {
                 if (connectionUiState.running) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
@@ -1443,9 +1700,7 @@ private fun FloppyStatePreviewContent(state: AppUiState) {
     SettingsSection(stringResource(R.string.floppy_status)) {
         ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
-            GlassDivider()
             ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
-            GlassDivider()
             ValueRow(stringResource(R.string.floppy_initial_sync), if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) stringResource(R.string.floppy_initial_sync_failed) else stringResource(R.string.floppy_ready_short))
         }
     }
@@ -1472,11 +1727,6 @@ private fun FloppyReadyPreview() = FloppyStatePreviewContent(AppUiState(floppyCo
 private fun FloppyNeedsAttentionPreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.NEEDS_ATTENTION))
 
 @Composable
-private fun AppearanceSettings(state: AppUiState, viewModel: CineTrackViewModel) {
-    CardAppearanceSettings(state, viewModel)
-}
-
-@Composable
 private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
@@ -1496,6 +1746,8 @@ private fun ApiCredentialSettings(
     service: String,
     configured: Boolean,
     onSave: (String, (Result<Unit>) -> Unit) -> Unit,
+    compact: Boolean = false,
+    onSaved: () -> Unit = {},
 ) {
     var value by remember(service) { mutableStateOf(if (configured) SavedCredentialMask else "") }
     var showingSavedMask by remember(service) { mutableStateOf(configured) }
@@ -1509,13 +1761,37 @@ private fun ApiCredentialSettings(
         }
     }
     val changed = !showingSavedMask && value.isNotBlank()
-    val help = if (service == "TMDB") stringResource(R.string.tmdb_api_help) else stringResource(R.string.mdblist_api_help)
+    // Each service names its own credential and where to get it.
+    val help = stringResource(
+        when (service) {
+            "TMDB" -> R.string.tmdb_api_help
+            "Trakt" -> R.string.trakt_api_help
+            else -> R.string.mdblist_api_help
+        },
+    )
     val uriHandler = LocalUriHandler.current
-    val credentialUrl = if (service == "TMDB") TMDB_API_KEY_URL else MDBLIST_API_KEY_URL
-    val credentialLink = if (service == "TMDB") stringResource(R.string.get_tmdb_api_key) else stringResource(R.string.get_mdblist_api_key)
-    val credentialLinkHelp = if (service == "TMDB") stringResource(R.string.tmdb_api_link_help) else stringResource(R.string.mdblist_api_link_help)
-    SettingsSection(stringResource(R.string.api_credential)) {
+    val credentialUrl = when (service) {
+        "TMDB" -> TMDB_API_KEY_URL
+        "Trakt" -> TRAKT_API_APPS_URL
+        else -> MDBLIST_API_KEY_URL
+    }
+    val credentialLink = stringResource(
+        when (service) {
+            "TMDB" -> R.string.get_tmdb_api_key
+            "Trakt" -> R.string.get_trakt_client_id
+            else -> R.string.get_mdblist_api_key
+        },
+    )
+    val credentialLinkHelp = stringResource(
+        when (service) {
+            "TMDB" -> R.string.tmdb_api_link_help
+            "Trakt" -> R.string.trakt_api_link_help
+            else -> R.string.mdblist_api_link_help
+        },
+    )
+    SettingsSection(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_credential)) {
         Column(Modifier.padding(com.cinetrack.ui.theme.Spacing.md)) {
+            if (!compact) {
             Text(
                 if (configured) stringResource(R.string.api_credential_configured, service) else stringResource(R.string.api_credential_missing, service),
                 color = if (configured) Color.White else TextSecondary,
@@ -1537,6 +1813,7 @@ private fun ApiCredentialSettings(
                 Text(credentialLink, color = AccentLight)
             }
             Spacer(Modifier.height(9.dp))
+            }
             OutlinedTextField(
                 value = value,
                 onValueChange = { newValue ->
@@ -1547,7 +1824,7 @@ private fun ApiCredentialSettings(
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
                 enabled = !validating,
-                label = { Text(stringResource(R.string.api_key_label)) },
+                label = { Text(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_key_label)) },
                 visualTransformation = if (revealNewValue && !showingSavedMask) VisualTransformation.None else PasswordVisualTransformation(),
                 placeholder = { Text(stringResource(R.string.api_credential_hint, service), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
                 trailingIcon = {
@@ -1575,7 +1852,7 @@ private fun ApiCredentialSettings(
             }
             Spacer(Modifier.height(9.dp))
             PrimaryAction(
-                stringResource(R.string.save),
+                stringResource(if (compact) R.string.save_and_verify else R.string.save),
                 Icons.Filled.Save,
                 Modifier.fillMaxWidth(),
                 enabled = changed && !validating,
@@ -1588,6 +1865,7 @@ private fun ApiCredentialSettings(
                         value = SavedCredentialMask
                         showingSavedMask = true
                         revealNewValue = false
+                        onSaved()
                     }.onFailure { error ->
                         validationError = error.message ?: "Verification failed"
                     }
@@ -1614,18 +1892,11 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         ?: Locale.forLanguageTag(state.metadataLanguage).getDisplayName(locale)
     val region = regions.firstOrNull { it.first == state.metadataRegion }?.second ?: state.metadataRegion
     val timezone = timezones.firstOrNull { it.first == state.metadataTimezone }?.second ?: state.metadataTimezone
-    listOf(
-        Triple("language", stringResource(R.string.metadata_language), language),
-        Triple("region", stringResource(R.string.metadata_region), region),
-        Triple("timezone", stringResource(R.string.metadata_timezone), timezone),
-    ).forEach { (key, title, value) ->
-        SettingsSection(title) {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { activeChoice = key }
-                .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-                Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                Icon(Icons.Filled.ChevronRight, title, tint = TextMuted)
-            }
-        }
+    // One group instead of three single-row cards.
+    SettingsSection(stringResource(R.string.section_metadata)) {
+        KitRow(Icons.Filled.Language, stringResource(R.string.language), value = language, onClick = { activeChoice = "language" })
+        KitRow(Icons.Filled.Place, stringResource(R.string.region_short), value = region, onClick = { activeChoice = "region" })
+        KitRow(Icons.Filled.Schedule, stringResource(R.string.timezone_short), value = timezone, onClick = { activeChoice = "timezone" })
     }
     activeChoice?.let { key ->
         val choices = when (key) { "language" -> languages; "region" -> regions; else -> timezones }
@@ -1661,73 +1932,59 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
         notificationsGranted = granted
     }
     if (!notificationsGranted && Build.VERSION.SDK_INT >= 33) {
-        PrimaryAction(
-            stringResource(R.string.allow_notifications),
-            Icons.Filled.Notifications,
-            Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
+        KitCallout(
+            Icons.Filled.NotificationsOff,
+            stringResource(R.string.notif_permission_title),
+            stringResource(R.string.notif_permission_body),
+            stringResource(R.string.allow),
         ) { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
     }
     SettingsSection(stringResource(R.string.notifications)) {
-        ToggleRow(stringResource(R.string.new_episodes), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.movie_releases), state.notificationMovies) { viewModel.setNotification("movies", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.sync_problems), state.notificationSync) { viewModel.setNotification("sync", it) }
-        GlassDivider(); ToggleRow(stringResource(R.string.quiet_hours), state.quietHoursEnabled) { viewModel.setQuietHours(it) }
+        KitToggleRow(Icons.Filled.Tv, stringResource(R.string.new_episodes), stringResource(R.string.notif_episodes_sub), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
+        KitToggleRow(Icons.Filled.Movie, stringResource(R.string.movie_releases), stringResource(R.string.notif_movies_sub), state.notificationMovies) { viewModel.setNotification("movies", it) }
+        KitToggleRow(Icons.Filled.SyncProblem, stringResource(R.string.sync_problems), stringResource(R.string.notif_sync_sub), state.notificationSync) { viewModel.setNotification("sync", it) }
+        KitToggleRow(Icons.Filled.Bedtime, stringResource(R.string.quiet_hours), stringResource(R.string.quiet_hours_sub), state.quietHoursEnabled) { viewModel.setQuietHours(it) }
     }
     if (state.quietHoursEnabled) {
         val quietHourOptions = listOf(22 to 7, 23 to 8, 0 to 8)
         SettingsSection(stringResource(R.string.quiet_hours_schedule)) {
-            quietHourOptions.forEachIndexed { index, (start, end) ->
+            quietHourOptions.forEach { (start, end) ->
                 ChoiceRow(
                     "%02d:00–%02d:00".format(start, end),
                     state.quietHoursStart == start && state.quietHoursEnd == end,
                 ) { viewModel.setQuietHours(true, start, end) }
-                if (index != quietHourOptions.lastIndex) GlassDivider()
             }
         }
     }
     SettingsSection(stringResource(R.string.upcoming_episodes)) {
-        ToggleRow(stringResource(R.string.exclude_specials), state.excludeSpecials, viewModel::setExcludeSpecials)
-        GlassDivider()
-        Text(
-            stringResource(R.string.upcoming_diagnostic_explanation),
-            color = TextMuted,
-            style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-            lineHeight = 15.sp,
-            modifier = Modifier.padding(com.cinetrack.ui.theme.Spacing.md),
-        )
+        KitToggleRow(Icons.Filled.Star, stringResource(R.string.exclude_specials), stringResource(R.string.exclude_specials_sub), state.excludeSpecials, viewModel::setExcludeSpecials)
     }
-    if (state.hiddenUpcoming.isNotEmpty()) {
-        if (hiddenEpisodes.isNotEmpty()) {
-            SettingsSection(stringResource(R.string.hidden_upcoming)) {
-                hiddenEpisodes.forEachIndexed { index, episode ->
-                    val showTitle = state.allMedia.firstOrNull { it.type == MediaType.TV && it.id == episode.showId }?.title.orEmpty()
-                    Row(
-                        Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(showTitle.ifBlank { episode.title }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                            Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        IconButton(onClick = { viewModel.restoreHiddenUpcomingEpisode(episode) }) {
-                            Icon(Icons.Filled.Visibility, stringResource(R.string.restore_upcoming_episode, episode.title), tint = AccentLight)
-                        }
+    KitFootnote(stringResource(R.string.upcoming_diagnostic_explanation))
+    if (hiddenEpisodes.isNotEmpty()) {
+        SettingsSection(stringResource(R.string.hidden_upcoming)) {
+            hiddenEpisodes.forEach { episode ->
+                val showTitle = state.allMedia.firstOrNull { it.type == MediaType.TV && it.id == episode.showId }?.title.orEmpty()
+                Row(
+                    Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(showTitle.ifBlank { episode.title }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    if (index != hiddenEpisodes.lastIndex) GlassDivider()
+                    IconButton(onClick = { viewModel.restoreHiddenUpcomingEpisode(episode) }) {
+                        Icon(Icons.Filled.Visibility, stringResource(R.string.restore_upcoming_episode, episode.title), tint = AccentLight)
+                    }
                 }
             }
         }
-        PrimaryAction(
-            stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size),
-            Icons.Filled.Refresh,
-            Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-        ) { viewModel.restoreHiddenUpcoming() }
     }
-    PrimaryAction(
-        stringResource(R.string.export_calendar),
-        Icons.Filled.CalendarMonth,
-        Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm),
-    ) { viewModel.exportCalendar(context) }
+    SettingsSection(stringResource(R.string.section_actions)) {
+        if (state.hiddenUpcoming.isNotEmpty()) {
+            KitRow(Icons.Filled.Visibility, stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size), onClick = viewModel::restoreHiddenUpcoming)
+        }
+        KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.export_calendar), stringResource(R.string.export_calendar_sub), onClick = { viewModel.exportCalendar(context) })
+    }
 }
 
 @Composable
@@ -1744,7 +2001,7 @@ private fun LanguageSettings(viewModel: CineTrackViewModel) {
             viewModel.setLanguage("it")
             AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("it"))
         }
-        GlassDivider(); ChoiceRow(stringResource(R.string.english), language == "en") {
+        ChoiceRow(stringResource(R.string.english), language == "en") {
             language = "en"
             viewModel.setLanguage("en")
             AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags("en"))
@@ -1759,49 +2016,69 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         "Rotten Tomatoes" -> "tomatoes"
         else -> label.lowercase()
     }
-    SettingsSection(stringResource(R.string.rating_sources)) {
-        labels.forEachIndexed { index, label ->
-            ToggleRow(label, sourceKey(label) in state.ratingSources) { value -> viewModel.setRatingSource(label, value) }
-            if (index != labels.lastIndex) GlassDivider()
+    SettingsSection(stringResource(R.string.section_sources_shown)) {
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth().padding(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            labels.forEach { label ->
+                val on = sourceKey(label) in state.ratingSources
+                Row(
+                    Modifier.heightIn(min = 40.dp).tonalPill(on, Color(0xFF5DCAA5))
+                        .toggleable(value = on, role = Role.Checkbox) { viewModel.setRatingSource(label, it) }
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (on) {
+                        Icon(Icons.Filled.Check, null, tint = Color(0xFF5DCAA5), modifier = Modifier.size(15.dp))
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(label, color = if (on) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+            }
         }
+    }
+    // How the ratings row on a detail page will look, with sample values.
+    val samples = mapOf("imdb" to ("IMDB" to "7,8"), "tmdb" to ("TMDB" to "8,2"), "metacritic" to ("METACRITIC" to "77"), "tomatoes" to ("RT" to "91%"))
+    val shown = labels.map(::sourceKey).filter { it in state.ratingSources }.mapNotNull { samples[it] }
+    if (shown.isNotEmpty()) {
+        SettingsSection(stringResource(R.string.section_preview)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                shown.forEach { (source, value) ->
+                    Row(Modifier.height(36.dp).tonalPill(false).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text(source, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
+                        Spacer(Modifier.width(6.dp))
+                        Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+            }
+        }
+        KitFootnote(stringResource(R.string.preview_example))
     }
 }
 
 @Composable
-private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewModel, onPage: (String) -> Unit = {}) {
     var showRegions by remember { mutableStateOf(false) }
     val locale = com.cinetrack.ui.currentLocale()
     val summary = if (state.contentRegions.isEmpty()) stringResource(R.string.all_regions) else
         state.contentRegions.sorted().joinToString(", ") { java.util.Locale("", it).getDisplayCountry(locale) }
-    SettingsSection(stringResource(R.string.content_regions)) {
-        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable { showRegions = true }
-            .padding(com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(summary, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(stringResource(R.string.content_regions_picker_hint), color = TextMuted,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
-            }
-            Icon(Icons.Filled.ChevronRight, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+    SettingsSection(stringResource(R.string.section_discover_streaming)) {
+        KitRow(Icons.Filled.Public, stringResource(R.string.content_regions), summary, onClick = { showRegions = true })
+        KitRow(Icons.Filled.Tv, stringResource(R.string.preferred_providers), stringResource(R.string.providers_selected_count, state.preferredProviders.size), onClick = { onPage(SettingsPages.Streaming) })
+        if (state.hiddenDiscovery.isNotEmpty()) {
+            KitRow(
+                Icons.Filled.Visibility,
+                pluralStringResource(R.plurals.restore_hidden_recommendations, state.hiddenDiscovery.size, state.hiddenDiscovery.size),
+                onClick = viewModel::restoreHiddenDiscovery,
+            )
         }
     }
+    KitFootnote(stringResource(R.string.content_regions_scope))
     if (showRegions) ContentRegionsSheet(state.contentRegions, { showRegions = false }) {
         viewModel.setContentRegions(it)
         showRegions = false
-    }
-    Text(
-        stringResource(R.string.content_regions_scope),
-        color = TextMuted,
-        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-        lineHeight = 15.sp,
-        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-    )
-    if (state.hiddenDiscovery.isNotEmpty()) {
-        PrimaryAction(
-            pluralStringResource(R.plurals.restore_hidden_recommendations, state.hiddenDiscovery.size, state.hiddenDiscovery.size),
-            Icons.Filled.Refresh,
-            Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm),
-        ) { viewModel.restoreHiddenDiscovery() }
     }
 }
 
@@ -1817,14 +2094,14 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
     val visible = (if (showAll) entries else entries.filter { it.severity != com.cinetrack.domain.LogSeverity.INFO }).take(150)
     val zone = java.time.ZoneId.systemDefault()
     val today = java.time.LocalDate.now(zone)
+    KitStatusCard(
+        ok = problems == 0,
+        title = if (problems == 0) stringResource(R.string.no_errors_logged) else pluralStringResource(R.plurals.logs_problem_count, problems, problems),
+        subtitle = stringResource(if (problems == 0) R.string.logs_ok_sub else R.string.logs_problems_sub),
+    )
     SettingsSection(stringResource(R.string.logs)) {
-        ValueRow(
-            stringResource(R.string.logs_problems),
-            if (problems == 0) stringResource(R.string.no_errors_logged) else problems.toString(),
-            success = problems == 0,
-        )
-        GlassDivider()
-        ToggleRow(stringResource(R.string.logs_show_all), showAll) { showAll = it }
+        KitToggleRow(Icons.Filled.Visibility, stringResource(R.string.logs_show_all), stringResource(R.string.logs_show_all_sub), showAll) { showAll = it }
+        KitRow(Icons.Filled.Download, stringResource(R.string.export_logs), stringResource(R.string.logs_export_copy), onClick = { if (logs.isNotEmpty()) viewModel.exportLogs(context) })
     }
     if (visible.isNotEmpty()) {
         visible.groupBy { entry -> entry.at?.atZone(zone)?.toLocalDate() }.forEach { (day, dayEntries) ->
@@ -1836,24 +2113,11 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
             }
             SettingsSection(dayLabel) {
                 dayEntries.forEachIndexed { index, entry ->
-                    if (index > 0) GlassDivider()
                     LogEntryRow(entry, zone)
                 }
             }
         }
     }
-    Text(
-        stringResource(R.string.logs_export_copy),
-        color = TextMuted,
-        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-    )
-    PrimaryAction(
-        text = stringResource(R.string.export_logs),
-        icon = Icons.Filled.Download,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md),
-        enabled = logs.isNotEmpty(),
-    ) { viewModel.exportLogs(context) }
 }
 
 @Composable
@@ -1911,98 +2175,95 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.restoreData(context, it) }
     }
-    val labels = linkedMapOf(
-        "library" to stringResource(R.string.library),
-        "history" to stringResource(R.string.history),
-        "progress" to stringResource(R.string.progress),
-        "settings" to stringResource(R.string.settings),
+    val sections = listOf(
+        Triple("library", Icons.Filled.Bookmark, stringResource(R.string.library) to stringResource(R.string.export_library_sub)),
+        Triple("history", Icons.Filled.History, stringResource(R.string.history) to stringResource(R.string.export_history_sub)),
+        Triple("progress", Icons.Filled.PlayArrow, stringResource(R.string.progress) to stringResource(R.string.export_progress_sub)),
+        Triple("settings", Icons.Filled.Tune, stringResource(R.string.settings) to stringResource(R.string.export_settings_sub)),
     )
-    var selected by remember { mutableStateOf(labels.keys.associateWith { true }) }
-    SettingsSection(stringResource(R.string.export_data)) {
-        labels.entries.forEachIndexed { index, (key, label) ->
-            ToggleRow(label, selected[key] == true) { selected = selected + (key to it) }
-            if (index != labels.size - 1) GlassDivider()
+    var selected by remember { mutableStateOf(sections.associate { it.first to true }) }
+    SettingsSection(stringResource(R.string.section_contents)) {
+        sections.forEach { (key, icon, text) ->
+            KitToggleRow(icon, text.first, text.second, selected[key] == true) { selected = selected + (key to it) }
         }
     }
-    PrimaryAction(
-        text = stringResource(R.string.create_export),
-        icon = Icons.Filled.Download,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md),
-    ) { viewModel.exportData(context, selected.filterValues { it }.keys) }
-    PrimaryAction(
-        text = stringResource(R.string.restore_backup),
-        icon = Icons.Filled.Refresh,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-    ) { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) }
-    PrimaryAction(
-        text = stringResource(R.string.restore_automatic_backup),
-        icon = Icons.Filled.Refresh,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs),
-    ) { viewModel.restoreAutomaticBackup() }
-    Text(
-        stringResource(R.string.restore_backup_explanation),
-        color = TextMuted,
-        style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-        lineHeight = 14.sp,
-        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = com.cinetrack.ui.theme.Spacing.sm),
-    )
+    KitPrimaryButton(stringResource(R.string.create_backup), Icons.Filled.Download, Accent, enabled = selected.values.any { it }) {
+        viewModel.exportData(context, selected.filterValues { it }.keys)
+    }
+    SettingsSection(stringResource(R.string.section_restore)) {
+        KitRow(Icons.Filled.FolderOpen, stringResource(R.string.restore_file_title), stringResource(R.string.restore_file_sub), onClick = { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) })
+        KitRow(Icons.Filled.Restore, stringResource(R.string.restore_auto_title), stringResource(R.string.restore_auto_sub), onClick = viewModel::restoreAutomaticBackup)
+    }
+    KitFootnote(stringResource(R.string.restore_backup_explanation))
 }
 
 @Composable
 private fun AboutSettings(viewModel: CineTrackViewModel) {
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val updateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
     val changelogState by viewModel.appChangelogState.collectAsStateWithLifecycle()
     var showChangelog by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         if (updateState is AppUpdateState.Idle) viewModel.checkForAppUpdate()
     }
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth().glass().padding(com.cinetrack.ui.theme.Spacing.lg), horizontalAlignment = Alignment.CenterHorizontally) {
-        BrandMark(76.dp)
-        Spacer(Modifier.height(10.dp))
-        Text("CineTrack", color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.titleLarge)
-        Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(16.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            ServiceLogo("TMDB", "https://www.themoviedb.org/")
-            ServiceLogo("MDBList", "https://mdblist.com/")
-            ServiceLogo("Simkl", "https://simkl.com/")
-            ServiceLogo("Trakt", "https://trakt.tv/")
+    val statusText = when (val current = updateState) {
+        AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
+        AppUpdateState.Checking -> stringResource(R.string.checking_for_updates)
+        AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
+        is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
+        is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
+        is AppUpdateState.Error -> current.message
+    }
+    val updateAvailable = updateState is AppUpdateState.Available
+    val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
+    // The app's own header, in the same style as the service pages.
+    Box(
+        Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp))
+            .background(Brush.linearGradient(listOf(Accent.copy(alpha = .38f), Color(0xFF10141A), Color(0xFF0B0D11))))
+            .border(.6.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(28.dp))
+            .padding(vertical = 26.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            BrandMark(76.dp)
+            Spacer(Modifier.height(12.dp))
+            Text("CineTrack", color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)
+            Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+            KitStatusPill(active = updateState is AppUpdateState.UpToDate, text = statusText, modifier = Modifier.padding(top = 10.dp))
         }
-        Spacer(Modifier.height(9.dp))
-        Text("TMDB · MDBList · Simkl · Trakt · Room", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-        Spacer(Modifier.height(18.dp))
-        val statusText = when (val current = updateState) {
-            AppUpdateState.Idle -> stringResource(R.string.updates_from_github)
-            AppUpdateState.Checking -> stringResource(R.string.checking_for_updates)
-            AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
-            is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
-            is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
-            is AppUpdateState.Error -> current.message
-        }
-        Text(statusText, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-        Spacer(Modifier.height(10.dp))
-        val updateAvailable = updateState is AppUpdateState.Available
-        val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            PrimaryAction(
-                text = if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
-                icon = if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
-                modifier = Modifier.weight(1f),
-                enabled = !busy,
+    }
+    SettingsSection(stringResource(R.string.about_updates)) {
+        KitRow(
+            if (updateAvailable) Icons.Filled.Download else Icons.Filled.Refresh,
+            if (updateAvailable) stringResource(R.string.download_and_install) else stringResource(R.string.check_for_updates),
+            statusText,
+            onClick = { if (!busy) { if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate() } },
+        )
+        KitRow(Icons.Filled.History, stringResource(R.string.changelog), onClick = {
+            showChangelog = true
+            viewModel.loadAppChangelog()
+        })
+    }
+    SettingsSection(stringResource(R.string.about_services)) {
+        listOf(
+            Triple("TMDB", "https://www.themoviedb.org/", R.string.tmdb_description),
+            Triple("Simkl", "https://simkl.com/", R.string.simkl_description),
+            Triple("Trakt", "https://trakt.tv/", R.string.trakt_description),
+            Triple("MDBList", "https://mdblist.com/", R.string.mdblist_description),
+        ).forEach { (name, url, description) ->
+            Row(
+                Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable { runCatching { uriHandler.openUri(url) } }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (updateAvailable) viewModel.openAppUpdate(context) else viewModel.checkForAppUpdate()
-            }
-            Spacer(Modifier.width(8.dp))
-            val changelogDescription = stringResource(R.string.changelog)
-            IconButton(
-                onClick = rememberUiAction {
-                    showChangelog = true
-                    viewModel.loadAppChangelog()
-                },
-                modifier = Modifier.size(48.dp).glassIcon(),
-            ) {
-                Icon(Icons.Filled.History, changelogDescription, tint = AccentLight, modifier = Modifier.size(20.dp))
+                ServiceLogo(name, size = 32.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    Text(stringResource(description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = TextMuted, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -2083,9 +2344,9 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
-        com.cinetrack.ui.components.SectionHeader(title)
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))) { content() }
+        SettingsGroupLabel(title)
+        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) { content() }
     }
 }
 
@@ -2112,9 +2373,16 @@ private fun CompactSwitch(checked: Boolean) {
             .background(if (checked) Accent else com.cinetrack.ui.theme.Glass)
             .border(.7.dp, AccentLight.copy(alpha = .24f), CircleShape),
     ) {
+        // Glass knob over the track; the track and card it covers are redrawn under it.
+        val track = if (checked) Accent else com.cinetrack.ui.theme.Glass
         Box(
-            Modifier.offset(x = knobOffset, y = 3.dp).size(26.dp).clip(CircleShape)
-                .background(if (checked) Color.White else TextMuted.copy(alpha = .55f)),
+            Modifier.offset(x = knobOffset, y = 3.dp).size(26.dp)
+                .liquidGlass(
+                    surface = if (checked) Color.White.copy(alpha = .78f) else TextMuted.copy(alpha = .45f),
+                    refraction = 6.dp,
+                    under = track.compositeOver(com.cinetrack.ui.components.GlassMaterial.Content),
+                    shadow = false,
+                ) { clip(CircleShape).background(if (checked) Color.White else TextMuted.copy(alpha = .55f)) },
         )
     }
 }
@@ -2134,25 +2402,26 @@ private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onC
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
-        Box(Modifier.size(9.dp).clip(CircleShape).background(if (configured) Success else TextMuted))
-        Spacer(Modifier.width(6.dp))
+        StatusDot(configured)
+        Spacer(Modifier.width(8.dp))
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
 }
 
 @Composable
-private fun ServiceLogo(name: String, siteUrl: String? = null) {
+private fun ServiceLogo(name: String, siteUrl: String? = null, size: androidx.compose.ui.unit.Dp = 38.dp) {
     val uriHandler = LocalUriHandler.current
     val (logo, background, logoSize) = when (name.lowercase()) {
         "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
         "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
-        "floppy" -> Triple(R.drawable.ic_service_floppy, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 23.dp)
+        // Floppy's own app icon, full bleed.
+        "floppy" -> Triple(R.drawable.floppy_app_icon, Color.Transparent, 38.dp)
         "trakt" -> Triple(R.drawable.ic_service_trakt, androidx.compose.ui.graphics.Color(0xFFED1C24), 26.dp)
         else -> Triple(R.drawable.ic_service_simkl, com.cinetrack.ui.theme.SurfacePalette.WarmText, 24.dp)
     }
     Box(
-        Modifier.size(38.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).background(background)
-            .border(.65.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+        Modifier.size(size).clip(RoundedCornerShape(size * .3f)).background(background)
+            .border(.6.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(size * .3f))
             .then(
                 if (siteUrl != null) Modifier.clickable(onClick = rememberUiAction { runCatching { uriHandler.openUri(siteUrl) } })
                 else Modifier,
@@ -2162,7 +2431,7 @@ private fun ServiceLogo(name: String, siteUrl: String? = null) {
         Image(
             painter = painterResource(logo),
             contentDescription = name,
-            modifier = Modifier.size(logoSize),
+            modifier = Modifier.size(logoSize * (size / 38.dp)),
         )
     }
 }
@@ -2172,15 +2441,346 @@ internal fun ChoiceRow(title: String, selected: Boolean, description: String? = 
     val clickAction = rememberUiAction(onClick)
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            Text(title, color = if (selected) AccentLight else TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold)
             if (!description.isNullOrBlank()) {
                 Spacer(Modifier.height(2.dp))
                 Text(description, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 14.sp)
             }
         }
-        Box(Modifier.size(20.dp).clip(CircleShape).background(if (selected) Accent else Color.Transparent).then(if (!selected) Modifier.border(1.dp, TextMuted, CircleShape) else Modifier), contentAlignment = Alignment.Center) {
-            if (selected) Box(Modifier.size(7.dp).clip(CircleShape).background(Color.White))
+        if (selected) Icon(Icons.Filled.Check, null, tint = AccentLight, modifier = Modifier.size(20.dp))
+    }
+}
+
+// ---------------------------------------------------------------- settings kit
+// Shared pieces for the settings pages: a brand header for services, grouped icon rows,
+// toggles that say what they do, numbered steps and status cards.
+
+internal data class ServiceBrand(
+    val name: String,
+    val brush: Brush,
+    val button: Color,
+    val logo: Int,
+    val wordmark: Int? = null,
+)
+
+private fun serviceBrand(page: String): ServiceBrand? = when (page) {
+    SettingsPages.ServiceTmdb -> ServiceBrand("TMDB", Brush.linearGradient(listOf(Color(0xFF0D253F), Color(0xFF0B5C7A), Color(0xFF01B4E4))), Color(0xFF0B7FA6), R.drawable.ic_service_tmdb)
+    SettingsPages.ServiceSimkl -> ServiceBrand("Simkl", Brush.linearGradient(listOf(Color(0xFF151515), Color(0xFF2A2A2A), Color(0xFF141414))), Color(0xFF3B8F5A), R.drawable.ic_service_simkl)
+    SettingsPages.ServiceFloppy -> ServiceBrand("Floppy", Brush.linearGradient(listOf(Color(0xFF0E1B33), Color(0xFF1C2F5C), Color(0xFF14204A))), Color(0xFF185FA5), R.drawable.floppy_app_icon, R.drawable.floppy_wordmark)
+    SettingsPages.ServiceTrakt -> ServiceBrand("Trakt", Brush.linearGradient(listOf(Color(0xFF7D2C92), Color(0xFFC2185B), Color(0xFFED1C24))), Color(0xFFC2185B), R.drawable.ic_service_trakt)
+    SettingsPages.ServiceMdblist -> ServiceBrand("MDBList", Brush.linearGradient(listOf(Color(0xFF0C447C), Color(0xFF2A6FB5))), Color(0xFF2A6FB5), R.drawable.ic_service_mdblist)
+    else -> null
+}
+
+/** The service's header: its colours, its mark repeated faintly, and where things stand. */
+@Composable
+private fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> Unit) {
+    val active = when (brand.name) {
+        "TMDB" -> state.tmdbApiConfigured
+        "Simkl" -> state.simklConnected
+        "Floppy" -> state.floppyConnected
+        "Trakt" -> state.traktConfigured
+        else -> state.mdbListApiConfigured
+    }
+    val status = when {
+        brand.name == "Simkl" && active && !state.simklUsername.isNullOrBlank() -> stringResource(R.string.simkl_connected_as, state.simklUsername.orEmpty())
+        brand.name == "Floppy" && active -> floppyStatusLabel(state.floppyUiState)
+        brand.name in setOf("Simkl", "Floppy") -> stringResource(if (active) R.string.connected else R.string.not_connected)
+        else -> stringResource(if (active) R.string.configured else R.string.not_configured)
+    }
+    val description = stringResource(
+        when (brand.name) {
+            "TMDB" -> R.string.tmdb_description
+            "Simkl" -> R.string.simkl_description
+            "Floppy" -> R.string.floppy_self_hosted_description
+            "Trakt" -> R.string.trakt_description
+            else -> R.string.mdblist_description
+        },
+    )
+    val shape = RoundedCornerShape(28.dp)
+    Box(
+        Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp).fillMaxWidth().clip(shape)
+            .background(brand.brush).border(.6.dp, Color.White.copy(alpha = .10f), shape),
+    ) {
+        Image(
+            painterResource(brand.logo), null,
+            modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 18.dp).size(96.dp)
+                .clip(RoundedCornerShape(26.dp)).graphicsLayer { alpha = .14f },
+        )
+        Column(Modifier.padding(start = 10.dp, end = 18.dp, top = 10.dp, bottom = 20.dp)) {
+            GlassBackButton(onClick = onBack)
+            Spacer(Modifier.height(18.dp))
+            Column(Modifier.padding(start = 8.dp)) {
+                if (brand.wordmark != null) {
+                    Image(painterResource(brand.wordmark), brand.name, modifier = Modifier.height(46.dp))
+                } else {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        ServiceLogo(brand.name, size = 40.dp)
+                        Spacer(Modifier.width(12.dp))
+                        Text(brand.name, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
+                    }
+                }
+                KitStatusPill(active, status, Modifier.padding(top = 12.dp))
+                Text(description, color = Color.White.copy(alpha = .78f), style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp))
+            }
         }
     }
 }
 
+@Composable
+private fun KitStatusPill(active: Boolean, text: String, modifier: Modifier = Modifier) {
+    Row(
+        modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(Color.Black.copy(alpha = .28f))
+            .padding(horizontal = 10.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        StatusDot(active)
+        Spacer(Modifier.width(7.dp))
+        Text(text, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** Icon, title, optional description, then a value, a chevron when it opens something, or [trailing]. */
+@Composable
+private fun KitRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    value: String? = null,
+    onClick: (() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null,
+) {
+    val clickAction = onClick?.let { rememberUiAction(it) }
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp)
+            .then(if (clickAction != null) Modifier.clickable(onClick = clickAction) else Modifier)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .07f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        if (value != null) {
+            Spacer(Modifier.width(8.dp))
+            Text(value, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
+        }
+        when {
+            trailing != null -> { Spacer(Modifier.width(8.dp)); trailing() }
+            clickAction != null -> { Spacer(Modifier.width(4.dp)); Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun KitToggleRow(icon: ImageVector, title: String, subtitle: String?, checked: Boolean, onChecked: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 60.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChecked)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .07f)), contentAlignment = Alignment.Center) {
+            Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+            if (!subtitle.isNullOrBlank()) Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+        Spacer(Modifier.width(10.dp))
+        CompactSwitch(checked)
+    }
+}
+
+/** Big numbers side by side, for counts and times. */
+@Composable
+private fun KitStatTiles(stats: List<Pair<String, String>>) {
+    Row(
+        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+            .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        stats.forEach { (value, label) ->
+            Column(Modifier.weight(1f).fillMaxHeight().glass(RoundedCornerShape(18.dp)).padding(horizontal = 12.dp, vertical = 12.dp)) {
+                Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2)
+            }
+        }
+    }
+}
+
+@Composable
+private fun KitPrimaryButton(text: String, icon: ImageVector, color: Color, enabled: Boolean = true, onClick: () -> Unit) {
+    val clickAction = rememberUiAction(onClick)
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    Row(
+        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth().height(52.dp)
+            .clip(shape).background(if (enabled) color.copy(alpha = .9f) else Color.White.copy(alpha = .08f))
+            .border(.6.dp, Color.White.copy(alpha = .14f), shape)
+            .clickable(enabled = enabled, onClick = clickAction),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
+        Spacer(Modifier.width(8.dp))
+        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+    }
+}
+
+@Composable
+private fun KitDangerText(text: String, onClick: () -> Unit) {
+    val clickAction = rememberUiAction(onClick)
+    Box(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
+        Text(
+            text,
+            color = Color(0xFFF09595),
+            style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = 12.dp),
+        )
+    }
+}
+
+@Composable
+private fun KitFootnote(text: String) {
+    Text(text, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 15.sp,
+        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = 2.dp))
+}
+
+@Composable
+private fun KitNotice(text: String) {
+    Text(
+        text,
+        color = Color(0xFFF7C1C1),
+        style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth()
+            .clip(RoundedCornerShape(16.dp)).background(Color(0x33E24B4A)).padding(14.dp),
+    )
+}
+
+/** All-clear or problem summary with a large icon. */
+@Composable
+private fun KitStatusCard(ok: Boolean, title: String, subtitle: String) {
+    val tint = if (ok) Color(0xFF5DCAA5) else Color(0xFFF0997B)
+    Row(
+        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+            .glass(RoundedCornerShape(20.dp)).padding(16.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(Modifier.size(42.dp).clip(CircleShape).background(tint.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
+            Icon(if (ok) Icons.Filled.Check else Icons.Filled.ErrorOutline, null, tint = tint, modifier = Modifier.size(22.dp))
+        }
+        Spacer(Modifier.width(14.dp))
+        Column {
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.ExtraBold)
+            Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+        }
+    }
+}
+
+/** A short call to action, e.g. a permission that is missing. */
+@Composable
+private fun KitCallout(icon: ImageVector, title: String, body: String, action: String, onAction: () -> Unit) {
+    val clickAction = rememberUiAction(onAction)
+    Row(
+        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp)).background(Accent.copy(alpha = .16f))
+            .border(.6.dp, Accent.copy(alpha = .35f), RoundedCornerShape(20.dp)).padding(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, tint = AccentLight, modifier = Modifier.size(24.dp))
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+            Text(body, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
+        }
+        Spacer(Modifier.width(8.dp))
+        Text(action, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold,
+            modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(Accent).clickable(onClick = clickAction).padding(horizontal = 14.dp, vertical = 8.dp))
+    }
+}
+
+/** Instructions as short numbered steps, with an optional link underneath. */
+@Composable
+private fun KitSteps(title: String, steps: List<String>, linkLabel: String? = null, onLink: () -> Unit = {}) {
+    SettingsSection(title) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            steps.forEachIndexed { index, step ->
+                Row(verticalAlignment = Alignment.Top) {
+                    Box(Modifier.size(22.dp).clip(CircleShape).background(Color.White.copy(alpha = .10f)), contentAlignment = Alignment.Center) {
+                        Text("${index + 1}", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Spacer(Modifier.width(10.dp))
+                    Text(step, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+            if (linkLabel != null) {
+                val clickAction = rememberUiAction(onLink)
+                Row(
+                    Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = clickAction).padding(vertical = 6.dp, horizontal = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = AccentLight, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(linkLabel, color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A credential as one row ("Saved and verified · Edit"); the form unfolds when there is
+ * none yet or when editing. No characters of the saved value are ever shown.
+ */
+@Composable
+private fun CredentialBlock(service: String, configured: Boolean, onSave: (String, (Result<Unit>) -> Unit) -> Unit) {
+    var editing by rememberSaveable(service) { mutableStateOf(false) }
+    val uriHandler = LocalUriHandler.current
+    val showForm = editing || !configured
+    if (configured && !editing) {
+        SettingsSection(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_credential)) {
+            KitRow(Icons.Filled.Key, stringResource(R.string.credential_saved_verified), trailing = {
+                Text(
+                    stringResource(R.string.credential_edit),
+                    color = AccentLight,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable { editing = true }.padding(horizontal = 10.dp, vertical = 6.dp),
+                )
+            })
+        }
+    }
+    if (showForm) {
+        ApiCredentialSettings(service, configured, onSave, compact = true, onSaved = { editing = false })
+        val steps = when (service) {
+            "TMDB" -> listOf(R.string.tmdb_step_1, R.string.tmdb_step_2, R.string.tmdb_step_3)
+            "Trakt" -> listOf(R.string.trakt_step_1, R.string.trakt_step_2, R.string.trakt_step_3)
+            else -> listOf(R.string.mdblist_step_1, R.string.mdblist_step_2, R.string.mdblist_step_3)
+        }.map { stringResource(it) }
+        val (url, link) = when (service) {
+            "TMDB" -> TMDB_API_KEY_URL to R.string.get_tmdb_api_key
+            "Trakt" -> TRAKT_API_APPS_URL to R.string.get_trakt_client_id
+            else -> MDBLIST_API_KEY_URL to R.string.get_mdblist_api_key
+        }
+        KitSteps(stringResource(if (service == "Trakt") R.string.how_to_get_client_id else R.string.how_to_get_key), steps, stringResource(link)) {
+            runCatching { uriHandler.openUri(url) }
+        }
+    }
+}
+
+/** "2 min fa", "3 h fa", or a date for older syncs. */
+@Composable
+private fun relativeSyncTime(millis: Long): String {
+    val elapsed = ((System.currentTimeMillis() - millis) / 1000).coerceAtLeast(0)
+    return when {
+        elapsed < 60 -> stringResource(R.string.just_now_short)
+        elapsed < 3_600 -> stringResource(R.string.minutes_ago_short, elapsed / 60)
+        elapsed < 86_400 -> stringResource(R.string.hours_ago_short, elapsed / 3_600)
+        else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT).format(java.util.Date(millis))
+    }
+}

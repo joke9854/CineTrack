@@ -110,6 +110,8 @@ data class EpisodeCard(
     val stillUrl: String? = null,
     val runtimeMinutes: Int? = null,
     val watched: Boolean = false,
+    /** TMDB's score for this episode; only known after the episode itself is loaded. */
+    val score: Double? = null,
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')} · E${number.toString().padStart(2, '0')}"
     val scheduleKey: String get() = "$showId:$season:$number"
@@ -376,6 +378,7 @@ data class AppUiState(
     val people: List<PersonCard> = emptyList(),
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
+    val simklUsername: String? = null,
     val floppyConnected: Boolean = false,
     val floppyServerVersion: String? = null,
     val floppyBaseUrl: String? = null,
@@ -406,6 +409,10 @@ data class AppUiState(
     val preferredProviders: Set<String> = emptySet(),
     val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
     val heroLayout: String = "standard",
+    /** "a" = classic Discover (hero carousel + rails), "b" = mosaic. */
+    val discoverLayout: String = "a",
+    val seasonPicker: String = "text",
+    val posterAccent: Boolean = true,
     val posterFormat: String = "classic",
     val posterSize: String = "standard",
     val cardDensity: String = "standard",
@@ -441,6 +448,13 @@ data class DiscoverMovieFilters(
     val maximumRuntime: Int? = null,
     val originalLanguage: String? = null,
     val decadeStart: Int? = null,
+    /** Release-date window (ISO dates); overrides [decadeStart] when set. */
+    val dateFrom: String? = null,
+    val dateTo: String? = null,
+    val minimumVotes: Int? = null,
+    val maximumVotes: Int? = null,
+    /** "day" or "week": read TMDB trending instead of discover. Genres then filter locally. */
+    val trendingWindow: String? = null,
 )
 
 object RailIds {
@@ -453,3 +467,12 @@ object RailIds {
     const val RECOMMENDED = "recommended"
 }
 
+/** A running backup creation or restore: [stage] is a string resource, [fraction] null while unknown. */
+@Immutable
+data class BackupProgress(
+    val restore: Boolean,
+    val stage: Int,
+    val fraction: Float?,
+    val finished: Boolean = false,
+    val failed: Boolean = false,
+)

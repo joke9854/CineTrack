@@ -29,6 +29,9 @@ var Accent by mutableStateOf(StatusWatching)
     private set
 var AccentLight by mutableStateOf(lerp(StatusWatching, Color.White, .32f))
     private set
+/** The accent of a detail page, taken from its poster; null outside detail pages or when turned off. */
+val LocalDetailAccent = androidx.compose.runtime.compositionLocalOf<Color?> { null }
+
 val Info = Color(0xFF4FC7E8)
 val Violet = Color(0xFF9B7CF0)
 val Gold = Color(0xFFF6B23E)
@@ -44,14 +47,30 @@ object DesignTokens {
     const val WatchedConfirmationMs = 720L
 }
 
-fun applyUiAccent(key: String) {
-    val color = when (key) {
-        "planned" -> StatusPlanned
-        "paused" -> StatusPaused
-        "completed" -> Success
-        "dropped" -> StatusDropped
-        else -> StatusWatching
+/** The selectable accents; older saved keys map to the closest one. */
+object AccentPalette {
+    val Green = Color(0xFF2E7B29)
+    val Silver = Color(0xFFD2DDE8)
+    val Champagne = Color(0xFFBC9A66)
+    val Blue = Color(0xFF6AA8FF)
+
+    fun color(key: String): Color = when (key) {
+        "green", "completed" -> Green
+        "silver" -> Silver
+        "champagne", "planned", "paused" -> Champagne
+        else -> Blue
     }
+
+    fun normalize(key: String): String = when (key) {
+        "green", "completed" -> "green"
+        "silver" -> "silver"
+        "champagne", "planned", "paused" -> "champagne"
+        else -> "blue"
+    }
+}
+
+fun applyUiAccent(key: String) {
+    val color = AccentPalette.color(key)
     Accent = color
     AccentLight = lerp(color, Color.White, .32f)
 }

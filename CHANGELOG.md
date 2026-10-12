@@ -1,3 +1,31 @@
+# CineTrack 0.99.43 beta
+
+A redesign of the whole app, plus a few new features.
+
+**Detail pages**
+- New top: one line of facts (year, runtime, genres), the ratings in a single bar that never cuts off, and series status as a small chip. Started series show your progress and a "Continue · S2 E18" button that opens the next episode.
+- Below the buttons: the plot as plain text (folds after four lines), where to watch as one card with an Open button, round cast photos, the saga as a numbered row with how many you've seen, "More like this", and a short details list with only what the header doesn't already say.
+- Episodes: season pills or season covers (switch in the Episodes header), flat episode rows with an info button for the description, all episodes shown unless a season has more than 30, a smooth slide between seasons, and "Next" only once you've started the show.
+- Episode pages: the series as a small chip, the episode's own rating, arrows that say where they lead ("E17", "E19"), a dash for each episode of the season, director and writer, and the season's neighbouring episodes at the bottom.
+- Pages take their colour from the poster (switch in Appearance). Plot, cast and ratings show placeholders while loading. Opening a cover grows it into the page.
+
+**New**
+- Rewatches: "Watched 2 times · last …" on films and episodes.
+- Release countdowns: "Out in 5 days" on upcoming films and episodes, with a bell that reminds you on the day, for any title.
+- Swipe a Progress card to the right to mark the episode watched.
+- Home screen widget with your next three episodes, each with its poster.
+- "Your 2026" in Statistics: time watched, most-watched series, longest streak, busiest month and top genres.
+
+**Everywhere else**
+- Lighter cards, the Manrope typeface, softer tab feedback with a sliding underline, and smoother transitions between Films / Series and the Library tabs.
+- Settings redesigned: TMDB, Simkl and Floppy as brand cards (official Floppy logo), Trakt and MDBList as compact cards, and every service page with its own header. Simkl shows your username and last sync. Appearance has a live preview of your choices.
+- Discover mosaic with Cinopsys-style filters (type, period, genres) and long-press menus; bigger 16:9 carousel.
+- Wider, cleaner pop-ups, a progress pill while backups are created or restored, a collapsing header in Library with remembered scroll per tab, and equal-size Statistics cards.
+
+**Fixes**
+- A show you just advanced in Progress stays on top instead of dropping back after a few seconds.
+- Taps right after going back from a detail page are no longer ignored.
+
 # CineTrack 0.99.42 beta
 
 - Fixed the dark disc around the watched button on Progress cards: the glass is now clipped to its own shape, so the page colour no longer shows around controls that sit on a card. The pills keep a soft shadow.

@@ -29,6 +29,7 @@ import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.releaseDateTime
@@ -117,6 +118,60 @@ object ReleaseNotifier {
             }
     }
 
+    fun reminderKey(mediaKey: String, season: Int?, episode: Int?, day: String): String =
+        "reminder:$mediaKey:${season ?: 0}:${episode ?: 0}:${day.take(10)}"
+
+    /**
+     * Schedules (or cancels) a notification on a title's release day, for any title,
+     * in the library or not. A bare date reminds at 9 in the morning rather than at midnight.
+     */
+    suspend fun setReminder(
+        context: Context,
+        preferences: AppPreferences,
+        media: MediaCard,
+        release: String,
+        season: Int?,
+        episode: Int?,
+        episodeTitle: String?,
+        enabled: Boolean,
+    ) {
+        val key = reminderKey(media.stableKey, season, episode, release)
+        val work = "cinetrack-reminder-${key.hashCode()}"
+        preferences.setReleaseReminder(key, enabled)
+        if (!enabled) {
+            WorkManager.getInstance(context).cancelUniqueWork(work)
+            return
+        }
+        val configuredTimezone = preferences.metadataTimezone.first()
+        val zone = if (configuredTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(configuredTimezone) }.getOrDefault(ZoneId.systemDefault())
+        val releaseAt = releaseDateTime(release, zone) ?: return
+        val fireAt = if (release.trim().length <= 10) releaseAt.toLocalDate().atTime(9, 0).atZone(zone) else releaseAt
+        val delay = Duration.between(ZonedDateTime.now(zone), fireAt).toMillis().coerceAtLeast(0L)
+        val deepLink = if (media.type == MediaType.TV && season != null && episode != null) {
+            "cinetrack://episode/${media.id}/$season/$episode"
+        } else "cinetrack://detail/${media.type.name}/${media.id}"
+        val request = OneTimeWorkRequestBuilder<ReleaseNotificationWorker>()
+            .setInitialDelay(delay, TimeUnit.MILLISECONDS)
+            .setInputData(
+                workDataOf(
+                    "key" to key,
+                    "explicit" to true,
+                    "title" to media.title,
+                    "text" to releaseNotificationText(context, season, episode, episodeTitle, null),
+                    "episodeTitle" to episodeTitle.orEmpty(),
+                    "episodeLabel" to "",
+                    "deepLink" to deepLink,
+                    "mediaType" to media.type.name,
+                    "mediaId" to media.id,
+                    "season" to (season ?: -1),
+                    "episode" to (episode ?: -1),
+                ),
+            )
+            .build()
+        WorkManager.getInstance(context).enqueueUniqueWork(work, ExistingWorkPolicy.REPLACE, request)
+    }
+
     @SuppressLint("MissingPermission")
     suspend fun notifyScheduledRelease(
         context: Context,
@@ -125,8 +180,11 @@ object ReleaseNotifier {
         repository: CineTrackRepository? = null,
     ) {
         val type = data.getString("mediaType")?.let { runCatching { MediaType.valueOf(it) }.getOrNull() } ?: return
-        if (type == MediaType.TV && !preferences.notificationEpisodes.first()) return
-        if (type == MediaType.MOVIE && !preferences.notificationMovies.first()) return
+        // A reminder the user set on a title is sent even when the general release toggles are off.
+        val explicit = data.getBoolean("explicit", false)
+        if (explicit) data.getString("key")?.let { preferences.setReleaseReminder(it, false) }
+        if (!explicit && type == MediaType.TV && !preferences.notificationEpisodes.first()) return
+        if (!explicit && type == MediaType.MOVIE && !preferences.notificationMovies.first()) return
         if (!canNotify(context, preferences)) return
         val key = data.getString("key") ?: return
         if (!preferences.markReleaseNotified(key)) return
@@ -336,6 +394,7 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
         ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
         // The released episode should be in Progress without opening the show.
         runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
+        com.cinetrack.UpNextWidgetProvider.refresh(applicationContext)
         return Result.success()
     }
 }
@@ -354,6 +413,7 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                     repository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
                     // Fetch the following episode if it is not cached yet.
                     runCatching { repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
+                    com.cinetrack.UpNextWidgetProvider.refresh(context)
                 }
             } finally { result.finish() }
         }

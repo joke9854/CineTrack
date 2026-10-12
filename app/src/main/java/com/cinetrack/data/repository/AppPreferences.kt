@@ -103,11 +103,16 @@ class AppPreferences(private val context: Context) {
         val metadataRegion = stringPreferencesKey("metadata_region")
         val providerRegion = stringPreferencesKey("provider_region")
         val metadataTimezone = stringPreferencesKey("metadata_timezone")
+        val simklUsername = stringPreferencesKey("simkl_username")
         val syncReport = stringPreferencesKey("sync_report")
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
+        val posterAccent = booleanPreferencesKey("poster_accent")
         val preferredProviders = stringPreferencesKey("preferred_providers")
         val visibleProviderTypes = stringPreferencesKey("visible_provider_types")
         val heroLayout = stringPreferencesKey("hero_layout")
+        val discoverLayout = stringPreferencesKey("discover_layout")
+        val seasonPicker = stringPreferencesKey("season_picker")
+        val releaseReminders = stringPreferencesKey("release_reminders")
         val posterFormat = stringPreferencesKey("poster_format")
         val posterSize = stringPreferencesKey("poster_size")
         val cardDensity = stringPreferencesKey("card_density")
@@ -173,6 +178,12 @@ class AppPreferences(private val context: Context) {
     val metadataRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataRegion] ?: "system" }
     val metadataTimezone: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataTimezone] ?: "system" }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
+    /** Detail pages take their accent from the poster; on unless turned off in Aspetto. */
+    val posterAccent: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.posterAccent] ?: true }
+
+    suspend fun setPosterAccent(enabled: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.posterAccent] = enabled }
+    }
     val visibleProviderTypes: Flow<Set<String>> = context.cineTrackDataStore.data.map { prefs ->
         prefs[Keys.visibleProviderTypes]?.split('|')?.filter(String::isNotBlank)?.toSet()
             ?: setOf("flatrate", "rent", "buy", "free", "ads")
@@ -184,6 +195,9 @@ class AppPreferences(private val context: Context) {
     val preferredProviders: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.preferredProviders].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
+    val discoverLayout: Flow<String> = context.cineTrackDataStore.data.map { if (it[Keys.discoverLayout] == "b") "b" else "a" }
+    /** How a show's seasons are picked: "text" pills or "posters" covers. */
+    val seasonPicker: Flow<String> = context.cineTrackDataStore.data.map { if (it[Keys.seasonPicker] == "posters") "posters" else "text" }
     val heroLayout: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeHero(it[Keys.heroLayout] ?: "standard") }
     val posterFormat: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeFormat(it[Keys.posterFormat] ?: "classic") }
     val posterSize: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard") }
@@ -591,6 +605,12 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.metadataRegion] = value }
     }
 
+    val simklUsername: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.simklUsername] }
+
+    suspend fun setSimklUsername(value: String?) {
+        context.cineTrackDataStore.edit { if (value.isNullOrBlank()) it.remove(Keys.simklUsername) else it[Keys.simklUsername] = value }
+    }
+
     suspend fun setMetadataTimezone(value: String) {
         context.cineTrackDataStore.edit { it[Keys.metadataTimezone] = value }
     }
@@ -604,6 +624,27 @@ class AppPreferences(private val context: Context) {
             if (values.isEmpty()) prefs.remove(Keys.preferredProviders)
             else prefs[Keys.preferredProviders] = values.sorted().joinToString("|")
         }
+    }
+
+    /** Releases the user asked to be reminded about, by [com.cinetrack.data.sync.ReleaseNotifier.reminderKey]. */
+    val releaseReminders: Flow<Set<String>> = context.cineTrackDataStore.data.map { values ->
+        values[Keys.releaseReminders].orEmpty().split('|').filter(String::isNotBlank).toSet()
+    }
+
+    suspend fun setReleaseReminder(key: String, enabled: Boolean) {
+        context.cineTrackDataStore.edit { values ->
+            val current = values[Keys.releaseReminders].orEmpty().split('|').filter(String::isNotBlank).toMutableSet()
+            if (enabled) current.add(key) else current.remove(key)
+            values[Keys.releaseReminders] = current.toList().takeLast(200).joinToString("|")
+        }
+    }
+
+    suspend fun setSeasonPicker(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.seasonPicker] = if (value == "posters") "posters" else "text" }
+    }
+
+    suspend fun setDiscoverLayout(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.discoverLayout] = if (value == "b") "b" else "a" }
     }
 
     suspend fun setHeroLayout(value: String) {

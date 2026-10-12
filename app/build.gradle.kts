@@ -30,8 +30,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 25
         targetSdk = 36
-        versionCode = 141
-        versionName = "0.99.42"
+        versionCode = 142
+        versionName = "0.99.43"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -69,6 +69,15 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
+        }
+        // Release-optimised build installed over the debug app (same id and key, so its
+        // data stays): previews and performance checks on a phone without the release key.
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-preview"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
         }
     }
 

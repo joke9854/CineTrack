@@ -1,5 +1,8 @@
+@file:OptIn(androidx.compose.animation.ExperimentalSharedTransitionApi::class)
+
 package com.cinetrack.ui
 
+import com.cinetrack.ui.components.popupBackdropBlur
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -101,6 +104,23 @@ private object Routes {
     const val SettingsDetail = "settings-detail/{page}"
 }
 
+/** A destination that exposes its enter/exit scope to shared elements inside it. */
+private fun androidx.navigation.NavGraphBuilder.screen(
+    route: String,
+    arguments: List<androidx.navigation.NamedNavArgument> = emptyList(),
+    content: @Composable androidx.compose.animation.AnimatedContentScope.(androidx.navigation.NavBackStackEntry) -> Unit,
+) = composable(route, arguments) { entry ->
+    androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.components.LocalNavVisibility provides this) { content(entry) }
+}
+
+private fun isDetailRoute(route: String?): Boolean = route == Routes.Detail || route == Routes.Episode
+
+// Into and out of a detail page the pages swap in ~90 ms, so both are drawn only briefly;
+// the no-op slide keeps the transition alive while the poster or cover finishes flying.
+private val DetailEnter = fadeIn(tween(90)) + androidx.compose.animation.slideInVertically(tween(300)) { 0 }
+// The leaving page is gone after its 90 ms fade, so it cannot swallow the next tap.
+private val DetailExit = fadeOut(tween(90))
+
 private fun mainPageIndex(route: String?): Int? = when (route) {
     Routes.Discover -> 0
     Routes.Progress -> 1
@@ -121,6 +141,8 @@ fun CineTrackApp(
         android.os.Build.VERSION.SDK_INT >= 31 &&
             !(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
     }
+    // Liquid glass bottom bar and sheets refract this recording of the page.
+    val pageGlass = remember(navBlurEnabled) { if (navBlurEnabled) com.cinetrack.ui.components.PageGlassBackdrop() else null }
     val viewModel: CineTrackViewModel = viewModel(
         factory = CineTrackViewModel.Factory(
             application.container.repository,
@@ -142,6 +164,8 @@ fun CineTrackApp(
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
+    val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
+    val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
     val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
@@ -202,13 +226,25 @@ fun CineTrackApp(
     )
     val selectedIndex = navItems.indexOfFirst { it.route == route }.coerceAtLeast(0)
     val showBottomNav = route in navItems.map(BottomNavItem::route)
+    // Coming back from a detail page, the bar (and the page recording its glass needs)
+    // returns once the transition has played, instead of during it.
+    val navShown by androidx.compose.runtime.produceState(showBottomNav, showBottomNav) {
+        if (showBottomNav) kotlinx.coroutines.delay(230)
+        value = showBottomNav
+    }
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media -> navController.navigate("detail/${media.type.name}/${media.id}") }
 
-    Box(Modifier.fillMaxSize().imePadding()) {
-        com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, showBottomNav) { captureModifier ->
+    val popupBlur = remember { com.cinetrack.ui.components.PopupBlurController() }
+    Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
+        com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, pageGlass, navShown) { captureModifier ->
         androidx.compose.runtime.CompositionLocalProvider(
             com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize),
+            com.cinetrack.ui.components.LocalPopupBlur provides popupBlur,
         ) {
+        // Shared elements (the tapped poster flying into the detail page) need one scope
+        // around every destination.
+        androidx.compose.animation.SharedTransitionLayout {
+        androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.components.LocalSharedTransition provides this) {
         NavHost(
             modifier = captureModifier,
             navController = navController,
@@ -221,6 +257,7 @@ fun CineTrackApp(
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    isDetailRoute(targetState.destination.route) -> DetailEnter
                     else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
@@ -232,6 +269,7 @@ fun CineTrackApp(
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    isDetailRoute(targetState.destination.route) -> DetailExit
                     else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
@@ -243,6 +281,7 @@ fun CineTrackApp(
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    isDetailRoute(initialState.destination.route) -> DetailEnter
                     else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
@@ -254,11 +293,12 @@ fun CineTrackApp(
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    isDetailRoute(initialState.destination.route) -> DetailExit
                     else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
         ) {
-            composable(Routes.Discover) {
+            screen(Routes.Discover) {
                 DiscoverScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
@@ -271,9 +311,11 @@ fun CineTrackApp(
                     onNotInterested = viewModel::hideDiscoveryItem,
                     onOpenTmdbSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceTmdb}") },
                     onCompactNav = { compactNav = it },
+                    mosaicResults = mosaicResults,
+                    onMosaicQuery = viewModel::loadMosaic,
                 )
             }
-            composable(Routes.Progress) {
+            screen(Routes.Progress) {
                 ProgressScreen(
                     state = state,
                     syncProgress = viewModel.syncProgress,
@@ -291,17 +333,17 @@ fun CineTrackApp(
                     onCompactNav = { compactNav = it },
                 )
             }
-            composable(Routes.Library) {
+            screen(Routes.Library) {
                 LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = viewModel::refreshLibraryArtwork, onDismissArtworkProgress = viewModel::dismissLibraryArtworkProgress, onCompactNav = { compactNav = it })
             }
-            composable(Routes.Settings) {
+            screen(Routes.Settings) {
                 SettingsScreen(
                     state = state,
                     onPage = { navController.navigate("settings-detail/$it") },
                     onCompactNav = { compactNav = it },
                 )
             }
-            composable(
+            screen(
                 Routes.Search,
                 arguments = listOf(navArgument("scope") { type = NavType.StringType }),
             ) { entry ->
@@ -341,7 +383,7 @@ fun CineTrackApp(
                     )
                 }
             }
-            composable(
+            screen(
                 Routes.DiscoverList,
                 arguments = listOf(navArgument("railId") { type = NavType.StringType }),
             ) { entry ->
@@ -355,7 +397,7 @@ fun CineTrackApp(
                     onNotInterested = viewModel::hideDiscoveryItem,
                 )
             }
-            composable(Routes.DiscoverFilters) {
+            screen(Routes.DiscoverFilters) {
                 DiscoverFiltersScreen(
                     results = discoverFilterResults,
                     loading = discoverFiltersLoading,
@@ -369,7 +411,7 @@ fun CineTrackApp(
                     onNotInterested = viewModel::hideDiscoveryItem,
                 )
             }
-            composable(
+            screen(
                 Routes.Detail,
                 arguments = listOf(
                     navArgument("type") { type = NavType.StringType },
@@ -381,6 +423,7 @@ fun CineTrackApp(
                 val cachedMedia = state.findMedia(type, id)
                     ?: searchResults.firstOrNull { it.type == type && it.id == id }
                     ?: discoverFilterResults.firstOrNull { it.type == type && it.id == id }
+                    ?: mosaicResults?.second?.firstOrNull { it.type == type && it.id == id }
                 var resolvedMedia by remember(type, id) { mutableStateOf(cachedMedia) }
                 val selectedSeason by entry.savedStateHandle
                     .getStateFlow("selectedSeason", -1)
@@ -415,7 +458,7 @@ fun CineTrackApp(
                     initialEpisode = selectedEpisode.takeIf { it > 0 },
                 )
             }
-            composable(
+            screen(
                 Routes.Episode,
                 arguments = listOf(
                     navArgument("showId") { type = NavType.IntType },
@@ -445,7 +488,7 @@ fun CineTrackApp(
                     onWatched = viewModel::setEpisodeWatched,
                 )
             }
-            composable(
+            screen(
                 Routes.SettingsDetail,
                 arguments = listOf(navArgument("page") { type = NavType.StringType }),
             ) { entry ->
@@ -459,14 +502,22 @@ fun CineTrackApp(
             }
         }
         }
+        }
+        }
 
         }
-        if (showBottomNav) {
+        AnimatedVisibility(
+            visible = navShown,
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 2 },
+            exit = fadeOut(tween(100)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             LiquidBottomNav(
                 hazeState = if (navBlurEnabled) navHazeState else null,
+                glassBackdrop = pageGlass,
                 items = navItems,
                 selectedIndex = selectedIndex,
-                compact = compactNav,
+                compact = true,
                 onSelected = { index ->
                     val destination = navItems[index].route
                     navController.navigate(destination) {
@@ -475,10 +526,21 @@ fun CineTrackApp(
                         restoreState = true
                     }
                 },
-                modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = com.cinetrack.ui.theme.Spacing.lg),
+                modifier = Modifier.navigationBarsPadding().padding(bottom = com.cinetrack.ui.theme.Spacing.lg),
             )
         }
 
+        // Backup creation and restore report their stage in a pill at the top.
+        var shownBackup by remember { mutableStateOf<com.cinetrack.domain.BackupProgress?>(null) }
+        if (backupProgress != null) shownBackup = backupProgress
+        AnimatedVisibility(
+            visible = backupProgress != null,
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm),
+        ) {
+            shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
+        }
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
             enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 5 },

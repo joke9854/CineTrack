@@ -4,9 +4,31 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@drawable/widget_background"
-    android:gravity="center_vertical"
     android:orientation="vertical">
-    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/up_next" android:textColor="#FF8FA8" android:textSize="12sp" android:textStyle="bold" />
-    <TextView android:id="@+id/widget_title" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:maxLines="1" android:text="CineTrack" android:textColor="#FFFFFF" android:textSize="17sp" android:textStyle="bold" />
-    <TextView android:id="@+id/widget_episode" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:maxLines="2" android:text="@string/no_announced_episodes_short" android:textColor="#B8BCC8" android:textSize="12sp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:letterSpacing="0.12"
+        android:text="@string/widget_up_next_title"
+        android:textAllCaps="true"
+        android:textColor="#A2AEB8"
+        android:textSize="11sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/widget_empty"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:text="@string/widget_up_next_empty"
+        android:textColor="#D7DEE4"
+        android:textSize="13sp"
+        android:visibility="gone" />
+
+    <!-- Rows are added from up_next_widget_row.xml, one per next episode. -->
+    <FrameLayout android:id="@+id/widget_row_1" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    <FrameLayout android:id="@+id/widget_row_2" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    <FrameLayout android:id="@+id/widget_row_3" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
 </LinearLayout>

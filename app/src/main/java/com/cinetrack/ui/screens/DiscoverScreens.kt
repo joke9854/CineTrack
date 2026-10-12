@@ -2,6 +2,27 @@
 
 package com.cinetrack.ui.screens
 
+import com.cinetrack.ui.components.sharedBackdrop
+import com.cinetrack.ui.components.directionalSlide
+import com.cinetrack.ui.components.rememberDirectionalSlide
+import com.cinetrack.ui.components.slidingTabIndicator
+import com.cinetrack.ui.components.tabSpan
+import com.cinetrack.ui.components.rememberTabIndicator
+import com.cinetrack.ui.components.sharedPoster
+import com.cinetrack.ui.components.softTab
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.filled.ExpandMore
+import com.cinetrack.ui.components.tonalPill
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.spring
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.ui.draw.shadow
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -107,6 +128,8 @@ import com.cinetrack.ui.theme.TextSecondary
 import dev.chrisbanes.haze.hazeSource
 import com.cinetrack.ui.components.liveActionGlass
 import com.cinetrack.ui.components.rememberDetailGlassState
+import com.cinetrack.ui.components.liquidGlassIcon
+import com.cinetrack.ui.components.liquidGlassPill
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -126,6 +149,8 @@ fun DiscoverScreen(
     onNotInterested: (MediaCard) -> Unit,
     onOpenTmdbSettings: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
+    mosaicResults: Pair<com.cinetrack.domain.DiscoverMovieFilters, List<MediaCard>>? = null,
+    onMosaicQuery: (com.cinetrack.domain.DiscoverMovieFilters) -> Unit = {},
 ) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
@@ -141,7 +166,29 @@ fun DiscoverScreen(
     val popularMoviesTitle = stringResource(R.string.popular_movies)
     val upcomingTitle = stringResource(R.string.upcoming)
     val seeAll = stringResource(R.string.see_all)
-    val backgroundHero = heroes.getOrNull(heroIndex) ?: heroes.firstOrNull()
+    val mosaic = state.discoverLayout == "b"
+    var mosaicTv by rememberSaveable { mutableStateOf(false) }
+    var mosaicKind by rememberSaveable { mutableStateOf(MosaicKind.TRENDING) }
+    var mosaicWindow by rememberSaveable { mutableStateOf(MosaicWindow.DAY) }
+    var mosaicGenreIds by rememberSaveable { mutableStateOf("") }
+    val mosaicGenres = remember(mosaicGenreIds) { mosaicGenreIds.split(',').mapNotNull(String::toIntOrNull).toSet() }
+    val mosaicQuery = remember(mosaicTv, mosaicKind, mosaicWindow, mosaicGenres) {
+        mosaicFilters(mosaicTv, mosaicKind, mosaicWindow, mosaicGenres, java.time.LocalDate.now())
+    }
+    LaunchedEffect(mosaic, mosaicQuery) { if (mosaic && mosaicQuery != null) onMosaicQuery(mosaicQuery) }
+    val mosaicLoading = mosaicQuery != null && mosaicResults?.first != mosaicQuery
+    // Film / Serie turns the grid like a page, from the side of the new choice.
+    val mosaicSlide = rememberDirectionalSlide(if (mosaicTv) 1 else 0)
+    val mosaicItems = remember(state.rails, mosaicTv, mosaicQuery, mosaicResults) {
+        when {
+            // The default views are the rails Discover already loaded.
+            mosaicQuery == null && mosaicKind == MosaicKind.POPULAR -> state.rails[if (mosaicTv) RailIds.POPULAR_TV else RailIds.POPULAR_MOVIES].orEmpty()
+            mosaicQuery == null -> state.rails[if (mosaicTv) RailIds.TRENDING_TV else RailIds.TRENDING_MOVIES].orEmpty()
+            mosaicResults?.first == mosaicQuery -> mosaicResults.second
+            else -> emptyList()
+        }.distinctBy(MediaCard::stableKey)
+    }
+    val backgroundHero = if (mosaic) mosaicItems.firstOrNull() else heroes.getOrNull(heroIndex) ?: heroes.firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundHero?.backdropUrl ?: backgroundHero?.posterUrl) {
         LongPullRefreshContainer(refreshing = state.refreshing, onRefresh = onRefresh, enabled = state.tmdbApiConfigured) {
             LazyColumn(
@@ -150,24 +197,35 @@ fun DiscoverScreen(
                 contentPadding = PaddingValues(bottom = 112.dp),
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
-                item {
+                if (mosaic) mosaicHeader(
+                    MosaicChoice(mosaicTv, mosaicKind, mosaicWindow, mosaicGenres),
+                    onChange = { choice ->
+                        mosaicTv = choice.tv
+                        mosaicKind = choice.kind
+                        mosaicWindow = choice.window
+                        mosaicGenreIds = choice.genres.sorted().joinToString(",")
+                    },
+                    onSearch = onSearch,
+                    onFilters = onFilters,
+                )
+                if (!mosaic) item {
                     PageTitle(stringResource(R.string.discover), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg))
                 }
-                item {
+                if (!mosaic) item {
                     Row(
                         Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xs),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Row(
-                            Modifier.weight(1f).height(48.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = rememberUiAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+                            Modifier.weight(1f).height(48.dp).liquidGlassPill().clickable(onClick = rememberUiAction(onSearch)).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(21.dp))
                             Spacer(Modifier.width(9.dp))
                             Text(stringResource(R.string.search_hint), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
-                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(48.dp).glassIcon()) {
+                        IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
                             Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(17.dp))
                         }
                     }
@@ -200,7 +258,14 @@ fun DiscoverScreen(
                         )
                     }
                 }
-                if (heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested, loadTagline, state.metadataLanguage) }
+                if (mosaic && mosaicLoading && mosaicItems.isEmpty()) item {
+                    com.cinetrack.ui.components.LoadingPane(Modifier.fillMaxWidth().height(360.dp))
+                }
+                if (mosaic && !mosaicLoading && mosaicItems.isEmpty() && state.allMedia.isNotEmpty()) item {
+                    Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xxl))
+                }
+                if (mosaic) mosaicGrid(mosaicItems, MosaicActions(onMedia, onStatus, onNotInterested), mosaicSlide)
+                if (!mosaic && heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested, loadTagline, state.metadataLanguage) }
                 if (state.allMedia.isEmpty() && !state.loading) item {
                     Text(
                         state.error ?: stringResource(R.string.no_catalog_data),
@@ -209,11 +274,351 @@ fun DiscoverScreen(
                         modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)).padding(com.cinetrack.ui.theme.Spacing.md),
                     )
                 }
-                railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
-                railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
-                railSection(popularTvTitle, seeAll, RailIds.POPULAR_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
-                railSection(popularMoviesTitle, seeAll, RailIds.POPULAR_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
-                railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                if (!mosaic) {
+                    railSection(trendingTvTitle, seeAll, RailIds.TRENDING_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                    railSection(trendingMoviesTitle, seeAll, RailIds.TRENDING_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                    railSection(popularTvTitle, seeAll, RailIds.POPULAR_TV, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                    railSection(popularMoviesTitle, seeAll, RailIds.POPULAR_MOVIES, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                    railSection(upcomingTitle, seeAll, RailIds.UPCOMING, state, onSeeAll, onMedia, onStatus, onNotInterested)
+                }
+            }
+        }
+    }
+}
+
+/** What the Mosaic grid lists, like Cinopsys: a list type, a time window and genres. */
+private enum class MosaicKind(val label: Int, val moviesOnly: Boolean = false) {
+    TRENDING(R.string.discover_trending),
+    POPULAR(R.string.discover_popular),
+    UPCOMING(R.string.upcoming),
+    BOX_OFFICE(R.string.discover_box_office, moviesOnly = true),
+    TOP_RATED(R.string.discover_top_rated);
+
+    val windows: List<MosaicWindow>
+        get() = when (this) {
+            TRENDING -> listOf(MosaicWindow.DAY, MosaicWindow.WEEK, MosaicWindow.MONTH)
+            UPCOMING -> listOf(MosaicWindow.WEEK, MosaicWindow.MONTH, MosaicWindow.YEAR)
+            else -> listOf(MosaicWindow.MONTH, MosaicWindow.YEAR, MosaicWindow.ALL)
+        }
+    val defaultWindow: MosaicWindow
+        get() = when (this) {
+            TRENDING -> MosaicWindow.DAY
+            UPCOMING -> MosaicWindow.MONTH
+            else -> MosaicWindow.ALL
+        }
+}
+
+private enum class MosaicWindow(val label: Int) {
+    DAY(R.string.window_today),
+    WEEK(R.string.window_week),
+    MONTH(R.string.window_month),
+    YEAR(R.string.window_year),
+    ALL(R.string.window_all),
+}
+
+private data class MosaicChoice(val tv: Boolean, val kind: MosaicKind, val window: MosaicWindow, val genres: Set<Int>)
+
+/** TMDB query for a Mosaic choice; null for the default views Discover has already loaded. */
+private fun mosaicFilters(tv: Boolean, kind: MosaicKind, window: MosaicWindow, genres: Set<Int>, today: java.time.LocalDate): com.cinetrack.domain.DiscoverMovieFilters? {
+    if (genres.isEmpty() && kind == MosaicKind.TRENDING && window == MosaicWindow.DAY) return null
+    if (genres.isEmpty() && kind == MosaicKind.POPULAR && window == MosaicWindow.ALL) return null
+    val base = com.cinetrack.domain.DiscoverMovieFilters(mediaType = if (tv) MediaType.TV else MediaType.MOVIE, genreIds = genres)
+    // Past windows end today; upcoming windows start tomorrow.
+    val since = when (window) {
+        MosaicWindow.DAY -> today.minusDays(1)
+        MosaicWindow.WEEK -> today.minusDays(7)
+        MosaicWindow.MONTH -> today.minusDays(30)
+        MosaicWindow.YEAR -> today.withDayOfYear(1)
+        MosaicWindow.ALL -> null
+    }
+    val past = base.copy(dateFrom = since?.toString(), dateTo = today.toString())
+    return when (kind) {
+        MosaicKind.TRENDING -> when (window) {
+            MosaicWindow.DAY -> base.copy(trendingWindow = "day")
+            MosaicWindow.WEEK -> base.copy(trendingWindow = "week")
+            else -> base.copy(sortBy = "popularity.desc", dateFrom = today.minusDays(45).toString(), dateTo = today.toString(), minimumVotes = 20)
+        }
+        MosaicKind.POPULAR -> past.copy(sortBy = "popularity.desc")
+        MosaicKind.UPCOMING -> base.copy(
+            sortBy = "popularity.desc",
+            dateFrom = today.plusDays(1).toString(),
+            dateTo = when (window) {
+                MosaicWindow.WEEK -> today.plusDays(7)
+                MosaicWindow.MONTH -> today.plusDays(30)
+                else -> today.plusDays(365)
+            }.toString(),
+        )
+        MosaicKind.BOX_OFFICE -> past.copy(sortBy = "revenue.desc")
+        MosaicKind.TOP_RATED -> past.copy(sortBy = "vote_average.desc", minimumVotes = if (window == MosaicWindow.ALL) 1000 else 100)
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+private fun LazyListScope.mosaicHeader(
+    choice: MosaicChoice,
+    onChange: (MosaicChoice) -> Unit,
+    onSearch: () -> Unit,
+    onFilters: () -> Unit,
+) {
+    item {
+        Row(
+            Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.md),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MosaicHeadline(stringResource(R.string.movies), !choice.tv) {
+                if (choice.tv) onChange(choice.copy(tv = false, genres = emptySet()))
+            }
+            Spacer(Modifier.width(18.dp))
+            MosaicHeadline(stringResource(R.string.tv_shows), choice.tv) {
+                if (!choice.tv) {
+                    val kind = if (choice.kind.moviesOnly) MosaicKind.TRENDING else choice.kind
+                    onChange(choice.copy(tv = true, kind = kind, window = if (kind != choice.kind) kind.defaultWindow else choice.window, genres = emptySet()))
+                }
+            }
+            Spacer(Modifier.weight(1f))
+            IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(20.dp))
+            }
+            IconButton(onClick = rememberUiAction(onFilters), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                Icon(Icons.Filled.Tune, stringResource(R.string.filters), tint = TextSecondary, modifier = Modifier.size(19.dp))
+            }
+        }
+    }
+    item {
+        var sheet by remember { mutableStateOf(0) } // 1 type, 2 window, 3 genres
+        val genres = discoverGenreOptions(if (choice.tv) MediaType.TV else MediaType.MOVIE)
+        val genreLabel = when (choice.genres.size) {
+            0 -> stringResource(R.string.genres)
+            1 -> genres.firstOrNull { it.first in choice.genres }?.second ?: stringResource(R.string.genres)
+            else -> stringResource(R.string.genres) + " · " + choice.genres.size
+        }
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = com.cinetrack.ui.theme.Spacing.xl),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            MosaicDropdownChip(stringResource(choice.kind.label), active = choice.kind != MosaicKind.TRENDING) { sheet = 1 }
+            MosaicDropdownChip(stringResource(choice.window.label), active = choice.window != choice.kind.defaultWindow) { sheet = 2 }
+            MosaicDropdownChip(genreLabel, active = choice.genres.isNotEmpty()) { sheet = 3 }
+        }
+        val close = { sheet = 0 }
+        when (sheet) {
+            1 -> MosaicOptionSheet(
+                title = stringResource(if (choice.tv) R.string.discover_type_tv else R.string.discover_type_movies),
+                options = MosaicKind.entries.filter { !choice.tv || !it.moviesOnly }.map { it to stringResource(it.label) },
+                selected = setOf(choice.kind),
+                onDismiss = close,
+            ) { kind ->
+                onChange(choice.copy(kind = kind, window = if (kind == choice.kind) choice.window else kind.defaultWindow))
+                close()
+            }
+            2 -> MosaicOptionSheet(
+                title = stringResource(if (choice.kind == MosaicKind.TRENDING) R.string.window_trending_title else R.string.window_title),
+                options = choice.kind.windows.map { it to stringResource(it.label) },
+                selected = setOf(choice.window),
+                onDismiss = close,
+            ) { window ->
+                onChange(choice.copy(window = window))
+                close()
+            }
+            3 -> {
+                // Several genres can be picked; the grid reloads once the sheet closes.
+                var draft by remember { mutableStateOf(choice.genres) }
+                MosaicOptionSheet(
+                    title = stringResource(R.string.genres),
+                    options = listOf(-1 to stringResource(R.string.genres_all)) + genres,
+                    selected = draft.ifEmpty { setOf(-1) },
+                    onDismiss = {
+                        if (draft != choice.genres) onChange(choice.copy(genres = draft))
+                        close()
+                    },
+                ) { id ->
+                    draft = if (id == -1) emptySet() else if (id in draft) draft - id else draft + id
+                }
+            }
+        }
+    }
+    item { Spacer(Modifier.height(12.dp)) }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+private fun <T> MosaicOptionSheet(
+    title: String,
+    options: List<Pair<T, String>>,
+    selected: Set<T>,
+    onDismiss: () -> Unit,
+    onSelect: (T) -> Unit,
+) {
+    com.cinetrack.ui.components.SharedGlassSheet(onDismiss = onDismiss) {
+        Column(Modifier.padding(horizontal = 12.dp)) {
+            com.cinetrack.ui.components.SheetTitle(title)
+            // Long lists scroll inside the rounded group, so its corners stay rounded.
+            com.cinetrack.ui.components.GlassMenuGroup(maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .5f).dp) {
+                options.forEachIndexed { index, (value, label) ->
+                    com.cinetrack.ui.components.GlassMenuRow(
+                        label = label,
+                        icon = null,
+                        tint = com.cinetrack.ui.theme.AccentLight,
+                        selected = value in selected,
+                        divider = index < options.lastIndex,
+                    ) { onSelect(value) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MosaicDropdownChip(label: String, active: Boolean, onClick: () -> Unit) {
+    val dropdown = true
+    Row(
+        Modifier.height(40.dp).tonalPill(active)
+            .clickable(onClick = rememberUiAction(onClick))
+            .padding(start = 12.dp, end = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(Icons.Filled.Tune, null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+        Spacer(Modifier.width(7.dp))
+        Text(label, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+        if (dropdown) {
+            Spacer(Modifier.width(4.dp))
+            Icon(Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun MosaicHeadline(text: String, selected: Boolean, onClick: () -> Unit) {
+    val color by androidx.compose.animation.animateColorAsState(
+        if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),
+        androidx.compose.animation.core.tween(com.cinetrack.ui.theme.Motion.Extended),
+        label = "mosaicHeadline",
+    )
+    Text(
+        text,
+        color = color,
+        style = androidx.compose.material3.MaterialTheme.typography.headlineSmall,
+        fontWeight = FontWeight.ExtraBold,
+        modifier = Modifier.softTab(selected, onClick),
+    )
+}
+
+/** One wide feature tile, then rows of three posters, then a poster beside a wide tile. */
+private class MosaicActions(
+    val onMedia: (MediaCard) -> Unit,
+    val onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
+    val onNotInterested: (MediaCard) -> Unit,
+)
+
+private fun LazyListScope.mosaicGrid(items: List<MediaCard>, actions: MosaicActions, slide: androidx.compose.runtime.State<Float>) {
+    val pattern = intArrayOf(1, 3, 2, 3)
+    val blocks = mutableListOf<List<MediaCard>>()
+    var index = 0
+    var step = 0
+    while (index < items.size) {
+        val count = minOf(pattern[step % pattern.size], items.size - index)
+        blocks += items.subList(index, index + count)
+        index += count
+        step++
+    }
+    items(blocks.size, key = { blocks[it].first().stableKey }) { position ->
+        Box(Modifier.directionalSlide(slide)) { MosaicBlock(blocks[position], actions) }
+    }
+}
+
+@Composable
+private fun MosaicBlock(block: List<MediaCard>, actions: MosaicActions) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+        val gap = 8.dp
+        val column = (maxWidth - gap * 2) / 3
+        val posterHeight = column * 1.5f
+        when (block.size) {
+            1 -> MosaicTile(block[0], wide = true, modifier = Modifier.fillMaxWidth().height(206.dp), actions = actions)
+            2 -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                MosaicTile(block[0], wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions)
+                MosaicTile(block[1], wide = true, modifier = Modifier.weight(1f).height(posterHeight), actions = actions)
+            }
+            else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                block.forEach { MosaicTile(it, wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MosaicTile(media: MediaCard, wide: Boolean, modifier: Modifier, actions: MosaicActions) {
+    val shape = RoundedCornerShape(14.dp)
+    val art = if (wide) media.backdropUrl ?: media.posterUrl else media.posterUrl ?: media.backdropUrl
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val posterSlot = com.cinetrack.ui.components.rememberPosterSlot()
+    val pressScale by animateFloatAsState(
+        if (pressed || statusPopup) .96f else 1f,
+        spring(dampingRatio = .7f, stiffness = Spring.StiffnessMediumLow),
+        label = "mosaicPress",
+    )
+    Box(
+        modifier.graphicsLayer { scaleX = pressScale; scaleY = pressScale }
+            .shadow(12.dp, shape, clip = false)
+            .then(if (wide) Modifier.sharedBackdrop(media.stableKey, posterSlot) else Modifier.sharedPoster(media.stableKey, posterSlot))
+            .clip(shape).background(com.cinetrack.ui.theme.Background1)
+            .combinedClickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    com.cinetrack.ui.components.SharedPosterSource.active = posterSlot
+                    actions.onMedia(media)
+                },
+                onLongClick = {
+                    haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                    statusPopup = true
+                },
+            ),
+    ) {
+        MediaStatusPopup(
+            expanded = statusPopup,
+            currentStatus = media.status,
+            onDismiss = { statusPopup = false },
+            onStatus = { status -> actions.onStatus(media, status); statusPopup = false },
+            onNotInterested = { actions.onNotInterested(media); statusPopup = false },
+            media = media,
+        )
+        if (!art.isNullOrBlank()) {
+            if (wide) AsyncImage(art, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            else com.cinetrack.ui.components.SharedPosterImage(art, media.title, posterSlot, Modifier.fillMaxSize(), ContentScale.Crop)
+        }
+        if (wide) {
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE6080A0C))))
+            Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+                Text(
+                    listOfNotNull(
+                        stringResource(if (media.type == MediaType.TV) R.string.tv_shows else R.string.movies),
+                        media.releaseDate?.take(4)?.takeIf(String::isNotBlank),
+                    ).joinToString(" · ").uppercase(com.cinetrack.ui.currentLocale()),
+                    color = TextSecondary,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp,
+                )
+                Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                media.score?.takeIf { it > 0 }?.let { score ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Star, null, tint = com.cinetrack.ui.theme.Gold, modifier = Modifier.size(13.dp))
+                        Spacer(Modifier.width(4.dp))
+                        Text(String.format(com.cinetrack.ui.currentLocale(), "%.1f", score), color = com.cinetrack.ui.theme.Gold, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+        if (media.status != com.cinetrack.domain.LibraryStatus.NONE) {
+            Box(
+                Modifier.align(Alignment.TopEnd).padding(7.dp).size(24.dp).clip(CircleShape)
+                    .background(com.cinetrack.ui.components.libraryStatusColor(media.status).copy(alpha = .8f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(com.cinetrack.ui.components.libraryStatusIcon(media.status), null, tint = Color.White, modifier = Modifier.size(13.dp))
             }
         }
     }
@@ -271,8 +676,9 @@ private fun HeroCarousel(
                     }
                 } finally { touching = false }
             },
-            contentPadding = PaddingValues(horizontal = 20.dp),
-            pageSpacing = 10.dp,
+            // The 16:9 card uses nearly the full width so the wide format still reads large.
+            contentPadding = PaddingValues(horizontal = if (com.cinetrack.ui.theme.LocalCardAppearance.current.heroLayout == "landscape") 12.dp else 20.dp),
+            pageSpacing = if (com.cinetrack.ui.theme.LocalCardAppearance.current.heroLayout == "landscape") 8.dp else 10.dp,
             key = { items[it].stableKey },
         ) { page ->
             HeroCard(items[page], onMedia, onStatus, onNotInterested, loadTagline, metadataLanguage) {
@@ -308,6 +714,7 @@ internal fun HeroCard(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
+    val coverSlot = com.cinetrack.ui.components.rememberPosterSlot()
     var tagline by remember(media.stableKey, metadataLanguage) { mutableStateOf<String?>(null) }
     LaunchedEffect(media.stableKey, metadataLanguage, preview, previewTagline) {
         tagline = if (preview) previewTagline else loadTagline(media)
@@ -318,16 +725,17 @@ internal fun HeroCard(
     val heroGlassState = rememberDetailGlassState()
     val appearance = com.cinetrack.ui.theme.LocalCardAppearance.current
     val compact = appearance.heroLayout == "landscape"
-    val titleSize = if (compact) 20.sp else if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
+    val titleSize = if (compact) 23.sp else if (androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp < 380) 26.sp else 30.sp
     BoxWithConstraints(Modifier.fillMaxWidth()) {
     val cardHeight = appearance.heroAspectRatio?.let { ratio ->
         // Preserve the selected ratio unless larger accessibility text needs more room.
-        (maxWidth / ratio).coerceAtLeast(((if (compact) 180 else 270) * fontScale).dp)
+        (maxWidth / ratio).coerceAtLeast(((if (compact) 230 else 270) * fontScale).dp)
     } ?: (310 * fontScale).dp
     Box(
         Modifier
             .fillMaxWidth()
             .height(cardHeight)
+            .sharedBackdrop(media.stableKey, coverSlot)
             .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
             .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.SeaSurface, com.cinetrack.ui.theme.SurfacePalette.PosterShadow)))
             .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
@@ -337,6 +745,7 @@ internal fun HeroCard(
                 interactionSource = interactionSource,
                 indication = null,
                 onClick = {
+                    com.cinetrack.ui.components.SharedPosterSource.active = coverSlot
                     onMedia(media)
                 },
                 onLongClick = {
@@ -404,6 +813,7 @@ internal fun HeroCard(
             onDismiss = { statusPopup = false },
             onStatus = { status -> onStatus(media, status); statusPopup = false },
             onNotInterested = { onNotInterested(media); statusPopup = false },
+            media = media,
         )
     }
 }
@@ -665,7 +1075,7 @@ private fun SearchCategoryPill(
 ) {
     Row(
         modifier.height(44.dp)
-            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+            .liquidGlassPill()
             .background(if (selected) com.cinetrack.ui.theme.Accent.copy(alpha = .25f) else Color.Transparent)
             .clickable(onClick = rememberUiAction(onClick))
             .padding(horizontal = com.cinetrack.ui.theme.Spacing.md),

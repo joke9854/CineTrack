@@ -131,6 +131,7 @@ data class TmdbEpisodeDto(
     val runtime: Int? = null,
     @SerialName("season_number") val season: Int,
     @SerialName("episode_number") val number: Int,
+    @SerialName("vote_average") val voteAverage: Double? = null,
     @SerialName("guest_stars") val guestStars: List<TmdbPersonCreditDto> = emptyList(),
     val crew: List<TmdbPersonCreditDto> = emptyList(),
     val credits: TmdbCreditsDto? = null,
@@ -179,6 +180,11 @@ data class TmdbCombinedCreditDto(
 interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
+    @GET("3/trending/{type}/{window}") suspend fun trending(
+        @Path("type") type: String,
+        @Path("window") window: String,
+        @Query("page") page: Int = 1,
+    ): TmdbPage
     @GET("3/watch/providers/movie")
     suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/watch/providers/tv")
@@ -198,6 +204,7 @@ interface TmdbService {
         @Query("with_runtime.lte") maximumRuntime: Int? = null,
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("primary_release_date.lte") dateTo: String? = null,
+        @Query("vote_count.lte") maximumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -215,6 +222,7 @@ interface TmdbService {
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("first_air_date.gte") dateFrom: String? = null,
         @Query("first_air_date.lte") dateTo: String? = null,
+        @Query("vote_count.lte") maximumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -270,6 +278,8 @@ data class SimklOAuthResponse(
     @SerialName("expires_in") val expiresIn: Long? = null,
 )
 
+@Serializable data class SimklUserSettings(val user: SimklUserProfile? = null)
+@Serializable data class SimklUserProfile(val name: String? = null)
 @Serializable data class SimklActivity(val all: String = "", @SerialName("tv_shows") val tvShows: SimklActivityGroup = SimklActivityGroup(), val movies: SimklActivityGroup = SimklActivityGroup(), val anime: SimklActivityGroup = SimklActivityGroup())
 @Serializable data class SimklActivityGroup(
     val all: String = "",
@@ -354,6 +364,8 @@ interface SimklSyncService {
     @POST("sync/history") suspend fun addHistory(@Body request: SimklSyncRequest)
     @POST("sync/history/remove") suspend fun removeHistory(@Body request: SimklSyncRequest): SimklRemoveResponse
     @POST("sync/add-to-list") suspend fun addToList(@Body request: SimklSyncRequest)
+    /** The signed-in account's profile; only the display name is used. */
+    @POST("users/settings") suspend fun userSettings(): SimklUserSettings
 }
 
 interface SimklCalendarService {

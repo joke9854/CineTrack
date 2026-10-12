@@ -206,6 +206,11 @@ class CineTrackViewModel(
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
     private val _discoverFiltersLoading = MutableStateFlow(false)
     val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
+    /** Results for the Mosaic layout's type / window / genre chips; kept apart from the filter page. */
+    private val _mosaicResults = MutableStateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?>(null)
+    val mosaicResults: StateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?> = _mosaicResults.asStateFlow()
+    private val mosaicCache = mutableMapOf<DiscoverMovieFilters, List<MediaCard>>()
+    private var mosaicJob: kotlinx.coroutines.Job? = null
     private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
     private val _settingsProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
@@ -214,6 +219,34 @@ class CineTrackViewModel(
     val settingsProvidersLoading = _settingsProvidersLoading.asStateFlow()
     private val _settingsProvidersError = MutableStateFlow(false)
     val settingsProvidersError = _settingsProvidersError.asStateFlow()
+    /** Backup creation or restore in progress, shown as a pill over the app; null when idle. */
+    private val _backupProgress = MutableStateFlow<com.cinetrack.domain.BackupProgress?>(null)
+    val backupProgress: StateFlow<com.cinetrack.domain.BackupProgress?> = _backupProgress.asStateFlow()
+    private var backupProgressClear: kotlinx.coroutines.Job? = null
+
+    private fun backupStep(restore: Boolean, stage: Int, fraction: Float?) {
+        backupProgressClear?.cancel()
+        _backupProgress.value = com.cinetrack.domain.BackupProgress(restore, stage, fraction)
+    }
+
+    private fun backupFinished(restore: Boolean, failed: Boolean) {
+        _backupProgress.value = com.cinetrack.domain.BackupProgress(
+            restore = restore,
+            stage = when {
+                failed -> com.cinetrack.R.string.backup_failed
+                restore -> com.cinetrack.R.string.restore_done
+                else -> com.cinetrack.R.string.backup_done
+            },
+            fraction = 1f,
+            finished = true,
+            failed = failed,
+        )
+        backupProgressClear = viewModelScope.launch {
+            kotlinx.coroutines.delay(2600)
+            _backupProgress.value = null
+        }
+    }
+
     private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
     private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
@@ -494,6 +527,20 @@ class CineTrackViewModel(
         }
     }
 
+    fun loadMosaic(filters: DiscoverMovieFilters) {
+        mosaicCache[filters]?.let { _mosaicResults.value = filters to it; return }
+        mosaicJob?.cancel()
+        mosaicJob = viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discover(filters) } }
+                .onSuccess {
+                    if (mosaicCache.size > 24) mosaicCache.clear()
+                    mosaicCache[filters] = it
+                    _mosaicResults.value = filters to it
+                }
+                .onFailure { if (it !is kotlinx.coroutines.CancellationException) _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
     fun loadStreamingProviders(mediaType: MediaType) {
         viewModelScope.launch {
             _streamingProviders.value = withContext(Dispatchers.IO) {
@@ -559,6 +606,32 @@ class CineTrackViewModel(
         }
     }
 
+    val releaseReminders: StateFlow<Set<String>> = repository.preferences.releaseReminders
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    fun setReleaseReminder(context: android.content.Context, media: MediaCard, release: String, season: Int?, episode: Int?, episodeTitle: String?, enabled: Boolean) {
+        viewModelScope.launch {
+            com.cinetrack.data.sync.ReleaseNotifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, enabled)
+        }
+    }
+
+    fun setPosterAccent(enabled: Boolean) {
+        _state.value = _state.value.copy(posterAccent = enabled)
+        viewModelScope.launch { repository.preferences.setPosterAccent(enabled) }
+    }
+
+    fun setSeasonPicker(value: String) {
+        val normalized = if (value == "posters") "posters" else "text"
+        _state.value = _state.value.copy(seasonPicker = normalized)
+        viewModelScope.launch { repository.preferences.setSeasonPicker(normalized) }
+    }
+
+    fun setDiscoverLayout(value: String) {
+        val normalized = if (value == "b") "b" else "a"
+        _state.value = _state.value.copy(discoverLayout = normalized)
+        viewModelScope.launch { repository.preferences.setDiscoverLayout(normalized) }
+    }
+
     fun setHeroLayout(value: String) {
         val normalized = com.cinetrack.domain.CardAppearance.normalizeHero(value)
         _state.value = _state.value.copy(heroLayout = normalized)
@@ -601,6 +674,8 @@ class CineTrackViewModel(
         )
         _searchResults.value = _searchResults.value.filterNot { it.stableKey == media.stableKey }
         _discoverFilterResults.value = _discoverFilterResults.value.filterNot { it.stableKey == media.stableKey }
+        _mosaicResults.value = _mosaicResults.value?.let { (key, items) -> key to items.filterNot { it.stableKey == media.stableKey } }
+        mosaicCache.replaceAll { _, items -> items.filterNot { it.stableKey == media.stableKey } }
         viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
     }
 
@@ -1060,6 +1135,7 @@ class CineTrackViewModel(
             }
             repository.completeLogin(code, state).onSuccess {
                 _state.value = _state.value.copy(simklConnected = true, error = null)
+                loadSimklUsername()
                 sync()
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
         }
@@ -1068,7 +1144,17 @@ class CineTrackViewModel(
     fun disconnectSimkl() {
         viewModelScope.launch {
             repository.disconnectSimkl()
-            _state.value = _state.value.copy(simklConnected = false)
+            _state.value = _state.value.copy(simklConnected = false, simklUsername = null)
+        }
+    }
+
+    /** Fills in the Simkl account name shown in Settings, once per connection. */
+    fun loadSimklUsername() {
+        if (!_state.value.simklConnected) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.refreshSimklUsername() }?.let { name ->
+                _state.value = _state.value.copy(simklUsername = name)
+            }
         }
     }
 
@@ -1460,20 +1546,26 @@ class CineTrackViewModel(
 
     fun exportData(context: Context, sections: Set<String> = emptySet()) {
         viewModelScope.launch {
+            backupStep(restore = false, stage = com.cinetrack.R.string.backup_stage_collect, fraction = null)
             runCatching {
                 val file = withContext(Dispatchers.IO) {
                     val files = repository.exportBackupFiles(sections)
                     val directory = File(context.cacheDir, "exports").apply { mkdirs() }
                     val target = File(directory, "cinetrack-backup-${LocalDate.now()}.zip")
+                    val total = files.values.sumOf { it.length.toLong() }.coerceAtLeast(1L)
+                    var written = 0L
                     ZipOutputStream(FileOutputStream(target)).use { archive ->
                         files.forEach { (path, contents) ->
                             archive.putNextEntry(ZipEntry(path))
                             archive.write(contents.toByteArray())
                             archive.closeEntry()
+                            written += contents.length
+                            backupStep(restore = false, stage = com.cinetrack.R.string.backup_stage_compress, fraction = .3f + .7f * written / total)
                         }
                     }
                     target
                 }
+                backupFinished(restore = false, failed = false)
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "application/zip"
@@ -1481,7 +1573,10 @@ class CineTrackViewModel(
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_data)))
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+            }.onFailure {
+                backupFinished(restore = false, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
@@ -1561,10 +1656,28 @@ class CineTrackViewModel(
 
     fun restoreData(context: Context, uri: Uri) {
         viewModelScope.launch {
+            backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_read, fraction = 0f)
             runCatching {
                 val restored = withContext(Dispatchers.IO) {
                     val entries = linkedMapOf<String, String>()
-                    context.contentResolver.openInputStream(uri)?.use { input ->
+                    val archiveSize = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1L
+                    var lastReported = 0f
+                    context.contentResolver.openInputStream(uri)?.use { raw ->
+                        // Reading is a third of the restore; report it by compressed bytes read.
+                        val input = object : java.io.FilterInputStream(raw) {
+                            var count = 0L
+                            private fun advance(read: Long) {
+                                if (read <= 0 || archiveSize <= 0) return
+                                count += read
+                                val fraction = .33f * (count.toFloat() / archiveSize).coerceIn(0f, 1f)
+                                if (fraction - lastReported >= .01f) {
+                                    lastReported = fraction
+                                    backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_read, fraction = fraction)
+                                }
+                            }
+                            override fun read(): Int = super.read().also { if (it >= 0) advance(1) }
+                            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { advance(it.toLong()) }
+                        }
                         ZipInputStream(input).use { archive ->
                             var totalBytes = 0L
                             var entry = archive.nextEntry
@@ -1591,26 +1704,41 @@ class CineTrackViewModel(
                             }
                         }
                     } ?: error("Could not open backup")
-                    repository.restoreBackupFiles(entries)
-                    repository.refreshProgressCache()
+                    repository.restoreBackupFiles(entries) { stage ->
+                        if (stage == "verify") backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_verify, fraction = .38f)
+                        else backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_write, fraction = .55f)
+                    }.also {
+                        backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_refresh, fraction = .8f)
+                        repository.refreshProgressCache()
+                    }
                 }
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value, error = null)
+                backupFinished(restore = true, failed = false)
                 restored
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+            }.onFailure {
+                backupFinished(restore = true, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
     fun restoreAutomaticBackup() {
         viewModelScope.launch {
+            backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_verify, fraction = .2f)
             runCatching {
                 withContext(Dispatchers.IO) {
                     repository.restoreAutomaticBackup()
+                    backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_refresh, fraction = .8f)
                     repository.refreshProgressCache()
                 }
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value, error = null)
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+                backupFinished(restore = true, failed = false)
+            }.onFailure {
+                backupFinished(restore = true, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
