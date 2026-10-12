@@ -169,7 +169,7 @@ private val AccentLight: Color
 @Composable
 private fun rememberPosterAccentEnabled(viewModel: CineTrackViewModel): Boolean {
     val enabled by remember(viewModel) { viewModel.state.map { it.posterAccent }.distinctUntilChanged() }
-        .collectAsState(viewModel.state.value.posterAccent)
+        .collectAsState(initial = true)
     return enabled
 }
 
@@ -390,7 +390,7 @@ fun DetailScreen(
                         if (detail.type == MediaType.TV && detailEpisodes.isNotEmpty()) {
                             val seasonPicker by remember(viewModel) {
                                 viewModel.state.map { it.seasonPicker }.distinctUntilChanged()
-                            }.collectAsState(viewModel.state.value.seasonPicker)
+                            }.collectAsState(initial = "text")
                             EpisodesSection(
                                 detail,
                                 detailEpisodes,
@@ -1992,7 +1992,7 @@ fun EpisodeDetailScreen(
     }
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
-    val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsState(viewModel.state.value.history)
+    val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsState(initial = emptyList())
     val posterAccent = com.cinetrack.ui.components.rememberPosterAccent(show?.posterUrl ?: show?.backdropUrl, rememberPosterAccentEnabled(viewModel))
     androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.theme.LocalDetailAccent provides posterAccent) {
     val detailGlassState = rememberDetailGlassState()
