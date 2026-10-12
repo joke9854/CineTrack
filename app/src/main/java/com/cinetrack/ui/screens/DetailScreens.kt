@@ -1901,6 +1901,11 @@ private fun UsefulInfoSection(media: MediaCard) {
         formatFullDate(media.releaseDate).takeIf { it.isNotBlank() && it != "—" }?.let {
             add(stringResource(if (media.type == MediaType.TV) R.string.first_aired else R.string.release_date) to it)
         }
+        if (media.type == MediaType.MOVIE) {
+            formatFullDate(media.digitalRelease).takeIf { it.isNotBlank() && it != "—" }?.let { date ->
+                add(stringResource(R.string.digital_release) to (media.digitalReleaseCountry?.let { "$date ($it)" } ?: date))
+            }
+        }
         if (media.type == MediaType.MOVIE) media.tmdbStatus?.takeIf(String::isNotBlank)?.let { add(stringResource(R.string.status) to tmdbStatusLabel(it)) }
         if (media.type == MediaType.TV) {
             val regular = media.seasons.filter { it.number > 0 }

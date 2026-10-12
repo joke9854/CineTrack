@@ -1,3 +1,11 @@
+# CineTrack 0.99.46 beta
+
+- Film details show the digital release date for your region, or the US date (marked "US") when your region has none.
+- Softer glass edges: cards and controls catch the light along the top edge and fade along the sides.
+- Library lists Films before TV series, the same order as Discover.
+- New Progress icon in the navigation bar: a play button inside a ring.
+- Fixed: after opening a section from the widget or a link, tapping another tab could reopen that section (e.g. Discover showed Library).
+
 # CineTrack 0.99.45 beta
 
 **Simkl sign-in (AUTH V2)**

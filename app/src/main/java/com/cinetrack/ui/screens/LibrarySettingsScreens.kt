@@ -355,7 +355,7 @@ fun LibraryScreen(
             ) {
             // Headline toggle (Serie TV / Film) and the list / grid switch.
             Row(Modifier.fillMaxWidth().onSizeChanged { titlePx = it.height }.collapsingTitle({ titlePx }, headerScroll).padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
-                listOf(MediaType.TV, MediaType.MOVIE).forEach { item ->
+                listOf(MediaType.MOVIE, MediaType.TV).forEach { item ->
                     val selected = item == type
                     val headlineColor by androidx.compose.animation.animateColorAsState(
                         if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),

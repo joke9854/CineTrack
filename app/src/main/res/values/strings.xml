@@ -92,6 +92,7 @@
     <string name="cast_and_crew">Cast &amp; crew</string>
     <string name="full_cast">Full cast &amp; crew</string>
     <string name="previous_episodes_title">Previous episodes are unwatched</string>
+    <string name="digital_release">Digital release</string>
     <string name="mark_show_watched_title">Mark the whole series as watched?</string>
     <string name="unmark_show_title">Unmark this series?</string>
     <string name="unmark_show_confirm">Remove and unmark</string>

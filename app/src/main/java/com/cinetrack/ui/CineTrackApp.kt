@@ -27,13 +27,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.Explore
-import androidx.compose.material.icons.filled.QueryStats
+import androidx.compose.material.icons.filled.SlowMotionVideo
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.outlined.BookmarkBorder
 import androidx.compose.material.icons.outlined.Explore
-import androidx.compose.material.icons.outlined.QueryStats
+import androidx.compose.material.icons.outlined.SlowMotionVideo
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.runtime.Composable
 import dev.chrisbanes.haze.HazeState
@@ -209,13 +209,20 @@ fun CineTrackApp(
         )
     }
     LaunchedEffect(requestedRoute) {
-        requestedRoute?.let { destination ->
-            if (destination == "sync") {
-                navController.navigate(Routes.Progress) { launchSingleTop = true }
-                viewModel.sync()
-            } else {
-                navController.navigate(destination) { launchSingleTop = true }
+        requestedRoute?.let { requested ->
+            val destination = if (requested == "sync") Routes.Progress else requested
+            // A link to a main tab switches tabs exactly like the nav bar. Pushing it on top of
+            // the current tab saved it into that tab's history, so tapping that tab later
+            // reopened the linked screen (Discover showed Library).
+            val tab = destination in setOf(Routes.Discover, Routes.Progress, Routes.Library, Routes.Settings)
+            navController.navigate(destination) {
+                if (tab) {
+                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                    restoreState = true
+                }
+                launchSingleTop = true
             }
+            if (requested == "sync") viewModel.sync()
             navigationRequest.value = null
         }
     }
@@ -228,7 +235,7 @@ fun CineTrackApp(
 
     val navItems = listOf(
         BottomNavItem(Routes.Discover, stringResource(R.string.discover), Icons.Outlined.Explore, Icons.Filled.Explore),
-        BottomNavItem(Routes.Progress, stringResource(R.string.progress), Icons.Outlined.QueryStats, Icons.Filled.QueryStats),
+        BottomNavItem(Routes.Progress, stringResource(R.string.progress), Icons.Outlined.SlowMotionVideo, Icons.Filled.SlowMotionVideo),
         BottomNavItem(Routes.Library, stringResource(R.string.library), Icons.Outlined.BookmarkBorder, Icons.Filled.Bookmark),
         BottomNavItem(Routes.Settings, stringResource(R.string.settings), Icons.Outlined.Settings, Icons.Filled.Settings),
     )

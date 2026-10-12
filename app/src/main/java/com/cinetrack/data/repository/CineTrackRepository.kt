@@ -135,6 +135,19 @@ internal fun playbackActivityRecency(item: PlaybackCard): Long = maxOf(
     item.progressUpdatedAtMillis,
 )
 
+/**
+ * The digital release (TMDB release type 4) for [region], as (yyyy-MM-dd, country). Falls back to
+ * the US date, which TMDB covers best, when the region has none. The earliest digital date wins.
+ */
+internal fun digitalReleaseFor(releaseDates: com.cinetrack.data.remote.TmdbReleaseDatesDto?, region: String): Pair<String, String>? {
+    fun earliest(country: String) = releaseDates?.results
+        ?.firstOrNull { it.country.equals(country, ignoreCase = true) }
+        ?.dates?.filter { it.type == 4 && it.date.length >= 10 }
+        ?.minOfOrNull { it.date.take(10) }
+    return earliest(region)?.let { it to region.uppercase() }
+        ?: earliest("US")?.let { it to "US" }
+}
+
 internal fun compareProgressAttention(
     left: PlaybackCard,
     right: PlaybackCard,
@@ -2070,7 +2083,7 @@ class CineTrackRepository(
     suspend fun loadDetails(media: MediaCard): MediaCard {
         if (tmdbApiKey().isBlank()) return media
         return cancellableResult {
-            val localized = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id) else services.tmdb.show(media.id, append = "aggregate_credits,recommendations,watch/providers,videos")
+            val localized = if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id, append = "credits,recommendations,watch/providers,videos,release_dates") else services.tmdb.show(media.id, append = "aggregate_credits,recommendations,watch/providers,videos")
             val english = if (localized.overview.isBlank() || (localized.title ?: localized.name).isNullOrBlank()) {
                 runCatching {
                     if (media.type == MediaType.MOVIE) services.tmdb.movie(media.id, language = "en-US")
@@ -2101,6 +2114,7 @@ class CineTrackRepository(
                     compareByDescending<com.cinetrack.data.remote.TmdbProviderDto> { it.name in preferredProviders }
                         .thenBy { it.name.lowercase() },
                 )
+            val digitalRelease = if (media.type == MediaType.MOVIE) digitalReleaseFor(dto.releaseDates, providerRegion) else null
             val providers = providerCountry
                 ?.let { it.flatrate + it.rent + it.buy + it.free + it.ads }
                 .orEmpty()
@@ -2113,6 +2127,8 @@ class CineTrackRepository(
                 networks = dto.networks.map { it.name }.filter(String::isNotBlank),
                 budget = dto.budget?.takeIf { it > 0L },
                 boxOffice = dto.revenue?.takeIf { it > 0L },
+                digitalRelease = digitalRelease?.first,
+                digitalReleaseCountry = digitalRelease?.second?.takeIf { !it.equals(providerRegion, ignoreCase = true) },
                 productionCompanies = dto.productionCompanies.map { it.name }.filter(String::isNotBlank),
                 productionCountries = dto.productionCountries.map { country -> country.name.ifBlank { country.code } },
                 originalLanguage = dto.originalLanguage?.takeIf(String::isNotBlank)?.uppercase(),

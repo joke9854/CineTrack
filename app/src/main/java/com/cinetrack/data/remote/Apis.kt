@@ -63,6 +63,7 @@ data class TmdbMediaDto(
     @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val genres: List<TmdbGenreDto> = emptyList(),
     @SerialName("belongs_to_collection") val collection: TmdbCollectionRefDto? = null,
+    @SerialName("release_dates") val releaseDates: TmdbReleaseDatesDto? = null,
     val credits: TmdbCreditsDto? = null,
     @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
     val recommendations: TmdbPage? = null,
@@ -269,6 +270,14 @@ interface MdbListService {
         @Body request: MdbListRatingRequest,
     ): MdbListRatingResponse
 }
+
+/** TMDB per-country release dates; type 4 is a digital release. */
+@Serializable data class TmdbReleaseDatesDto(val results: List<TmdbReleaseCountryDto> = emptyList())
+@Serializable data class TmdbReleaseCountryDto(
+    @SerialName("iso_3166_1") val country: String = "",
+    @SerialName("release_dates") val dates: List<TmdbReleaseDateDto> = emptyList(),
+)
+@Serializable data class TmdbReleaseDateDto(@SerialName("release_date") val date: String = "", val type: Int = 0)
 
 @Serializable
 data class SimklOAuthResponse(

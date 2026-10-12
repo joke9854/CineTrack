@@ -46,6 +46,10 @@ data class MediaCard(
     val networks: List<String> = emptyList(),
     val budget: Long? = null,
     val boxOffice: Long? = null,
+    /** A film's digital release (yyyy-MM-dd) for the user's region, or the US date when the region has none. */
+    val digitalRelease: String? = null,
+    /** Set when [digitalRelease] is another country's date (e.g. "US"); null for the user's own region. */
+    val digitalReleaseCountry: String? = null,
     val productionCompanies: List<String> = emptyList(),
     val productionCountries: List<String> = emptyList(),
     val originalLanguage: String? = null,

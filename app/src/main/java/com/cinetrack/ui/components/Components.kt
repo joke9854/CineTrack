@@ -197,7 +197,7 @@ fun Modifier.glass(
         // neutral, low-opacity material so artwork colour can pass through.
         .background(fill)
         .border(
-            .8.dp,
+            .9.dp,
             GlassEdgeBrush,
             shape,
         )

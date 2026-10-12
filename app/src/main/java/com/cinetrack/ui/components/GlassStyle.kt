@@ -89,14 +89,22 @@ internal val DetailBackdropStyle = HazeStyle(
     fallbackTint = HazeTint(Color.Transparent),
 )
 
-// A lit top-left edge that never fades out: the far end keeps enough contrast on near-black.
-internal val GlassEdgeBrush = Brush.linearGradient(
-    listOf(Color.White.copy(alpha = .26f), Color.White.copy(alpha = .13f)),
+// Cards can't take Prismal's specular, so their border imitates it (0.9 dp, 20% peak, like
+// LiquidRim): light catches the top edge, the sides stay faint but hold the card's shape on
+// near-black, and the bottom picks up a little bounce light.
+internal val GlassEdgeBrush = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = .20f),
+    .30f to Color.White.copy(alpha = .085f),
+    .60f to Color.White.copy(alpha = .055f),
+    1f to Color.White.copy(alpha = .09f),
 )
 
-/** Softer rim for controls, the nav bar and popups: present, without a shine. */
-internal val ControlEdgeBrush = Brush.linearGradient(
-    listOf(Color.White.copy(alpha = .13f), Color.White.copy(alpha = .06f)),
+/** Softer rim for controls, the nav bar and popups: the card rim's shape, one step quieter. */
+internal val ControlEdgeBrush = Brush.verticalGradient(
+    0f to Color.White.copy(alpha = .13f),
+    .30f to Color.White.copy(alpha = .055f),
+    .60f to Color.White.copy(alpha = .036f),
+    1f to Color.White.copy(alpha = .059f),
 )
 
 private class FloatingGlassCapture(val state: HazeState?, val page: PageGlassBackdrop?) {
@@ -234,7 +242,7 @@ internal fun Modifier.pageGlassSource(backdrop: PageGlassBackdrop?): Modifier {
 
 private val LiquidCapsule = PrismalCapsule()
 private val LiquidShape = { LiquidCapsule }
-private val LiquidRim = PrismalSpecular(width = .6.dp, alpha = .45f)
+private val LiquidRim = PrismalSpecular(width = .9.dp, alpha = .20f)
 private val LiquidRimProvider = { LiquidRim }
 
 /** The same two-step lift as [glass], drawn outside the clipped glass. */
