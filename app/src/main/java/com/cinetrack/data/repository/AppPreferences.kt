@@ -143,6 +143,7 @@ class AppPreferences(private val context: Context) {
         val floppyCredentialAlias = stringPreferencesKey("floppy_credential_alias")
         val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
         val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
+        val floppyLibraryCheckedAt = longPreferencesKey("floppy_library_checked_at")
         val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
         /** What a finished bootstrap left unplaced, kept for later retries. */
         val floppyBootstrapResidual = stringPreferencesKey("floppy_bootstrap_residual_v1")
@@ -529,6 +530,14 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { values ->
             values[Keys.floppyUnplacedDismissed] = values[Keys.floppyUnplacedDismissed].orEmpty() + key
         }
+    }
+
+    /** When the after-sync Floppy library check last read Floppy (epoch ms). */
+    suspend fun floppyLibraryCheckedAtNow(): Long =
+        context.cineTrackDataStore.data.first()[Keys.floppyLibraryCheckedAt] ?: 0L
+
+    suspend fun setFloppyLibraryCheckedAt(at: Long) {
+        context.cineTrackDataStore.edit { values -> values[Keys.floppyLibraryCheckedAt] = at }
     }
 
     suspend fun floppyBootstrapResidualRawNow(): String? =

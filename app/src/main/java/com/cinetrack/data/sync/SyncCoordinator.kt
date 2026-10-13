@@ -30,6 +30,10 @@ class SyncCoordinator(
      * transport must never starve the authoritative MAIN provider. */
     private val providerIoLanes = TrackingProviderId.entries.associateWith { Mutex() }
 
+    /** Runs after every successful full sync (the Floppy library check). It
+     * must return quickly: anything long belongs in its own coroutine. */
+    var afterSync: (suspend () -> Unit)? = null
+
     /** Serializes Floppy activation/disconnect with Floppy network passes. */
     suspend fun <T> withProviderIoQuiesced(block: suspend () -> T): T {
         return withProviderIo(TrackingProviderId.FLOPPY, block = block)
@@ -123,6 +127,7 @@ class SyncCoordinator(
                 }
             }
             operations.completeReady(pending)
+            afterSync?.invoke()
             SyncCoordinatorOutcome(outcome.itemsChanged, outcome.report)
         } catch (error: Throwable) {
             if (error is CancellationException) throw error

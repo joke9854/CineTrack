@@ -284,6 +284,33 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             },
         )
 
+        val floppyLibraryCheck = com.cinetrack.data.sync.floppy.FloppyLibraryCheck(
+            isSecondary = { settingsRepository.trackingConfigurationNow().secondaryProvider == TrackingProviderId.FLOPPY },
+            provider = floppy,
+            coordinator = floppyBootstrapCoordinator,
+            lastCheckedAt = { preferences.floppyLibraryCheckedAtNow() },
+            setLastCheckedAt = { preferences.setFloppyLibraryCheckedAt(it) },
+            quiesced = { read -> syncCoordinator.withProviderIoQuiesced { read() } },
+            startWorker = { instance -> FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first()) },
+            log = { message -> preferences.appendErrorLog("${java.time.Instant.now()}  $message") },
+        )
+        val libraryCheckRunning = java.util.concurrent.atomic.AtomicBoolean(false)
+        // Off the sync's own path: reading Floppy's library takes a while.
+        syncCoordinator.afterSync = {
+            if (libraryCheckRunning.compareAndSet(false, true)) {
+                applicationScope.launch(Dispatchers.IO) {
+                    try {
+                        floppyLibraryCheck.runIfDue()
+                    } catch (error: Throwable) {
+                        if (error is kotlinx.coroutines.CancellationException) throw error
+                        preferences.appendErrorLog("${java.time.Instant.now()}  Floppy check failed: ${error.message?.take(160) ?: error::class.simpleName}")
+                    } finally {
+                        libraryCheckRunning.set(false)
+                    }
+                }
+            }
+        }
+
         applicationScope.launch(Dispatchers.IO) {
             runCatching {
                 trackingConfigurationService.repair()

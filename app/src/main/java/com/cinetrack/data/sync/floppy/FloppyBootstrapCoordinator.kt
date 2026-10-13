@@ -232,6 +232,53 @@ class FloppyBootstrapCoordinator(
         false
     }
 
+    /** What Floppy should hold once READY: episodes where Floppy stored them,
+     * without the ones it has no counterpart for. Null while a plan runs. */
+    suspend fun expectedOnFloppy(instance: String): TrackingSnapshot? = mutex.withLock {
+        if (instanceId() != instance) return@withLock null
+        if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY) return@withLock null
+        if (decodePlan(preferences.floppyBootstrapPlanRawNow()) != null) return@withLock null
+        val outcomes = decodePlan(preferences.floppyBootstrapResidualRawNow())
+            ?.takeIf { it.instanceId == instance }?.episodeOutcomes.orEmpty()
+        canonicalSnapshot().withEpisodeOutcomes(instance, outcomes)
+    }
+
+    /**
+     * Re-sends what the library check found missing as a small plan for the
+     * bootstrap worker (same idempotent requests and outcome handling). The
+     * READY record (outcomes, unplaced episodes kept for a later retry) is
+     * carried over, so finishing this plan does not forget it. Returns how
+     * many operations were queued.
+     */
+    suspend fun startRepair(instance: String, missing: TrackingSnapshot): Int = mutex.withLock {
+        if (instanceId() != instance) return@withLock 0
+        if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY) return@withLock 0
+        if (decodePlan(preferences.floppyBootstrapPlanRawNow()) != null) return@withLock 0
+        val operations = buildFloppyBootstrapOperations(instance, missing)
+        if (operations.isEmpty()) return@withLock 0
+        val residual = decodePlan(preferences.floppyBootstrapResidualRawNow())?.takeIf { it.instanceId == instance }
+        val repairIds = operations.mapTo(hashSetOf(), SyncOperation::id)
+        // Written as already materialized: only the repair operations are
+        // queued below; the kept unplaced ones wait for a matching retry.
+        preferences.setFloppyBootstrapPlanRaw(
+            encodePlan(
+                PersistedPlan(
+                    instanceId = instance,
+                    operations = operations.map(::toPersisted) + residual?.operations.orEmpty().filter { it.id !in repairIds },
+                    materialized = true,
+                    episodeOutcomes = residual?.episodeOutcomes.orEmpty() - repairIds,
+                    counterpartRetries = residual?.counterpartRetryGeneration() ?: COUNTERPART_RETRY_GENERATION,
+                    unplacedTitles = residual?.unplacedTitles.orEmpty(),
+                ),
+            ),
+        )
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+        operations.chunked(CHUNK_SIZE).forEach { chunk ->
+            operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
+        }
+        operations.size
+    }
+
     /** Whether the current plan is a repair re-send (see [PersistedPlan.repairCoordinates]). */
     suspend fun repairCoordinatesActive(instance: String): Boolean = mutex.withLock {
         decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance }?.repairCoordinates == true
