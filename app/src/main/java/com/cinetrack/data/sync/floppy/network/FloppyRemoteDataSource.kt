@@ -298,7 +298,10 @@ class FloppyRemoteDataSource(
                     consumed += library.id
                     consumed += watched.id
                 } else {
-                    pushOne(api, operation, episodeIndex, bootstrapContext, session.instanceId)
+                    pushOne(
+                        api, operation, episodeIndex, bootstrapContext, session.instanceId,
+                        canEnsureShows = session.capabilities.canBootstrapV2 || bootstrapContext?.canBootstrapV2 == true,
+                    )
                     completed += operation.id
                     consumed += operation.id
                 }
@@ -713,11 +716,12 @@ class FloppyRemoteDataSource(
         episodeIndex: MutableSet<EpisodeKey>? = null,
         bootstrapContext: FloppyBootstrapTransportContext? = null,
         providerInstanceId: String,
+        canEnsureShows: Boolean = false,
     ) {
         val source = "tmdb"
         val mediaId = operation.mediaId.toString()
         when (operation.type) {
-            SyncOperationType.LIBRARY_STATUS -> pushLibrary(api, operation, source, mediaId, bootstrapContext)
+            SyncOperationType.LIBRARY_STATUS -> pushLibrary(api, operation, source, mediaId, bootstrapContext, canEnsureShows)
             SyncOperationType.MOVIE_WATCHED -> pushMovieWatched(api, operation, source, mediaId, bootstrapContext, providerInstanceId)
             SyncOperationType.MOVIE_UNWATCHED -> removeExactMovieHistory(api, operation, source, mediaId, bootstrapContext)
             SyncOperationType.EPISODE_WATCHED -> pushEpisodeWatched(api, operation, source, mediaId, episodeIndex)
@@ -727,14 +731,39 @@ class FloppyRemoteDataSource(
         }
     }
 
-    private suspend fun pushLibrary(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String, context: FloppyBootstrapTransportContext? = null) {
+    private suspend fun pushLibrary(
+        api: FloppyApi,
+        operation: SyncOperation,
+        source: String,
+        mediaId: String,
+        context: FloppyBootstrapTransportContext? = null,
+        canEnsureShows: Boolean = false,
+    ) {
         val desired = operation.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
             ?: throw TrackingSyncError.InvalidRemoteData("Missing Floppy library status")
+        if (operation.mediaType == MediaType.TV && desired == LibraryStatus.COMPLETED && canEnsureShows) {
+            // Floppy marks every episode watched when a show's own row turns
+            // completed; this route sets the status alone, so no history is
+            // made up from a status.
+            val response = api.ensureBootstrapShows(
+                FloppyBootstrapShowsRequest(listOf(FloppyBootstrapShow(source, mediaId, operation.title.takeIf(String::isNotBlank), status = desired.toFloppyStatus()))),
+            )
+            if (!confirmsEvery(response.results.size, 1, response.results.map { it.status })) {
+                throw TrackingSyncError.InvalidRemoteData("Floppy did not confirm the show status")
+            }
+            invalidateCaches(context, "tv", source, mediaId)
+            return
+        }
         val detail = mediaDetailOrNull(api, operation.mediaType.floppyType(), source, mediaId, context)
         val active = resolver.resolve(detail?.consumptions.orEmpty()).active
         val latestCompleted = resolver.resolve(detail?.consumptions.orEmpty()).latestCompleted
+        // Floppy keeps one row per show, and its end_date is the last watched
+        // episode, so a show with a watched episode never resolves as active.
+        val row = if (operation.mediaType == MediaType.TV) active ?: detail?.consumptions?.singleOrNull() else active
         if (desired == LibraryStatus.NONE) {
-            active?.let { deleteConsumptionSafely(api, operation.mediaType.floppyType(), source, mediaId, it.consumptionId) }
+            // Removing a show unmarks its episodes in CineTrack (and on
+            // Simkl); on Floppy that is removing the show's row.
+            row?.let { deleteConsumptionSafely(api, operation.mediaType.floppyType(), source, mediaId, it.consumptionId) }
             invalidateCaches(context, operation.mediaType.floppyType(), source, mediaId)
             return
         }
@@ -750,10 +779,7 @@ class FloppyRemoteDataSource(
             return
         }
         val targetStatus = desired.toFloppyStatus()
-        // Floppy keeps one row per show, and its end_date is the last watched
-        // episode, so a show in progress never resolves as active. Creating a
-        // second row is refused with 409, so update the show's only row.
-        val row = if (operation.mediaType == MediaType.TV) active ?: detail?.consumptions?.singleOrNull() else active
+        // Creating a second show row is refused with 409, so update the only one.
         if (row?.status == targetStatus) return
         if (row != null) {
             api.updateConsumption(
@@ -931,7 +957,12 @@ class FloppyRemoteDataSource(
 
     private suspend fun pushEpisodeDrop(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
         val (season, episode, _) = operation.episodeParts()
-        api.dropEpisode("tv", source, mediaId, season, episode)
+        try {
+            api.dropEpisode("tv", source, mediaId, season, episode)
+        } catch (error: HttpException) {
+            // Already gone (for example with the removed show): nothing to undo.
+            if (error.code() != 404) throw error
+        }
     }
 
     private suspend fun loadHistory(api: FloppyApi, mediaType: String, source: String, mediaId: String, context: FloppyBootstrapTransportContext? = null): List<FloppyConsumption> {

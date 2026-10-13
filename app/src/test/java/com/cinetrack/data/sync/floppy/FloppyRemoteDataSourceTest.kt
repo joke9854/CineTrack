@@ -92,6 +92,43 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun completedShowSetsTheStatusAloneWhereFloppyCan() = runBlocking {
+        server.enqueue(json("{\"results\":[{\"source\":\"tmdb\",\"media_id\":\"42\",\"status\":\"created\"}]}"))
+        val capable = session.copy(capabilities = session.capabilities.copy(canBootstrapV2 = true))
+
+        remote.push(capable, listOf(operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "COMPLETED")))
+
+        // Never the show's own row: Floppy would mark every episode watched.
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/shows/ensure/", request.path)
+        assertTrue(request.body.readUtf8().contains("\"status\":3"))
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun removingAShowWithWatchedEpisodesDeletesItsRow() = runBlocking {
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":9,\"status\":1,\"end_date\":\"2026-10-13T16:22:00Z\"}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+
+        remote.push(session, listOf(operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "NONE")))
+
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/", server.takeRequest().path)
+        val request = server.takeRequest()
+        assertEquals("DELETE", request.method)
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/history/9/", request.path)
+    }
+
+    @Test
+    fun unwatchingAnEpisodeFloppyNoLongerHasSucceeds() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404).setBody("{\"detail\":\"Not found.\"}"))
+
+        val result = remote.push(session, listOf(operation(SyncOperationType.EPISODE_UNWATCHED, mediaType = MediaType.TV, payload = "1:2")))
+
+        assertEquals(setOf("EPISODE_UNWATCHED"), result.completedOperationIds)
+    }
+
+    @Test
     fun libraryRemovalDeletesOnlyTheActiveConsumption() = runBlocking {
         server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":1}]}"))
         server.enqueue(MockResponse().setResponseCode(204))
