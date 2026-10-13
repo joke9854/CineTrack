@@ -1,3 +1,8 @@
+# CineTrack 0.99.49 beta
+
+- Changing a show's status (Watching, Paused, Dropped, Plan to watch) after watching one of its episodes now reaches Floppy. Floppy used to refuse it as a conflict, and CineTrack kept retrying.
+- Signing in to Floppy again, or using a new API key, for the same account keeps your connection instead of resending your whole history.
+
 # CineTrack 0.99.48 beta
 
 **Sign in with Floppy**
