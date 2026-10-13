@@ -76,6 +76,22 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun showStatusUpdatesTheShowRowAfterAnEpisodeWasWatched() = runBlocking {
+        // A show's end_date is its last watched episode, not a completion.
+        server.enqueue(json("{\"consumptions\":[{\"consumption_id\":9,\"status\":1,\"end_date\":\"2026-10-13T16:22:00Z\"}]}"))
+        server.enqueue(json("{\"consumption_id\":9,\"status\":2}"))
+
+        remote.push(session, listOf(operation(SyncOperationType.LIBRARY_STATUS, mediaType = MediaType.TV, value = "PAUSED")))
+
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/", server.takeRequest().path)
+        val request = server.takeRequest()
+        assertEquals("PATCH", request.method)
+        assertEquals("/proxy/api/v1/media/tv/tmdb/42/history/9/", request.path)
+        assertEquals("{\"status\":2}", request.body.readUtf8())
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
     fun libraryRemovalDeletesOnlyTheActiveConsumption() = runBlocking {
         server.enqueue(json("{\"consumptions\":[{\"consumption_id\":7,\"status\":1}]}"))
         server.enqueue(MockResponse().setResponseCode(204))

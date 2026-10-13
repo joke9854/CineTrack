@@ -750,10 +750,14 @@ class FloppyRemoteDataSource(
             return
         }
         val targetStatus = desired.toFloppyStatus()
-        if (active?.status == targetStatus) return
-        if (active != null) {
+        // Floppy keeps one row per show, and its end_date is the last watched
+        // episode, so a show in progress never resolves as active. Creating a
+        // second row is refused with 409, so update the show's only row.
+        val row = if (operation.mediaType == MediaType.TV) active ?: detail?.consumptions?.singleOrNull() else active
+        if (row?.status == targetStatus) return
+        if (row != null) {
             api.updateConsumption(
-                operation.mediaType.floppyType(), source, mediaId, active.consumptionId,
+                operation.mediaType.floppyType(), source, mediaId, row.consumptionId,
                 FloppyTrackedMediaUpdateRequest(status = targetStatus),
             )
         } else {
