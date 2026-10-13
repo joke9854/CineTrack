@@ -25,7 +25,8 @@ import java.util.UUID
 class FloppyTrackingProvider(
     private val preferences: AppPreferences? = null,
     private val remote: FloppyRemoteDataSource = FloppyRemoteDataSource(FloppyApiClientFactory()),
-    private val syncPass: (suspend (List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome)? = null,
+    /** Floppy's MAIN pass; it receives this provider as its transport. */
+    private val syncPass: (suspend (FloppyTrackingProvider, List<SyncOperation>, (SyncProgress) -> Unit) -> ProviderSyncOutcome)? = null,
     private val onDisconnect: (suspend () -> Unit)? = null,
 ) : TrackingProvider {
     data class ConnectionCandidate(
@@ -223,7 +224,37 @@ class FloppyTrackingProvider(
         operations: List<SyncOperation>,
         onProgress: (SyncProgress) -> Unit,
     ): ProviderSyncOutcome {
-        throw TrackingSyncError.UnsupportedOperation(id, com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS)
+        val pass = syncPass
+        if (pass == null || !currentCapabilities().supportsTwoWaySync) {
+            throw TrackingSyncError.UnsupportedOperation(id, com.cinetrack.data.sync.SyncOperationType.LIBRARY_STATUS)
+        }
+        return pass(this, operations, onProgress)
+    }
+
+    /** Registers this install with Floppy's change index (idempotent). Every
+     * MAIN read below is bound to [expectedInstanceId], so a pass can never
+     * attribute one account's state to another. */
+    suspend fun registerAppConnection(expectedInstanceId: String) = mainRead(expectedInstanceId) { session ->
+        remote.registerAppConnection(session, session.instanceId)
+    }
+
+    suspend fun syncItemsSnapshot(expectedInstanceId: String, after: Long?, limit: Int): FloppySyncItemsSnapshotPage =
+        mainRead(expectedInstanceId) { session -> remote.syncItemsSnapshot(session, after, limit) }
+
+    suspend fun syncItemsChanges(expectedInstanceId: String, cursor: Long, limit: Int): FloppySyncItemsChangesPage =
+        mainRead(expectedInstanceId) { session -> remote.syncItemsChanges(session, cursor, limit) }
+
+    private suspend fun <T> mainRead(expectedInstanceId: String, block: suspend (FloppySession) -> T): T {
+        val generation = connectionGeneration.get()
+        val session = captureSession()
+        if (session.instanceId != expectedInstanceId) {
+            throw TrackingSyncError.ProviderUnavailable(id, IllegalStateException("Floppy connection changed during synchronization"))
+        }
+        checkGeneration(generation)
+        val result = block(session)
+        checkGeneration(generation)
+        checkSessionStillCurrent(session)
+        return result
     }
 
     override suspend fun testConnection(): ConnectionResult {
@@ -290,7 +321,8 @@ private fun FloppyCapabilities.toTrackingCapabilities(bootstrapReady: Boolean) =
     supportsWatchHistory = canReadHistory || canWriteMovieHistory || canWriteEpisodeHistory,
     supportsRatings = false,
     supportsLibrary = canReadLibrary || canWriteLibrary,
-    supportsTwoWaySync = false,
+    // Two-way (MAIN) needs the exact per-item read side; never inferred from the version.
+    supportsTwoWaySync = canSyncItems,
     supported = buildSet {
         if (canReadLibrary) add(TrackingCapability.PULL_LIBRARY)
         if (canWriteLibrary) add(TrackingCapability.PUSH_LIBRARY)

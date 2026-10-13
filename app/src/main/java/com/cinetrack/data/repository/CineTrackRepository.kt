@@ -221,6 +221,7 @@ class CineTrackRepository(
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val floppySecondaryService: FloppySecondaryService? = null,
+    private val trackingConfigurationService: com.cinetrack.data.sync.TrackingConfigurationService? = null,
     private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
     private val floppyUnplacedEpisodes: (suspend () -> List<com.cinetrack.data.sync.floppy.FloppyUnplacedEpisode>)? = null,
 ) : SimklSyncHost {
@@ -876,6 +877,26 @@ class CineTrackRepository(
         emitInitialState = false,
     )
 
+    /**
+     * Swaps MAIN and SECONDARY. The caller has already run a final sync with
+     * the current MAIN. When Floppy takes over, its first pass reads the whole
+     * library and only adds, so nothing on this device is removed by the swap.
+     */
+    suspend fun swapMainTracker(): com.cinetrack.data.sync.TrackingConfiguration {
+        val service = checkNotNull(trackingConfigurationService) { "Tracker roles can't be changed here" }
+        val current = service.current()
+        val oldMain = checkNotNull(current.mainProvider) { "Choose a main tracker first" }
+        val newMain = checkNotNull(current.secondaryProvider) { "Connect a second tracker first" }
+        if (newMain == TrackingProviderId.FLOPPY) {
+            preferences.floppySettingsNow()?.connectionId?.takeIf(String::isNotBlank)?.let { connection ->
+                database.syncDao().upsert(
+                    SyncStateEntity("${com.cinetrack.data.sync.floppy.FloppySyncEngine.AREA_PREFIX}$connection", null, 0L),
+                )
+            }
+        }
+        return service.setProviders(newMain, oldMain)
+    }
+
     suspend fun isMainTrackingSyncDue(maxAgeMillis: Long): Boolean {
         val provider = preferences.mainTrackingProvider.first() ?: return false
         val lastCheck = preferences.trackingLastCheckAt(provider)
@@ -1197,6 +1218,7 @@ class CineTrackRepository(
                     else -> "DISCONNECTED"
                 },
                 lastSuccessfulSync = preferences.trackingLastCheckAt(id),
+                twoWayCapable = provider?.let { runCatching { it.currentCapabilities().supportsTwoWaySync }.getOrDefault(false) } == true,
                 bootstrapState = preferences.providerBootstrapStateNow(id).name,
             )
         }
@@ -1204,6 +1226,7 @@ class CineTrackRepository(
 
     private fun TrackingProviderState?.toFloppyUiState(connected: Boolean): FloppyUiState = when {
         !connected -> FloppyUiState.NOT_CONNECTED
+        this?.role == "MAIN" -> FloppyUiState.READY
         this?.role != "SECONDARY" -> FloppyUiState.CONNECTED_INACTIVE
         this.bootstrapState == "READY" -> FloppyUiState.READY
         this.bootstrapState == "FAILED" -> FloppyUiState.NEEDS_ATTENTION
@@ -1432,13 +1455,13 @@ class CineTrackRepository(
         }
     }
 
-    override suspend fun enqueueSecondaryMirror(operation: SyncOperation) {
+    override suspend fun enqueueSecondaryMirror(operation: SyncOperation, mainProvider: TrackingProviderId) {
         // The writer captures SECONDARY once and performs supersession plus
         // replacement in one Room transaction. Re-read the canonical field
         // while its routing lock is held so an intervening local edit owns the
         // normal MAIN+SECONDARY path and cannot be superseded by this mirror.
         durableOperationWriter.replaceSecondaryMirror(operation) {
-            if (!isMainProviderCurrent(TrackingProviderId.SIMKL)) return@replaceSecondaryMirror false
+            if (!isMainProviderCurrent(mainProvider)) return@replaceSecondaryMirror false
             val field = operation.logicalField()
             if (field == null) {
                 false
@@ -1452,7 +1475,7 @@ class CineTrackRepository(
                     if (syncOperationRepository.currentIntentTargetsProvider(
                             entity.operationId,
                             entity.createdAt,
-                            TrackingProviderId.SIMKL,
+                            mainProvider,
                         )) {
                         newerLocalIntent = true
                         break

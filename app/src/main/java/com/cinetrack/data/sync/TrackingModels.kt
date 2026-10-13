@@ -31,8 +31,6 @@ data class TrackingConfiguration(
         fun normalized(mainProvider: TrackingProviderId?, secondaryProvider: TrackingProviderId?): TrackingConfiguration =
             when {
                 mainProvider == null -> TrackingConfiguration(mainProvider = null, secondaryProvider = null)
-                mainProvider == TrackingProviderId.FLOPPY ->
-                    TrackingConfiguration(mainProvider = null, secondaryProvider = null)
                 mainProvider == secondaryProvider -> TrackingConfiguration(mainProvider = mainProvider, secondaryProvider = null)
                 else -> TrackingConfiguration(mainProvider, secondaryProvider)
             }
@@ -49,9 +47,6 @@ fun validateTrackingConfigurationTransition(
     next: TrackingConfiguration,
     promotedBootstrapState: ProviderBootstrapState? = null,
 ) {
-    require(next.mainProvider != TrackingProviderId.FLOPPY) {
-        "Floppy two-way synchronization is not available yet."
-    }
     if (previous.mainProvider != null &&
         next.mainProvider != null &&
         previous.mainProvider != next.mainProvider
@@ -246,6 +241,10 @@ data class ProviderSyncOutcome(
     val acknowledgedOperationIds: Set<String> = emptySet(),
     /** Valid queued intents intentionally left pending because they conflicted. */
     val deferredOperationIds: Set<String> = emptySet(),
+    /** The provider has no counterpart (id -> reason): closed as unsupported, never acknowledged. */
+    val unmatchedOperationIds: Map<String, String> = emptyMap(),
+    /** Refused for their own content (id -> reason): recorded as failed and retried later. */
+    val rejectedOperationIds: Map<String, String> = emptyMap(),
 )
 
 data class SyncCoordinatorOutcome(

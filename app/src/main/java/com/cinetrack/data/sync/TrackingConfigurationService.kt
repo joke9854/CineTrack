@@ -38,8 +38,11 @@ class TrackingConfigurationService(
     internal suspend fun setProvidersLocked(main: TrackingProviderId?, secondary: TrackingProviderId?): TrackingConfiguration {
         val next = TrackingConfiguration(main, secondary)
             val previous = current()
-            if (next.mainProvider == TrackingProviderId.FLOPPY) {
-                error("Floppy two-way synchronization is not available yet.")
+            if (next.mainProvider == TrackingProviderId.FLOPPY && previous.mainProvider != TrackingProviderId.FLOPPY) {
+                // Discovered from /info at connection time, never from the version.
+                check(preferences.floppySettingsNow()?.capabilities?.canSyncItems == true) {
+                    "This Floppy server can't be the main tracker yet. Update Floppy, then reconnect it."
+                }
             }
             val promotedBootstrapState = if (
                 previous.mainProvider != null &&
@@ -93,22 +96,35 @@ class TrackingConfigurationService(
     suspend fun setBootstrapState(provider: TrackingProviderId, state: ProviderBootstrapState) =
         routingMutex.withLock { preferences.setProviderBootstrapState(provider, state) }
 
-    /** Removes a provider from roles before its credentials are discarded. */
-    suspend fun removeProvider(provider: TrackingProviderId) {
+    /**
+     * Removes a provider from roles before its credentials are discarded. When
+     * MAIN goes, a bootstrapped SECONDARY takes over as MAIN; otherwise sync
+     * stops until the user picks a provider again.
+     */
+    suspend fun removeProvider(provider: TrackingProviderId) = routingMutex.withLock {
         val current = current()
-        val nextMain = current.mainProvider.takeUnless { it == provider }
-        val nextSecondary = current.secondaryProvider.takeUnless { it == provider }
-        if (nextMain != current.mainProvider || nextSecondary != current.secondaryProvider) {
-            setProviders(nextMain, nextSecondary)
+        if (provider != current.mainProvider && provider != current.secondaryProvider) return@withLock current
+        val next = when (provider) {
+            current.secondaryProvider -> TrackingConfiguration(current.mainProvider, null)
+            else -> current.secondaryProvider
+                ?.takeIf { preferences.providerBootstrapStateNow(it) == ProviderBootstrapState.READY }
+                ?.let { TrackingConfiguration(it, null) }
+                ?: TrackingConfiguration(null, null)
         }
+        setProvidersLocked(next.mainProvider, next.secondaryProvider)
     }
 
     suspend fun repair(configuration: TrackingConfiguration? = null) = routingMutex.withLock {
-        // Older builds could persist Floppy as MAIN. Clear that invalid role
-        // before normal startup repair so it can never become authoritative.
-        if (preferences.mainTrackingProvider.first() == TrackingProviderId.FLOPPY) {
-            preferences.setTrackingProviders(null, null)
-            operations.cancelProviderDeliveries(TrackingProviderId.FLOPPY, "Floppy MAIN mode is unsupported")
+        // Floppy may be MAIN only while it is connected to a server with the
+        // exact two-way read side. Otherwise hand MAIN to the SECONDARY (or
+        // stop) before startup repair, so it can never be authoritative blind.
+        if (preferences.mainTrackingProvider.first() == TrackingProviderId.FLOPPY &&
+            preferences.floppySettingsNow()?.capabilities?.canSyncItems != true
+        ) {
+            val secondary = preferences.secondaryTrackingProvider.first()
+                ?.takeIf { it != TrackingProviderId.FLOPPY && preferences.providerBootstrapStateNow(it) == ProviderBootstrapState.READY }
+            preferences.setTrackingProviders(secondary, null)
+            operations.cancelProviderDeliveries(TrackingProviderId.FLOPPY, "Floppy can no longer be the main tracker")
         }
         val requested = configuration ?: current()
         val resolved = TrackingConfiguration.normalized(requested.mainProvider, requested.secondaryProvider)

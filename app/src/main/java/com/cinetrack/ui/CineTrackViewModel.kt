@@ -30,6 +30,7 @@ import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.FloppyConnectionError
 import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.FloppyConnectionUiState
+import com.cinetrack.domain.MainTrackerSwapUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
@@ -1335,6 +1336,33 @@ class CineTrackViewModel(
             } finally {
                 floppyConnectionMutex.unlock()
             }
+        }
+    }
+
+    private val _mainTrackerSwap = MutableStateFlow(MainTrackerSwapUiState())
+    val mainTrackerSwap: StateFlow<MainTrackerSwapUiState> = _mainTrackerSwap.asStateFlow()
+
+    /**
+     * Swaps MAIN and SECONDARY: one last full sync with the current MAIN, the
+     * role change (refused unless the new MAIN finished its initial sync),
+     * then the new MAIN's first two-way pass.
+     */
+    fun swapMainTracker() {
+        if (_mainTrackerSwap.value.running) return
+        _mainTrackerSwap.value = MainTrackerSwapUiState(running = true)
+        viewModelScope.launch {
+            val error = try {
+                performTrackingSync(force = true).getOrThrow()
+                withContext(Dispatchers.IO) { repository.swapMainTracker() }
+                null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                failure
+            }
+            if (error == null) performTrackingSync(force = true)
+            _state.value = readCachedState().copy(sync = _syncProgress.value, error = null)
+            _mainTrackerSwap.value = MainTrackerSwapUiState(running = false, error = error?.message)
         }
     }
 

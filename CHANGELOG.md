@@ -1,3 +1,11 @@
+# CineTrack 0.99.47 beta
+
+**Floppy as the main tracker**
+- Floppy can now be the main tracker, with Simkl as the second one, and you can switch back at any time: Settings > Floppy > Main tracker. Needs a Floppy server updated to the latest CineTrack API, with its initial sync from this device finished.
+- Switching first finishes a sync with the current main tracker. Floppy's first sync as main tracker then adds what it has to this device and removes nothing.
+- With Floppy as main tracker, every play keeps its exact time, rewatches stay separate plays, and changes made on Floppy (from its website or other apps) come back to CineTrack. Simkl receives every change.
+- A Floppy server or account that can't be the main tracker is never used as one: CineTrack hands the main role back to Simkl.
+
 # CineTrack 0.99.46 beta
 
 - Film details show the digital release date for your region, or the US date (marked "US") when your region has none.

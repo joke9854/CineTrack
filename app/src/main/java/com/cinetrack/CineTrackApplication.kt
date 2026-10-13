@@ -149,8 +149,12 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncEngine = { simklSyncEngine },
             onRateLimited = { retryAfter -> TrackingWorkScheduler.scheduleRateLimitRetry(application, retryAfter) },
         )
+        val floppySyncEngine by lazy {
+            com.cinetrack.data.sync.floppy.FloppySyncEngine { repository }
+        }
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
+            syncPass = { provider, operations, onProgress -> floppySyncEngine.sync(provider, operations, onProgress) },
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
         )
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
@@ -219,6 +223,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
             floppySecondaryService = floppySecondaryService,
+            trackingConfigurationService = trackingConfigurationService,
             floppyRetryBootstrap = {
                 preferences.floppySettingsNow()?.connectionId?.let { instance ->
                     FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())

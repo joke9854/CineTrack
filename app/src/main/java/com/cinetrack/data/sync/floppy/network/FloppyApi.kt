@@ -19,6 +19,9 @@ import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaEnvelope
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
+import com.cinetrack.data.sync.floppy.FloppyAppConnectionRequest
+import com.cinetrack.data.sync.floppy.FloppySyncItemsChangesPage
+import com.cinetrack.data.sync.floppy.FloppySyncItemsSnapshotPage
 import kotlinx.serialization.json.JsonObject
 import retrofit2.http.Body
 import retrofit2.http.DELETE
@@ -38,6 +41,22 @@ interface FloppyApi {
 
     @GET("api/v1/info/")
     suspend fun info(): FloppyInfoDto
+
+    /** Registers this install as a pull client, which turns on Floppy's change index. */
+    @POST("api/v1/sync/connections/")
+    suspend fun registerAppConnection(@Body request: FloppyAppConnectionRequest): JsonObject
+
+    @GET("api/v1/sync/items/snapshot/")
+    suspend fun syncItemsSnapshot(
+        @Query("after") after: Long? = null,
+        @Query("limit") limit: Int = 200,
+    ): FloppySyncItemsSnapshotPage
+
+    @GET("api/v1/sync/items/changes/")
+    suspend fun syncItemsChanges(
+        @Query("cursor") cursor: Long,
+        @Query("limit") limit: Int = 200,
+    ): FloppySyncItemsChangesPage
 
     @GET("api/v1/cinetrack/connection/")
     suspend fun connection(): FloppyConnectionProbeDto

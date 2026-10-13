@@ -26,20 +26,12 @@ data class ResolvedSimklItem(
     val tmdbId: Int,
 )
 
-interface SimklSyncHost {
-    val database: AppDatabase
+interface SimklSyncHost : MainSyncHost {
     val services: ApiServices
-    val preferences: AppPreferences
     val tmdbApiKey: () -> String
-    val syncOperationRepository: SyncOperationRepository
     val syncReconciler: SyncReconciler
 
-    suspend fun repairSyncQueue()
     suspend fun validatedPendingLocalStates(): List<UserMediaStateEntity>
-    suspend fun refreshProgressCache(
-        request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
-        onProgress: ((Float) -> Unit)? = null,
-    ): Boolean
     suspend fun localToday(): LocalDate
     fun stateOperationId(type: String, id: Int): String
     fun writeOperationId(id: Long): String
@@ -64,17 +56,6 @@ interface SimklSyncHost {
     suspend fun pushLibraryState(state: UserMediaStateEntity)
     /** Sends exactly one coordinator-selected operation; it never discovers queue work. */
     suspend fun pushOperation(operation: SyncOperation)
-    /** Persists a remote-only MAIN mutation as a SECONDARY-only mirror. */
-    suspend fun enqueueSecondaryMirror(operation: SyncOperation) {}
-    /** Validates that the provider which started this pass is still MAIN. */
-    suspend fun isMainProviderCurrent(provider: TrackingProviderId): Boolean = true
-    /** Executes a commit only while the provider remains the authoritative MAIN. */
-    suspend fun <T> withMainAuthority(
-        provider: TrackingProviderId,
-        block: suspend () -> T,
-    ): T? = if (isMainProviderCurrent(provider)) block() else null
-    /** Allocates a fresh CineTrack causal generation from persisted state. */
-    suspend fun nextCausalGeneration(): Long = MutationGeneration.next()
     suspend fun pushMediaHistoryRemoval(write: PendingWriteEntity)
     suspend fun pushEpisodeWrite(write: PendingWriteEntity)
     suspend fun clearObsoleteOperations(
@@ -84,7 +65,6 @@ interface SimklSyncHost {
         season: Int? = null,
         episode: Int? = null,
     )
-    suspend fun rebuildLibraryRailInTransaction()
     fun syncError(error: Throwable): String
 }
 
@@ -144,7 +124,7 @@ class SimklSyncEngine(
         fun mergeSimklItems(items: List<SimklLibraryItem>) = host.mergeSimklItems(items)
         suspend fun resolveSimklItems(items: List<SimklLibraryItem>, type: MediaType) = host.resolveSimklItems(items, type)
         suspend fun pushOperation(operation: SyncOperation) = host.pushOperation(operation)
-        suspend fun enqueueSecondaryMirror(operation: SyncOperation) = host.enqueueSecondaryMirror(operation)
+        suspend fun enqueueSecondaryMirror(operation: SyncOperation) = host.enqueueSecondaryMirror(operation, TrackingProviderId.SIMKL)
         suspend fun isMainProviderCurrent() = host.isMainProviderCurrent(TrackingProviderId.SIMKL)
         suspend fun <T> withMainAuthority(block: suspend () -> T) = host.withMainAuthority(TrackingProviderId.SIMKL, block)
         suspend fun nextCausalGeneration() = host.nextCausalGeneration()

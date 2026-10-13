@@ -285,6 +285,13 @@ enum class FloppyConnectionError {
     UNKNOWN,
 }
 
+/** Progress of a MAIN/SECONDARY swap started from Settings. */
+@Immutable
+data class MainTrackerSwapUiState(
+    val running: Boolean = false,
+    val error: String? = null,
+)
+
 @Immutable
 data class FloppyConnectionUiState(
     val stage: FloppyConnectionStage = FloppyConnectionStage.IDLE,
@@ -339,6 +346,8 @@ data class TrackingProviderState(
     val lastSuccessfulSync: Long? = null,
     val lastError: String? = null,
     val bootstrapState: String = "NOT_STARTED",
+    /** The provider can serve as MAIN (two-way). */
+    val twoWayCapable: Boolean = false,
 )
 
 /** A watched episode Floppy could not place, to be marked by hand there. */
@@ -428,6 +437,14 @@ data class AppUiState(
     val hiddenDiscovery: Set<String> = emptySet(),
     val introductionCompleted: Boolean = false,
 ) {
+    /** Floppy is the two-way MAIN tracker (Simkl, if connected, is SECONDARY). */
+    val floppyIsMain: Boolean
+        get() = trackingProviders.any { it.providerId == "FLOPPY" && it.role == "MAIN" }
+
+    /** The connected Floppy server has the exact two-way read side. */
+    val floppyCanBeMain: Boolean
+        get() = trackingProviders.any { it.providerId == "FLOPPY" && it.twoWayCapable }
+
     val allMedia: List<MediaCard>
         get() = (
             rails.values.flatten() +

@@ -723,6 +723,56 @@ class FloppyRemoteDataSourceTest {
     private fun results(vararg outcomes: Pair<String, String>) =
         """{"results":[${outcomes.joinToString(",") { (id, status) -> """{"source":"tmdb","media_id":"$id","status":"$status"}""" }}]}"""
 
+    @Test
+    fun syncItemsSnapshotKeepsExactPlaysAndTheCursor() = runBlocking {
+        server.enqueue(json("""{"results":[{"type":"episode","source":"tmdb","media_id":"1001","title":"Pilot","season_number":1,"episode_number":1,"ids":{},"in_library":true,"status":null,"score":null,"plays":[{"key":"episode:5","watched_at":"2024-01-03T21:13:00.987654+00:00","client_event_id":null},{"key":"episode:6","watched_at":"2024-02-03T21:13:00+00:00","client_event_id":"e-2"}]}],"next_after":12,"cursor":40}"""))
+
+        val page = remote.syncItemsSnapshot(session, after = 5, limit = 500)
+
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/sync/items/snapshot/?after=5&limit=500", request.path)
+        assertEquals(40L, page.cursor)
+        assertEquals(12L, page.nextAfter)
+        val item = page.results.single()
+        assertEquals(1, item.seasonNumber)
+        assertEquals(listOf("2024-01-03T21:13:00.987654+00:00", "2024-02-03T21:13:00+00:00"), item.plays.map { it.watchedAt })
+    }
+
+    @Test
+    fun syncItemsChangesReportsRemovalsAndPaging() = runBlocking {
+        server.enqueue(json("""{"results":[{"sequence":41,"type":"movie","source":"tmdb","media_id":"603","title":"The Matrix","season_number":null,"episode_number":null,"ids":{"imdb":"tt0133093"},"in_library":false,"status":null,"score":null,"plays":[]}],"cursor":41,"has_more":true}"""))
+
+        val page = remote.syncItemsChanges(session, cursor = 40, limit = 500)
+
+        assertEquals("/proxy/api/v1/sync/items/changes/?cursor=40&limit=500", server.takeRequest().path)
+        assertTrue(page.hasMore)
+        assertEquals(41L, page.results.single().sequence)
+        assertEquals(false, page.results.single().inLibrary)
+    }
+
+    @Test
+    fun appConnectionRegistersThisInstall() = runBlocking {
+        server.enqueue(json("""{"connection":"app:cinetrack:test-instance","client":"cinetrack"}""").setResponseCode(201))
+
+        remote.registerAppConnection(session, "test-instance")
+
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/proxy/api/v1/sync/connections/", request.path)
+        val body = Json.parseToJsonElement(request.body.readUtf8()).jsonObject
+        assertEquals("cinetrack", body["client"]?.jsonPrimitive?.content)
+        assertEquals("test-instance", body["instance_key"]?.jsonPrimitive?.content)
+    }
+
+    @Test
+    fun syncItemsWithoutSyncReadIsATokenScopeError() = runBlocking {
+        server.enqueue(json("""{"detail":"Missing scope","code":"permission_denied"}""").setResponseCode(403))
+
+        val error = runCatching { remote.syncItemsChanges(session, cursor = 0, limit = 500) }.exceptionOrNull()
+
+        assertTrue(error is TrackingSyncError.TokenScope)
+    }
+
     private fun json(body: String) = MockResponse()
         .addHeader("Content-Type", "application/json")
         .setBody(body)

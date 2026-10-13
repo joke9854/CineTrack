@@ -125,6 +125,31 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun `a mixed MAIN outcome acknowledges, closes and fails exactly per operation`() = runTest {
+        val applied = operation().copy(id = "state:MOVIE:1", mediaId = 1)
+        val noCounterpart = operation().copy(id = "state:MOVIE:2", mediaId = 2)
+        val refused = operation().copy(id = "state:MOVIE:3", mediaId = 3)
+        val queue = FakeOperationRepository(applied, noCounterpart, refused)
+        val main = FakeProvider(TrackingProviderId.FLOPPY).apply {
+            outcome = {
+                ProviderSyncOutcome(
+                    itemsChanged = true,
+                    acknowledgedOperationIds = setOf(applied.id),
+                    unmatchedOperationIds = mapOf(noCounterpart.id to "not_found"),
+                    rejectedOperationIds = mapOf(refused.id to "invalid"),
+                )
+            }
+        }
+        val coordinator = SyncCoordinator(MutableRegistry(main), queue)
+
+        assertTrue(coordinator.sync { }.isSuccess)
+
+        assertEquals(listOf(applied.id), queue.acknowledged.map(SyncOperation::id))
+        assertEquals(listOf(noCounterpart.id), queue.skipped.map(SyncOperation::id))
+        assertEquals(listOf(refused.id), queue.failedDeliveries.map(SyncOperation::id))
+    }
+
+    @Test
     fun `failed operations remain retryable`() = runTest {
         val operation = operation()
         val queue = FakeOperationRepository(operation)
@@ -231,9 +256,10 @@ class SyncCoordinatorTest {
         assertTrue(runCatching {
             validateTrackingConfigurationTransition(previous, next, ProviderBootstrapState.NOT_STARTED)
         }.isFailure)
+        // A bootstrapped SECONDARY may become MAIN, Floppy included.
         assertTrue(runCatching {
             validateTrackingConfigurationTransition(previous, next, ProviderBootstrapState.READY)
-        }.isFailure)
+        }.isSuccess)
         assertTrue(runCatching {
             validateTrackingConfigurationTransition(
                 TrackingConfiguration(TrackingProviderId.SIMKL, null),
@@ -273,6 +299,7 @@ private class FakeProvider(
     var bidirectionalSyncs = 0
     var pushFailure: Throwable? = null
     var beforePush: suspend () -> Unit = {}
+    var outcome: ((List<SyncOperation>) -> ProviderSyncOutcome)? = null
 
     override suspend fun isAuthenticated(): Boolean = true
 
@@ -289,6 +316,7 @@ private class FakeProvider(
     ): ProviderSyncOutcome {
         bidirectionalSyncs++
         if (operations.isNotEmpty()) pushed += operations
+        outcome?.let { return it(operations) }
         return ProviderSyncOutcome(
             itemsChanged = false,
             acknowledgedOperationIds = operations.mapTo(linkedSetOf(), SyncOperation::id),
@@ -302,6 +330,21 @@ private class FakeOperationRepository(vararg initial: SyncOperation) : SyncOpera
     private val values = initial.toMutableList()
     val completed = mutableListOf<SyncOperation>()
     val failed = mutableListOf<SyncOperation>()
+    val acknowledged = mutableListOf<SyncOperation>()
+    val skipped = mutableListOf<SyncOperation>()
+    val failedDeliveries = mutableListOf<SyncOperation>()
+
+    override suspend fun acknowledge(provider: TrackingProviderId, operations: List<SyncOperation>) {
+        acknowledged += operations
+    }
+
+    override suspend fun skipUnsupported(provider: TrackingProviderId, operations: List<SyncOperation>) {
+        skipped += operations
+    }
+
+    override suspend fun failDelivery(provider: TrackingProviderId, operations: List<SyncOperation>, error: Throwable) {
+        failedDeliveries += operations
+    }
 
     override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> =
         values.filter { operationIds == null || it.id in operationIds }

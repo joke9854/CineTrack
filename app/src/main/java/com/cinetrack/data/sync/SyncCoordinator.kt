@@ -92,7 +92,7 @@ class SyncCoordinator(
             // Keep the provider identity captured at the start of this pass.
             // Configuration may change while the network request is running;
             // its result must never be attributed to the new MAIN provider.
-            acknowledge(main.id, mainPending, outcome.acknowledgedOperationIds, outcome.deferredOperationIds)
+            acknowledge(main.id, mainPending, outcome)
             mainPassCompleted = true
             // A retry may have had only SECONDARY work left after MAIN was
             // acknowledged by an earlier attempt. Re-evaluate the complete
@@ -398,16 +398,28 @@ class SyncCoordinator(
     private suspend fun acknowledge(
         providerId: TrackingProviderId,
         pending: List<SyncOperation>,
-        acknowledgedIds: Set<String>,
-        deferredIds: Set<String>,
+        outcome: ProviderSyncOutcome,
     ) {
+        val acknowledgedIds = outcome.acknowledgedOperationIds
+        val unmatchedIds = outcome.unmatchedOperationIds.keys - acknowledgedIds
+        val rejectedIds = outcome.rejectedOperationIds.keys - acknowledgedIds - unmatchedIds
         val pendingIds = pending.mapTo(linkedSetOf(), SyncOperation::id)
-        check((acknowledgedIds + deferredIds).containsAll(pendingIds)) {
+        check((acknowledgedIds + outcome.deferredOperationIds + unmatchedIds + rejectedIds).containsAll(pendingIds)) {
             "MAIN provider did not acknowledge every synchronization operation"
         }
         val acknowledged = pending.filter { it.id in acknowledgedIds }
         operations.acknowledge(providerId, acknowledged)
-        operations.completeReady(acknowledged)
+        // Mixed outcome: no counterpart closes as unsupported, never as success;
+        // refused content stays unresolved with its reason.
+        val unmatched = pending.filter { it.id in unmatchedIds }
+        if (unmatched.isNotEmpty()) operations.skipUnsupported(providerId, unmatched)
+        val rejected = pending.filter { it.id in rejectedIds }
+        if (rejected.isNotEmpty()) {
+            val error = TrackingSyncError.PartiallyRejected(rejected.associate { it.id to outcome.rejectedOperationIds.getValue(it.id) })
+            operations.failDelivery(providerId, rejected, error)
+            if (!operations.requiresPersistedDeliveryRows) operations.fail(rejected, error)
+        }
+        operations.completeReady(acknowledged + unmatched)
     }
 
     private suspend fun pendingFor(all: List<SyncOperation>, provider: TrackingProviderId): List<SyncOperation> {

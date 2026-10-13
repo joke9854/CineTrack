@@ -34,6 +34,9 @@ import com.cinetrack.data.sync.floppy.FloppyTrackMediaRequest
 import com.cinetrack.data.sync.floppy.FloppyTrackedMedia
 import com.cinetrack.data.sync.floppy.FloppyTrackedMediaUpdateRequest
 import com.cinetrack.data.sync.floppy.FloppyVerificationProjection
+import com.cinetrack.data.sync.floppy.FloppyAppConnectionRequest
+import com.cinetrack.data.sync.floppy.FloppySyncItemsChangesPage
+import com.cinetrack.data.sync.floppy.FloppySyncItemsSnapshotPage
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.FloppyConnectionStage
@@ -142,6 +145,8 @@ class FloppyRemoteDataSource(
             canReadCompleteSnapshot = false,
             canEnsureEpisodeEvents = info.apiExtensions?.cinetrackEpisodeEventsV1 == true,
             canBootstrapV2 = info.apiExtensions?.cinetrackBootstrapV2 == true,
+            canSyncItems = info.apiExtensions?.syncItemsV1 == true &&
+                info.apiExtensions.syncAppConnectionsV1,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -188,6 +193,28 @@ class FloppyRemoteDataSource(
         }
         if (!probe.authenticated) throw TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
         return probe.accountId.trim().takeIf(String::isNotBlank)?.let { FLOPPY_PROBE_ACCOUNT_PREFIX + it }
+    }
+
+    /** Turns on the server's change index for this install (idempotent). */
+    suspend fun registerAppConnection(session: FloppySession, instanceKey: String) {
+        mapped { api(session).registerAppConnection(FloppyAppConnectionRequest("cinetrack", instanceKey, "CineTrack")) }
+    }
+
+    suspend fun syncItemsSnapshot(session: FloppySession, after: Long?, limit: Int): FloppySyncItemsSnapshotPage =
+        mapped { api(session).syncItemsSnapshot(after, limit) }
+
+    suspend fun syncItemsChanges(session: FloppySession, cursor: Long, limit: Int): FloppySyncItemsChangesPage =
+        mapped { api(session).syncItemsChanges(cursor, limit) }
+
+    private fun api(session: FloppySession): FloppyApi =
+        factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
+
+    private suspend fun <T> mapped(block: suspend () -> T): T = try {
+        block()
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: Throwable) {
+        throw FloppyApiErrorMapper.map(error)
     }
 
     /** Compatibility overload; production calls use one immutable session. */

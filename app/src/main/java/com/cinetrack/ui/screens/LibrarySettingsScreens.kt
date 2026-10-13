@@ -1394,7 +1394,7 @@ private fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
 }
 
 @Composable
-private fun floppyIntegrationSubtitle(state: AppUiState): String = when (state.floppyUiState) {
+private fun floppyIntegrationSubtitle(state: AppUiState): String = if (state.floppyIsMain) stringResource(R.string.floppy_main) else when (state.floppyUiState) {
     FloppyUiState.NOT_CONNECTED -> stringResource(R.string.floppy_self_hosted_tracking)
     FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_connected_inactive)
     FloppyUiState.SETTING_UP -> stringResource(R.string.floppy_setting_up)
@@ -1417,9 +1417,13 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
     val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
     // The header already says "not connected"; the status details matter once connected.
     if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
-        ValueRow(stringResource(R.string.floppy_status), floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
+        ValueRow(stringResource(R.string.floppy_status), if (state.floppyIsMain) stringResource(R.string.floppy_main) else floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
         if (state.floppyConnected) {
-            ValueRow(stringResource(R.string.floppy_role), if (state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE) stringResource(R.string.floppy_role_connected_inactive) else stringResource(R.string.floppy_role_secondary))
+            ValueRow(stringResource(R.string.floppy_role), when {
+                state.floppyIsMain -> stringResource(R.string.floppy_role_main)
+                state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_role_connected_inactive)
+                else -> stringResource(R.string.floppy_role_secondary)
+            })
             state.floppyServerVersion?.let { ValueRow(stringResource(R.string.floppy_server_version), it) }
             ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
                 FloppyUiState.READY -> stringResource(R.string.floppy_ready_short)
@@ -1464,6 +1468,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             }
         }
     }
+    MainTrackerSection(state, viewModel)
     val unplaced by viewModel.floppyUnplaced.collectAsStateWithLifecycle()
     LaunchedEffect(state.floppyUiState, observedBootstrapProgress?.stage) { viewModel.refreshFloppyUnplaced() }
     val floppyBaseUrl = state.floppyBaseUrl
@@ -1495,6 +1500,71 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             title = stringResource(R.string.disconnect_floppy_title),
             body = stringResource(R.string.disconnect_floppy_body),
             onConfirm = viewModel::disconnectFloppy,
+        )
+    }
+}
+
+/** Choose which tracker is MAIN (two-way) and which is SECONDARY (receives
+ * CineTrack's changes only). Offered once both are connected and the
+ * candidate finished its initial sync. */
+@Composable
+private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel) {
+    if (!state.floppyConnected || !state.simklConnected) return
+    val swap by viewModel.mainTrackerSwap.collectAsStateWithLifecycle()
+    var asking by rememberSaveable { mutableStateOf(false) }
+    val floppyReady = state.floppyUiState == FloppyUiState.READY
+    val canSwap = state.floppyIsMain || (floppyReady && state.floppyCanBeMain)
+    SettingsSection(stringResource(R.string.main_tracker_title)) {
+        ValueRow(stringResource(R.string.main_tracker_title), if (state.floppyIsMain) "Floppy" else "Simkl")
+        KitFootnote(
+            stringResource(
+                when {
+                    state.floppyIsMain -> R.string.main_tracker_floppy_copy
+                    !floppyReady -> R.string.main_tracker_wait_copy
+                    !state.floppyCanBeMain -> R.string.main_tracker_update_floppy_copy
+                    else -> R.string.main_tracker_simkl_copy
+                },
+            ),
+        )
+        if (canSwap) {
+            TextButton(
+                onClick = { asking = true },
+                enabled = !swap.running,
+                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+            ) {
+                if (swap.running) {
+                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                }
+                Text(
+                    stringResource(
+                        when {
+                            swap.running -> R.string.main_tracker_switching
+                            state.floppyIsMain -> R.string.main_tracker_make_simkl
+                            else -> R.string.main_tracker_make_floppy
+                        },
+                    ),
+                )
+            }
+        }
+        swap.error?.let { KitNotice(it) }
+    }
+    if (asking) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { asking = false },
+            title = { Text(stringResource(if (state.floppyIsMain) R.string.main_tracker_make_simkl else R.string.main_tracker_make_floppy)) },
+            text = {
+                Text(
+                    stringResource(if (state.floppyIsMain) R.string.main_tracker_confirm_simkl else R.string.main_tracker_confirm_floppy),
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { asking = false; viewModel.swapMainTracker() }) {
+                    Text(stringResource(R.string.main_tracker_switch), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
         )
     }
 }

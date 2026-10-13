@@ -22,6 +22,8 @@ data class FloppyApiExtensions(
     @SerialName("cinetrack_episode_events_v1") val cinetrackEpisodeEventsV1: Boolean = false,
     @SerialName("cinetrack_bootstrap_v2") val cinetrackBootstrapV2: Boolean = false,
     @SerialName("episode_sql_pagination") val episodeSqlPagination: Boolean = false,
+    @SerialName("sync_app_connections_v1") val syncAppConnectionsV1: Boolean = false,
+    @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
 )
 
 @Serializable
@@ -226,6 +228,54 @@ data class FloppyCapabilities(
     val canEnsureEpisodeEvents: Boolean = false,
     /** Fork capability: set-based movie/show import with no remote prefetch. */
     val canBootstrapV2: Boolean = false,
+    /** Fork capability: exact per-item snapshot + change feed, so Floppy can be MAIN. */
+    val canSyncItems: Boolean = false,
+)
+
+/** One play of a synced item, at its exact instant. */
+@Serializable
+data class FloppySyncPlayDto(
+    val key: String = "",
+    @SerialName("watched_at") val watchedAt: String? = null,
+    @SerialName("client_event_id") val clientEventId: String? = null,
+)
+
+/** The whole Floppy sync state of one movie, episode or show. */
+@Serializable
+data class FloppySyncItemDto(
+    val sequence: Long? = null,
+    val type: String,
+    val source: String,
+    @SerialName("media_id") val mediaId: String,
+    val title: String = "",
+    @SerialName("season_number") val seasonNumber: Int? = null,
+    @SerialName("episode_number") val episodeNumber: Int? = null,
+    val ids: Map<String, String> = emptyMap(),
+    @SerialName("in_library") val inLibrary: Boolean = true,
+    val status: String? = null,
+    val score: String? = null,
+    val plays: List<FloppySyncPlayDto> = emptyList(),
+)
+
+@Serializable
+data class FloppySyncItemsSnapshotPage(
+    val results: List<FloppySyncItemDto> = emptyList(),
+    @SerialName("next_after") val nextAfter: Long? = null,
+    val cursor: Long = 0,
+)
+
+@Serializable
+data class FloppySyncItemsChangesPage(
+    val results: List<FloppySyncItemDto> = emptyList(),
+    val cursor: Long = 0,
+    @SerialName("has_more") val hasMore: Boolean = false,
+)
+
+@Serializable
+data class FloppyAppConnectionRequest(
+    val client: String,
+    @SerialName("instance_key") val instanceKey: String,
+    val label: String? = null,
 )
 
 @Serializable

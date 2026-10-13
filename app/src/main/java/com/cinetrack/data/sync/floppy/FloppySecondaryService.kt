@@ -44,6 +44,24 @@ class FloppySecondaryService(
         return try {
             val transition = coordinator.withProviderIoQuiesced {
             configuration.withRoutingLock {
+                // While Floppy is MAIN only a reconnect to the same account is
+                // allowed: another account would become authoritative without
+                // ever being bootstrapped from this device.
+                if (configuration.current().mainProvider == TrackingProviderId.FLOPPY) {
+                    val previous = preferences.floppySettingsNow()
+                    val sameTarget = previous != null &&
+                        sameFloppyRemoteTarget(previous, candidate.settings, preferences.floppyApiKeyNow(), candidate.apiKey)
+                    if (!sameTarget) {
+                        throw TrackingSyncError.Validation(
+                            "Floppy is your main tracker. Make Simkl the main tracker before connecting another Floppy server or account.",
+                        )
+                    }
+                    if (!candidate.settings.capabilities.canSyncItems) {
+                        throw TrackingSyncError.Validation(
+                            "This Floppy server can no longer be the main tracker. Make Simkl the main tracker or update Floppy.",
+                        )
+                    }
+                }
                 onStage(FloppyConnectionStage.ACTIVATING, candidate.settings.serverVersion)
                 val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
                 activated = true
@@ -56,7 +74,9 @@ class FloppySecondaryService(
                     bootstrap().resetForInstanceChange(result.committed.connectionId)
                 }
                 val current = configuration.current()
-                if (current.mainProvider != null && current.secondaryProvider != com.cinetrack.data.sync.TrackingProviderId.FLOPPY) {
+                if (current.mainProvider != null && current.mainProvider != TrackingProviderId.FLOPPY &&
+                    current.secondaryProvider != TrackingProviderId.FLOPPY
+                ) {
                     configuration.setProvidersLocked(current.mainProvider, com.cinetrack.data.sync.TrackingProviderId.FLOPPY)
                 }
                 result to configuration.current()
@@ -67,7 +87,7 @@ class FloppySecondaryService(
             activation.previous?.connectionId
                 ?.takeIf { activation.instanceChanged }
                 ?.let { context?.let { appContext -> FloppyBootstrapWorkScheduler.cancel(appContext, it) } }
-            if (routing.mainProvider == null) {
+            if (routing.mainProvider == null || routing.mainProvider == TrackingProviderId.FLOPPY) {
                 onStage(FloppyConnectionStage.COMPLETE, candidate.settings.serverVersion)
                 return ConnectionResult.Connected
             }
@@ -126,10 +146,13 @@ class FloppySecondaryService(
             // connection metadata is committed. Preserve that connection and
             // surface a retryable NEEDS_ATTENTION state instead of letting the
             // UI coroutine fail silently.
-            preferences.setProviderBootstrapState(
-                com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
-                ProviderBootstrapState.FAILED,
-            )
+            // A refused reconnect changed nothing, so readiness stays as it was.
+            if (activated || error !is TrackingSyncError.Validation) {
+                preferences.setProviderBootstrapState(
+                    com.cinetrack.data.sync.TrackingProviderId.FLOPPY,
+                    ProviderBootstrapState.FAILED,
+                )
+            }
             val mapped = error as? TrackingSyncError ?: TrackingSyncError.Unknown(error)
             ConnectionResult.Failed(if (activated && mapped !is TrackingSyncError.BootstrapFailure) TrackingSyncError.BootstrapFailure(mapped) else mapped)
         }
