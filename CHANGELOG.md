@@ -1,3 +1,11 @@
+# CineTrack 0.99.50 beta
+
+**Floppy**
+- After each sync (at most once an hour), CineTrack checks that Floppy has everything this device has: every movie and show in your library, their status, and every watched movie and episode at its exact time. Anything missing is sent again on its own. The result is in Settings > Logs. This runs when Floppy is the second tracker; when Floppy is the main tracker, Floppy is the reference and nothing is re-sent.
+- Marking a show as Completed now reaches Floppy without Floppy marking every episode as watched. Needs a Floppy server updated to the latest CineTrack API.
+- Removing a show from your library now removes it from Floppy too, as it already did on Simkl and on this device.
+- Floppy re-sends are much faster for anime and other shows Floppy numbers differently, with a Floppy server updated to the latest CineTrack API.
+
 # CineTrack 0.99.49 beta
 
 - Changing a show's status (Watching, Paused, Dropped, Plan to watch) after watching one of its episodes now reaches Floppy. Floppy used to refuse it as a conflict, and CineTrack kept retrying.
