@@ -356,6 +356,14 @@ class AppPreferences(private val context: Context) {
         )
     }
 
+    /** Replaces the saved account identity of [connectionId] (and nothing else). */
+    suspend fun setFloppyAccountIdentity(connectionId: String, accountIdentity: String) {
+        context.cineTrackDataStore.edit { values ->
+            val current = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity]
+            if (current == connectionId) values[Keys.floppyAccountIdentity] = accountIdentity
+        }
+    }
+
     suspend fun setFloppyConnection(settings: FloppyConnectionSettings?, apiKey: String? = null) {
         settings?.let { require(it.baseUrl == it.baseUrl.trim()) { "Floppy URL must be normalized before saving" } }
         val previous = floppySettingsNow()

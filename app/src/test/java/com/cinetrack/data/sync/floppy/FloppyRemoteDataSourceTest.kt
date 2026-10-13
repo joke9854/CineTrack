@@ -751,6 +751,18 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun probeAccountReturnsTheServerConfirmedIdentityOfAKey() = runBlocking {
+        server.enqueue(json("""{"authenticated":true,"account_id":"54b366706c82"}"""))
+
+        val identity = remote.probeAccount(session.baseUrl, "old-key", allowInsecureLocalHttp = false)
+
+        val request = server.takeRequest()
+        assertEquals("/proxy/api/v1/cinetrack/connection/", request.path)
+        assertEquals("old-key", request.getHeader("X-API-Key"))
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "54b366706c82", identity)
+    }
+
+    @Test
     fun appConnectionRegistersThisInstall() = runBlocking {
         server.enqueue(json("""{"connection":"app:cinetrack:test-instance","client":"cinetrack"}""").setResponseCode(201))
 

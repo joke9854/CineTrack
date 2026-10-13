@@ -85,8 +85,34 @@ class FloppyTrackingProvider(
         val resolvedKey = normalizedApiKey.takeIf(String::isNotBlank) ?: previousKey?.trim()
         if (resolvedKey.isNullOrBlank()) return Result.failure(TrackingSyncError.AuthenticationRequired(id))
         return runCatching {
-            ConnectionCandidate(remote.connect(normalizedUrl, resolvedKey, allowInsecureLocalHttp, onStage), resolvedKey)
+            val candidate = ConnectionCandidate(remote.connect(normalizedUrl, resolvedKey, allowInsecureLocalHttp, onStage), resolvedKey)
+            refreshLegacyAccountIdentity(candidate)
+            candidate
         }.map { it }
+    }
+
+    /**
+     * Connections saved before the CineTrack probe existed hold the account
+     * as a username, which cannot be compared with the probe's opaque id, so
+     * a new credential (another key, or a sign-in) used to start a new
+     * connection even for the same account. When that is the case, ask Floppy
+     * with the saved credential which account it belongs to and store that
+     * answer, so the comparison is made between two server-confirmed ids. If
+     * the saved credential no longer works, nothing changes: an unverifiable
+     * account is still treated as new.
+     */
+    private suspend fun refreshLegacyAccountIdentity(candidate: ConnectionCandidate) {
+        val prefs = preferences ?: return
+        val previous = prefs.floppySettingsNow() ?: return
+        val previousKey = prefs.floppyApiKeyNow(previous.credentialAlias)?.takeIf(String::isNotBlank) ?: return
+        if (previousKey == candidate.apiKey) return
+        if (previous.serverIdentity != candidate.settings.serverIdentity) return
+        if (previous.accountIdentity?.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX) == true) return
+        if (candidate.settings.accountIdentity?.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX) != true) return
+        val confirmed = runCatching {
+            remote.probeAccount(previous.baseUrl, previousKey, previous.allowInsecureLocalHttp)
+        }.getOrNull()?.takeIf { it.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX) } ?: return
+        prefs.setFloppyAccountIdentity(previous.connectionId, confirmed)
     }
 
     /** The normalized server URL when [baseUrl] offers app sign-in, discovered from /info. */
@@ -133,6 +159,11 @@ class FloppyTrackingProvider(
             )
         if (sessionChanged) {
             connectionGeneration.incrementAndGet()
+        }
+        if (previous != null && !sameTarget) {
+            // Never the identities themselves: only which part differed.
+            val reason = if (previous.serverIdentity != settings.serverIdentity) "server address" else "account"
+            preferences?.appendErrorLog("${java.time.Instant.now()}  Floppy connect: new connection (different $reason)")
         }
         preferences?.setFloppyConnection(resolvedSettings, apiKey)
         if (sessionChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }

@@ -195,6 +195,11 @@ class FloppyRemoteDataSource(
         return probe.accountId.trim().takeIf(String::isNotBlank)?.let { FLOPPY_PROBE_ACCOUNT_PREFIX + it }
     }
 
+    /** The account identity [apiKey] authenticates as, from the CineTrack probe. */
+    suspend fun probeAccount(baseUrl: String, apiKey: String, allowInsecureLocalHttp: Boolean): String? = mapped {
+        authenticatedAccount(factory.get(baseUrl, apiKey, allowInsecureLocalHttp))
+    }
+
     /** Turns on the server's change index for this install (idempotent). */
     suspend fun registerAppConnection(session: FloppySession, instanceKey: String) {
         mapped { api(session).registerAppConnection(FloppyAppConnectionRequest("cinetrack", instanceKey, "CineTrack")) }
