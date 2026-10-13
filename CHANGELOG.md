@@ -1,3 +1,11 @@
+# CineTrack 0.99.48 beta
+
+**Sign in with Floppy**
+- Connecting Floppy works like Simkl now: enter the server address, tap "Sign in with Floppy", log in on Floppy's own page and allow CineTrack. No API key to create or paste. Needs a Floppy server updated to the latest CineTrack API.
+- The sign-in renews itself and only allows what tracking needs. Floppy lists CineTrack under your connected apps, where you can end it at any time; disconnecting in CineTrack ends it too.
+- Already connected with an API key? It keeps working. To switch, tap "Sign in with Floppy" in Settings > Floppy: the same account keeps your connection, sync history and main-tracker choice.
+- Connection errors now say what to do when CineTrack knows it (for example, "Floppy is your main tracker…") instead of a generic message.
+
 # CineTrack 0.99.47 beta
 
 **Floppy as the main tracker**

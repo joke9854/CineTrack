@@ -1281,7 +1281,7 @@ class CineTrackViewModel(
                             // persistent projection, but never overwrite the
                             // dedicated action flow with that publication.
                             _state.value = readCachedState().copy(error = null)
-                            publishFloppyFailure(result.error.toFloppyConnectionError())
+                            publishFloppyFailure(result.error.toFloppyConnectionError(), result.error.userMessage())
                         }
                     }
                 }
@@ -1379,6 +1379,7 @@ class CineTrackViewModel(
         _floppyConnectionUiState.value = current.copy(
             stage = stage,
             error = null,
+            message = null,
             serverVersion = serverVersion ?: current.serverVersion,
         )
         val message = when (stage) {
@@ -1395,10 +1396,11 @@ class CineTrackViewModel(
         }
     }
 
-    private fun publishFloppyFailure(error: FloppyConnectionError) {
+    private fun publishFloppyFailure(error: FloppyConnectionError, message: String? = null) {
         _floppyConnectionUiState.value = _floppyConnectionUiState.value.copy(
             stage = FloppyConnectionStage.FAILED,
             error = error,
+            message = message,
         )
         appendFloppyDiagnostic("Floppy connect: ${error.diagnosticName}")
     }
@@ -1434,6 +1436,63 @@ class CineTrackViewModel(
 
     private val FloppyConnectionError.diagnosticName: String
         get() = name.lowercase()
+
+    /** Errors whose own text tells the user what to do; others use the generic text. */
+    private fun Throwable.userMessage(): String? = when (this) {
+        is TrackingSyncError.Validation, is TrackingSyncError.TokenScope -> message
+        is TrackingSyncError.BootstrapFailure -> (cause as? TrackingSyncError.Validation)?.message
+        else -> null
+    }
+
+    /** Opens Floppy's sign-in page once the server confirms it offers sign-in. */
+    fun beginFloppySignIn(
+        context: Context,
+        baseUrl: String,
+        allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
+    ) {
+        if (baseUrl.isBlank()) {
+            publishFloppyFailure(FloppyConnectionError.INVALID_REQUEST)
+            return
+        }
+        if (floppyConnectionMutex.isLocked) return
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.CHECKING_SERVER,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        appendFloppyDiagnostic("Floppy sign-in: checking server")
+        viewModelScope.launch {
+            val server = withContext(Dispatchers.IO) { repository.floppySignInServer(baseUrl.trim(), allowInsecureLocalHttp) }
+            server.onSuccess { url ->
+                repository.preferences.beginFloppyLogin(context, url, allowInsecureLocalHttp)
+                    .onSuccess {
+                        appendFloppyDiagnostic("Floppy sign-in: browser opened")
+                        _floppyConnectionUiState.value = FloppyConnectionUiState(serverVersion = _state.value.floppyServerVersion)
+                    }
+                    .onFailure { publishFloppyFailure(FloppyConnectionError.UNKNOWN, it.message) }
+            }.onFailure { error ->
+                publishFloppyFailure(error.toFloppyConnectionError(), error.userMessage())
+            }
+        }
+    }
+
+    /** Finishes a sign-in returned by the browser, then connects exactly like an API key. */
+    fun completeFloppySignIn(code: String?, state: String?, callbackError: String?, issuer: String?) {
+        if (floppyConnectionMutex.isLocked) return
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.AUTHENTICATING,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        viewModelScope.launch {
+            val signIn = withContext(Dispatchers.IO) { repository.completeFloppySignIn(code, state, callbackError, issuer) }
+            signIn.onSuccess {
+                appendFloppyDiagnostic("Floppy sign-in: tokens received")
+                connectFloppy(it.baseUrl, it.credential, it.allowInsecureLocalHttp)
+            }.onFailure { error ->
+                appendFloppyDiagnostic("Floppy sign-in: refused")
+                publishFloppyFailure(FloppyConnectionError.AUTHENTICATION, error.message)
+            }
+        }
+    }
 
     private fun Throwable.toFloppyConnectionError(): FloppyConnectionError = when (this) {
         is TrackingSyncError.AuthenticationRequired -> FloppyConnectionError.AUTHENTICATION

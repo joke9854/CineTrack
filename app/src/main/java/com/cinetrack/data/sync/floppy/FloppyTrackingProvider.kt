@@ -89,6 +89,16 @@ class FloppyTrackingProvider(
         }.map { it }
     }
 
+    /** The normalized server URL when [baseUrl] offers app sign-in, discovered from /info. */
+    suspend fun signInServer(baseUrl: String, allowInsecureLocalHttp: Boolean): Result<String> = runCatching {
+        val identity = com.cinetrack.data.sync.floppy.network.FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp)
+        val info = remote.inspect(identity.baseUrl, allowInsecureLocalHttp)
+        if (info.apiExtensions?.oauthV1 != true) {
+            throw TrackingSyncError.Validation("This Floppy server doesn’t offer sign-in yet. Update Floppy or use an API key.")
+        }
+        identity.baseUrl
+    }
+
     suspend fun activateConnection(settings: FloppyConnectionSettings, apiKey: String) {
         commitValidatedConnectionLocked(settings, apiKey)
     }

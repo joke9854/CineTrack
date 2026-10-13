@@ -1486,7 +1486,13 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
         }
     }
-    FloppyConnectionSettingsForm(state, connectionUiState, viewModel::connectFloppy)
+    val signInContext = LocalContext.current
+    FloppyConnectionSettingsForm(
+        state,
+        connectionUiState,
+        viewModel::connectFloppy,
+        onSignInRequested = { url, allowHttp -> viewModel.beginFloppySignIn(signInContext, url, allowHttp) },
+    )
     val floppyUri = LocalUriHandler.current
     KitSteps(
         stringResource(R.string.where_find_token),
@@ -1630,6 +1636,7 @@ internal fun FloppyConnectionSettingsForm(
     state: AppUiState,
     connectionUiState: FloppyConnectionUiState = FloppyConnectionUiState(),
     onConnectRequested: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    onSignInRequested: ((String, Boolean) -> Unit)? = null,
 ) {
     var url by rememberSaveable(state.floppyBaseUrl) { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
     var apiKey by rememberSaveable { mutableStateOf("") }
@@ -1676,6 +1683,30 @@ internal fun FloppyConnectionSettingsForm(
                 isError = url.isNotBlank() && !validUrl,
             )
             if (url.isNotBlank() && !validUrl) Text(stringResource(R.string.floppy_error_invalid_url), color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            if (onSignInRequested != null) {
+                Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+                // Like Simkl: sign in on Floppy's own page, no key to create or paste.
+                Button(
+                    onClick = {
+                        focusManager.clearFocus()
+                        onSignInRequested(url.trim(), allowLocalHttp)
+                    },
+                    enabled = validUrl && !connectionUiState.running,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sign_in_button"),
+                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
+                ) {
+                    Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                    Text(stringResource(R.string.floppy_sign_in), fontWeight = FontWeight.ExtraBold)
+                }
+                Text(
+                    stringResource(R.string.floppy_or_api_key),
+                    color = TextMuted,
+                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md),
+                )
+            }
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             OutlinedTextField(
                 value = apiKey,
@@ -1718,7 +1749,7 @@ internal fun FloppyConnectionSettingsForm(
             }
             connectionUiState.error?.let { error ->
                 Text(
-                    floppyConnectionErrorMessage(error),
+                    connectionUiState.message ?: floppyConnectionErrorMessage(error),
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm),

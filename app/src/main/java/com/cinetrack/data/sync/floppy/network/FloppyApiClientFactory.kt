@@ -74,7 +74,10 @@ object FloppyUrlNormalizer {
 }
 
 /** Creates a client per normalized server identity; API keys never cross origins. */
-class FloppyApiClientFactory {
+class FloppyApiClientFactory(
+    /** Signs requests for `oauth:` credentials; API keys never need it. */
+    private val oauth: FloppyOAuthClient? = null,
+) {
     private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
     private val clients = mutableMapOf<String, FloppyApi>()
 
@@ -106,14 +109,29 @@ class FloppyApiClientFactory {
                         request.url.port == originUrl.port
                     val isPublicInfo = request.url.encodedPath.endsWith("/api/v1/info/") ||
                         request.url.encodedPath.endsWith("/api/v1/info")
-                    chain.proceed(
-                        request.newBuilder().apply {
-                            if (sameOrigin && !isPublicInfo && !apiKey.isNullOrBlank()) header("X-API-Key", apiKey)
-                            else removeHeader("X-API-Key")
-                            header("Accept", "application/json")
-                            header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
-                        }.build(),
-                    )
+                    val signedIn = FloppyOAuthRules.isOAuthCredential(apiKey)
+                    fun build(bearer: String?) = request.newBuilder().apply {
+                        removeHeader("X-API-Key")
+                        removeHeader("Authorization")
+                        if (sameOrigin && !isPublicInfo) {
+                            if (signedIn) bearer?.let { header("Authorization", "Bearer $it") }
+                            else if (!apiKey.isNullOrBlank()) header("X-API-Key", apiKey)
+                        }
+                        header("Accept", "application/json")
+                        header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
+                    }.build()
+                    if (!signedIn || !sameOrigin || isPublicInfo || oauth == null) {
+                        return@addInterceptor chain.proceed(build(null))
+                    }
+                    val credential = apiKey!!
+                    val token = oauth.accessToken(identity.baseUrl, credential)
+                    val response = chain.proceed(build(token))
+                    if (response.code != 401 || token == null) return@addInterceptor response
+                    // The token may have been revoked or rotated elsewhere: renew once.
+                    val renewed = oauth.accessToken(identity.baseUrl, credential, rejected = token)
+                    if (renewed == null || renewed == token) return@addInterceptor response
+                    response.close()
+                    chain.proceed(build(renewed))
                 }
                 .addInterceptor(logger)
                 .build()

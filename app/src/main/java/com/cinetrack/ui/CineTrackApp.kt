@@ -197,7 +197,8 @@ fun CineTrackApp(
 
     LaunchedEffect(callback) {
         callback?.let {
-            viewModel.completeSimklLogin(it.code, it.state, it.error, it.issuer)
+            if (it.floppy) viewModel.completeFloppySignIn(it.code, it.state, it.error, it.issuer)
+            else viewModel.completeSimklLogin(it.code, it.state, it.error, it.issuer)
             authCallback.value = null
         }
     }

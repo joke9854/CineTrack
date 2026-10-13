@@ -561,6 +561,8 @@
     <string name="floppy_connection">Connessione</string>
     <string name="floppy_error_invalid_url">L’URL del server non è valido.</string>
     <string name="floppy_server_url">URL del server</string>
+    <string name="floppy_sign_in">Accedi con Floppy</string>
+    <string name="floppy_or_api_key">Oppure collega con una chiave API dalle impostazioni di Floppy:</string>
     <string name="floppy_api_key">Chiave API</string>
     <string name="floppy_api_key_keep">Chiave API (lascia vuoto per mantenere)</string>
     <string name="floppy_connect">Collega</string>

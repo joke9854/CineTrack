@@ -296,6 +296,8 @@ data class MainTrackerSwapUiState(
 data class FloppyConnectionUiState(
     val stage: FloppyConnectionStage = FloppyConnectionStage.IDLE,
     val error: FloppyConnectionError? = null,
+    /** A specific explanation, shown instead of the generic text for [error]. */
+    val message: String? = null,
     val serverVersion: String? = null,
 ) {
     val running: Boolean

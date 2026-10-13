@@ -117,8 +117,8 @@ class FloppyRemoteDataSource(
         factory.clear()
     }
 
-    suspend fun inspect(baseUrl: String): FloppyInfoDto = try {
-        factory.get(baseUrl, null).info()
+    suspend fun inspect(baseUrl: String, allowInsecureLocalHttp: Boolean = false): FloppyInfoDto = try {
+        factory.get(baseUrl, null, allowInsecureLocalHttp).info()
     } catch (error: Throwable) {
         throw FloppyApiErrorMapper.map(error)
     }

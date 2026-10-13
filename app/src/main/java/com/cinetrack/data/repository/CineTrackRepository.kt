@@ -33,6 +33,7 @@ import com.cinetrack.data.sync.DurableSyncOperationWriter
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.floppy.FloppyTrackingProvider
+import com.cinetrack.data.sync.floppy.network.FloppyOAuthRules
 import com.cinetrack.data.sync.floppy.FloppySecondaryService
 import com.cinetrack.data.sync.TrackingRoutingMutex
 import com.cinetrack.data.sync.SyncOperation
@@ -222,6 +223,7 @@ class CineTrackRepository(
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val floppySecondaryService: FloppySecondaryService? = null,
     private val trackingConfigurationService: com.cinetrack.data.sync.TrackingConfigurationService? = null,
+    private val floppyOAuth: com.cinetrack.data.sync.floppy.network.FloppyOAuthClient? = null,
     private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
     private val floppyUnplacedEpisodes: (suspend () -> List<com.cinetrack.data.sync.floppy.FloppyUnplacedEpisode>)? = null,
 ) : SimklSyncHost {
@@ -230,15 +232,51 @@ class CineTrackRepository(
         apiKey: String,
         allowInsecureLocalHttp: Boolean? = null,
         onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
-    ): com.cinetrack.data.sync.ConnectionResult =
-        floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
+    ): com.cinetrack.data.sync.ConnectionResult {
+        val previousUrl = preferences.floppySettingsNow()?.baseUrl
+        val previousCredential = preferences.floppyApiKeyNow()
+        val result = floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
                 ?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
             ?: com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired
+        val active = preferences.floppyApiKeyNow()
+        // End sign-ins nothing uses any more: a fresh one that failed to
+        // connect, or the one a new connection just replaced.
+        if (FloppyOAuthRules.isOAuthCredential(apiKey) && apiKey.trim() != active) {
+            floppyOAuth?.revoke(baseUrl.trim(), apiKey.trim())
+        }
+        if (FloppyOAuthRules.isOAuthCredential(previousCredential) && previousCredential != active && previousUrl != null) {
+            floppyOAuth?.revoke(previousUrl, previousCredential!!)
+        }
+        return result
+    }
+
+    /** The normalized server URL when it offers sign-in. */
+    suspend fun floppySignInServer(baseUrl: String, allowInsecureLocalHttp: Boolean): Result<String> =
+        (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
+            ?.signInServer(baseUrl, allowInsecureLocalHttp)
+            ?: Result.failure(IllegalStateException("Floppy is unavailable"))
+
+    data class FloppySignIn(val baseUrl: String, val credential: String, val allowInsecureLocalHttp: Boolean)
+
+    /** Swaps the sign-in callback's code for tokens; the caller then connects with [FloppySignIn.credential]. */
+    suspend fun completeFloppySignIn(code: String?, state: String?, error: String?, issuer: String?): Result<FloppySignIn> = runCatching {
+        val oauth = checkNotNull(floppyOAuth) { "Floppy sign-in is unavailable" }
+        val pending = preferences.takeFloppyPendingLogin(state, error, issuer).getOrThrow()
+        val tokens = oauth.exchangeCode(pending.baseUrl, checkNotNull(code) { "Floppy did not return a sign-in code" }, pending.codeVerifier)
+        val grantId = java.util.UUID.randomUUID().toString()
+        oauth.save(grantId, tokens)
+        FloppySignIn(pending.baseUrl, FloppyOAuthRules.credential(grantId), pending.allowInsecureLocalHttp)
+    }
 
     suspend fun disconnectFloppy() {
+        val previousUrl = preferences.floppySettingsNow()?.baseUrl
+        val previousCredential = preferences.floppyApiKeyNow()
         floppySecondaryService?.disconnect()
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
+        if (FloppyOAuthRules.isOAuthCredential(previousCredential) && previousUrl != null) {
+            floppyOAuth?.revoke(previousUrl, previousCredential!!)
+        }
     }
     suspend fun retryFloppyBootstrap() { floppyRetryBootstrap?.invoke() }
 

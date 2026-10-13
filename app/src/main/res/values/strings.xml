@@ -562,6 +562,8 @@
     <string name="floppy_error_invalid_url">This server URL isn’t valid.</string>
     <string name="floppy_server_url">Server URL</string>
     <string name="floppy_api_key">API key</string>
+    <string name="floppy_sign_in">Sign in with Floppy</string>
+    <string name="floppy_or_api_key">Or connect with an API key from Floppy’s settings:</string>
     <string name="floppy_api_key_keep">API key (leave blank to keep)</string>
     <string name="floppy_connect">Connect</string>
     <string name="floppy_reconnect">Reconnect</string>

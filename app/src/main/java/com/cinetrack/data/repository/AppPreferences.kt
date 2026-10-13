@@ -87,6 +87,10 @@ class AppPreferences(private val context: Context) {
         val simklReconnectReason = stringPreferencesKey("simkl_reconnect_reason")
         /** How the next sync combines a newly connected account with this device; absent once done. */
         val simklFirstSyncMode = stringPreferencesKey("simkl_first_sync_mode")
+        val floppyPkceVerifier = stringPreferencesKey("floppy_pkce_verifier")
+        val floppyPkceState = stringPreferencesKey("floppy_pkce_state")
+        val floppyPendingBaseUrl = stringPreferencesKey("floppy_pending_base_url")
+        val floppyPendingAllowHttp = booleanPreferencesKey("floppy_pending_allow_http")
         val pkceVerifier = stringPreferencesKey("simkl_pkce_verifier")
         val pkceState = stringPreferencesKey("simkl_pkce_state")
         val backgroundSync = booleanPreferencesKey("background_sync")
@@ -833,6 +837,66 @@ class AppPreferences(private val context: Context) {
                 }
             }
         }
+    }
+
+    /** Encrypted, durable storage for Floppy sign-in tokens (one entry per sign-in). */
+    val floppyOAuthTokenStore: com.cinetrack.data.sync.floppy.network.FloppyOAuthTokenStore =
+        object : com.cinetrack.data.sync.floppy.network.FloppyOAuthTokenStore {
+            private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+
+            override fun load(grantId: String) = credentialStore.get("floppy_oauth:$grantId")?.let { raw ->
+                runCatching { json.decodeFromString<com.cinetrack.data.sync.floppy.network.FloppyOAuthTokens>(raw) }.getOrNull()
+            }
+
+            override fun save(grantId: String, tokens: com.cinetrack.data.sync.floppy.network.FloppyOAuthTokens?) =
+                credentialStore.put("floppy_oauth:$grantId", tokens?.let(json::encodeToString), durable = true)
+        }
+
+    data class FloppyPendingSignIn(val baseUrl: String, val allowInsecureLocalHttp: Boolean, val codeVerifier: String)
+
+    /** Opens Floppy's sign-in page for [baseUrl] (already normalized). */
+    suspend fun beginFloppyLogin(context: Context, baseUrl: String, allowInsecureLocalHttp: Boolean): Result<Unit> = runCatching {
+        val verifierBytes = ByteArray(48).also(SecureRandom()::nextBytes)
+        val verifier = Base64.encodeToString(verifierBytes, Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP)
+        val challenge = Base64.encodeToString(
+            MessageDigest.getInstance("SHA-256").digest(verifier.toByteArray()),
+            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP,
+        )
+        val state = UUID.randomUUID().toString()
+        this.context.cineTrackDataStore.edit {
+            it[Keys.floppyPkceVerifier] = verifier
+            it[Keys.floppyPkceState] = state
+            it[Keys.floppyPendingBaseUrl] = baseUrl
+            it[Keys.floppyPendingAllowHttp] = allowInsecureLocalHttp
+        }
+        val uri = Uri.parse(com.cinetrack.data.sync.floppy.network.FloppyOAuthRules.authorizeUrl(baseUrl, challenge, state))
+        CustomTabsIntent.Builder().setShowTitle(true).build().launchUrl(context, uri)
+    }
+
+    /**
+     * Validates a Floppy sign-in callback and consumes the pending sign-in.
+     * The code is single-use, so the pending state is cleared even when the
+     * callback is refused.
+     */
+    suspend fun takeFloppyPendingLogin(returnedState: String?, error: String?, issuer: String?): Result<FloppyPendingSignIn> = runCatching {
+        val values = context.cineTrackDataStore.data.first()
+        val verifier = values[Keys.floppyPkceVerifier]
+        val baseUrl = values[Keys.floppyPendingBaseUrl]
+        val allowHttp = values[Keys.floppyPendingAllowHttp] ?: false
+        context.cineTrackDataStore.edit {
+            it.remove(Keys.floppyPkceVerifier)
+            it.remove(Keys.floppyPkceState)
+            it.remove(Keys.floppyPendingBaseUrl)
+            it.remove(Keys.floppyPendingAllowHttp)
+        }
+        com.cinetrack.data.sync.floppy.network.FloppyOAuthRules.callbackProblem(
+            expectedState = values[Keys.floppyPkceState]?.takeIf { verifier != null && baseUrl != null },
+            returnedState = returnedState,
+            error = error,
+            issuer = issuer,
+            baseUrl = baseUrl.orEmpty(),
+        )?.let(::error)
+        FloppyPendingSignIn(checkNotNull(baseUrl), allowHttp, checkNotNull(verifier))
     }
 
     suspend fun beginSimklLogin(context: Context): Result<Unit> = runCatching {

@@ -152,8 +152,12 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val floppySyncEngine by lazy {
             com.cinetrack.data.sync.floppy.FloppySyncEngine { repository }
         }
+        val floppyOAuth = com.cinetrack.data.sync.floppy.network.FloppyOAuthClient(preferences.floppyOAuthTokenStore)
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
+            remote = com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource(
+                com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory(floppyOAuth),
+            ),
             syncPass = { provider, operations, onProgress -> floppySyncEngine.sync(provider, operations, onProgress) },
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
         )
@@ -224,6 +228,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingRoutingMutex = trackingRoutingMutex,
             floppySecondaryService = floppySecondaryService,
             trackingConfigurationService = trackingConfigurationService,
+            floppyOAuth = floppyOAuth,
             floppyRetryBootstrap = {
                 preferences.floppySettingsNow()?.connectionId?.let { instance ->
                     FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())

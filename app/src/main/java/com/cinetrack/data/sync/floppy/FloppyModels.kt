@@ -24,6 +24,8 @@ data class FloppyApiExtensions(
     @SerialName("episode_sql_pagination") val episodeSqlPagination: Boolean = false,
     @SerialName("sync_app_connections_v1") val syncAppConnectionsV1: Boolean = false,
     @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
+    /** App sign-in (OAuth 2.0 + PKCE) for the `cinetrack` client. */
+    @SerialName("oauth_v1") val oauthV1: Boolean = false,
 )
 
 @Serializable
