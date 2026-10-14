@@ -243,6 +243,7 @@ class RoomLibraryRepository(
                 ),
             )
             database.stateDao().touch(MediaType.TV.name, episode.showId, mutationVersion)
+            val statusId = startWatchingIfPlanned(episode.showId, mutationVersion)
             refreshLocalUpNext(episode.showId)
             val writeId = database.syncDao().queue(
                 PendingWriteEntity(
@@ -254,11 +255,11 @@ class RoomLibraryRepository(
                 ),
             )
             queueWriteOperation(writeId, "EPISODE_WATCHED", episode, episode.label)
-            "write:$writeId"
+            setOfNotNull("write:$writeId", statusId)
         } }
         onLocalStateChanged()
         deliveryScope.launch {
-            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(setOf(operationId))
+            if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationId)
         }
     }
 
@@ -314,6 +315,11 @@ class RoomLibraryRepository(
                 queueWriteOperation(writeId, if (watched) "EPISODE_WATCHED" else "EPISODE_UNWATCHED", episode, episode.label)
                 ids += "write:$writeId"
             }
+            if (watched) {
+                changed.map(EpisodeCard::showId).toSet().forEach { showId ->
+                    startWatchingIfPlanned(showId, mutationVersion)?.let { ids += it }
+                }
+            }
             changed.map(EpisodeCard::showId).toSet().forEach { refreshLocalUpNext(it) }
             ids
         } }
@@ -321,6 +327,43 @@ class RoomLibraryRepository(
         deliveryScope.launch {
             if (syncCoordinator.isMainProviderConnected()) syncCoordinator.pushPending(operationIds.toSet())
         }
+    }
+
+    /**
+     * Watching an episode starts a show that was only planned (or not in the
+     * library yet), like Simkl does on its side, so the status changes here
+     * right away instead of after the next sync. Other statuses are left
+     * alone. Returns the status operation id, or null when nothing changed.
+     */
+    private suspend fun startWatchingIfPlanned(showId: Int, mutationVersion: Long): String? {
+        val state = database.stateDao().get(MediaType.TV.name, showId)
+        val status = state?.status?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() } ?: LibraryStatus.NONE
+        if (status != LibraryStatus.PLAN_TO_WATCH && status != LibraryStatus.NONE) return null
+        val media = database.mediaDao().get(MediaType.TV.name, showId) ?: return null
+        database.stateDao().upsert(
+            UserMediaStateEntity(
+                mediaType = MediaType.TV.name,
+                mediaId = showId,
+                status = LibraryStatus.WATCHING.name,
+                watched = false,
+                simklId = state?.simklId,
+                updatedAt = mutationVersion,
+                dirty = true,
+            ),
+        )
+        persistOperation(
+            SyncOperation(
+                id = "state:${MediaType.TV.name}:$showId",
+                type = SyncOperationType.LIBRARY_STATUS,
+                mediaType = MediaType.TV,
+                mediaId = showId,
+                title = media.title,
+                value = LibraryStatus.WATCHING.name,
+                sourceVersion = mutationVersion,
+            ),
+        )
+        rebuildLibraryRail()
+        return "state:${MediaType.TV.name}:$showId"
     }
 
     private suspend fun queueStateOperation(media: MediaCard, status: LibraryStatus) {
