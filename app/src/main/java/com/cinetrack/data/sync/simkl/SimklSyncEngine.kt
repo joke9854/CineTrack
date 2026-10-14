@@ -661,6 +661,8 @@ class SimklSyncEngine(
             }
         } else emptyList()
         val appliedRemoteMutations = mutableListOf<LocalMutation>()
+        // Items removed here that Simkl still lists: their history is not re-imported.
+        val keptRemovals = mutableSetOf<String>()
         val syncStates = buildList {
             add(SyncStateEntity("all", activity.all, committedAt))
             add(SyncStateEntity("shows", activity.tvShows.all, committedAt))
@@ -811,6 +813,22 @@ class SimklSyncEngine(
                     }
                 }
                 if (stateSuperseded || episodeSuperseded) continue
+                // Simkl can still answer with the state from before a change
+                // this device already delivered: its lists catch up a little
+                // later. When Simkl still reports the last synced value and
+                // this device changed it in the last half hour, after Simkl's
+                // own record of the item, the change is kept instead of undone
+                // (and so never mirrored back to the second tracker).
+                val lastSynced = baselineValue(previousBaseline, type, id)
+                if (mutation is LocalMutation.SetLibraryStatus && before != null && before.status != mutation.status.name &&
+                    lastSynced != null && lastSynced != before.status && lastSynced == mutation.status.name &&
+                    before.updatedAt > committedAt - RECENT_LOCAL_CHANGE_MS &&
+                    before.updatedAt > (remoteStatesByKey["$type:$id"]?.updatedAt ?: 0L)
+                ) {
+                    if (before.status == LibraryStatus.NONE.name) keptRemovals += "$type:$id"
+                    preferences.appendErrorLog("${Instant.now()}  Simkl sync: kept this device's change $type:$id ${before.status} (Simkl still had ${mutation.status.name})")
+                    continue
+                }
                 appliedRemoteMutations += mutation
                 val previous = database.stateDao().get(type, id)
                 when (mutation) {
@@ -856,6 +874,7 @@ class SimklSyncEngine(
                 } else emptySet()
                 database.timelineDao().insertHistoryItems(
                     importedHistory.filterNot {
+                        "${it.mediaType}:${it.mediaId}" in keptRemovals ||
                         it.episodeKey() in locallyRemoved || it.episodeKey() in localKeys ||
                             it.episodeKey() in mergeKeptKeys ||
                             (it.mediaType == MediaType.MOVIE.name && (it.mediaId in protectedMovieIds || it.mediaId in mergeKeptMovies))
@@ -1041,6 +1060,8 @@ class SimklSyncEngine(
  * Stamping every applied change with the commit time tied all of them at the sync moment, which
  * pushed a show watched just before the sync below the rest and sorted the others by title.
  */
+private const val RECENT_LOCAL_CHANGE_MS = 30 * 60 * 1000L
+
 internal fun remoteActivityAt(remoteUpdatedAt: Long?, watchedAt: Long?, previousUpdatedAt: Long?, committedAt: Long): Long =
     watchedAt ?: remoteUpdatedAt ?: previousUpdatedAt ?: committedAt
 
