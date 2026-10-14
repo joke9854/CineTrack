@@ -26,6 +26,7 @@ class DefaultReleaseScheduleRepository(
     private val database: AppDatabase,
     private val services: ApiServices,
     private val traktClientId: suspend () -> String = { "" },
+    private val airDateSource: suspend () -> String = { AirDateSource.DEFAULT },
 ) : ReleaseScheduleRepository {
     override suspend fun refresh(shows: List<MediaCard>, force: Boolean): Boolean {
         val now = System.currentTimeMillis()
@@ -59,12 +60,18 @@ class DefaultReleaseScheduleRepository(
         val existing = snapshot.associateBy { Triple(it.showId, it.season, it.number) }
         val existingByEpisodeId = snapshot.filter { it.tmdbId != null }.associateBy { it.showId to it.tmdbId }
 
-        val airTimes = mergeAirTimes(
+        val (simklTimes, traktTimes) = airTimesBySource(
             simkl = tvResult.getOrDefault(emptyList()) + animeResult.getOrDefault(emptyList()),
             trakt = trakt?.getOrNull().orEmpty(),
             tracked = tracked,
             localByEpisodeId = existingByEpisodeId.mapValues { (_, row) -> Triple(row.showId, row.season, row.number) },
         )
+        // Each provider's dates are kept; the episode shows the chosen provider's.
+        val preferred = airDateSource()
+        val legacy = (simklTimes.keys + traktTimes.keys).associateWith { existing[it]?.airDate }
+        recordAirDates(database, AirDateSource.SIMKL, simklTimes, preferred, legacy)
+        val airTimes = recordAirDates(database, AirDateSource.TRAKT, traktTimes + simklTimes.keys.filter { it !in traktTimes }.associateWith { null }, preferred, legacy)
+            .mapNotNull { (key, date) -> date?.let { key to it } }.toMap()
         val calendarRows = airTimes.map { (key, airDate) ->
             val (showId, season, number) = key
             val cached = existing[key]
@@ -106,6 +113,18 @@ class DefaultReleaseScheduleRepository(
  * wherever Trakt knows the episode, otherwise Simkl's calendar time. A Trakt
  * episode's TMDB id finds the local row even when Trakt numbers it differently.
  */
+/** Simkl's and Trakt's air time per (TMDB show, season, episode), kept apart. */
+internal fun airTimesBySource(
+    simkl: List<com.cinetrack.data.remote.SimklCalendarItem>,
+    trakt: List<com.cinetrack.data.remote.TraktCalendarItem>,
+    tracked: Set<Int>,
+    localByEpisodeId: Map<Pair<Int, Int?>, Triple<Int, Int, Int>> = emptyMap(),
+): Pair<Map<Triple<Int, Int, Int>, String>, Map<Triple<Int, Int, Int>, String>> {
+    val simklTimes = mergeAirTimes(simkl, emptyList(), tracked, localByEpisodeId)
+    val traktTimes = mergeAirTimes(emptyList(), trakt, tracked, localByEpisodeId)
+    return simklTimes to traktTimes
+}
+
 internal fun mergeAirTimes(
     simkl: List<com.cinetrack.data.remote.SimklCalendarItem>,
     trakt: List<com.cinetrack.data.remote.TraktCalendarItem>,

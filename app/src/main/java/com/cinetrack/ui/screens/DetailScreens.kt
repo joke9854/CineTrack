@@ -56,6 +56,9 @@ import androidx.compose.material.icons.outlined.RemoveDone
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.AttachMoney
 import androidx.compose.material.icons.filled.Business
@@ -157,6 +160,7 @@ import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.YouTubePlayer
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.listeners.AbstractYouTubePlayerListener
 import com.pierfrancescosoffritti.androidyoutubeplayer.core.player.views.YouTubePlayerView
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.coroutineScope
 
@@ -241,7 +245,10 @@ fun DetailScreen(
             libraryUpdatedAt = media.libraryUpdatedAt,
         )
     }
-    LaunchedEffect(media.stableKey) {
+    var refreshNonce by remember(media.stableKey) { mutableStateOf(0) }
+    var refreshing by remember(media.stableKey) { mutableStateOf(false) }
+    val refreshScope = rememberCoroutineScope()
+    LaunchedEffect(media.stableKey, refreshNonce) {
         val loadedDetail = viewModel.loadDetails(media)
         detail = loadedDetail.copy(
             status = media.status,
@@ -319,7 +326,13 @@ fun DetailScreen(
                         if (releaseRaw != null) {
                             ReleaseCountdown(detail, releaseRaw, upcomingEpisode, viewModel)
                         }
-                        if (started) SeriesProgressCard(detail, detailEpisodes, nextUp)
+                        if (started) SeriesProgressCard(
+                            detail,
+                            detailEpisodes,
+                            nextUp,
+                            // Continue stays the main action; finishing the series lives here.
+                            onMarkAll = unwatchedAiredEpisodes(detailEpisodes).takeIf { it.isNotEmpty() }?.let { remaining -> { pendingShowEpisodes = remaining } },
+                        )
                         Row(
                             Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -486,9 +499,19 @@ fun DetailScreen(
         DetailTopBar(
             title = detail.title,
             subtitle = listOf(detail.year, detail.genres.firstOrNull().orEmpty()).filter(String::isNotBlank).joinToString(" · "),
-            progress = rememberHeaderProgress(detailListState, revealStart = 300.dp),
+            progress = rememberHeaderProgress(detailListState, revealStart = 470.dp),
             haze = headerHaze,
             onBack = onBack,
+            refreshing = refreshing,
+            onRefresh = {
+                refreshScope.launch {
+                    refreshing = true
+                    // Fetches this title (and its seasons) again, then reloads the page from it.
+                    runCatching { viewModel.refreshTitle(detail) }
+                    refreshNonce++
+                    refreshing = false
+                }
+            },
         )
         }
     }
@@ -720,14 +743,17 @@ private fun YouTubeTrailerPlayer(videoKey: String) {
 @Composable
 private fun DetailHero(media: MediaCard) {
     // A tapped wide cover grows into this header.
-    Box(Modifier.fillMaxWidth().height(438.dp).sharedBackdrop(media.stableKey, slot = null)) {
+    // Sized like Trakt's: the poster spans about two thirds of the width and
+    // starts just below the back button row.
+    Box(Modifier.fillMaxWidth().sharedBackdrop(media.stableKey, slot = null)) {
         // The backdrop art, blurred, fades into the page behind the poster.
         media.backdropUrl?.takeIf(String::isNotBlank)?.let { backdrop ->
-            AsyncImage(backdrop, null, Modifier.fillMaxSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
+            // matchParentSize: the hero now takes its height from the poster.
+            AsyncImage(backdrop, null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
         }
         Box(
-            Modifier.align(Alignment.Center).padding(top = 60.dp).width(214.dp).aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp, bottom = 24.dp).fillMaxWidth(.68f).aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)
                 // The tapped poster flies into this slot.
                 .sharedPoster(media.stableKey, slot = null)
                 .shadow(18.dp, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large), clip = false)
@@ -1065,10 +1091,16 @@ private fun EpisodesSection(
     val watched = seasonEpisodes.count(EpisodeCard::watched)
     val allWatched = seasonEpisodes.isNotEmpty() && watched == seasonEpisodes.size
     val seasonKeys = grouped.keys.toList()
+    // Pills and covers each keep their own row state: one state shared by both
+    // rows while they crossfade leaves the incoming row blank for a few frames.
     val pillState = rememberLazyListState()
-    LaunchedEffect(season) {
+    val coverState = rememberLazyListState()
+    LaunchedEffect(season, posterPicker) {
         // Keep the chosen season in view, with its neighbour before it.
-        pillState.animateScrollToItem((seasonKeys.indexOf(season) - 1).coerceAtLeast(0))
+        val target = (seasonKeys.indexOf(season) - 1).coerceAtLeast(0)
+        val (shown, hidden) = if (posterPicker) coverState to pillState else pillState to coverState
+        hidden.scrollToItem(target)
+        shown.animateScrollToItem(target)
     }
     val progress by androidx.compose.animation.core.animateFloatAsState(
         watched.toFloat() / total,
@@ -1087,8 +1119,24 @@ private fun EpisodesSection(
             )
         }
         Spacer(Modifier.height(12.dp))
-        androidx.compose.animation.Crossfade(posterPicker, animationSpec = androidx.compose.animation.core.tween(220), label = "seasonPickerStyle") { covers ->
-            LazyRow(state = pillState, contentPadding = PaddingValues(horizontal = DetailLayout.Gutter), horizontalArrangement = Arrangement.spacedBy(if (covers) 10.dp else 8.dp)) {
+        // Switching style: the old row fades out, the height glides to the new
+        // row's, and the new row fades and grows in, so the list below moves once.
+        androidx.compose.animation.AnimatedContent(
+            posterPicker,
+            transitionSpec = {
+                val enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = 90)) +
+                    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(280, delayMillis = 90, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = .94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f))
+                val exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90))
+                androidx.compose.animation.ContentTransform(
+                    enter, exit,
+                    sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ ->
+                        androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+                    },
+                )
+            },
+            label = "seasonPickerStyle",
+        ) { covers ->
+            LazyRow(state = if (covers) coverState else pillState, contentPadding = PaddingValues(horizontal = DetailLayout.Gutter), horizontalArrangement = Arrangement.spacedBy(if (covers) 10.dp else 8.dp)) {
                 items(seasonKeys, key = { it }) { number ->
                     val chosen = number == season
                     // The accent fades between choices instead of jumping.
@@ -1370,7 +1418,7 @@ private fun nextAiredEpisode(episodes: List<EpisodeCard>): EpisodeCard? {
 
 /** Where you are in a started series: the current season on the left, the whole show on the right. */
 @Composable
-private fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, nextUp: EpisodeCard?) {
+private fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, nextUp: EpisodeCard?, onMarkAll: (() -> Unit)? = null) {
     val regular = episodes.filter { it.season > 0 }
     val focusSeason = nextUp?.season ?: regular.filter(EpisodeCard::watched).maxOfOrNull(EpisodeCard::season) ?: return
     val inSeason = regular.filter { it.season == focusSeason }
@@ -1387,6 +1435,19 @@ private fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, ne
         Spacer(Modifier.height(9.dp))
         Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(com.cinetrack.ui.theme.SurfacePalette.ProgressTrack)) {
             Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(CircleShape).background(Accent))
+        }
+        if (onMarkAll != null) {
+            Row(
+                Modifier.padding(top = 10.dp).align(Alignment.End).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onMarkAll)
+                    .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
+                    .heightIn(min = 36.dp).padding(horizontal = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(Icons.Filled.DoneAll, null, tint = AccentLight, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(stringResource(R.string.mark_all_aired_watched), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
+            }
         }
     }
 }
@@ -1558,7 +1619,15 @@ private fun rememberHeaderProgress(
  * title slides up into it, so the page always says what it is.
  */
 @Composable
-private fun DetailTopBar(title: String, subtitle: String?, progress: () -> Float, haze: dev.chrisbanes.haze.HazeState, onBack: () -> Unit) {
+private fun DetailTopBar(
+    title: String,
+    subtitle: String?,
+    progress: () -> Float,
+    haze: dev.chrisbanes.haze.HazeState,
+    onBack: () -> Unit,
+    refreshing: Boolean = false,
+    onRefresh: (() -> Unit)? = null,
+) {
     Box(Modifier.fillMaxWidth()) {
         Box(
             Modifier.matchParentSize()
@@ -1575,7 +1644,7 @@ private fun DetailTopBar(title: String, subtitle: String?, progress: () -> Float
                 },
         )
         Row(
-            Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = com.cinetrack.ui.theme.Spacing.lg, end = 64.dp),
+            Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = com.cinetrack.ui.theme.Spacing.lg, end = if (onRefresh != null) com.cinetrack.ui.theme.Spacing.lg else 64.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             GlassBackButton(onClick = onBack)
@@ -1590,6 +1659,24 @@ private fun DetailTopBar(title: String, subtitle: String?, progress: () -> Float
                 Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (!subtitle.isNullOrBlank()) {
                     Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            if (onRefresh != null) {
+                var menuOpen by remember { mutableStateOf(false) }
+                Box {
+                    com.cinetrack.ui.components.GlassIconButton(Icons.Filled.MoreVert, stringResource(R.string.more_options), { if (!refreshing) menuOpen = true }, busy = refreshing)
+                    androidx.compose.material3.DropdownMenu(
+                        expanded = menuOpen,
+                        onDismissRequest = { menuOpen = false },
+                        shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium),
+                        containerColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
+                    ) {
+                        androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.refresh_info), color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TextSecondary) },
+                            onClick = { menuOpen = false; onRefresh() },
+                        )
+                    }
                 }
             }
         }
@@ -2064,11 +2151,11 @@ fun EpisodeDetailScreen(
 ) {
     var loadedEpisode by remember(show?.id) { mutableStateOf(episode) }
     var loadedEpisodes by remember(show?.id) { mutableStateOf(allEpisodes) }
-    var loadedPeople by remember(show?.id) { mutableStateOf(people) }
-    // Which episode the plot and cast on screen belong to; other episodes show skeletons
-    // instead of the previous episode's text and people while theirs load.
+    // Each episode's cast, kept while the page is open; the episodes beside the
+    // current one are fetched ahead, so swiping shows their cast right away.
+    val castByEpisode = remember(show?.id) { androidx.compose.runtime.mutableStateMapOf<Pair<Int, Int>, List<PersonCard>>() }
+    // Which episode's plot was asked for; others show a skeleton until they load.
     var overviewFor by remember(show?.id) { mutableStateOf<Pair<Int, Int>?>(null) }
-    var castFor by remember(show?.id) { mutableStateOf<Pair<Int, Int>?>(null) }
     LaunchedEffect(episode?.season, episode?.number, episode?.watched) {
         val latest = episode ?: return@LaunchedEffect
         if (loadedEpisode?.season == latest.season && loadedEpisode?.number == latest.number) {
@@ -2107,45 +2194,42 @@ fun EpisodeDetailScreen(
         loadedEpisodes.distinctBy { it.season to it.number }
             .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
     }
-    val currentIndex = orderedEpisodes.indexOfFirst {
-        it.season == currentEpisode.season && it.number == currentEpisode.number
+    // One page per episode: the page swiped to is the page that stays, so
+    // nothing is swapped or redrawn when a swipe settles.
+    val pages = remember(orderedEpisodes, currentEpisode.season, currentEpisode.number) {
+        if (orderedEpisodes.any { it.season == currentEpisode.season && it.number == currentEpisode.number }) orderedEpisodes
+        else (orderedEpisodes + currentEpisode).sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
     }
-    val previous = orderedEpisodes.getOrNull(currentIndex - 1)
-    val next = orderedEpisodes.getOrNull(currentIndex + 1)
-    val pagerState = rememberPagerState(initialPage = 1, pageCount = { 3 })
+    fun pageOf(target: EpisodeCard) = pages.indexOfFirst { it.season == target.season && it.number == target.number }
+    val pagerState = rememberPagerState(initialPage = pageOf(currentEpisode).coerceAtLeast(0), pageCount = { pages.size })
     val pagerScope = rememberCoroutineScope()
-    LaunchedEffect(show?.stableKey, currentEpisode.season, currentEpisode.number) {
-        show?.let {
-            viewModel.loadEpisodeCast(it, currentEpisode.season, currentEpisode.number)
-                .takeIf { cast -> cast.isNotEmpty() }
-                ?.let { cast -> loadedPeople = cast }
-            castFor = currentEpisode.season to currentEpisode.number
+    val showCast by androidx.compose.runtime.rememberUpdatedState(people)
+    LaunchedEffect(show?.stableKey, currentEpisode.season, currentEpisode.number, pages.size) {
+        val series = show ?: return@LaunchedEffect
+        val index = pageOf(currentEpisode)
+        listOfNotNull(currentEpisode, pages.getOrNull(index + 1), pages.getOrNull(index - 1)).forEach { target ->
+            val key = target.season to target.number
+            if (key !in castByEpisode) {
+                castByEpisode[key] = runCatching { viewModel.loadEpisodeCast(series, target.season, target.number) }.getOrDefault(emptyList()).ifEmpty { showCast }
+            }
         }
     }
-    LaunchedEffect(pagerState, orderedEpisodes) {
+    // Episodes arriving (the season loading) move the current one to another index.
+    LaunchedEffect(pages) {
+        val index = pageOf(currentEpisode)
+        if (index >= 0 && index != pagerState.currentPage && !pagerState.isScrollInProgress) pagerState.scrollToPage(index)
+    }
+    LaunchedEffect(pagerState, pages) {
         snapshotFlow { pagerState.settledPage }
             .distinctUntilChanged()
+            .drop(1) // the page at (re)start, before any swipe
             .collect { page ->
-                if (page == 1) return@collect
-                val active = loadedEpisode ?: return@collect
-                val activeIndex = orderedEpisodes.indexOfFirst {
-                    it.season == active.season && it.number == active.number
-                }
-                val target = if (page < 1) {
-                    orderedEpisodes.getOrNull(activeIndex - 1)
-                } else {
-                    orderedEpisodes.getOrNull(activeIndex + 1)
-                }
-                if (target == null) {
-                    pagerState.animateScrollToPage(1)
-                    return@collect
-                }
-                // The new current page and the pager reset are applied before
-                // the next frame, so page 0/2 becomes page 1 without a visual jump.
-                loadedEpisode = target
-                pagerState.scrollToPage(1)
+                val target = pages.getOrNull(page) ?: return@collect
+                val active = loadedEpisode
+                if (active == null || active.season != target.season || active.number != target.number) loadedEpisode = target
             }
     }
+    val loadedPeople = castByEpisode[currentEpisode.season to currentEpisode.number] ?: people
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
     val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsState(initial = emptyList())
@@ -2164,13 +2248,11 @@ fun EpisodeDetailScreen(
             state = pagerState,
             modifier = Modifier.fillMaxSize().hazeSource(headerHaze),
             beyondViewportPageCount = 0,
-            key = { it },
+            key = { index -> pages.getOrNull(index)?.let { "${it.season}:${it.number}" } ?: index },
         ) { page ->
-            val displayedEpisode = when (page) {
-                0 -> previous ?: currentEpisode
-                2 -> next ?: currentEpisode
-                else -> currentEpisode
-            }
+            val displayedEpisode = pages.getOrNull(page) ?: currentEpisode
+            val previous = pages.getOrNull(page - 1)
+            val next = pages.getOrNull(page + 1)
             var watched by remember(displayedEpisode.season, displayedEpisode.number, displayedEpisode.watched) {
                 mutableStateOf(displayedEpisode.watched)
             }
@@ -2209,12 +2291,13 @@ fun EpisodeDetailScreen(
                         Column(Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter), horizontalAlignment = Alignment.CenterHorizontally) {
                             // The series as a small chip with its poster; it opens the series page.
                             Row(
-                                Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(Color.White.copy(alpha = .08f))
-                                    .clickable(onClick = onSeries).padding(start = 4.dp, end = 12.dp, top = 4.dp, bottom = 4.dp),
+                                Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .08f))
+                                    .clickable(onClick = onSeries).padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
+                                // A rounded chip, not a pill: its corners stay concentric with the poster's (12dp = 8dp + the 4dp inset).
                                 show?.posterUrl?.takeIf(String::isNotBlank)?.let {
-                                    AsyncImage(it, null, Modifier.width(20.dp).height(30.dp).clip(RoundedCornerShape(5.dp)), contentScale = ContentScale.Crop)
+                                    AsyncImage(it, null, Modifier.width(24.dp).height(34.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
                                     Spacer(Modifier.width(8.dp))
                                 }
                                 Text(show?.title.orEmpty(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -2243,7 +2326,7 @@ fun EpisodeDetailScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             EpisodeStepButton(previous?.let { stepLabel(it, displayedEpisode) }, forward = false, description = stringResource(R.string.previous_episode)) {
-                                pagerScope.launch { pagerState.animateScrollToPage(0) }
+                                pagerScope.launch { pagerState.animateScrollToPage(page - 1) }
                             }
                             PrimaryAction(
                                 if (watched) stringResource(R.string.watched_tv) else stringResource(R.string.mark_watched),
@@ -2259,7 +2342,7 @@ fun EpisodeDetailScreen(
                                 onWatched(displayedEpisode.copy(watched = newWatched), newWatched)
                             }
                             EpisodeStepButton(next?.let { stepLabel(it, displayedEpisode) }, forward = true, description = stringResource(R.string.next_episode)) {
-                                pagerScope.launch { pagerState.animateScrollToPage(2) }
+                                pagerScope.launch { pagerState.animateScrollToPage(page + 1) }
                             }
                         }
                         val seasonLine = orderedEpisodes.filter { it.season == displayedEpisode.season }
@@ -2274,16 +2357,17 @@ fun EpisodeDetailScreen(
                         }
                         }
                         val episodeKey = displayedEpisode.season to displayedEpisode.number
-                        LoadedSection(displayedEpisode.overview.isNotBlank() || overviewFor == episodeKey, { OverviewSkeleton() }) {
+                        val pageCast = castByEpisode[episodeKey]
+                        LoadedSection(displayedEpisode.overview.isNotBlank() || overviewFor == episodeKey || pageCast != null, { OverviewSkeleton() }) {
                             if (displayedEpisode.overview.isNotBlank()) PlotSection(displayedEpisode.overview)
                         }
-                        LoadedSection(castFor == episodeKey, { CastSkeleton() }) {
-                            if (loadedPeople.isNotEmpty()) CastSection(loadedPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
+                        LoadedSection(pageCast != null, { CastSkeleton() }) {
+                            if (!pageCast.isNullOrEmpty()) CastSection(pageCast, onViewAll = { showFullCast = true }) { selectedPerson = it }
                         }
-                        if (castFor == episodeKey) {
+                        if (pageCast != null) {
                             // Episode credits list crew by their job; show who directed and wrote it.
-                            val directors = loadedPeople.filter { it.role.equals("Director", ignoreCase = true) }.map(PersonCard::name).distinct()
-                            val writers = loadedPeople.filter { person -> listOf("Writer", "Teleplay", "Screenplay", "Story").any { person.role.equals(it, ignoreCase = true) } }
+                            val directors = pageCast.filter { it.role.equals("Director", ignoreCase = true) }.map(PersonCard::name).distinct()
+                            val writers = pageCast.filter { person -> listOf("Writer", "Teleplay", "Screenplay", "Story").any { person.role.equals(it, ignoreCase = true) } }
                                 .map(PersonCard::name).distinct()
                             val rows = buildList {
                                 if (directors.isNotEmpty()) add(stringResource(R.string.director_label) to directors.joinToString(", "))
@@ -2306,10 +2390,8 @@ fun EpisodeDetailScreen(
                                         subtitleAccent = false,
                                         highlight = TextPrimary.takeIf { isThis },
                                         onClick = {
-                                            if (!isThis) pagerScope.launch {
-                                                loadedEpisode = episode
-                                                pagerState.scrollToPage(1)
-                                            }
+                                            val target = pageOf(episode)
+                                            if (!isThis && target >= 0) pagerScope.launch { pagerState.animateScrollToPage(target) }
                                         },
                                         onWatched = {
                                             if (isThis) {

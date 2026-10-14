@@ -5,6 +5,7 @@ package com.cinetrack.ui.components
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.layout.widthIn
 import android.view.View
@@ -430,6 +431,73 @@ fun BackupProgressPill(progress: com.cinetrack.domain.BackupProgress) {
         // Progress line along the bottom edge, like the Progress cards.
         Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .06f))) {
             if (progress.fraction != null) Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(tint))
+        }
+    }
+}
+
+/** What a [StatusPill] reports: work going on, done, or failed. */
+enum class PillTone { RUNNING, INFO, DONE, FAILED }
+
+/**
+ * Floating pill for background work and short offers (library refresh, app
+ * update): same look as the backup pill, with an optional action and close.
+ */
+@Composable
+fun StatusPill(
+    title: String,
+    detail: String?,
+    tone: PillTone,
+    fraction: Float? = null,
+    actionLabel: String? = null,
+    onAction: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
+) {
+    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val tint = when (tone) {
+        PillTone.FAILED -> com.cinetrack.ui.theme.StatusDropped
+        PillTone.DONE -> com.cinetrack.ui.theme.Success
+        else -> com.cinetrack.ui.theme.AccentLight
+    }
+    val shownFraction by androidx.compose.animation.core.animateFloatAsState(fraction ?: 0f, androidx.compose.animation.core.tween(300), label = "pillFraction")
+    Column(
+        Modifier.widthIn(min = 260.dp, max = 360.dp)
+            .shadow(16.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
+            .clip(shape)
+            .background(Color(0xF0121419))
+            .border(.6.dp, ControlEdgeBrush, shape)
+            .semantics(mergeDescendants = false) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
+    ) {
+        Row(Modifier.padding(start = 14.dp, end = if (onDismiss != null) 4.dp else 18.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                when (tone) {
+                    PillTone.FAILED -> Icon(Icons.Filled.Close, null, tint = tint, modifier = Modifier.size(20.dp))
+                    PillTone.DONE -> Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(20.dp))
+                    PillTone.INFO -> Icon(Icons.Filled.SystemUpdate, null, tint = tint, modifier = Modifier.size(20.dp))
+                    PillTone.RUNNING -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), color = tint, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = .10f))
+                }
+            }
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f, fill = false)) {
+                Text(title, color = TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                if (!detail.isNullOrBlank()) Text(detail, color = TextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            }
+            if (actionLabel != null && onAction != null) {
+                Spacer(Modifier.width(10.dp))
+                Box(
+                    Modifier.clip(shape).background(com.cinetrack.ui.theme.Accent).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onAction)
+                        .heightIn(min = 34.dp).padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center,
+                ) { Text(actionLabel, color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold) }
+            }
+            if (onDismiss != null) {
+                Box(
+                    Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onDismiss),
+                    contentAlignment = Alignment.Center,
+                ) { Icon(Icons.Filled.Close, stringResource(R.string.close), tint = TextSecondary, modifier = Modifier.size(18.dp)) }
+            }
+        }
+        Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .06f))) {
+            if (fraction != null) Box(Modifier.fillMaxWidth(shownFraction).height(3.dp).background(tint))
         }
     }
 }

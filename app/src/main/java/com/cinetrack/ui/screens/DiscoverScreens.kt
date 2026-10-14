@@ -2,6 +2,7 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.ui.draw.drawBehind
 import com.cinetrack.ui.components.sharedBackdrop
 import com.cinetrack.ui.components.directionalSlide
 import com.cinetrack.ui.components.rememberDirectionalSlide
@@ -202,6 +203,7 @@ fun DiscoverScreen(
                 verticalArrangement = Arrangement.spacedBy(0.dp),
             ) {
                 if (mosaic) mosaicHeader(
+                    { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0 },
                     MosaicChoice(mosaicTv, mosaicKind, mosaicWindow, mosaicGenres),
                     onChange = { choice ->
                         mosaicTv = choice.tv
@@ -215,9 +217,11 @@ fun DiscoverScreen(
                 if (!mosaic) item {
                     PageTitle(stringResource(R.string.discover), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg))
                 }
-                if (!mosaic) item {
+                // The title scrolls away; the search row stays pinned, like the tabs in Progress and Library.
+                if (!mosaic) stickyHeader(key = "discover_search") {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, bottom = com.cinetrack.ui.theme.Spacing.xs),
+                        Modifier.fillMaxWidth().pinnedBacking { listState.firstVisibleItemIndex >= 1 }
+                            .padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.xs, bottom = com.cinetrack.ui.theme.Spacing.sm),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -364,14 +368,16 @@ private fun mosaicFilters(tv: Boolean, kind: MosaicKind, window: MosaicWindow, g
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 private fun LazyListScope.mosaicHeader(
+    pinned: () -> Boolean,
     choice: MosaicChoice,
     onChange: (MosaicChoice) -> Unit,
     onSearch: () -> Unit,
     onFilters: () -> Unit,
 ) {
-    item {
+    // Film / Serie with search and filters stays pinned; the chips below scroll away.
+    stickyHeader(key = "mosaic_head") {
         Row(
-            Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.md),
+            Modifier.fillMaxWidth().pinnedBacking(pinned).padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             MosaicHeadline(stringResource(R.string.movies), !choice.tv) {
@@ -512,31 +518,51 @@ private fun MosaicHeadline(text: String, selected: Boolean, onClick: () -> Unit)
     )
 }
 
-/** One wide feature tile, then rows of three posters, then a poster beside a wide tile. */
+/** Wide feature tiles, rows of three posters, and a poster beside a wide tile, in a shuffled order. */
 private class MosaicActions(
     val onMedia: (MediaCard) -> Unit,
     val onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
     val onNotInterested: (MediaCard) -> Unit,
 )
 
-private fun LazyListScope.mosaicGrid(items: List<MediaCard>, actions: MosaicActions, slide: androidx.compose.runtime.State<Float>) {
-    val pattern = intArrayOf(1, 3, 2, 3)
-    val blocks = mutableListOf<List<MediaCard>>()
-    var index = 0
-    var step = 0
-    while (index < items.size) {
-        val count = minOf(pattern[step % pattern.size], items.size - index)
-        blocks += items.subList(index, index + count)
-        index += count
-        step++
+private class MosaicRow(val items: List<MediaCard>, val posterOnRight: Boolean)
+
+/**
+ * Splits [items] into rows of 1 (wide), 3 (posters) or 2 (poster + wide),
+ * in a random order seeded by the list's first title: the same list keeps
+ * its layout while paging adds rows, and another list gets another one. A
+ * single or paired row is always followed by a row of three posters.
+ */
+internal fun mosaicRowSizes(count: Int, seed: Int): List<Int> {
+    val random = kotlin.random.Random(seed)
+    val sizes = mutableListOf<Int>()
+    var left = count
+    var previous = 3
+    while (left > 0) {
+        val wanted = if (previous != 3) 3 else when (random.nextInt(4)) { 0 -> 1; 1 -> 2; else -> 3 }
+        val size = minOf(wanted, left)
+        sizes += size
+        left -= size
+        previous = wanted
     }
-    items(blocks.size, key = { blocks[it].first().stableKey }) { position ->
+    return sizes
+}
+
+private fun LazyListScope.mosaicGrid(items: List<MediaCard>, actions: MosaicActions, slide: androidx.compose.runtime.State<Float>) {
+    val seed = items.firstOrNull()?.stableKey?.hashCode() ?: 0
+    val flips = kotlin.random.Random(seed xor 0x5f3759df)
+    var index = 0
+    val blocks = mosaicRowSizes(items.size, seed).map { size ->
+        MosaicRow(items.subList(index, index + size), posterOnRight = flips.nextBoolean()).also { index += size }
+    }
+    items(blocks.size, key = { blocks[it].items.first().stableKey }) { position ->
         Box(Modifier.directionalSlide(slide)) { MosaicBlock(blocks[position], actions) }
     }
 }
 
 @Composable
-private fun MosaicBlock(block: List<MediaCard>, actions: MosaicActions) {
+private fun MosaicBlock(row: MosaicRow, actions: MosaicActions) {
+    val block = row.items
     androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
         val gap = 8.dp
         val column = (maxWidth - gap * 2) / 3
@@ -544,8 +570,9 @@ private fun MosaicBlock(block: List<MediaCard>, actions: MosaicActions) {
         when (block.size) {
             1 -> MosaicTile(block[0], wide = true, modifier = Modifier.fillMaxWidth().height(206.dp), actions = actions)
             2 -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
-                MosaicTile(block[0], wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions)
+                if (!row.posterOnRight) MosaicTile(block[0], wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions)
                 MosaicTile(block[1], wide = true, modifier = Modifier.weight(1f).height(posterHeight), actions = actions)
+                if (row.posterOnRight) MosaicTile(block[0], wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions)
             }
             else -> Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(gap)) {
                 block.forEach { MosaicTile(it, wide = false, modifier = Modifier.width(column).height(posterHeight), actions = actions) }
@@ -911,6 +938,7 @@ fun SearchScreen(
     onPeopleQuery: (String) -> Unit,
     onSubmitQuery: (String) -> Unit,
     onRemoveHistory: (String) -> Unit,
+    onClearHistory: () -> Unit = {},
     onLeave: () -> Unit,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -997,7 +1025,14 @@ fun SearchScreen(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    item { SectionHeader(stringResource(R.string.search_history)) }
+                    item {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            SectionHeader(stringResource(R.string.search_history), Modifier.weight(1f))
+                            androidx.compose.material3.TextButton(onClick = onClearHistory) {
+                                Text(stringResource(R.string.clear_all), color = AccentLight, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                     items(history, key = { it.lowercase() }) { previousQuery ->
                         Row(
                             Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
@@ -1062,7 +1097,7 @@ fun SearchScreen(
                 ) {
                     items(visibleResults, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth()) {
-                            MediaPoster(media, width = maxWidth, onClick = {
+                            MediaPoster(media, width = maxWidth, showYear = false, onClick = {
                                 onSubmitQuery(query)
                                 onMedia(media)
                             })
@@ -1118,4 +1153,26 @@ private fun PersonSearchCard(person: PersonCard, onClick: () -> Unit) {
             Text(person.role.ifBlank { stringResource(R.string.people) }, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
+}
+
+/** Once pinned over scrolled content, a header gets a backing in the page's own colour. */
+@Composable
+private fun Modifier.pinnedBacking(pinned: () -> Boolean): Modifier {
+    val tint = com.cinetrack.ui.components.LocalPageTint.current
+    val shown by androidx.compose.animation.core.animateFloatAsState(if (pinned()) 1f else 0f, androidx.compose.animation.core.tween(com.cinetrack.ui.theme.Motion.Short), label = "pinnedBacking")
+    return this.then(androidx.compose.ui.Modifier.drawBehind {
+        if (shown > 0f) {
+            val ink = tint()
+            val fade = 18.dp.toPx()
+            drawRect(
+                Brush.verticalGradient(
+                    0f to ink.copy(alpha = .96f * shown),
+                    size.height / (size.height + fade) to ink.copy(alpha = .90f * shown),
+                    1f to Color.Transparent,
+                    endY = size.height + fade,
+                ),
+                size = androidx.compose.ui.geometry.Size(size.width, size.height + fade),
+            )
+        }
+    })
 }

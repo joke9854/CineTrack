@@ -60,6 +60,17 @@ data class EpisodeEntity(
     val runtimeMinutes: Int?,
 )
 
+/** One provider's air date for an episode; the date shown comes from the provider chosen in Settings. */
+@Entity(tableName = "episode_air_dates", primaryKeys = ["showId", "season", "number", "source"])
+data class EpisodeAirDateEntity(
+    val showId: Int,
+    val season: Int,
+    val number: Int,
+    val source: String,
+    val airDate: String,
+    val updatedAt: Long,
+)
+
 @Entity(tableName = "people")
 data class PersonEntity(
     @PrimaryKey val tmdbId: Int,
@@ -349,6 +360,18 @@ interface MediaDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEpisodes(items: List<EpisodeEntity>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAirDates(items: List<EpisodeAirDateEntity>)
+
+    @Query("SELECT * FROM episode_air_dates WHERE showId IN (:showIds)")
+    suspend fun airDatesForShows(showIds: List<Int>): List<EpisodeAirDateEntity>
+
+    @Query("SELECT * FROM episode_air_dates")
+    suspend fun allAirDates(): List<EpisodeAirDateEntity>
+
+    @Query("UPDATE episodes SET airDate = :airDate WHERE showId = :showId AND season = :season AND number = :number")
+    suspend fun setEpisodeAirDate(showId: Int, season: Int, number: Int, airDate: String)
 
     @Query("SELECT * FROM episodes WHERE showId = :showId ORDER BY season, number")
     suspend fun episodesForShow(showId: Int): List<EpisodeEntity>
@@ -671,8 +694,9 @@ interface PeopleDao {
         PendingWriteEntity::class,
         SyncOperationEntity::class,
         SyncOperationDeliveryEntity::class,
+        EpisodeAirDateEntity::class,
     ],
-    version = 12,
+    version = 13,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -813,12 +837,19 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Per-provider air dates; existing episode dates stay as they are until providers report again. */
+        val migration12To13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `episode_air_dates` (`showId` INTEGER NOT NULL, `season` INTEGER NOT NULL, `number` INTEGER NOT NULL, `source` TEXT NOT NULL, `airDate` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`showId`, `season`, `number`, `source`))")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13).build().also { instance = it }
         }
     }
 }

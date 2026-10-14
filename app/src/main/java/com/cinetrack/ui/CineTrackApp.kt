@@ -121,6 +121,12 @@ private val DetailEnter = fadeIn(tween(90)) + androidx.compose.animation.slideIn
 // The leaving page is gone after its 90 ms fade, so it cannot swallow the next tap.
 private val DetailExit = fadeOut(tween(90))
 
+// Going back (and while the back gesture is held) the detail page shrinks and fades
+// over the same 300 ms as its poster flies home, and the list settles in behind it,
+// so the poster never drifts alone over a page that stands still.
+private val DetailPopExit = androidx.compose.animation.scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = .9f) + fadeOut(tween(220, delayMillis = 80))
+private val DetailPopEnter = androidx.compose.animation.scaleIn(tween(300, easing = FastOutSlowInEasing), initialScale = .97f) + fadeIn(tween(200))
+
 private fun mainPageIndex(route: String?): Int? = when (route) {
     Routes.Discover -> 0
     Routes.Progress -> 1
@@ -167,6 +173,9 @@ fun CineTrackApp(
     val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
     val mosaicCanLoadMore by viewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
     val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
+    val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
+    val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
     val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
@@ -300,7 +309,7 @@ fun CineTrackApp(
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                     from != null && to != null && to < from ->
                         slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
-                    isDetailRoute(initialState.destination.route) -> DetailEnter
+                    isDetailRoute(initialState.destination.route) -> DetailPopEnter
                     else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
                 }
             },
@@ -312,7 +321,7 @@ fun CineTrackApp(
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                     from != null && to != null && to < from ->
                         slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
-                    isDetailRoute(initialState.destination.route) -> DetailExit
+                    isDetailRoute(initialState.destination.route) -> DetailPopExit
                     else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
                 }
             },
@@ -352,6 +361,13 @@ fun CineTrackApp(
                     viewingInsights = viewingInsights,
                     onLoadViewingInsights = viewModel::loadViewingInsights,
                     onCompactNav = { compactNav = it },
+                    releaseReminders = releaseReminders,
+                    onReminder = { item, enable ->
+                        if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
+                            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                        ) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                        viewModel.setReleaseReminder(context, item.media, item.timestamp, item.season, item.episodeNumber, item.episodeTitle, enable)
+                    },
                 )
             }
             screen(Routes.Library) {
@@ -387,6 +403,7 @@ fun CineTrackApp(
                     onPeopleQuery = viewModel::searchPeople,
                     onSubmitQuery = viewModel::rememberSearchQuery,
                     onRemoveHistory = viewModel::removeSearchHistory,
+                    onClearHistory = viewModel::clearSearchHistory,
                     onLeave = viewModel::clearSearch,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
@@ -563,6 +580,39 @@ fun CineTrackApp(
         ) {
             shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
         }
+        // Library artwork refresh and an available update report in the same pill spot.
+        LibraryArtworkPill(state, onDismiss = viewModel::dismissLibraryArtworkProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
+        // Once per launch, after the start-up animation: offer a newer release.
+        var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
+        LaunchedEffect(minimumLaunchElapsed) {
+            if (minimumLaunchElapsed && appUpdateState is com.cinetrack.data.update.AppUpdateState.Idle) viewModel.checkForAppUpdate()
+        }
+        val offeredUpdate = when (val current = appUpdateState) {
+            is com.cinetrack.data.update.AppUpdateState.Available -> current.update
+            is com.cinetrack.data.update.AppUpdateState.Downloading -> current.update
+            else -> null
+        }
+        var shownUpdate by remember { mutableStateOf<com.cinetrack.data.update.AppUpdateInfo?>(null) }
+        if (offeredUpdate != null) shownUpdate = offeredUpdate
+        AnimatedVisibility(
+            visible = offeredUpdate != null && offeredUpdate.version != updateDismissed && backupProgress == null && !state.libraryArtworkProgressVisible,
+            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm),
+        ) {
+            shownUpdate?.let { update ->
+                val downloading = appUpdateState as? com.cinetrack.data.update.AppUpdateState.Downloading
+                com.cinetrack.ui.components.StatusPill(
+                    title = stringResource(com.cinetrack.R.string.update_available, update.version),
+                    detail = if (downloading != null) stringResource(com.cinetrack.R.string.downloading_update) else stringResource(com.cinetrack.R.string.update_pill_detail),
+                    tone = if (downloading != null) com.cinetrack.ui.components.PillTone.RUNNING else com.cinetrack.ui.components.PillTone.INFO,
+                    fraction = downloading?.progress,
+                    actionLabel = if (downloading == null) stringResource(com.cinetrack.R.string.update_install) else null,
+                    onAction = { viewModel.openAppUpdate(context) },
+                    onDismiss = { updateDismissed = update.version },
+                )
+            }
+        }
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
             enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 5 },
@@ -615,3 +665,50 @@ fun CineTrackApp(
     }
 }
 
+/** The library artwork refresh as a pill; it closes itself a few seconds after finishing. */
+@Composable
+private fun LibraryArtworkPill(state: com.cinetrack.domain.AppUiState, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    val progress = state.libraryArtworkProgress
+    val visible = state.libraryArtworkProgressVisible && progress != null
+    var shown by remember { mutableStateOf(progress) }
+    if (progress != null) shown = progress
+    val finished = progress?.stage in setOf(
+        com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE,
+        com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS,
+        com.cinetrack.domain.LibraryArtworkRefreshStage.FAILED,
+    )
+    LaunchedEffect(visible, finished) {
+        if (visible && finished) {
+            kotlinx.coroutines.delay(4_000)
+            onDismiss()
+        }
+    }
+    AnimatedVisibility(
+        visible = visible,
+        enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+        exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+        modifier = modifier,
+    ) {
+        val current = shown ?: return@AnimatedVisibility
+        val stage = current.stage
+        val title = when (stage) {
+            com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE ->
+                stringResource(if (current.changed > 0) com.cinetrack.R.string.artwork_refresh_done else com.cinetrack.R.string.artwork_refresh_up_to_date)
+            com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS -> stringResource(com.cinetrack.R.string.artwork_refresh_errors, current.failed)
+            com.cinetrack.domain.LibraryArtworkRefreshStage.FAILED -> stringResource(com.cinetrack.R.string.artwork_refresh_failed)
+            else -> stringResource(com.cinetrack.R.string.artwork_refresh_running)
+        }
+        val count = if (current.total > 0) stringResource(com.cinetrack.R.string.artwork_refresh_count, current.processed, current.total) else null
+        com.cinetrack.ui.components.StatusPill(
+            title = title,
+            detail = listOfNotNull(count, current.currentTitle?.takeIf { !finished && it.isNotBlank() }).joinToString(" · ").ifBlank { null },
+            tone = when (stage) {
+                com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE -> com.cinetrack.ui.components.PillTone.DONE
+                com.cinetrack.domain.LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS, com.cinetrack.domain.LibraryArtworkRefreshStage.FAILED -> com.cinetrack.ui.components.PillTone.FAILED
+                else -> com.cinetrack.ui.components.PillTone.RUNNING
+            },
+            fraction = if (current.total > 0) (current.processed.toFloat() / current.total).coerceIn(0f, 1f) else null,
+            onDismiss = onDismiss,
+        )
+    }
+}

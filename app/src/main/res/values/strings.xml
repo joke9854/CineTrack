@@ -8,6 +8,7 @@
     <string name="search">Search</string>
     <string name="search_hint">Movies, TV shows and people</string>
     <string name="search_history">Search history</string>
+    <string name="clear_all">Clear all</string>
     <string name="remove_search_history">Remove %1$s from search history</string>
     <string name="movies_tv">Movies &amp; TV</string>
     <string name="people">People</string>
@@ -37,6 +38,33 @@
     <string name="watched_on">Watched on %1$s</string>
     <string name="not_watched">Not watched</string>
     <string name="mark_watched">Mark as watched</string>
+    <string name="mark_all_aired_watched">Mark all watched</string>
+    <string name="more_options">More options</string>
+    <string name="refresh_info">Refresh info</string>
+    <string name="stats_watched_in">Watched in %1$d</string>
+    <string name="stats_vs_last_year">%1$s h vs %2$d</string>
+    <string name="stats_open_year">Your year in review</string>
+    <string name="stats_usual_time">Your usual time</string>
+    <plurals name="hours_unit"><item quantity="one">hour</item><item quantity="other">hours</item></plurals>
+    <plurals name="shows_count"><item quantity="one">%1$d show</item><item quantity="other">%1$d shows</item></plurals>
+    <string name="air_dates_from">Air dates from</string>
+    <string name="air_dates_sheet_title">Show air dates from</string>
+    <string name="day_today">Today</string>
+    <string name="day_yesterday">Yesterday</string>
+    <string name="day_tomorrow">Tomorrow</string>
+    <string name="movie_label">Movie</string>
+    <string name="milestone_season_finished">Season finished</string>
+    <string name="milestone_rewatch">Rewatch</string>
+    <plurals name="releases_count"><item quantity="one">%1$d release</item><item quantity="other">%1$d releases</item></plurals>
+    <plurals name="plays_count"><item quantity="one">%1$d play</item><item quantity="other">%1$d plays</item></plurals>
+    <string name="update_install">Install</string>
+    <string name="update_pill_detail">Install it now or later from Settings</string>
+    <string name="artwork_refresh_running">Refreshing library artwork</string>
+    <string name="artwork_refresh_done">Library artwork updated</string>
+    <string name="artwork_refresh_up_to_date">Library artwork is up to date</string>
+    <string name="artwork_refresh_errors">%1$d titles couldn’t be refreshed</string>
+    <string name="artwork_refresh_failed">Library refresh failed</string>
+    <string name="artwork_refresh_count">%1$d of %2$d</string>
     <string name="synced_with_simkl">Synced with Simkl</string>
     <string name="sync_now">Sync now</string>
     <string name="syncing">Synchronizing</string>
@@ -566,19 +594,18 @@
     <string name="floppy_server_url">Server URL</string>
     <string name="floppy_api_key">API key</string>
     <string name="floppy_sign_in">Sign in with Floppy</string>
-    <string name="floppy_or_api_key">Or connect with an API key from Floppy’s settings:</string>
     <string name="floppy_api_key_keep">API key (leave blank to keep)</string>
     <string name="floppy_connect">Connect</string>
     <string name="floppy_reconnect">Reconnect</string>
     <string name="floppy_disconnect">Disconnect</string>
     <string name="floppy_connected">Connected</string>
     <string name="floppy_server_version">Server version</string>
-    <string name="floppy_role_secondary">Role: Secondary</string>
-    <string name="floppy_role_main">Role: Main</string>
+    <string name="floppy_role_secondary">Secondary</string>
+    <string name="floppy_role_main">Main</string>
     <string name="floppy_main">Main · Two-way sync</string>
     <string name="main_tracker_title">Main tracker</string>
-    <string name="main_tracker_simkl_copy">Simkl syncs both ways; Floppy receives every change you make in CineTrack. You can make Floppy the main tracker instead.</string>
-    <string name="main_tracker_floppy_copy">Floppy syncs both ways, with every play at its exact time; Simkl receives every change. You can make Simkl the main tracker again.</string>
+    <string name="main_tracker_simkl_copy">Simkl syncs both ways. Floppy gets every change you make in CineTrack.</string>
+    <string name="main_tracker_floppy_copy">Floppy syncs both ways, with every play at its exact time. Simkl gets every change you make.</string>
     <string name="main_tracker_wait_copy">Floppy can become the main tracker once its initial sync is ready.</string>
     <string name="main_tracker_update_floppy_copy">This Floppy server can’t be the main tracker yet. Update Floppy, then reconnect it here.</string>
     <string name="main_tracker_make_floppy">Make Floppy the main tracker</string>
@@ -599,7 +626,7 @@
     <string name="floppy_status">Status</string>
     <string name="floppy_role">Role</string>
     <string name="floppy_bootstrap">Bootstrap</string>
-    <string name="floppy_self_hosted_description">Self-hosted tracking with X-API-Key</string>
+    <string name="floppy_self_hosted_description">Self-hosted tracking</string>
     <string name="floppy_self_hosted_tracking">Self-hosted tracking</string>
     <string name="floppy_connected_inactive">Connected · Inactive</string>
     <string name="floppy_setting_up">Secondary · Setting up…</string>

@@ -7,6 +7,7 @@
     <string name="settings">Impostazioni</string>
     <string name="search">Cerca</string>
     <string name="search_hint">Film, serie TV e persone</string>
+    <string name="clear_all">Cancella tutto</string>
     <string name="search_history">Cronologia delle ricerche</string>
     <string name="remove_search_history">Rimuovi %1$s dalla cronologia delle ricerche</string>
     <string name="movies_tv">Film e serie TV</string>
@@ -37,6 +38,33 @@
     <string name="watched_on">Visto il %1$s</string>
     <string name="not_watched">Non visto</string>
     <string name="mark_watched">Segna come visto</string>
+    <string name="mark_all_aired_watched">Segna tutto come visto</string>
+    <string name="more_options">Altre opzioni</string>
+    <string name="refresh_info">Aggiorna informazioni</string>
+    <string name="stats_watched_in">Visto nel %1$d</string>
+    <string name="stats_vs_last_year">%1$s h rispetto al %2$d</string>
+    <string name="stats_open_year">Il tuo anno in sintesi</string>
+    <string name="stats_usual_time">Il tuo orario abituale</string>
+    <plurals name="hours_unit"><item quantity="one">ora</item><item quantity="other">ore</item></plurals>
+    <plurals name="shows_count"><item quantity="one">%1$d serie</item><item quantity="other">%1$d serie</item></plurals>
+    <string name="air_dates_from">Date di uscita da</string>
+    <string name="air_dates_sheet_title">Mostra le date di uscita di</string>
+    <string name="day_today">Oggi</string>
+    <string name="day_yesterday">Ieri</string>
+    <string name="day_tomorrow">Domani</string>
+    <string name="movie_label">Film</string>
+    <string name="milestone_season_finished">Stagione finita</string>
+    <string name="milestone_rewatch">Rivisto</string>
+    <plurals name="releases_count"><item quantity="one">%1$d uscita</item><item quantity="other">%1$d uscite</item></plurals>
+    <plurals name="plays_count"><item quantity="one">%1$d visione</item><item quantity="other">%1$d visioni</item></plurals>
+    <string name="update_install">Installa</string>
+    <string name="update_pill_detail">Installala ora o più tardi dalle Impostazioni</string>
+    <string name="artwork_refresh_running">Aggiornamento copertine della libreria</string>
+    <string name="artwork_refresh_done">Copertine della libreria aggiornate</string>
+    <string name="artwork_refresh_up_to_date">Le copertine sono già aggiornate</string>
+    <string name="artwork_refresh_errors">%1$d titoli non sono stati aggiornati</string>
+    <string name="artwork_refresh_failed">Aggiornamento della libreria non riuscito</string>
+    <string name="artwork_refresh_count">%1$d di %2$d</string>
     <string name="synced_with_simkl">Sincronizzato con Simkl</string>
     <string name="sync_now">Sincronizza ora</string>
     <string name="syncing">Sincronizzazione</string>
@@ -565,7 +593,6 @@
     <string name="floppy_error_invalid_url">L’URL del server non è valido.</string>
     <string name="floppy_server_url">URL del server</string>
     <string name="floppy_sign_in">Accedi con Floppy</string>
-    <string name="floppy_or_api_key">Oppure collega con una chiave API dalle impostazioni di Floppy:</string>
     <string name="floppy_api_key">Chiave API</string>
     <string name="floppy_api_key_keep">Chiave API (lascia vuoto per mantenere)</string>
     <string name="floppy_connect">Collega</string>
@@ -573,12 +600,12 @@
     <string name="floppy_disconnect">Disconnetti</string>
     <string name="floppy_connected">Connesso</string>
     <string name="floppy_server_version">Versione server</string>
-    <string name="floppy_role_secondary">Ruolo: Secondario</string>
-    <string name="floppy_role_main">Ruolo: Principale</string>
+    <string name="floppy_role_secondary">Secondario</string>
+    <string name="floppy_role_main">Principale</string>
     <string name="floppy_main">Principale · Sincronizzazione bidirezionale</string>
     <string name="main_tracker_title">Tracker principale</string>
-    <string name="main_tracker_simkl_copy">Simkl si sincronizza in entrambe le direzioni; Floppy riceve ogni modifica fatta in CineTrack. Puoi rendere Floppy il tracker principale.</string>
-    <string name="main_tracker_floppy_copy">Floppy si sincronizza in entrambe le direzioni, con ogni visione all’orario esatto; Simkl riceve ogni modifica. Puoi rendere di nuovo Simkl il tracker principale.</string>
+    <string name="main_tracker_simkl_copy">Simkl si sincronizza in entrambe le direzioni. Floppy riceve ogni modifica fatta in CineTrack.</string>
+    <string name="main_tracker_floppy_copy">Floppy si sincronizza in entrambe le direzioni, con ogni visione all’orario esatto. Simkl riceve ogni modifica.</string>
     <string name="main_tracker_wait_copy">Floppy potrà diventare il tracker principale quando la sincronizzazione iniziale sarà pronta.</string>
     <string name="main_tracker_update_floppy_copy">Questo server Floppy non può ancora essere il tracker principale. Aggiorna Floppy e ricollegalo qui.</string>
     <string name="main_tracker_make_floppy">Rendi Floppy il tracker principale</string>
@@ -599,7 +626,7 @@
     <string name="floppy_status">Stato</string>
     <string name="floppy_role">Ruolo</string>
     <string name="floppy_bootstrap">Bootstrap</string>
-    <string name="floppy_self_hosted_description">Monitoraggio self-hosted con X-API-Key</string>
+    <string name="floppy_self_hosted_description">Monitoraggio self-hosted</string>
     <string name="floppy_self_hosted_tracking">Monitoraggio self-hosted</string>
     <string name="floppy_connected_inactive">Connesso · Inattivo</string>
     <string name="floppy_setting_up">Secondario · Configurazione…</string>

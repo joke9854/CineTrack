@@ -527,6 +527,10 @@ class CineTrackViewModel(
         if (normalized.isNotBlank()) viewModelScope.launch { repository.preferences.addSearchHistory(normalized) }
     }
 
+    fun clearSearchHistory() {
+        viewModelScope.launch { repository.preferences.clearSearchHistory() }
+    }
+
     fun removeSearchHistory(query: String) {
         viewModelScope.launch { repository.preferences.removeSearchHistory(query) }
     }
@@ -1520,6 +1524,24 @@ class CineTrackViewModel(
     }
 
     fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
+
+    /** Drops what this session cached for [media] and fetches it again (for a TV show, every season). */
+    suspend fun refreshTitle(media: MediaCard) {
+        detailMediaCache.remove(media.stableKey)
+        detailRatingsCache.remove(media.stableKey)
+        detailCastCache.remove(media.stableKey)
+        detailCollectionCache.remove(media.stableKey)
+        detailRecommendationsCache.remove(media.stableKey)
+        if (media.type == MediaType.TV) detailEpisodeCache.remove(media.id)
+        val fresh = loadDetails(media)
+        if (media.type == MediaType.TV) {
+            withContext(Dispatchers.IO) {
+                fresh.seasons.map(com.cinetrack.domain.SeasonCard::number).distinct().forEach { season -> mediaRepository.loadEpisodes(fresh, season) }
+            }
+            loadAllEpisodes(fresh)
+            refreshCachedState(refreshProgress = true)
+        }
+    }
     fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
     fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
 
@@ -1710,6 +1732,15 @@ class CineTrackViewModel(
         _state.value = _state.value.copy(metadataRegion = value)
         detailMediaCache.clear()
         viewModelScope.launch { repository.setMetadataRegion(value) }
+    }
+
+    fun setAirDateSource(value: String) {
+        _state.value = _state.value.copy(airDateSource = value)
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.setAirDateSource(value) }
+            // Release days and what counts as out follow the new dates.
+            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+        }
     }
 
     fun setMetadataTimezone(value: String) {

@@ -424,6 +424,7 @@ data class AppUiState(
     val metadataRegion: String = "system",
     val providerRegion: String = "system",
     val metadataTimezone: String = "system",
+    val airDateSource: String = "trakt",
     val excludeSpecials: Boolean = true,
     val preferredProviders: Set<String> = emptySet(),
     val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),

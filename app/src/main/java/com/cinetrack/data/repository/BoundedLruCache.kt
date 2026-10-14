@@ -9,4 +9,5 @@ internal class BoundedLruCache<K, V>(private val capacity: Int) {
     @Synchronized operator fun get(key: K): V? = entries[key]
     @Synchronized operator fun set(key: K, value: V) { entries[key] = value }
     @Synchronized fun clear() = entries.clear()
+    @Synchronized fun remove(key: K) { entries.remove(key) }
 }

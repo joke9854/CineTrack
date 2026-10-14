@@ -244,6 +244,16 @@ fun Modifier.blueEdgeClickable(
 fun GlassBackButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+) = GlassIconButton(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.accessibility_back), onClick, modifier)
+
+/** The round glass control of the detail headers (back, more). */
+@Composable
+fun GlassIconButton(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    description: String?,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    busy: Boolean = false,
 ) {
     val clickAction = rememberUiAction(onClick)
     val interactionSource = remember { MutableInteractionSource() }
@@ -272,12 +282,8 @@ fun GlassBackButton(
                 ),
             contentAlignment = Alignment.Center,
         ) {
-            Icon(
-                Icons.AutoMirrored.Filled.ArrowBack,
-                stringResource(R.string.accessibility_back),
-                tint = Color.White,
-                modifier = Modifier.size(22.dp),
-            )
+            if (busy) androidx.compose.material3.CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+            else Icon(icon, description, tint = Color.White, modifier = Modifier.size(22.dp))
         }
     }
 }
@@ -336,6 +342,9 @@ private val GrainBrush: androidx.compose.ui.graphics.ShaderBrush by lazy {
     )
 }
 
+/** The colour at the top of the current page's [AdaptiveBackground]; pinned headers draw with it. */
+val LocalPageTint = androidx.compose.runtime.staticCompositionLocalOf<() -> Color> { { Color(0xFF0A0C10) } }
+
 @Composable
 fun AdaptiveBackground(
     artworkUrl: String? = null,
@@ -365,6 +374,8 @@ fun AdaptiveBackground(
     val primary by animateColorAsState(primaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptivePrimary")
     val secondary by animateColorAsState(secondaryTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveSecondary")
     val base by animateColorAsState(baseTarget, tween(com.cinetrack.ui.theme.Motion.Extended), label = "adaptiveBase")
+    // What the top of the page looks like: the ground with the artwork wash and bloom over it.
+    val pageTint: () -> Color = remember { { androidx.compose.ui.graphics.lerp(base, primary, .30f) } }
     val backgroundModifier = Modifier
             .fillMaxSize()
             .background(base)
@@ -397,6 +408,7 @@ fun AdaptiveBackground(
                 drawRect(GrainBrush, alpha = .07f, blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
             }
     val glassBackdrop = if (liquidGlass) rememberGlassBackdrop() else null
+    androidx.compose.runtime.CompositionLocalProvider(LocalPageTint provides pageTint) {
     if (glassBackdrop != null && hazeState == null) {
         Box(modifier.fillMaxSize()) {
             // Sibling layer: the glass controls sample only the background, never themselves.
@@ -424,6 +436,7 @@ fun AdaptiveBackground(
             }
             androidx.compose.runtime.CompositionLocalProvider(LocalGlassBackdrop provides glassBackdrop) { content() }
         }
+    }
     }
 }
 

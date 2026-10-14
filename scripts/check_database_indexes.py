@@ -5,10 +5,10 @@ import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
 schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
-for version in (5, 6, 7, 8, 9, 10, 11, 12):
+for version in (5, 6, 7, 8, 9, 10, 11, 12, 13):
     assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
-assert "version = 12" in source, "Room database version must be 12"
-for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12"):
+assert "version = 13" in source, "Room database version must be 13"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12", "migration12To13"):
     assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
 migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
@@ -118,5 +118,7 @@ for index in (
 assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
 assert "Migration(11, 12)" in source, "12 must have an explicit 11->12 migration"
 assert "CANCELLED_PROVIDER_INSTANCE_CHANGED" in source, "Unknown legacy Floppy deliveries must be terminally cancelled"
+assert "Migration(12, 13)" in source, "13 must have an explicit 12->13 migration"
+assert "CREATE TABLE IF NOT EXISTS `episode_air_dates`" in source, "12->13 must create the per-provider air date table"
 print("PASS: static schema, delivery indexes, migration declarations, and 5-11 fixtures verified; MigrationTestHelper remains authoritative for execution.")
 

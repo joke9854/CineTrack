@@ -37,14 +37,14 @@ class AppDatabaseMigrationTest {
             seedCanonicalRows(db, version)
         }
         val migrations = when (version) {
-            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
-            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
-            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
-            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
-            9 -> arrayOf(AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12)
-            else -> arrayOf(AppDatabase.migration10To11, AppDatabase.migration11To12)
+            5 -> arrayOf(AppDatabase.migration5To6, AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
+            6 -> arrayOf(AppDatabase.migration6To7, AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
+            7 -> arrayOf(AppDatabase.migration7To8, AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
+            8 -> arrayOf(AppDatabase.migration8To9, AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
+            9 -> arrayOf(AppDatabase.migration9To10, AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
+            else -> arrayOf(AppDatabase.migration10To11, AppDatabase.migration11To12, AppDatabase.migration12To13)
         }
-        helper.runMigrationsAndValidate("migration-$version", 12, true, *migrations).use { migrated ->
+        helper.runMigrationsAndValidate("migration-$version", 13, true, *migrations).use { migrated ->
             assertEquals(1, count(migrated, "media"))
             assertEquals(1, count(migrated, "user_media_state"))
             assertEquals(1, count(migrated, "playback"))
@@ -73,11 +73,25 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migration12To13AddsAirDatesAndKeepsEpisodeDates() {
+        helper.createDatabase("migration-12-airdates", 12).use { db ->
+            db.execSQL("INSERT INTO episodes(showId,season,number,tmdbId,title,overview,airDate,stillPath,runtimeMinutes) VALUES (1,1,1,NULL,'Pilot','','2026-10-15T01:00:00Z',NULL,NULL)")
+        }
+        helper.runMigrationsAndValidate("migration-12-airdates", 13, true, AppDatabase.migration12To13).use { migrated ->
+            assertEquals(0, count(migrated, "episode_air_dates"))
+            migrated.query("SELECT airDate FROM episodes WHERE showId=1").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("2026-10-15T01:00:00Z", cursor.getString(0))
+            }
+        }
+    }
+
+    @Test
     fun migration11To12CancelsUnknownLegacyFloppyDelivery() {
         helper.createDatabase("migration-11-floppy", 11).use { db ->
             db.execSQL("INSERT INTO sync_operation_deliveries(operationId,operationVersion,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('legacy-floppy',1,'FLOPPY','PENDING',1,'SECONDARY',0,NULL,1,1)")
         }
-        helper.runMigrationsAndValidate("migration-11-floppy", 12, true, AppDatabase.migration11To12).use { migrated ->
+        helper.runMigrationsAndValidate("migration-11-floppy", 13, true, AppDatabase.migration11To12, AppDatabase.migration12To13).use { migrated ->
             migrated.query("SELECT providerInstanceId,status FROM sync_operation_deliveries WHERE operationId='legacy-floppy'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertTrue(cursor.isNull(0))

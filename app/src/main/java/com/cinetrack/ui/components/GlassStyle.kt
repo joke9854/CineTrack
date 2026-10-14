@@ -381,7 +381,7 @@ internal fun Modifier.liveActionGlass(state: HazeState?, completed: Boolean = fa
  * pinned; once content passes beneath, a dark, slightly see-through backing fades in.
  * [scrolled] is the list's distance from its top, Int.MAX_VALUE past the first item.
  */
-internal fun Modifier.pinnedHeader(titlePx: () -> Int, scrolled: () -> Int): Modifier =
+internal fun Modifier.pinnedHeader(titlePx: () -> Int, scrolled: () -> Int, tint: () -> Color = { Color(0xFF0A0C10) }): Modifier =
     graphicsLayer { translationY = -minOf(scrolled(), titlePx()).toFloat() }
         .drawBehind {
             val title = titlePx()
@@ -389,7 +389,8 @@ internal fun Modifier.pinnedHeader(titlePx: () -> Int, scrolled: () -> Int): Mod
             if (backing > 0f) {
                 val top = title.toFloat() - 60.dp.toPx()
                 val bottom = size.height + 20.dp.toPx()
-                val ink = Color(0xFF0A0C10)
+                // The page's own colour, so the header reads as part of the page.
+                val ink = tint()
                 drawRect(
                     Brush.verticalGradient(
                         0f to ink.copy(alpha = .96f * backing),

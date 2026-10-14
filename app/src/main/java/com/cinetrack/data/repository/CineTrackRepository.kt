@@ -1216,6 +1216,7 @@ class CineTrackRepository(
             metadataRegion = metadataRegionDeferred.await(),
             providerRegion = providerRegionDeferred.await(),
             metadataTimezone = metadataTimezoneDeferred.await(),
+            airDateSource = preferences.airDateSource.first(),
             simklUsername = preferences.simklUsername.first(),
             excludeSpecials = excludeSpecials,
             preferredProviders = preferredProvidersDeferred.await(),
@@ -2431,6 +2432,11 @@ class CineTrackRepository(
                     .getOrDefault(emptyList())
                     .associateBy { it.number }
             } else emptyMap()
+            val tmdbDates = localized.associate { com.cinetrack.data.schedule.EpisodeKey(show.id, it.season, it.number) to it.airDate }
+            val shownDates = com.cinetrack.data.schedule.recordAirDates(
+                database, com.cinetrack.data.schedule.AirDateSource.TMDB, tmdbDates, preferences.airDateSource.first(),
+                legacy = cachedByNumber.values.associate { com.cinetrack.data.schedule.EpisodeKey(it.showId, it.season, it.number) to it.airDate },
+            )
             localized.map { source ->
                 val english = englishByNumber[source.number]
                 val episode = source.copy(
@@ -2444,9 +2450,8 @@ class CineTrackRepository(
                     number = episode.number,
                     title = episode.name,
                     overview = episode.overview,
-                    // A Simkl schedule row may already have corrected this date.
-                    // Preserve it while TMDB continues to provide every other field.
-                    airDate = cachedByNumber[episode.number]?.airDate ?: episode.airDate,
+                    // The chosen provider's date (TMDB, Trakt or Simkl), with fallback.
+                    airDate = shownDates[com.cinetrack.data.schedule.EpisodeKey(show.id, episode.season, episode.number)] ?: episode.airDate,
                     stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
                     runtimeMinutes = episode.runtime,
                     watched = (episode.season to episode.number) in watchedNumbers,
@@ -2860,15 +2865,17 @@ class CineTrackRepository(
         val cachedDates = cached.associate { episode ->
             Triple(episode.showId, episode.season, episode.number) to episode.airDate
         }
-        val remote = remoteResults.flatMap { (_, result) -> result.getOrDefault(emptyList()) }
-            .map { episode ->
-                // TMDB fills the full episode model; a date already overlaid by
-                // Simkl remains canonical for this one field only.
-                episode.copy(
-                    airDate = cachedDates[Triple(episode.showId, episode.season, episode.number)]
-                        ?: episode.airDate,
-                )
-            }
+        val fetched = remoteResults.flatMap { (_, result) -> result.getOrDefault(emptyList()) }
+        // TMDB fills the full episode model; the date shown is the chosen provider's.
+        val shownDates = com.cinetrack.data.schedule.recordAirDates(
+            database, com.cinetrack.data.schedule.AirDateSource.TMDB,
+            fetched.associate { Triple(it.showId, it.season, it.number) to it.airDate },
+            preferences.airDateSource.first(),
+            legacy = cachedDates,
+        )
+        val remote = fetched.map { episode ->
+            episode.copy(airDate = shownDates[Triple(episode.showId, episode.season, episode.number)] ?: episode.airDate)
+        }
         val completedChecks = remoteResults.mapNotNull { (showId, result) ->
             if (result.isSuccess) {
                 SyncStateEntity("schedule:$showId", remoteTimestamp = null, lastSuccessfulSync = now)
@@ -2908,9 +2915,14 @@ class CineTrackRepository(
                     number = it.number,
                     title = it.name,
                     overview = it.overview,
-                    // Simkl's calendar can supply a precise timestamp while TMDB
-                    // exposes only a date. Opening an episode must not downgrade it.
-                    airDate = cached?.airDate ?: it.airDate,
+                    // The chosen provider's date: opening an episode never swaps a
+                    // calendar time for TMDB's bare date unless TMDB is chosen.
+                    airDate = com.cinetrack.data.schedule.recordAirDates(
+                        database, com.cinetrack.data.schedule.AirDateSource.TMDB,
+                        mapOf(Triple(show.id, it.season, it.number) to it.airDate),
+                        preferences.airDateSource.first(),
+                        legacy = mapOf(Triple(show.id, it.season, it.number) to cached?.airDate),
+                    ).values.firstOrNull() ?: it.airDate,
                     stillUrl = it.stillPath?.let { path -> "https://image.tmdb.org/t/p/w1280$path" },
                     runtimeMinutes = it.runtime,
                     watched = watched,
@@ -3164,6 +3176,12 @@ class CineTrackRepository(
     suspend fun setMetadataRegion(value: String) {
         preferences.setMetadataRegion(value)
         onMetadataRegionChanged(value)
+    }
+
+    /** Switches the shown air dates to [value]'s, from the dates already kept per provider. */
+    suspend fun setAirDateSource(value: String) {
+        preferences.setAirDateSource(value)
+        com.cinetrack.data.schedule.reapplyAirDates(database, value)
     }
 
     suspend fun setMetadataTimezone(value: String) {

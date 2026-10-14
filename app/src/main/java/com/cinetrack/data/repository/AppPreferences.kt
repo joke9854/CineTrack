@@ -114,6 +114,7 @@ class AppPreferences(private val context: Context) {
         val metadataRegion = stringPreferencesKey("metadata_region")
         val providerRegion = stringPreferencesKey("provider_region")
         val metadataTimezone = stringPreferencesKey("metadata_timezone")
+        val airDateSource = stringPreferencesKey("air_date_source")
         val simklUsername = stringPreferencesKey("simkl_username")
         val syncReport = stringPreferencesKey("sync_report")
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
@@ -191,6 +192,8 @@ class AppPreferences(private val context: Context) {
     }
     val metadataRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataRegion] ?: "system" }
     val metadataTimezone: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataTimezone] ?: "system" }
+    /** Which provider's episode air dates are shown (see AirDateSource). */
+    val airDateSource: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.airDateSource] ?: com.cinetrack.data.schedule.AirDateSource.DEFAULT }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
     /** Detail pages take their accent from the poster; on unless turned off in Aspetto. */
     val posterAccent: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.posterAccent] ?: true }
@@ -696,6 +699,10 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.metadataTimezone] = value }
     }
 
+    suspend fun setAirDateSource(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.airDateSource] = value }
+    }
+
     suspend fun setExcludeSpecials(value: Boolean) {
         context.cineTrackDataStore.edit { it[Keys.excludeSpecials] = value }
     }
@@ -776,6 +783,10 @@ class AppPreferences(private val context: Context) {
             val updated = listOf(normalized) + current.filterNot { it.equals(normalized, ignoreCase = true) }
             prefs[Keys.searchHistory] = updated.take(10).joinToString(SEARCH_HISTORY_SEPARATOR)
         }
+    }
+
+    suspend fun clearSearchHistory() {
+        context.cineTrackDataStore.edit { prefs -> prefs.remove(Keys.searchHistory) }
     }
 
     suspend fun removeSearchHistory(query: String) {

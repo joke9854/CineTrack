@@ -43,6 +43,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.graphics.Brush
@@ -352,7 +353,7 @@ fun LibraryScreen(
             Column(
                 Modifier.zIndex(1f).fillMaxWidth()
                     .onSizeChanged { headerPx = it.height }
-                    .pinnedHeader({ titlePx }, headerScroll),
+                    .pinnedHeader({ titlePx }, headerScroll, com.cinetrack.ui.components.LocalPageTint.current),
             ) {
             // Headline toggle (Serie TV / Film) and the list / grid switch.
             Row(Modifier.fillMaxWidth().onSizeChanged { titlePx = it.height }.collapsingTitle({ titlePx }, headerScroll).padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
@@ -530,9 +531,6 @@ fun LibraryScreen(
             showBulkSheet = false
         }
     }
-    if (state.libraryArtworkProgressVisible && state.libraryArtworkProgress != null) {
-        LibraryArtworkProgressDialog(state.libraryArtworkProgress, onDismissArtworkProgress)
-    }
 }
 
 /** Library list view: poster, year and genre, title, status and progress. */
@@ -595,49 +593,6 @@ private fun LibraryList(
                 }
             }
             Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .06f)))
-        }
-    }
-}
-
-@Composable
-private fun LibraryArtworkProgressDialog(
-    progress: LibraryArtworkRefreshProgress,
-    onDismiss: () -> Unit,
-) {
-    Dialog(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).padding(com.cinetrack.ui.theme.Spacing.xl),
-        ) {
-            Text("Refresh library artwork", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
-            Text("Refreshing posters and metadata from TMDB", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 6.dp))
-            Spacer(Modifier.height(18.dp))
-            val determinate = progress.total > 0 && progress.stage in setOf(LibraryArtworkRefreshStage.REFRESHING, LibraryArtworkRefreshStage.APPLYING, LibraryArtworkRefreshStage.COMPLETE, LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS)
-            if (determinate) LinearProgressIndicator(progress = { (progress.processed.toFloat() / progress.total).coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth(), color = AccentLight)
-            else LinearProgressIndicator(modifier = Modifier.fillMaxWidth(), color = AccentLight)
-            Spacer(Modifier.height(10.dp))
-            if (progress.total > 0) Text("${progress.processed} / ${progress.total}", color = TextPrimary, fontWeight = FontWeight.Bold)
-            progress.currentTitle?.takeIf(String::isNotBlank)?.let {
-                Text("Currently: $it", color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 8.dp), maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Spacer(Modifier.height(12.dp))
-            Text("Updated  ${progress.changed}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            Text("Unchanged  ${progress.unchanged}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            Text("Failed  ${progress.failed}", color = if (progress.failed > 0) androidx.compose.material3.MaterialTheme.colorScheme.error else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-            Spacer(Modifier.height(14.dp))
-            val complete = progress.stage in setOf(LibraryArtworkRefreshStage.COMPLETE, LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS, LibraryArtworkRefreshStage.FAILED)
-            Text(
-                when (progress.stage) {
-                    LibraryArtworkRefreshStage.COMPLETE -> if (progress.changed > 0) "Library artwork has been updated." else "Your library artwork is already up to date."
-                    LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS -> "Some titles couldn't be refreshed."
-                    LibraryArtworkRefreshStage.FAILED -> "Refresh failed."
-                    else -> "You can close this window. The refresh will continue in the background."
-                },
-                color = TextMuted,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            )
-            Row(Modifier.fillMaxWidth().padding(top = 14.dp), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onDismiss) { Text(if (complete) "Close" else "Run in background", color = AccentLight) }
-            }
         }
     }
 }
@@ -1523,37 +1478,58 @@ private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel)
     val floppyReady = state.floppyUiState == FloppyUiState.READY
     val canSwap = state.floppyIsMain || (floppyReady && state.floppyCanBeMain)
     SettingsSection(stringResource(R.string.main_tracker_title)) {
-        ValueRow(stringResource(R.string.main_tracker_title), if (state.floppyIsMain) "Floppy" else "Simkl")
-        KitFootnote(
-            stringResource(
-                when {
-                    state.floppyIsMain -> R.string.main_tracker_floppy_copy
-                    !floppyReady -> R.string.main_tracker_wait_copy
-                    !state.floppyCanBeMain -> R.string.main_tracker_update_floppy_copy
-                    else -> R.string.main_tracker_simkl_copy
-                },
-            ),
-        )
-        if (canSwap) {
-            TextButton(
-                onClick = { asking = true },
-                enabled = !swap.running,
-                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg),
+        Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md)) {
+            // Two choices side by side; the current one is filled. Picking the
+            // other asks first, so Floppy becomes main only by the user's choice.
+            val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+            Row(
+                Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = .06f)).border(.6.dp, Color.White.copy(alpha = .10f), shape).padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (swap.running) {
-                    CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                listOf(false to "Simkl", true to "Floppy").forEach { (floppy, name) ->
+                    val current = state.floppyIsMain == floppy
+                    val switchingHere = swap.running && !current
+                    val fill by androidx.compose.animation.animateColorAsState(if (current) Accent else Color.Transparent, label = "mainTrackerFill")
+                    Row(
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(shape).background(fill)
+                            .clickable(enabled = !current && canSwap && !swap.running, role = androidx.compose.ui.semantics.Role.RadioButton) { asking = true }
+                            .semantics { selected = current },
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (switchingHere) {
+                            CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
+                            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                        } else if (current) {
+                            Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        Text(
+                            if (switchingHere) stringResource(R.string.main_tracker_switching) else name,
+                            color = when {
+                                current -> Color.White
+                                canSwap -> TextPrimary
+                                else -> TextMuted
+                            },
+                            style = androidx.compose.material3.MaterialTheme.typography.labelLarge,
+                            fontWeight = if (current) FontWeight.ExtraBold else FontWeight.SemiBold,
+                        )
+                    }
                 }
-                Text(
-                    stringResource(
-                        when {
-                            swap.running -> R.string.main_tracker_switching
-                            state.floppyIsMain -> R.string.main_tracker_make_simkl
-                            else -> R.string.main_tracker_make_floppy
-                        },
-                    ),
-                )
             }
+            Text(
+                stringResource(
+                    when {
+                        state.floppyIsMain -> R.string.main_tracker_floppy_copy
+                        !floppyReady -> R.string.main_tracker_wait_copy
+                        !state.floppyCanBeMain -> R.string.main_tracker_update_floppy_copy
+                        else -> R.string.main_tracker_simkl_copy
+                    },
+                ),
+                color = TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = com.cinetrack.ui.theme.Spacing.md),
+            )
         }
         swap.error?.let { KitNotice(it) }
     }
@@ -1646,6 +1622,10 @@ internal fun FloppyConnectionSettingsForm(
     var allowLocalHttp by rememberSaveable(state.floppyAllowInsecureLocalHttp) { mutableStateOf(state.floppyAllowInsecureLocalHttp) }
     var advancedExpanded by rememberSaveable { mutableStateOf(false) }
     val editing = state.floppyConnected
+    // Sign-in replaced API keys: the key field is left only where sign-in
+    // isn't offered. Once connected, neither shows (like the Simkl section).
+    val keyFlow = onSignInRequested == null && !editing
+    val signInFlow = onSignInRequested != null && !editing
     val validUrl = isFloppyUrlValid(url)
     val canSubmit = validUrl && (apiKey.isNotBlank() || editing) && !connectionUiState.running
 
@@ -1660,6 +1640,7 @@ internal fun FloppyConnectionSettingsForm(
                 apiKey.isBlank() && !editing -> 2
                 else -> 3
             }
+            if (keyFlow) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
                 repeat(3) { index ->
                     Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(if (index < step) Color(0xFF85B7EB) else Color.White.copy(alpha = .12f)))
@@ -1673,6 +1654,7 @@ internal fun FloppyConnectionSettingsForm(
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
             )
+            }
             OutlinedTextField(
                 value = url,
                 onValueChange = { url = it },
@@ -1685,7 +1667,7 @@ internal fun FloppyConnectionSettingsForm(
                 isError = url.isNotBlank() && !validUrl,
             )
             if (url.isNotBlank() && !validUrl) Text(stringResource(R.string.floppy_error_invalid_url), color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
-            if (onSignInRequested != null) {
+            if (signInFlow) {
                 Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
                 // Like Simkl: sign in on Floppy's own page, no key to create or paste.
                 Button(
@@ -1702,13 +1684,8 @@ internal fun FloppyConnectionSettingsForm(
                     Spacer(Modifier.width(7.dp))
                     Text(stringResource(R.string.floppy_sign_in), fontWeight = FontWeight.ExtraBold)
                 }
-                Text(
-                    stringResource(R.string.floppy_or_api_key),
-                    color = TextMuted,
-                    style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                    modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md),
-                )
             }
+            if (keyFlow) {
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
             OutlinedTextField(
                 value = apiKey,
@@ -1731,7 +1708,7 @@ internal fun FloppyConnectionSettingsForm(
                 },
                 colors = credentialFieldColors(),
             )
-            if (editing) Text(stringResource(R.string.floppy_saved_securely), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            }
             Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
             Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { advancedExpanded = !advancedExpanded }.padding(vertical = com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.floppy_advanced), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -1757,7 +1734,8 @@ internal fun FloppyConnectionSettingsForm(
                     modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm),
                 )
             }
-            Button(
+            // Signing in is the connect action until a connection exists.
+            if (!signInFlow) Button(
                 onClick = {
                     focusManager.clearFocus()
                     onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
@@ -2021,22 +1999,29 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         ?: Locale.forLanguageTag(state.metadataLanguage).getDisplayName(locale)
     val region = regions.firstOrNull { it.first == state.metadataRegion }?.second ?: state.metadataRegion
     val timezone = timezones.firstOrNull { it.first == state.metadataTimezone }?.second ?: state.metadataTimezone
+    val airDateSources = listOf(
+        com.cinetrack.data.schedule.AirDateSource.TMDB to "TMDB",
+        com.cinetrack.data.schedule.AirDateSource.TRAKT to "Trakt",
+        com.cinetrack.data.schedule.AirDateSource.SIMKL to "Simkl",
+    )
     // One group instead of three single-row cards.
     SettingsSection(stringResource(R.string.section_metadata)) {
         KitRow(Icons.Filled.Language, stringResource(R.string.language), value = language, onClick = { activeChoice = "language" })
         KitRow(Icons.Filled.Place, stringResource(R.string.region_short), value = region, onClick = { activeChoice = "region" })
         KitRow(Icons.Filled.Schedule, stringResource(R.string.timezone_short), value = timezone, onClick = { activeChoice = "timezone" })
+        // The provider whose episode air dates are shown; the others fill in where it has none.
+        KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.air_dates_from), value = airDateSources.firstOrNull { it.first == state.airDateSource }?.second ?: "Trakt", onClick = { activeChoice = "airdates" })
     }
     activeChoice?.let { key ->
-        val choices = when (key) { "language" -> languages; "region" -> regions; else -> timezones }
-        val selected = when (key) { "language" -> state.metadataLanguage; "region" -> state.metadataRegion; else -> state.metadataTimezone }
+        val choices = when (key) { "language" -> languages; "region" -> regions; "airdates" -> airDateSources; else -> timezones }
+        val selected = when (key) { "language" -> state.metadataLanguage; "region" -> state.metadataRegion; "airdates" -> state.airDateSource; else -> state.metadataTimezone }
         // Preserve legacy region-specific language tags as selectable choices.
         val options = if (choices.any { it.first == selected }) choices else listOf(selected to language) + choices
         SearchableChoiceSheet(
-            stringResource(when (key) { "language" -> R.string.metadata_language; "region" -> R.string.metadata_region; else -> R.string.metadata_timezone }),
+            stringResource(when (key) { "language" -> R.string.metadata_language; "region" -> R.string.metadata_region; "airdates" -> R.string.air_dates_sheet_title; else -> R.string.metadata_timezone }),
             stringResource(R.string.search), options, selected, { activeChoice = null },
             onSelected = { value ->
-                when (key) { "language" -> viewModel.setMetadataLanguage(value); "region" -> viewModel.setMetadataRegion(value); else -> viewModel.setMetadataTimezone(value) }
+                when (key) { "language" -> viewModel.setMetadataLanguage(value); "region" -> viewModel.setMetadataRegion(value); "airdates" -> viewModel.setAirDateSource(value); else -> viewModel.setMetadataTimezone(value) }
                 activeChoice = null
             },
         )

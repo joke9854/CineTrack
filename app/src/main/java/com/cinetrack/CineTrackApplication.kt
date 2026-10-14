@@ -221,7 +221,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,
-            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services) { preferences.traktClientIdNow() },
+            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services, traktClientId = { preferences.traktClientIdNow() }, airDateSource = { preferences.airDateSource.first() }),
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
