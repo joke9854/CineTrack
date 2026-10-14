@@ -1427,6 +1427,13 @@ class CineTrackViewModel(
         viewModelScope.launch(Dispatchers.IO) { repository.preferences.dismissFloppyUnplaced(item.dismissKey) }
     }
 
+    fun clearErrorLogs() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.preferences.clearErrorLog() }
+            _errorLogs.value = emptyList()
+        }
+    }
+
     fun refreshErrorLogs() {
         viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }

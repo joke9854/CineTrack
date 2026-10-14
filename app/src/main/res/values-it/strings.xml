@@ -326,6 +326,9 @@
     <string name="logs_info">Info</string>
     <string name="logs_export_copy">L’app mostra solo i problemi. Il file esportato contiene sempre il log completo, inclusa la normale attività di sincronizzazione.</string>
     <string name="export_logs">Esporta registro</string>
+    <string name="clear_logs">Cancella registro</string>
+    <string name="clear_logs_sub">Rimuove tutte le voci da questo dispositivo</string>
+    <string name="clear_logs_confirm">Tocca di nuovo per cancellare tutto il registro</string>
     <string name="no_errors_logged">Nessun errore registrato</string>
     <string name="appearance">Aspetto</string>
     <string name="appearance_summary">Scegli il colore principale dell’interfaccia</string>

@@ -3,6 +3,7 @@
 package com.cinetrack.ui.screens
 
 import com.cinetrack.ui.components.tonalPill
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Bookmark
@@ -2230,6 +2231,19 @@ private fun LogsSettings(viewModel: CineTrackViewModel) {
     SettingsSection(stringResource(R.string.logs)) {
         KitToggleRow(Icons.Filled.Visibility, stringResource(R.string.logs_show_all), stringResource(R.string.logs_show_all_sub), showAll) { showAll = it }
         KitRow(Icons.Filled.Download, stringResource(R.string.export_logs), stringResource(R.string.logs_export_copy), onClick = { if (logs.isNotEmpty()) viewModel.exportLogs(context) })
+        // Two taps, so a stray tap never wipes what is needed to report a problem.
+        var confirmClear by remember { mutableStateOf(false) }
+        KitRow(
+            Icons.Filled.Delete,
+            stringResource(R.string.clear_logs),
+            stringResource(if (confirmClear) R.string.clear_logs_confirm else R.string.clear_logs_sub),
+            onClick = {
+                if (confirmClear) {
+                    viewModel.clearErrorLogs()
+                    confirmClear = false
+                } else if (logs.isNotEmpty()) confirmClear = true
+            },
+        )
     }
     if (visible.isNotEmpty()) {
         visible.groupBy { entry -> entry.at?.atZone(zone)?.toLocalDate() }.forEach { (day, dayEntries) ->

@@ -812,6 +812,11 @@ class AppPreferences(private val context: Context) {
         }
     }
 
+    @Synchronized
+    fun clearErrorLog() {
+        runCatching { errorLogFile.delete() }
+    }
+
     fun saveAutomaticBackup(files: Map<String, String>) {
         runCatching {
             val directory = File(context.filesDir, "backups").apply { mkdirs() }

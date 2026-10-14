@@ -326,6 +326,9 @@
     <string name="logs_info">Info</string>
     <string name="logs_export_copy">The app shows problems by default. The exported file always contains the complete log, including normal sync activity.</string>
     <string name="export_logs">Export logs</string>
+    <string name="clear_logs">Clear logs</string>
+    <string name="clear_logs_sub">Remove every entry from this device</string>
+    <string name="clear_logs_confirm">Tap again to clear all logs</string>
     <string name="no_errors_logged">No errors recorded</string>
     <string name="appearance">Appearance</string>
     <string name="appearance_summary">Choose the main interface color</string>
