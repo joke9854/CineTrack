@@ -71,6 +71,21 @@ object ReleaseNotifier {
         return !quiet
     }
 
+    /** Milliseconds until quiet hours end, or null when a notification may go out now. */
+    suspend fun quietHoursRemainingMillis(preferences: AppPreferences): Long? {
+        if (!preferences.quietHoursEnabled.first()) return null
+        val configuredTimezone = preferences.metadataTimezone.first()
+        val zone = if (configuredTimezone == "system") ZoneId.systemDefault()
+        else runCatching { ZoneId.of(configuredTimezone) }.getOrDefault(ZoneId.systemDefault())
+        val now = ZonedDateTime.now(zone)
+        val start = preferences.quietHoursStart.first()
+        val end = preferences.quietHoursEnd.first()
+        if (start == end || !isQuietHour(now.hour, start, end)) return null
+        var endsAt = now.withHour(end).withMinute(0).withSecond(0).withNano(0)
+        if (!endsAt.isAfter(now)) endsAt = endsAt.plusDays(1)
+        return Duration.between(now, endsAt).toMillis()
+    }
+
     suspend fun scheduleUpcoming(context: Context, state: AppUiState, preferences: AppPreferences) {
         val configuredTimezone = preferences.metadataTimezone.first()
         val zone = if (configuredTimezone == "system") ZoneId.systemDefault()
@@ -391,6 +406,20 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
         application.container.repository.awaitStartup()
+        // Inside quiet hours: come back when they end instead of dropping the
+        // notification until the app is next opened.
+        ReleaseNotifier.quietHoursRemainingMillis(application.container.preferences)?.let { wait ->
+            val key = inputData.getString("key").orEmpty()
+            WorkManager.getInstance(applicationContext).enqueueUniqueWork(
+                "cinetrack-release-quiet-${key.hashCode()}",
+                ExistingWorkPolicy.REPLACE,
+                OneTimeWorkRequestBuilder<ReleaseNotificationWorker>()
+                    .setInitialDelay(wait, TimeUnit.MILLISECONDS)
+                    .setInputData(inputData)
+                    .build(),
+            )
+            return Result.success()
+        }
         ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
         // The released episode should be in Progress without opening the show.
         runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }

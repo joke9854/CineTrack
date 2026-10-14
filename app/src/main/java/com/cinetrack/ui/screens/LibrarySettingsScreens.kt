@@ -1121,7 +1121,8 @@ internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
         ),
     )
 
-    if (effectiveProgress != null) {
+    // A finished initial sync has nothing left to show or retry.
+    if (effectiveProgress != null && effectiveProgress.stage != FloppyBootstrapStage.COMPLETE) {
         SettingsSection(stringResource(R.string.initial_synchronization)) {
             ManagedFloppyBootstrapCard(effectiveProgress, bootstrap, viewModel::retryFloppyInitialSync)
         }
@@ -2281,6 +2282,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
         }
         Text(
             entry.summary,
+            color = TextPrimary,
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(top = 4.dp),
         )
