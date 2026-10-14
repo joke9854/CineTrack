@@ -1,3 +1,7 @@
+# CineTrack 0.99.53 beta
+
+- Removing a show no longer brings it back on Floppy as In progress: unwatching an episode now removes its plays on Floppy instead of marking it dropped.
+
 # CineTrack 0.99.52 beta
 
 - Removing a show now stays removed: after about half an hour it used to come back as Dropped (and on Floppy as In progress).
