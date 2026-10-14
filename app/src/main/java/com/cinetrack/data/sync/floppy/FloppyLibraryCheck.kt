@@ -75,7 +75,7 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
         when {
             item == null || !item.inLibrary -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
             movie.watched && plays.isEmpty() -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
-            movie.watched && movie.watchedAt != null && movie.watchedAt.toSecond() !in plays -> {
+            movie.watched && movie.watchedAt != null && plays.none { it.sameSecond(movie.watchedAt.toSecond()) } -> {
                 differing += FloppyCheckFinding(movieKey(movie), label, "phone ${movie.watchedAt}, Floppy ${plays.sorted().joinToString()}")
                 false
             }
@@ -100,7 +100,7 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
             val show = coordinate.first ?: return@mapNotNull null
             val available = remotePlays.getOrPut(show) { HashMap() }
             val times = plays.mapNotNull { it.watchedAt?.toSecond() }
-            val matched = times.firstOrNull { (available[it] ?: 0) > 0 }
+            val matched = times.firstNotNullOfOrNull { time -> time.nearby().firstOrNull { (available[it] ?: 0) > 0 } }
             if (matched != null) {
                 available[matched] = available.getValue(matched) - 1
                 return@mapNotNull null
@@ -123,6 +123,12 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
 /** Times are compared to the second: a play that went through Simkl comes
  * back without milliseconds, while Floppy keeps the ones CineTrack sent. */
 private fun Instant.toSecond(): Instant = truncatedTo(ChronoUnit.SECONDS)
+
+/** Simkl rounds to the nearest second (19.6 comes back as 20) while the
+ * check truncates, so one second either way is the same play. */
+private fun Instant.nearby(): List<Instant> = listOf(this, minusSeconds(1), plusSeconds(1))
+
+private fun Instant.sameSecond(other: Instant): Boolean = other in nearby()
 
 private fun String?.toInstantOrNull(): Instant? {
     if (isNullOrBlank()) return null

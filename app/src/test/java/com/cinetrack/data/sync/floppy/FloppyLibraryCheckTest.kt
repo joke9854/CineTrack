@@ -60,7 +60,7 @@ class FloppyLibraryCheckTest {
             episodes = listOf(episode(10, 1, 1), episode(10, 1, 2), episode(10, 1, 3)),
         )
         val remote = listOf(
-            remoteMovie(1, Instant.parse("2026-10-01T20:00:01Z")), // another instant
+            remoteMovie(1, Instant.parse("2026-10-01T20:00:05Z")), // another instant
             remoteShow(10),
             remoteShow(11, status = "in_progress"),
             // Three episodes at one instant: Floppy has E01, and E03 at another time.
@@ -91,6 +91,16 @@ class FloppyLibraryCheckTest {
         val expected = TrackingSnapshot(episodes = listOf(episode(10, 1, 6, onPhone)))
 
         val result = floppyMissing(expected, listOf(remoteEpisode(10, 1, 6, Instant.parse("2026-10-14T14:50:36.995Z"))))
+
+        assertTrue(result.isEmpty)
+    }
+
+    @Test
+    fun `a play Simkl rounded up to the next second still matches`() {
+        val onPhone = Instant.parse("2026-10-14T18:21:20Z")
+        val expected = TrackingSnapshot(episodes = listOf(episode(10, 4, 10, onPhone)))
+
+        val result = floppyMissing(expected, listOf(remoteEpisode(10, 4, 10, Instant.parse("2026-10-14T18:21:19.640Z"))))
 
         assertTrue(result.isEmpty)
     }
