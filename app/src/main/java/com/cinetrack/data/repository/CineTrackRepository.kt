@@ -1386,6 +1386,34 @@ class CineTrackRepository(
             // adapter call changes only Simkl's library membership/status.
             services.simklSync.addToList(state.syncRequest(SimklSyncItem(ids = ids, to = targetStatus)))
         }
+        recordDeliveredLibraryState(state)
+    }
+
+    /**
+     * Simkl now holds this status, so it is also the last state both sides
+     * agree on. Without this, a later sync that downloads only changes (a
+     * history removal is not a list change for Simkl) compared against the
+     * old value and put a removed or changed show back.
+     */
+    private suspend fun recordDeliveredLibraryState(state: UserMediaStateEntity) {
+        val baseline = preferences.syncBaselineNow(TrackingProviderId.SIMKL) ?: return
+        val status = runCatching { LibraryStatus.valueOf(state.status) }.getOrDefault(LibraryStatus.NONE)
+        val id = state.mediaId.toLong()
+        val updated = if (state.mediaType == MediaType.MOVIE.name) {
+            val others = baseline.movies.filterNot { it.ids.tmdb == id }
+            val previous = baseline.movies.firstOrNull { it.ids.tmdb == id }
+            baseline.copy(
+                movies = if (status == LibraryStatus.NONE) others
+                else others + (previous?.copy(libraryState = status) ?: TrackedMovieState(MediaIds(tmdb = id), status, watched = state.watched)),
+            )
+        } else {
+            val others = baseline.shows.filterNot { it.ids.tmdb == id }
+            baseline.copy(
+                shows = if (status == LibraryStatus.NONE) others else others + TrackedShowState(MediaIds(tmdb = id), status),
+                episodes = if (status == LibraryStatus.NONE) baseline.episodes.filterNot { it.showIds.tmdb == id } else baseline.episodes,
+            )
+        }
+        preferences.saveSyncBaseline(updated, TrackingProviderId.SIMKL)
     }
 
     override suspend fun pushOperation(operation: SyncOperation) {
