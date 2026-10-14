@@ -497,10 +497,20 @@ fun DetailScreen(
             detail = detail.copy(status = status, watched = status == LibraryStatus.COMPLETED)
             onStatus(detail, status)
             librarySheet = false
-            // Completed is a status; offer to mark the aired episodes still
-            // unwatched, and mark them only if the user agrees.
             if (detail.type == MediaType.TV && status == LibraryStatus.COMPLETED) {
-                pendingShowEpisodes = unwatchedAiredEpisodes(detailEpisodes).takeIf { it.isNotEmpty() }
+                // Like Simkl: a completed show has every aired episode watched,
+                // each as its own play now, sent to every tracker.
+                val remaining = unwatchedAiredEpisodes(detailEpisodes)
+                if (remaining.isNotEmpty()) {
+                    val numbers = remaining.map { it.season to it.number }.toSet()
+                    detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = true) else it }
+                    viewModel.setEpisodesWatched(remaining, true)
+                }
+            }
+            if (detail.type == MediaType.TV && status == LibraryStatus.NONE) {
+                // Removing the show removes its episode history too.
+                detailEpisodes = detailEpisodes.map { it.copy(watched = false) }
+                viewModel.forgetWatchedEpisodes(detail.id)
             }
         }
     }
