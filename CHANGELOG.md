@@ -1,3 +1,11 @@
+# CineTrack 0.99.52 beta
+
+- Removing a show now stays removed: after about half an hour it used to come back as Dropped (and on Floppy as In progress).
+- Removing a show from its page also clears its watched episodes there right away.
+- Choosing Completed for a show marks all its aired episodes as watched, like Simkl does.
+- The Floppy check no longer reports episodes whose time only differs by milliseconds.
+- Settings > Logs has Clear logs (tap twice).
+
 # CineTrack 0.99.51 beta
 
 **Sync**
