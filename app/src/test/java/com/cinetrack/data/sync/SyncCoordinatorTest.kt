@@ -91,6 +91,23 @@ class SyncCoordinatorTest {
     }
 
     @Test
+    fun `a queued change without delivery targets gets them instead of stopping the sync`() = runTest {
+        val operation = operation()
+        val queue = PersistedRowsRepository(operation)
+        val main = FakeProvider(TrackingProviderId.SIMKL)
+        val secondary = FakeProvider(TrackingProviderId.FLOPPY)
+        val log = mutableListOf<String>()
+        val coordinator = SyncCoordinator(MutableRegistry(main, secondary), queue, deliveryLog = { log += it })
+
+        val result = coordinator.sync { }
+
+        assertTrue(result.exceptionOrNull()?.message, result.isSuccess)
+        assertEquals(setOf(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY), queue.rows.mapTo(hashSetOf()) { it.providerId })
+        assertEquals(listOf(operation.id), main.pushed.single().map(SyncOperation::id))
+        assertTrue(log.any { "missing delivery targets" in it })
+    }
+
+    @Test
     fun `secondary is outbound only during a full sync`() = runTest {
         val operation = operation()
         val queue = FakeOperationRepository(operation)
@@ -362,3 +379,33 @@ private class FakeOperationRepository(vararg initial: SyncOperation) : SyncOpera
     }
 }
 
+private class PersistedRowsRepository(vararg initial: SyncOperation) : SyncOperationRepository {
+    private val values = initial.toMutableList()
+    val rows = mutableListOf<SyncOperationDelivery>()
+    override val requiresPersistedDeliveryRows: Boolean = true
+
+    override suspend fun deliveries(operationIds: Set<String>): List<SyncOperationDelivery> =
+        rows.filter { it.operationId in operationIds }
+
+    override suspend fun ensureDeliveries(operations: List<SyncOperation>, targets: List<SyncOperationDelivery>) {
+        rows += targets.filter { target ->
+            rows.none { it.operationId == target.operationId && it.operationVersion == target.operationVersion && it.providerId == target.providerId }
+        }
+    }
+
+    override suspend fun acknowledge(provider: TrackingProviderId, operations: List<SyncOperation>) {
+        val ids = operations.mapTo(hashSetOf(), SyncOperation::id)
+        rows.replaceAll { if (it.providerId == provider && it.operationId in ids) it.copy(status = DeliveryStatus.ACKNOWLEDGED) else it }
+    }
+
+    override suspend fun pending(operationIds: Set<String>?): List<SyncOperation> =
+        values.filter { operationIds == null || it.id in operationIds }
+
+    override suspend fun cards(): List<SyncOperationCard> = emptyList()
+
+    override suspend fun complete(operations: List<SyncOperation>) {
+        values.removeAll(operations.toSet())
+    }
+
+    override suspend fun fail(operations: List<SyncOperation>, error: Throwable) {}
+}

@@ -443,13 +443,18 @@ class SyncCoordinator(
         return all.filter { byId["${it.id}:${it.sourceVersion}"]?.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED) }
     }
 
+    private suspend fun missingDeliveryRows(operations: List<SyncOperation>): List<SyncOperation> {
+        if (operations.isEmpty()) return emptyList()
+        val rows = this@SyncCoordinator.operations.deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
+        return operations.filter { operation ->
+            rows.none { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
+        }
+    }
+
     /** Modern operations must already have an immutable target snapshot. */
     private suspend fun requireCurrentDeliveryRows(operations: List<SyncOperation>) {
         if (operations.isEmpty() || !this@SyncCoordinator.operations.requiresPersistedDeliveryRows) return
-        val rows = this@SyncCoordinator.operations.deliveries(operations.mapTo(linkedSetOf(), SyncOperation::id))
-        val missing = operations.filter { operation ->
-            rows.none { it.operationId == operation.id && it.operationVersion == operation.sourceVersion }
-        }
+        val missing = missingDeliveryRows(operations)
         if (missing.isNotEmpty()) {
             throw IllegalStateException("Sync queue invariant violated: missing delivery target for ${missing.joinToString { it.id }}")
         }
@@ -462,6 +467,14 @@ class SyncCoordinator(
         configuration: TrackingConfiguration,
     ) {
         if (operations.requiresPersistedDeliveryRows) {
+            // A queued change whose current generation has no targets used to
+            // stop every sync (and so every later change) until the app data
+            // was cleared. Give it today's targets once and carry on.
+            val missing = missingDeliveryRows(pending)
+            if (missing.isNotEmpty()) {
+                operations.ensureDeliveries(missing, buildTargets(missing, main, secondary))
+                runCatching { deliveryLog?.invoke("Sync queue: added missing delivery targets for ${missing.joinToString { it.id }}") }
+            }
             requireCurrentDeliveryRows(pending)
         } else {
             // Compatibility for lightweight legacy/test repositories. The Room
