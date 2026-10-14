@@ -57,21 +57,32 @@ class FloppyLibraryCheckTest {
         val expected = TrackingSnapshot(
             movies = listOf(movie(1), movie(2)),
             shows = listOf(show(10), show(11, LibraryStatus.PAUSED)),
-            episodes = listOf(episode(10, 1, 1), episode(10, 1, 2)),
+            episodes = listOf(episode(10, 1, 1), episode(10, 1, 2), episode(10, 1, 3)),
         )
         val remote = listOf(
             remoteMovie(1, Instant.parse("2026-10-01T20:00:01Z")), // another instant
             remoteShow(10),
             remoteShow(11, status = "in_progress"),
-            // Two episodes at one instant, Floppy has one of them.
+            // Three episodes at one instant: Floppy has E01, and E03 at another time.
             remoteEpisode(10, 1, 1, episodeAt),
+            remoteEpisode(10, 1, 3, Instant.parse("2026-10-02T21:31:00Z")),
         )
 
         val result = floppyMissing(expected, remote)
 
-        assertEquals(2, result.movies)
-        assertEquals(listOf(11L), result.missing.shows.map { it.ids.tmdb })
-        assertEquals(listOf(2), result.missing.episodes.map { it.episode })
+        assertEquals(listOf("MOVIE:2", "TV:11", "TV:10:1:2"), result.missing.map { it.key })
+        assertEquals(listOf("MOVIE:1", "TV:10:1:3"), result.differing.map { it.key })
+        assertEquals(listOf(2), result.snapshotFor(setOf("TV:10:1:2")).episodes.map { it.episode })
+    }
+
+    @Test
+    fun `one matching play is enough for an episode watched more than once`() {
+        val earlier = Instant.parse("2026-09-01T20:00:00Z")
+        val expected = TrackingSnapshot(episodes = listOf(episode(10, 6, 20, earlier), episode(10, 6, 20)))
+
+        val result = floppyMissing(expected, listOf(remoteEpisode(10, 6, 20, episodeAt)))
+
+        assertTrue(result.isEmpty)
     }
 
     @Test

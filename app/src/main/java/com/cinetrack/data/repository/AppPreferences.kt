@@ -144,6 +144,7 @@ class AppPreferences(private val context: Context) {
         val floppyCapabilities = stringPreferencesKey("floppy_capabilities_v1")
         val floppyConnectedAt = longPreferencesKey("floppy_connected_at")
         val floppyLibraryCheckedAt = longPreferencesKey("floppy_library_checked_at")
+        val floppyLibraryResent = androidx.datastore.preferences.core.stringSetPreferencesKey("floppy_library_resent")
         val floppyBootstrapPlan = stringPreferencesKey("floppy_bootstrap_plan_v1")
         /** What a finished bootstrap left unplaced, kept for later retries. */
         val floppyBootstrapResidual = stringPreferencesKey("floppy_bootstrap_residual_v1")
@@ -538,6 +539,14 @@ class AppPreferences(private val context: Context) {
 
     suspend fun setFloppyLibraryCheckedAt(at: Long) {
         context.cineTrackDataStore.edit { values -> values[Keys.floppyLibraryCheckedAt] = at }
+    }
+
+    /** Items the library check re-sent and that were still missing since. */
+    suspend fun floppyLibraryResentNow(): Set<String> =
+        context.cineTrackDataStore.data.first()[Keys.floppyLibraryResent].orEmpty()
+
+    suspend fun setFloppyLibraryResent(keys: Set<String>) {
+        context.cineTrackDataStore.edit { values -> values[Keys.floppyLibraryResent] = keys }
     }
 
     suspend fun floppyBootstrapResidualRawNow(): String? =

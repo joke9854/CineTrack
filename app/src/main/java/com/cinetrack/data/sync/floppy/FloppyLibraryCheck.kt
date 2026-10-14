@@ -1,99 +1,122 @@
 package com.cinetrack.data.sync.floppy
 
+import com.cinetrack.data.sync.TrackedEpisodeState
+import com.cinetrack.data.sync.TrackedMovieState
+import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.domain.LibraryStatus
 import java.time.Instant
 import java.time.OffsetDateTime
 
-/** What Floppy lacks compared with this device, as the snapshot to re-send. */
+/** One item Floppy lacks: its stable [key] ("MOVIE:1", "TV:2", "TV:2:1:3"),
+ * a readable [label] and, when Floppy has it at another time, both times. */
+data class FloppyCheckFinding(val key: String, val label: String, val detail: String? = null)
+
+/** What Floppy lacks compared with this device. */
 data class FloppyCheckResult(
-    val missing: TrackingSnapshot,
-    val movies: Int,
-    val shows: Int,
-    val episodes: Int,
-    /** A few readable examples ("TV:123 S01E02") for the log. */
-    val examples: List<String>,
+    /** Absent from Floppy: re-sending places them. */
+    val missing: List<FloppyCheckFinding>,
+    /** Floppy has the episode, at another time: re-sending cannot change
+     * that (Floppy answers it already has it), so it is only reported. */
+    val differing: List<FloppyCheckFinding>,
+    val missingSnapshot: TrackingSnapshot,
 ) {
-    val isEmpty: Boolean get() = movies == 0 && shows == 0 && episodes == 0
+    val isEmpty: Boolean get() = missing.isEmpty() && differing.isEmpty()
+
+    /** The re-send for [keys] only. */
+    fun snapshotFor(keys: Set<String>): TrackingSnapshot = TrackingSnapshot(
+        movies = missingSnapshot.movies.filter { movieKey(it) in keys },
+        shows = missingSnapshot.shows.filter { showKey(it) in keys },
+        episodes = missingSnapshot.episodes.filter { episodeKey(it) in keys },
+    )
 }
+
+internal fun movieKey(movie: TrackedMovieState) = "MOVIE:${movie.ids.tmdb}"
+internal fun showKey(show: TrackedShowState) = "TV:${show.ids.tmdb}"
+internal fun episodeKey(episode: TrackedEpisodeState) = "TV:${episode.showIds.tmdb}:${episode.season}:${episode.episode}"
 
 /**
  * Compares what Floppy should hold ([expected], with episodes already moved
  * to where Floppy stored them and unplaceable ones left out) with Floppy's
- * own per-item state. Plays are matched by their exact instant within the
- * same movie or show, so an episode Floppy stored under other numbering
- * still counts. Nothing here deletes or merges: it only lists what to send.
+ * own per-item state. An episode counts as present when Floppy has a play of
+ * that show at one of this device's times for it (so numbering differences
+ * and rewatches still match); this device can hold several plays of one
+ * episode while the initial sync sent one, so one match is enough. Nothing
+ * here deletes or merges: it only lists what to send.
  */
 internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncItemDto>): FloppyCheckResult {
     val remoteMovies = remote.filter { it.type == "movie" }.mapNotNull { item -> item.localTmdbId()?.let { it.toLong() to item } }.toMap()
     val remoteShows = remote.filter { it.type == "show" }.mapNotNull { item -> item.localTmdbId()?.let { it.toLong() to item } }.toMap()
-    val episodeItems = remote.filter { it.type == "episode" && it.source == "tmdb" }
     // show -> instant -> plays at that instant (two episodes can share one).
     val remotePlays = HashMap<Long, MutableMap<Instant, Int>>()
-    val remoteCoordinates = HashSet<Triple<Long, Int, Int>>()
-    episodeItems.forEach { item ->
+    // (show, season, episode) -> Floppy's times for it.
+    val remoteTimes = HashMap<Triple<Long, Int, Int>, MutableList<Instant>>()
+    remote.filter { it.type == "episode" && it.source == "tmdb" }.forEach { item ->
         val show = item.mediaId.toLongOrNull() ?: return@forEach
-        if (item.plays.isNotEmpty() && item.seasonNumber != null && item.episodeNumber != null) {
-            remoteCoordinates += Triple(show, item.seasonNumber, item.episodeNumber)
-        }
         item.plays.forEach { play ->
             val at = play.watchedAt.toInstantOrNull() ?: return@forEach
             remotePlays.getOrPut(show) { HashMap() }.merge(at, 1, Int::plus)
+            if (item.seasonNumber != null && item.episodeNumber != null) {
+                remoteTimes.getOrPut(Triple(show, item.seasonNumber, item.episodeNumber)) { mutableListOf() } += at
+            }
         }
     }
 
-    val examples = mutableListOf<String>()
-    fun note(text: String) { if (examples.size < 5) examples += text }
-
+    val missing = mutableListOf<FloppyCheckFinding>()
+    val differing = mutableListOf<FloppyCheckFinding>()
     val movies = expected.movies.filter { movie ->
         val id = movie.ids.tmdb ?: return@filter false
         val inLibrary = movie.libraryState != null && movie.libraryState != LibraryStatus.NONE
         if (!inLibrary && !movie.watched) return@filter false
         val item = remoteMovies[id]
         val plays = item?.plays.orEmpty().mapNotNull { it.watchedAt.toInstantOrNull() }
-        val missing = when {
-            item == null || !item.inLibrary -> true
-            movie.watched && movie.watchedAt != null -> movie.watchedAt !in plays
-            movie.watched -> plays.isEmpty()
+        val label = "MOVIE:$id"
+        when {
+            item == null || !item.inLibrary -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
+            movie.watched && plays.isEmpty() -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
+            movie.watched && movie.watchedAt != null && movie.watchedAt !in plays -> {
+                differing += FloppyCheckFinding(movieKey(movie), label, "phone ${movie.watchedAt}, Floppy ${plays.sorted().joinToString()}")
+                false
+            }
             // A completed movie is its play; other statuses must match.
-            else -> movie.libraryState != LibraryStatus.COMPLETED && item.libraryStatus() != movie.libraryState
+            !movie.watched && movie.libraryState != LibraryStatus.COMPLETED && item.libraryStatus() != movie.libraryState -> {
+                missing += FloppyCheckFinding(movieKey(movie), "$label status"); true
+            }
+            else -> false
         }
-        if (missing) note("MOVIE:$id")
-        missing
     }
     val shows = expected.shows.filter { show ->
         val id = show.ids.tmdb ?: return@filter false
         val status = show.libraryState?.takeIf { it != LibraryStatus.NONE } ?: return@filter false
         val item = remoteShows[id]
-        val missing = item == null || !item.inLibrary || item.libraryStatus() != status
-        if (missing) note("TV:$id")
-        missing
+        val absent = item == null || !item.inLibrary || item.libraryStatus() != status
+        if (absent) missing += FloppyCheckFinding(showKey(show), "TV:$id ${status.name.lowercase()}", item?.status?.let { "Floppy $it" })
+        absent
     }
     val episodes = expected.episodes.filter { it.watched }
-        .groupBy { it.showIds.tmdb }
-        .flatMap { (show, watched) ->
-            if (show == null) return@flatMap emptyList()
-            val available = remotePlays[show].orEmpty().toMutableMap()
-            watched.sortedWith(compareBy({ it.season }, { it.episode })).filter { episode ->
-                val at = episode.watchedAt
-                val missing = if (at != null) {
-                    val left = available[at] ?: 0
-                    if (left > 0) available[at] = left - 1
-                    left == 0
-                } else {
-                    Triple(show, episode.season, episode.episode) !in remoteCoordinates
-                }
-                if (missing) note("TV:$show S%02dE%02d".format(episode.season, episode.episode))
-                missing
+        .groupBy { Triple(it.showIds.tmdb, it.season, it.episode) }
+        .mapNotNull { (coordinate, plays) ->
+            val show = coordinate.first ?: return@mapNotNull null
+            val available = remotePlays.getOrPut(show) { HashMap() }
+            val times = plays.mapNotNull(TrackedEpisodeState::watchedAt)
+            val matched = times.firstOrNull { (available[it] ?: 0) > 0 }
+            if (matched != null) {
+                available[matched] = available.getValue(matched) - 1
+                return@mapNotNull null
             }
+            val first = plays.first()
+            val label = "TV:$show S%02dE%02d".format(coordinate.second, coordinate.third)
+            val floppyTimes = remoteTimes[Triple(show, coordinate.second, coordinate.third)].orEmpty()
+            if (times.isEmpty() && floppyTimes.isNotEmpty()) return@mapNotNull null
+            if (floppyTimes.isNotEmpty()) {
+                differing += FloppyCheckFinding(episodeKey(first), label, "phone ${times.sorted().joinToString()}, Floppy ${floppyTimes.sorted().joinToString()}")
+                return@mapNotNull null
+            }
+            missing += FloppyCheckFinding(episodeKey(first), label)
+            // The initial sync sends one play per episode: the latest.
+            plays.maxByOrNull { it.watchedAt ?: Instant.MIN }
         }
-    return FloppyCheckResult(
-        missing = TrackingSnapshot(movies = movies, shows = shows, episodes = episodes),
-        movies = movies.size,
-        shows = shows.size,
-        episodes = episodes.size,
-        examples = examples,
-    )
+    return FloppyCheckResult(missing, differing, TrackingSnapshot(movies = movies, shows = shows, episodes = episodes))
 }
 
 private fun String?.toInstantOrNull(): Instant? {
@@ -105,7 +128,9 @@ private fun String?.toInstantOrNull(): Instant? {
 /**
  * After a sync, checks that Floppy (as SECONDARY) holds everything this
  * device has, like the Simkl reconciliation does for MAIN, and re-sends only
- * what is missing through the bootstrap worker. With Floppy as MAIN it does
+ * what is missing through the bootstrap worker. Items a re-send already
+ * covered are not sent again: Floppy answered that it has them, so another
+ * re-send would loop; they are reported instead. With Floppy as MAIN it does
  * nothing: Floppy is then the source of truth, and re-sending a play removed
  * there would bring it back.
  */
@@ -115,6 +140,8 @@ class FloppyLibraryCheck(
     private val coordinator: FloppyBootstrapCoordinator,
     private val lastCheckedAt: suspend () -> Long,
     private val setLastCheckedAt: suspend (Long) -> Unit,
+    private val lastResent: suspend () -> Set<String>,
+    private val setLastResent: suspend (Set<String>) -> Unit,
     private val quiesced: suspend (suspend () -> List<FloppySyncItemDto>) -> List<FloppySyncItemDto>,
     private val startWorker: suspend (String) -> Unit,
     private val log: (String) -> Unit,
@@ -133,17 +160,29 @@ class FloppyLibraryCheck(
         }
         setLastCheckedAt(now)
         val result = floppyMissing(expected, remote)
+        val already = lastResent()
+        val (repeated, toSend) = result.missing.partition { it.key in already }
         if (result.isEmpty) {
             log("Floppy check: every item is on Floppy (${remote.size} checked)")
-            return
         }
-        val planned = coordinator.startRepair(instance, result.missing)
-        log(
-            "Floppy check: missing on Floppy movies=${result.movies} shows=${result.shows} episodes=${result.episodes}, " +
-                "e.g. ${result.examples.joinToString()}; re-sending $planned operation(s)",
-        )
+        if (result.differing.isNotEmpty()) {
+            log("Floppy check: ${result.differing.size} item(s) on Floppy at another time (not re-sent), e.g. ${describe(result.differing)}")
+        }
+        if (repeated.isNotEmpty()) {
+            log("Floppy check: ${repeated.size} item(s) still missing after a re-send (not re-sent again), e.g. ${describe(repeated)}")
+        }
+        val planned = if (toSend.isEmpty()) 0 else coordinator.startRepair(instance, result.snapshotFor(toSend.mapTo(hashSetOf()) { it.key }))
+        if (toSend.isNotEmpty()) {
+            log("Floppy check: ${toSend.size} item(s) missing on Floppy, e.g. ${describe(toSend)}; re-sending $planned operation(s)")
+        }
+        // Remember what this pass sent, plus what was already sent and is
+        // still missing, so neither is sent again while it stays missing.
+        setLastResent(toSend.mapTo(hashSetOf()) { it.key } + repeated.map { it.key })
         if (planned > 0) startWorker(instance)
     }
+
+    private fun describe(findings: List<FloppyCheckFinding>) =
+        findings.take(5).joinToString { finding -> finding.detail?.let { "${finding.label} ($it)" } ?: finding.label }
 
     private suspend fun readAll(instance: String): List<FloppySyncItemDto> {
         val items = mutableListOf<FloppySyncItemDto>()

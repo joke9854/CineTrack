@@ -290,6 +290,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             coordinator = floppyBootstrapCoordinator,
             lastCheckedAt = { preferences.floppyLibraryCheckedAtNow() },
             setLastCheckedAt = { preferences.setFloppyLibraryCheckedAt(it) },
+            lastResent = { preferences.floppyLibraryResentNow() },
+            setLastResent = { preferences.setFloppyLibraryResent(it) },
             quiesced = { read -> syncCoordinator.withProviderIoQuiesced { read() } },
             startWorker = { instance -> FloppyBootstrapWorkScheduler.enqueue(application, instance, preferences.wifiOnly.first()) },
             log = { message -> preferences.appendErrorLog("${java.time.Instant.now()}  $message") },
