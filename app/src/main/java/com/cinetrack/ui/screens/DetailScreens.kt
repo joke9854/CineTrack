@@ -497,6 +497,11 @@ fun DetailScreen(
             detail = detail.copy(status = status, watched = status == LibraryStatus.COMPLETED)
             onStatus(detail, status)
             librarySheet = false
+            // Completed is a status; offer to mark the aired episodes still
+            // unwatched, and mark them only if the user agrees.
+            if (detail.type == MediaType.TV && status == LibraryStatus.COMPLETED) {
+                pendingShowEpisodes = unwatchedAiredEpisodes(detailEpisodes).takeIf { it.isNotEmpty() }
+            }
         }
     }
     if (trailerSheet) {
@@ -550,6 +555,8 @@ fun DetailScreen(
             onConfirm = {
                 // Removing from every list clears the series' episode history here and on Simkl.
                 detailEpisodes = detailEpisodes.map { it.copy(watched = false) }
+                // Without this the cached episodes put the watched marks back on the next refresh.
+                viewModel.forgetWatchedEpisodes(detail.id)
                 detail = detail.copy(status = LibraryStatus.NONE, watched = false)
                 onStatus(detail, LibraryStatus.NONE)
                 confirmUnmarkShow = false

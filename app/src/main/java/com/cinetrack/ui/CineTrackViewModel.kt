@@ -923,6 +923,11 @@ class CineTrackViewModel(
         }
     }
 
+    /** Clears the watched marks of a show's cached episodes (its history was removed). */
+    fun forgetWatchedEpisodes(showId: Int) {
+        detailEpisodeCache[showId]?.let { cached -> detailEpisodeCache[showId] = cached.map { it.copy(watched = false) } }
+    }
+
     fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
         changed.groupBy(EpisodeCard::showId).forEach { (showId, showEpisodes) ->
