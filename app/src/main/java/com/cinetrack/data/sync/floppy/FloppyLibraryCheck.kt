@@ -7,6 +7,7 @@ import com.cinetrack.data.sync.TrackingSnapshot
 import com.cinetrack.domain.LibraryStatus
 import java.time.Instant
 import java.time.OffsetDateTime
+import java.time.temporal.ChronoUnit
 
 /** One item Floppy lacks: its stable [key] ("MOVIE:1", "TV:2", "TV:2:1:3"),
  * a readable [label] and, when Floppy has it at another time, both times. */
@@ -74,7 +75,7 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
         when {
             item == null || !item.inLibrary -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
             movie.watched && plays.isEmpty() -> { missing += FloppyCheckFinding(movieKey(movie), label); true }
-            movie.watched && movie.watchedAt != null && movie.watchedAt !in plays -> {
+            movie.watched && movie.watchedAt != null && movie.watchedAt.toSecond() !in plays -> {
                 differing += FloppyCheckFinding(movieKey(movie), label, "phone ${movie.watchedAt}, Floppy ${plays.sorted().joinToString()}")
                 false
             }
@@ -98,7 +99,7 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
         .mapNotNull { (coordinate, plays) ->
             val show = coordinate.first ?: return@mapNotNull null
             val available = remotePlays.getOrPut(show) { HashMap() }
-            val times = plays.mapNotNull(TrackedEpisodeState::watchedAt)
+            val times = plays.mapNotNull { it.watchedAt?.toSecond() }
             val matched = times.firstOrNull { (available[it] ?: 0) > 0 }
             if (matched != null) {
                 available[matched] = available.getValue(matched) - 1
@@ -119,10 +120,14 @@ internal fun floppyMissing(expected: TrackingSnapshot, remote: List<FloppySyncIt
     return FloppyCheckResult(missing, differing, TrackingSnapshot(movies = movies, shows = shows, episodes = episodes))
 }
 
+/** Times are compared to the second: a play that went through Simkl comes
+ * back without milliseconds, while Floppy keeps the ones CineTrack sent. */
+private fun Instant.toSecond(): Instant = truncatedTo(ChronoUnit.SECONDS)
+
 private fun String?.toInstantOrNull(): Instant? {
     if (isNullOrBlank()) return null
-    return runCatching { OffsetDateTime.parse(this).toInstant() }.getOrNull()
-        ?: runCatching { Instant.parse(this) }.getOrNull()
+    return (runCatching { OffsetDateTime.parse(this).toInstant() }.getOrNull()
+        ?: runCatching { Instant.parse(this) }.getOrNull())?.toSecond()
 }
 
 /**

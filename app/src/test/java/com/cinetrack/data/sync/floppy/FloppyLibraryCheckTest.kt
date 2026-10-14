@@ -86,6 +86,16 @@ class FloppyLibraryCheckTest {
     }
 
     @Test
+    fun `a play that lost its milliseconds through Simkl still matches`() {
+        val onPhone = Instant.parse("2026-10-14T14:50:36Z")
+        val expected = TrackingSnapshot(episodes = listOf(episode(10, 1, 6, onPhone)))
+
+        val result = floppyMissing(expected, listOf(remoteEpisode(10, 1, 6, Instant.parse("2026-10-14T14:50:36.995Z"))))
+
+        assertTrue(result.isEmpty)
+    }
+
+    @Test
     fun `items outside the library or not watched are not expected`() {
         val expected = TrackingSnapshot(
             movies = listOf(TrackedMovieState(MediaIds(tmdb = 3), LibraryStatus.NONE, watched = false)),
