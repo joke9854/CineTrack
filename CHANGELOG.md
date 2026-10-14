@@ -1,3 +1,18 @@
+# CineTrack 0.99.51 beta
+
+**Sync**
+- A status change or removal no longer bounces back when Simkl hasn't caught up with it yet. Settings > Logs notes when this happens.
+- A change stuck in Sync operations no longer stops every later sync.
+- Watching an episode of a show in Plan to watch (or not in your library) moves it to Watching right away, so it shows in Progress without waiting for a sync.
+- The Floppy check after a sync no longer re-sends the same episodes every hour. Episodes Floppy has at another time are listed in Logs with both times.
+
+**Fixes**
+- Removing and unmarking a show from its page now really unmarks its episodes.
+- Choosing Completed for a show offers to mark the aired episodes you haven't watched; they're marked only if you accept.
+- Notifications due during quiet hours arrive when quiet hours end, without opening the app.
+- The finished initial sync card no longer stays in Sync operations.
+- Log text is readable in the dark theme.
+
 # CineTrack 0.99.50 beta
 
 **Floppy**
