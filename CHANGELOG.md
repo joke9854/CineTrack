@@ -1,3 +1,28 @@
+# CineTrack 0.99.54 beta
+
+**New**
+- Choose where episode air dates come from: Settings > Metadata > Air dates from (TMDB, Trakt or Simkl). When the chosen one has no date for an episode, the next one fills in. Switching applies right away.
+- Calendar: a week strip at the top, days as "Today", "Tomorrow", "Friday 17", a large card for the next release and a reminder bell on every release.
+- History: each day shows its plays and time watched; episodes of one show watched in a row fold into one card (tap to expand), with "Season finished" and "Rewatch" marks.
+- Statistics: the year in one number with a month-by-month curve, four key facts and genre bars. Tap the year card for the full year in review with the activity heatmap.
+- Shows you've started have "Mark all watched" under the series progress.
+- Show and movie pages: a ⋮ menu with "Refresh info" for that title.
+- Library artwork refresh and app updates now show as a pill at the top; the app checks for updates when it starts.
+- Search history has "Clear all".
+
+**Design**
+- Bigger poster on show and movie pages, like Trakt.
+- Headers in Progress, Library and Discover stay pinned and take the page's colour.
+- Episode pages: swiping between episodes no longer flashes; the show chip has a cleaner shape.
+- The Covers / Text switch for seasons animates smoothly.
+- Going back from a detail page, the page shrinks with its poster instead of the poster floating alone.
+- The Discover mosaic shuffles its tile shapes.
+- Floppy settings: no sign-in button or API key field once connected; the main tracker is a Simkl | Floppy switch.
+- Search results no longer show the year under the posters.
+
+**Fixes**
+- The Floppy check no longer reports plays that Simkl rounded to the next second.
+
 # CineTrack 0.99.53 beta
 
 - Removing a show no longer brings it back on Floppy as In progress: unwatching an episode now removes its plays on Floppy instead of marking it dropped.
