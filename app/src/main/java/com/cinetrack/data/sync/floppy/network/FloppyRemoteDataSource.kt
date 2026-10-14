@@ -52,6 +52,8 @@ import retrofit2.HttpException
 import kotlinx.coroutines.delay
 
 private const val BULK_EPISODE_MAX = 50
+/** Bounds the per-play removal of one unwatched episode. */
+private const val MAX_EPISODE_UNWATCH_PLAYS = 20
 /** Per-event outcomes of the episode ensure endpoint; the last two are refusals. */
 private val EPISODE_EVENT_STATUSES = setOf("created", "already_satisfied", "not_found", "metadata_unavailable")
 private const val BULK_TASK_POLL_ATTEMPTS = 120
@@ -725,7 +727,7 @@ class FloppyRemoteDataSource(
             SyncOperationType.MOVIE_WATCHED -> pushMovieWatched(api, operation, source, mediaId, bootstrapContext, providerInstanceId)
             SyncOperationType.MOVIE_UNWATCHED -> removeExactMovieHistory(api, operation, source, mediaId, bootstrapContext)
             SyncOperationType.EPISODE_WATCHED -> pushEpisodeWatched(api, operation, source, mediaId, episodeIndex)
-            SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeDrop(api, operation, source, mediaId)
+            SyncOperationType.EPISODE_UNWATCHED -> pushEpisodeUnwatch(api, operation, source, mediaId)
             SyncOperationType.MEDIA_HISTORY_REMOVE -> removeExactMovieHistory(api, operation, source, mediaId, bootstrapContext)
             SyncOperationType.SET_RATING -> throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operation.type)
         }
@@ -955,13 +957,22 @@ class FloppyRemoteDataSource(
         episodeIndex?.add(key)
     }
 
-    private suspend fun pushEpisodeDrop(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
+    /**
+     * Unwatching an episode in CineTrack clears all its plays (as on Simkl),
+     * so remove Floppy's plays one by one until it has none. Floppy's "drop"
+     * route is not an unwatch: it re-creates the show and season and adds a
+     * dropped episode, which brought removed shows back as in progress.
+     */
+    private suspend fun pushEpisodeUnwatch(api: FloppyApi, operation: SyncOperation, source: String, mediaId: String) {
         val (season, episode, _) = operation.episodeParts()
-        try {
-            api.dropEpisode("tv", source, mediaId, season, episode)
-        } catch (error: HttpException) {
-            // Already gone (for example with the removed show): nothing to undo.
-            if (error.code() != 404) throw error
+        repeat(MAX_EPISODE_UNWATCH_PLAYS) {
+            try {
+                api.unwatchEpisode("tv", source, mediaId, season, episode)
+            } catch (error: HttpException) {
+                // No plays left, or the show is already removed: done.
+                if (error.code() == 404) return
+                throw error
+            }
         }
     }
 

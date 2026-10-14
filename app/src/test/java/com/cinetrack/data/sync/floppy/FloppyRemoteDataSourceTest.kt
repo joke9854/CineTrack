@@ -546,18 +546,24 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
-    fun episodeUnwatchedUsesTheDedicatedDropRoute() = runBlocking {
-        server.enqueue(json("{}"))
+    fun episodeUnwatchedRemovesEveryFloppyPlayAndNeverDrops() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.enqueue(MockResponse().setResponseCode(404).setBody("{\"detail\":\"Episode has no watches.\"}"))
 
-        remote.push(session, listOf(operation(
+        val result = remote.push(session, listOf(operation(
             SyncOperationType.EPISODE_UNWATCHED,
             mediaType = MediaType.TV,
             payload = "2:3",
         )))
 
-        val request = server.takeRequest()
-        assertEquals("POST", request.method)
-        assertEquals("/proxy/api/v1/media/tv/tmdb/42/2/episodes/3/drop/", request.path)
+        assertEquals(setOf("EPISODE_UNWATCHED"), result.completedOperationIds)
+        repeat(3) {
+            val request = server.takeRequest()
+            assertEquals("DELETE", request.method)
+            assertEquals("/proxy/api/v1/media/tv/tmdb/42/2/episodes/3/watch/", request.path)
+        }
+        assertEquals(3, server.requestCount)
     }
 
     @Test

@@ -156,13 +156,13 @@ interface FloppyApi {
     @GET("api/v1/tasks/{taskId}/")
     suspend fun taskStatus(@Path("taskId") taskId: String): FloppyTaskStatusResponse
 
-    @POST("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/episodes/{episode}/drop/")
-    suspend fun dropEpisode(
+    /** Removes the episode's latest play; 404 once it has none (or the show is gone). */
+    @DELETE("api/v1/media/{mediaType}/{source}/{mediaId}/{season}/episodes/{episode}/watch/")
+    suspend fun unwatchEpisode(
         @Path("mediaType") mediaType: String = "tv",
         @Path("source") source: String,
         @Path("mediaId") mediaId: String,
         @Path("season") season: Int,
         @Path("episode") episode: Int,
-        @Body request: FloppyEpisodeWatchRequest = FloppyEpisodeWatchRequest(),
-    ): FloppyTrackedMedia
+    )
 }
