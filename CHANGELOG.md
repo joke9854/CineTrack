@@ -1,3 +1,17 @@
+# CineTrack 0.99.55 beta
+
+**New**
+- Calendar: episodes and films out today stay in the list, marked "Aired" / "Released" instead of the time. A show's episodes on the same day fold into one stacked card (tap to see them); History's multi-episode cards get the same stacked look.
+- Release bells start on for releases that notify you anyway; turning one off silences just that release.
+- Floppy settings: a "Sync now" button while connected, and the status reads Connected / Not connected.
+
+**Design**
+- Going back from a show or movie page: the page follows your back gesture, and when you let go the poster flies back to its place while the page fades out. From the Library and Progress it now lands on the right tile without a jump.
+
+**Fixes**
+- Calendar: which day a release falls on now uses your time zone. With Simkl (or TMDB) air dates, episodes airing today could be missing.
+- Statistics: "vs last year" compares the same stretch of last year, and the genre bars count this year.
+
 # CineTrack 0.99.54 beta
 
 **New**
