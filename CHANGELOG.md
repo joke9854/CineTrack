@@ -1,3 +1,9 @@
+# CineTrack 0.99.56 beta
+
+**Fixes**
+- A show removed from the library no longer comes back as In progress (on the phone and on Floppy) after a sync. A removal Simkl accepted while a sync was running was overwritten by that sync's older copy of your Simkl library.
+- The update pill shows the download percentage instead of placeholder text.
+
 # CineTrack 0.99.55 beta
 
 **New**
