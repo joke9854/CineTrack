@@ -979,19 +979,20 @@ class SimklSyncEngine(
             if (isMainProviderCurrent()) enqueueSecondaryMirror(operation)
         }
         preferences.markSimklChecked(committedAt)
+        val advancedBaseline = advanceSyncBaseline(
+            previous = previousBaseline,
+            remote = remoteTrackingSnapshot,
+            acknowledgedStates = localStatesToPushExact.filter { stateOperationId(it.mediaType, it.mediaId) in transportedOperationIds },
+            acknowledgedMovieHistoryOperations = operationsToPush.filter {
+                it.id in transportedOperationIds &&
+                    it.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED)
+            },
+            acknowledgedEpisodeWrites = episodeWritesToPushExact,
+            acknowledgedHistoryRemovals = historyRemovalsToPushExact,
+            conflicts = reconciliation.conflicts,
+        )
         preferences.saveSyncBaseline(
-            advanceSyncBaseline(
-                previous = previousBaseline,
-                remote = remoteTrackingSnapshot,
-                acknowledgedStates = localStatesToPushExact.filter { stateOperationId(it.mediaType, it.mediaId) in transportedOperationIds },
-                acknowledgedMovieHistoryOperations = operationsToPush.filter {
-                    it.id in transportedOperationIds &&
-                        it.type in setOf(SyncOperationType.MOVIE_WATCHED, SyncOperationType.MOVIE_UNWATCHED)
-                },
-                acknowledgedEpisodeWrites = episodeWritesToPushExact,
-                acknowledgedHistoryRemovals = historyRemovalsToPushExact,
-                conflicts = reconciliation.conflicts,
-            ),
+            keepDeliveriesDuringSync(previousBaseline, preferences.syncBaselineNow(TrackingProviderId.SIMKL), advancedBaseline),
             TrackingProviderId.SIMKL,
         )
         progress(true, .78f, SyncStage.COMMIT)
@@ -1061,6 +1062,31 @@ class SimklSyncEngine(
  * pushed a show watched just before the sync below the rest and sorted the others by title.
  */
 private const val RECENT_LOCAL_CHANGE_MS = 30 * 60 * 1000L
+
+/**
+ * The baseline this sync saves was built from the one read when it started. A status
+ * Simkl accepted meanwhile (recordDeliveredLibraryState writes the stored baseline as
+ * soon as Simkl confirms it) must survive that save: otherwise a removal delivered
+ * during a sync was written back as the old status, Simkl's change-only downloads never
+ * mention the removal, and half an hour later the show came back In progress (and was
+ * mirrored to Floppy). Titles the stored baseline changed since [start] keep the stored
+ * entry, episodes included; everything else is this sync's result.
+ */
+internal fun keepDeliveriesDuringSync(start: TrackingSnapshot?, stored: TrackingSnapshot?, advanced: TrackingSnapshot): TrackingSnapshot {
+    if (stored == null || stored == start) return advanced
+    val startShows = start?.shows.orEmpty().associateBy { it.ids.tmdb }
+    val storedShows = stored.shows.associateBy { it.ids.tmdb }
+    val changedShows = (startShows.keys + storedShows.keys).filterNotNull().filter { startShows[it] != storedShows[it] }.toSet()
+    val startMovies = start?.movies.orEmpty().associateBy { it.ids.tmdb }
+    val storedMovies = stored.movies.associateBy { it.ids.tmdb }
+    val changedMovies = (startMovies.keys + storedMovies.keys).filterNotNull().filter { startMovies[it] != storedMovies[it] }.toSet()
+    if (changedShows.isEmpty() && changedMovies.isEmpty()) return advanced
+    return advanced.copy(
+        shows = advanced.shows.filterNot { it.ids.tmdb in changedShows } + changedShows.mapNotNull(storedShows::get),
+        episodes = advanced.episodes.filterNot { it.showIds.tmdb in changedShows } + stored.episodes.filter { it.showIds.tmdb in changedShows },
+        movies = advanced.movies.filterNot { it.ids.tmdb in changedMovies } + changedMovies.mapNotNull(storedMovies::get),
+    )
+}
 
 internal fun remoteActivityAt(remoteUpdatedAt: Long?, watchedAt: Long?, previousUpdatedAt: Long?, committedAt: Long): Long =
     watchedAt ?: remoteUpdatedAt ?: previousUpdatedAt ?: committedAt

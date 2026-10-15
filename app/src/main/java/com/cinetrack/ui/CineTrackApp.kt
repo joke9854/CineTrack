@@ -612,7 +612,7 @@ fun CineTrackApp(
                 val downloading = appUpdateState as? com.cinetrack.data.update.AppUpdateState.Downloading
                 com.cinetrack.ui.components.StatusPill(
                     title = stringResource(com.cinetrack.R.string.update_available, update.version),
-                    detail = if (downloading != null) stringResource(com.cinetrack.R.string.downloading_update) else stringResource(com.cinetrack.R.string.update_pill_detail),
+                    detail = if (downloading != null) stringResource(com.cinetrack.R.string.downloading_update, (downloading.progress * 100).toInt()) else stringResource(com.cinetrack.R.string.update_pill_detail),
                     tone = if (downloading != null) com.cinetrack.ui.components.PillTone.RUNNING else com.cinetrack.ui.components.PillTone.INFO,
                     fraction = downloading?.progress,
                     actionLabel = if (downloading == null) stringResource(com.cinetrack.R.string.update_install) else null,
