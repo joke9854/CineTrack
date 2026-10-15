@@ -342,8 +342,11 @@ fun LibraryScreen(
                 onCompactNav(false)
             }
             // As in Progress: the headline row scrolls away, tabs and toolbar stay pinned.
-            var titlePx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
-            var headerPx by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+            // Saved, so a page rebuilt on going back lays the grid out below the header in its
+            // very first frame; measured afresh it started at 0, and a poster flying home aimed
+            // at a tile one header too high, then had to chase it.
+            var titlePx by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
+            var headerPx by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
             val headerScroll = remember(listView) {
                 {
                     if (listView) { if (listState.firstVisibleItemIndex > 0) Int.MAX_VALUE else listState.firstVisibleItemScrollOffset }
@@ -1374,7 +1377,17 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
     val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
     // The header already says "not connected"; the status details matter once connected.
     if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
-        ValueRow(stringResource(R.string.floppy_status), if (state.floppyIsMain) stringResource(R.string.floppy_main) else floppyStatusLabel(state.floppyUiState), state.floppyUiState == FloppyUiState.READY)
+        // Whether it's connected; the role and the initial sync have their own rows.
+        val attention = state.floppyUiState == FloppyUiState.NEEDS_ATTENTION
+        ValueRow(
+            stringResource(R.string.floppy_status),
+            stringResource(when {
+                attention -> R.string.floppy_needs_attention
+                state.floppyConnected -> R.string.floppy_connected
+                else -> R.string.floppy_not_connected
+            }),
+            state.floppyConnected && !attention,
+        )
         if (state.floppyConnected) {
             ValueRow(stringResource(R.string.floppy_role), when {
                 state.floppyIsMain -> stringResource(R.string.floppy_role_main)
@@ -1444,11 +1457,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         }
     }
     val signInContext = LocalContext.current
+    val sync by viewModel.syncProgress.collectAsStateWithLifecycle()
     FloppyConnectionSettingsForm(
         state,
         connectionUiState,
         viewModel::connectFloppy,
         onSignInRequested = { url, allowHttp -> viewModel.beginFloppySignIn(signInContext, url, allowHttp) },
+        syncing = sync.running,
+        onSyncRequested = viewModel::sync,
     )
     val floppyUri = LocalUriHandler.current
     KitSteps(
@@ -1615,6 +1631,8 @@ internal fun FloppyConnectionSettingsForm(
     connectionUiState: FloppyConnectionUiState = FloppyConnectionUiState(),
     onConnectRequested: (String, String, Boolean) -> Unit = { _, _, _ -> },
     onSignInRequested: ((String, Boolean) -> Unit)? = null,
+    syncing: Boolean = false,
+    onSyncRequested: (() -> Unit)? = null,
 ) {
     var url by rememberSaveable(state.floppyBaseUrl) { mutableStateOf(state.floppyBaseUrl.orEmpty()) }
     var apiKey by rememberSaveable { mutableStateOf("") }
@@ -1734,8 +1752,27 @@ internal fun FloppyConnectionSettingsForm(
                     modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm),
                 )
             }
+            // Connected to this address, the button syncs (like Simkl's); a changed
+            // address turns it back into Reconnect.
+            val syncAction = editing && onSyncRequested != null && url.trim() == state.floppyBaseUrl.orEmpty().trim()
+            if (syncAction) Button(
+                onClick = { onSyncRequested?.invoke() },
+                enabled = !syncing && !connectionUiState.running,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sync_button"),
+                shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
+            ) {
+                if (syncing) {
+                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                } else {
+                    Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(7.dp))
+                }
+                Text(stringResource(R.string.sync_now), fontWeight = FontWeight.ExtraBold)
+            }
             // Signing in is the connect action until a connection exists.
-            if (!signInFlow) Button(
+            else if (!signInFlow) Button(
                 onClick = {
                     focusManager.clearFocus()
                     onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)

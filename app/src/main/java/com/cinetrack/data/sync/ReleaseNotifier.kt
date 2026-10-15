@@ -113,6 +113,7 @@ object ReleaseNotifier {
                     .setInputData(
                         workDataOf(
                             "key" to key,
+                            "muteKey" to muteKey(event.media.stableKey, event.season, event.episodeNumber, event.timestamp),
                             "title" to event.media.title,
                             "text" to releaseNotificationText(context, event.season, event.episodeNumber, event.episodeTitle, event.episodeLabel),
                             "episodeTitle" to (event.episodeTitle ?: extractEpisodeTitle(event.episodeLabel).orEmpty()),
@@ -135,6 +136,10 @@ object ReleaseNotifier {
 
     fun reminderKey(mediaKey: String, season: Int?, episode: Int?, day: String): String =
         "reminder:$mediaKey:${season ?: 0}:${episode ?: 0}:${day.take(10)}"
+
+    /** Marks a release the user silenced although its kind of release notifies by default. */
+    fun muteKey(mediaKey: String, season: Int?, episode: Int?, day: String): String =
+        "mute:$mediaKey:${season ?: 0}:${episode ?: 0}:${day.take(10)}"
 
     /**
      * Schedules (or cancels) a notification on a title's release day, for any title,
@@ -200,6 +205,7 @@ object ReleaseNotifier {
         if (explicit) data.getString("key")?.let { preferences.setReleaseReminder(it, false) }
         if (!explicit && type == MediaType.TV && !preferences.notificationEpisodes.first()) return
         if (!explicit && type == MediaType.MOVIE && !preferences.notificationMovies.first()) return
+        if (!explicit && data.getString("muteKey") in preferences.releaseReminders.first()) return
         if (!canNotify(context, preferences)) return
         val key = data.getString("key") ?: return
         if (!preferences.markReleaseNotified(key)) return
@@ -291,6 +297,7 @@ object ReleaseNotifier {
         val today = now.toLocalDate().toString()
         val notified = preferences.notifiedReleaseKeys().toMutableSet()
         val manager = NotificationManagerCompat.from(context)
+        val muted = preferences.releaseReminders.first()
         state.calendar.filter { event ->
             releaseDateTime(event.timestamp, releaseZone)?.let { releaseAt ->
                 releaseAt.toLocalDate() == now.toLocalDate() && !releaseAt.isAfter(now)
@@ -298,7 +305,8 @@ object ReleaseNotifier {
         }.forEach { event ->
             if (event.media.type == MediaType.TV && !preferences.notificationEpisodes.first()) return@forEach
             if (event.media.type == MediaType.MOVIE && !preferences.notificationMovies.first()) return@forEach
-            val key = "${event.media.stableKey}:${event.season ?: 0}:${event.episodeNumber ?: 0}:$today"
+            if (muteKey(event.media.stableKey, event.season, event.episodeNumber, event.timestamp) in muted) return@forEach
+            val key ="${event.media.stableKey}:${event.season ?: 0}:${event.episodeNumber ?: 0}:$today"
             if (!notified.add(key)) return@forEach
             val deepLink = if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
                 "cinetrack://episode/${event.media.id}/${event.season}/${event.episodeNumber}"

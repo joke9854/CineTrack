@@ -1341,8 +1341,7 @@ private fun ReleaseCountdown(media: MediaCard, release: String, episode: Episode
     val days = daysUntil(release) ?: return
     val context = LocalContext.current
     val reminders by viewModel.releaseReminders.collectAsState()
-    val key = com.cinetrack.data.sync.ReleaseNotifier.reminderKey(media.stableKey, episode?.season, episode?.number, release)
-    val reminderOn = key in reminders
+    val reminderOn = viewModel.isReleaseReminderOn(reminders, media, release, episode?.season, episode?.number)
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val whenText = when (days) {
         0 -> stringResource(R.string.release_today)

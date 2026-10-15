@@ -1073,11 +1073,10 @@ class CineTrackRepository(
         // hide an imported or locally tracked release.
         val movieCalendar = activeLibrary.asSequence().filter { it.type == MediaType.MOVIE }.mapNotNull { media ->
             val date = media.releaseDate?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val releaseDay = runCatching { LocalDate.parse(date.take(10)) }.getOrNull() ?: return@mapNotNull null
-            // The Calendar is an upcoming schedule, not a release history. Date-only
-            // TMDB entries are kept only after today so already-aired/released titles
-            // never reappear here.
-            if (!releaseDay.isAfter(today)) return@mapNotNull null
+            val releaseDay = releaseDateTime(date, releaseZone)?.toLocalDate() ?: return@mapNotNull null
+            // The Calendar is an upcoming schedule, not a release history: titles out
+            // before today never reappear here. Today's stay, marked as out.
+            if (releaseDay.isBefore(today)) return@mapNotNull null
             TimelineCard(media = media, label = date, timestamp = date)
         }.toList()
         val activeShowsById = activeLibrary.asSequence()
@@ -1093,7 +1092,9 @@ class CineTrackRepository(
             if (excludeSpecials && episode.season == 0) return@mapNotNull null
             if ("${episode.showId}:${episode.season}:${episode.number}" in hiddenUpcoming) return@mapNotNull null
             val date = episode.airDate?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val airDay = runCatching { LocalDate.parse(date.take(10)) }.getOrNull() ?: return@mapNotNull null
+            // The day it airs here, not the day written in the provider's timestamp:
+            // "2026-10-14T21:00-04:00" is already the 15th in Europe.
+            val airDay = releaseDateTime(date, releaseZone)?.toLocalDate() ?: return@mapNotNull null
             if (airDay.isBefore(today)) return@mapNotNull null
             TimelineCard(
                 media = show,

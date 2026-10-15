@@ -72,6 +72,7 @@ import com.cinetrack.ui.theme.TextSecondary
 import com.cinetrack.ui.theme.Violet
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
@@ -149,33 +150,45 @@ private fun DayHeader(title: String, detail: String?, modifier: Modifier = Modif
 
 // ---------------------------------------------------------------- Calendar
 
-internal class CalendarDay(val date: LocalDate, val items: List<TimelineCard>)
+internal class CalendarDay(val date: LocalDate, val items: List<TimelineCard>) {
+    /** A show's episodes on one day form one group; every other release stands alone. */
+    val groups: List<List<TimelineCard>> = items
+        .groupBy { if (it.media.type == MediaType.TV) it.media.stableKey else "${it.media.stableKey}:${it.timestamp}" }
+        .values.toList()
+}
 
-internal fun calendarDays(items: List<TimelineCard>): List<CalendarDay> =
-    items.mapNotNull { item -> timelineDate(item.timestamp)?.let { it to item } }
+internal fun calendarDays(items: List<TimelineCard>, zone: ZoneId): List<CalendarDay> =
+    items.mapNotNull { item -> releaseDateTime(item.timestamp, zone)?.toLocalDate()?.let { it to item } }
         .groupBy({ it.first }, { it.second })
         .toSortedMap()
         .map { (date, dayItems) -> CalendarDay(date, dayItems) }
 
+/** Out already: today's releases stay in the Calendar with an "Aired" mark instead of their time. */
+private fun released(item: TimelineCard, zone: ZoneId, now: Instant): Boolean =
+    releaseDateTime(item.timestamp, zone)?.toInstant()?.let { !it.isAfter(now) } == true
+
 /**
  * Calendar: a week strip (dots on days with releases; a tap jumps there),
  * then the releases by day. The next release gets a large card with its
- * art; the rest are compact rows. Each has a bell for its release reminder.
+ * art; the rest are compact rows, a show's episodes on one day stacked into
+ * one card. Each has a bell for its release reminder until it is out.
  */
 internal fun LazyListScope.calendarTimeline(
     days: List<CalendarDay>,
     today: LocalDate,
+    zone: ZoneId,
     listState: LazyListState,
     scope: CoroutineScope,
-    reminders: Set<String>,
+    isReminderOn: (TimelineCard) -> Boolean,
     onReminder: (TimelineCard, Boolean) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onEpisode: (EpisodeCard) -> Unit,
 ) {
-    // Item indices: 0 is the strip, then each day's header and its rows.
+    val now = Instant.now()
+    // Item indices: 0 is the strip, then each day's header and its cards.
     val headerIndex = HashMap<LocalDate, Int>()
     var index = 1
-    days.forEach { day -> headerIndex[day.date] = index; index += 1 + day.items.size }
+    days.forEach { day -> headerIndex[day.date] = index; index += 1 + day.groups.size }
     item(key = "calendar:week") {
         WeekStrip(today, days.map(CalendarDay::date).toSet()) { picked ->
             val target = headerIndex[picked] ?: headerIndex.entries.filter { it.key >= picked }.minByOrNull { it.key }?.value
@@ -187,14 +200,16 @@ internal fun LazyListScope.calendarTimeline(
         item(key = "calendar:day:${day.date}") {
             DayHeader(relativeDayLabel(day.date, today), pluralStringResource(R.plurals.releases_count, day.items.size, day.items.size))
         }
-        day.items.forEachIndexed { position, item ->
-            val big = !featured && !day.date.isBefore(today)
+        day.groups.forEachIndexed { position, group ->
+            val first = group.first()
+            val out = group.all { released(it, zone, now) }
+            val big = !featured && !out && !day.date.isBefore(today)
             if (big) featured = true
-            item(key = "calendar:${item.media.stableKey}:${item.timestamp}:${item.season}:${item.episodeNumber}:$position") {
-                val key = com.cinetrack.data.sync.ReleaseNotifier.reminderKey(item.media.stableKey, item.season, item.episodeNumber, item.timestamp)
-                val reminderOn = key in reminders
-                if (big) FeaturedRelease(item, reminderOn, { onReminder(item, !reminderOn) }) { open(item, onMedia, onEpisode) }
-                else CompactRelease(item, reminderOn, { onReminder(item, !reminderOn) }) { open(item, onMedia, onEpisode) }
+            item(key = "calendar:${first.media.stableKey}:${first.timestamp}:${first.season}:${first.episodeNumber}:${group.size}:$position") {
+                val reminderOn = group.all(isReminderOn)
+                val toggle = { group.forEach { onReminder(it, !reminderOn) } }
+                if (big) FeaturedRelease(group, reminderOn, toggle) { open(first, onMedia, onEpisode) }
+                else CompactRelease(group, out, reminderOn, toggle, { open(it, onMedia, onEpisode) })
             }
         }
     }
@@ -257,49 +272,114 @@ private fun releaseTitle(item: TimelineCard): String =
     listOfNotNull(episodeCode(item.season, item.episodeNumber), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
         .ifBlank { item.episodeLabel ?: item.media.year }
 
+/** "S02E05 – E07 · 3 episodes" for several episodes, the episode's own title for one. */
 @Composable
-private fun FeaturedRelease(item: TimelineCard, reminderOn: Boolean, onReminder: () -> Unit, onOpen: () -> Unit) {
-    val art = item.media.backdropUrl ?: item.media.posterUrl
-    Box(
-        Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.md).fillMaxWidth().aspectRatio(16f / 8.5f)
-            .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
-            .background(Brush.linearGradient(listOf(Accent.copy(alpha = .55f), Info.copy(alpha = .25f))))
-            .clickable(onClick = onOpen),
-    ) {
-        if (!art.isNullOrBlank()) AsyncImage(art, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .45f to Color.Transparent, 1f to Color.Black.copy(alpha = .82f))))
-        val clock = if (com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
-        if (clock.isNotBlank()) Text(
-            clock, color = TextPrimary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = 9.dp, vertical = 4.dp),
-        )
-        Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ReminderBell(reminderOn, onReminder, onArt = true) }
-        Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
-            Text(item.media.title, color = TextPrimary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            Text(releaseTitle(item), color = TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun episodesLine(events: List<TimelineCard>): String {
+    val first = events.first()
+    val last = events.last()
+    if (events.size == 1) return releaseTitle(first)
+    val from = episodeCode(first.season, first.episodeNumber)
+    val to = if (first.season == last.season) last.episodeNumber?.let { "E%02d".format(it) } else episodeCode(last.season, last.episodeNumber)
+    return listOfNotNull(
+        listOfNotNull(from, to).joinToString(" – ").takeIf(String::isNotBlank),
+        pluralStringResource(R.plurals.episodes_count, events.size, events.size),
+    ).joinToString(" · ")
+}
+
+/**
+ * A card with the edges of the cards beneath it showing, like a small deck: several
+ * episodes folded into one. The edges tuck away while the card is open.
+ */
+@Composable
+private fun StackedCard(stacked: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
+    val reveal by androidx.compose.animation.core.animateFloatAsState(if (stacked) 1f else 0f, label = "stackedCard")
+    Column(modifier) {
+        content()
+        if (reveal > 0f) {
+            val edge = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)
+            Box(Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(5.dp * reveal).clip(edge).background(Color.White.copy(alpha = .085f)))
+            Box(Modifier.padding(horizontal = 22.dp).fillMaxWidth().height(4.dp * reveal).clip(edge).background(Color.White.copy(alpha = .045f)))
         }
     }
 }
 
 @Composable
-private fun CompactRelease(item: TimelineCard, reminderOn: Boolean, onReminder: () -> Unit, onOpen: () -> Unit) {
-    Row(
-        Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm).fillMaxWidth()
-            .glass(CardShape).clip(CardShape).clickable(onClick = onOpen)
-            .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        PosterThumb(item.media, 38.dp, 56.dp)
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(item.media.title, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+private fun ReleasedMark(item: TimelineCard) {
+    Box(Modifier.padding(end = 10.dp)) {
+        Milestone(stringResource(if (item.media.type == MediaType.MOVIE) R.string.calendar_released else R.string.calendar_aired), Success)
+    }
+}
+
+@Composable
+private fun FeaturedRelease(group: List<TimelineCard>, reminderOn: Boolean, onReminder: () -> Unit, onOpen: () -> Unit) {
+    val item = group.first()
+    val art = item.media.backdropUrl ?: item.media.posterUrl
+    StackedCard(group.size > 1, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.md)) {
+        Box(
+            Modifier.fillMaxWidth().aspectRatio(16f / 8.5f)
+                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
+                .background(Brush.linearGradient(listOf(Accent.copy(alpha = .55f), Info.copy(alpha = .25f))))
+                .clickable(onClick = onOpen),
+        ) {
+            if (!art.isNullOrBlank()) AsyncImage(art, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .45f to Color.Transparent, 1f to Color.Black.copy(alpha = .82f))))
             val clock = if (com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
-            Text(
-                listOf(releaseTitle(item), clock).filter(String::isNotBlank).joinToString(" · "),
-                color = TextMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            if (clock.isNotBlank()) Text(
+                clock, color = TextPrimary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = 9.dp, vertical = 4.dp),
             )
+            Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ReminderBell(reminderOn, onReminder, onArt = true) }
+            Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
+                Text(item.media.title, color = TextPrimary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(episodesLine(group), color = TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
         }
-        ReminderBell(reminderOn, onReminder)
+    }
+}
+
+@Composable
+private fun CompactRelease(group: List<TimelineCard>, released: Boolean, reminderOn: Boolean, onReminder: () -> Unit, onOpen: (TimelineCard) -> Unit) {
+    val item = group.first()
+    val several = group.size > 1
+    var expanded by rememberSaveable(item.media.stableKey, item.timestamp, group.size) { mutableStateOf(false) }
+    StackedCard(several && !expanded, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm)) {
+        Column(Modifier.fillMaxWidth().glass(CardShape).clip(CardShape).animateContentSize()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clickable { if (several) expanded = !expanded else onOpen(item) }
+                    .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                PosterThumb(item.media, 38.dp, 56.dp)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(item.media.title, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    val clock = if (!released && com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
+                    Text(
+                        listOf(episodesLine(group), clock).filter(String::isNotBlank).joinToString(" · "),
+                        color = TextMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                if (several) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted, modifier = Modifier.padding(end = 4.dp).size(20.dp))
+                if (released) ReleasedMark(item) else ReminderBell(reminderOn, onReminder)
+            }
+            AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+                Column(Modifier.padding(start = 58.dp, end = 12.dp, bottom = 6.dp)) {
+                    group.forEach { episode ->
+                        Row(
+                            Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(8.dp))
+                                .clickable { onOpen(episode) }.padding(vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(releaseTitle(episode), color = TextPrimary, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            if (com.cinetrack.domain.hasExplicitReleaseTime(episode.timestamp)) {
+                                Text(timelineClock(episode.timestamp), color = TextMuted, style = MaterialTheme.typography.labelMedium)
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -393,10 +473,8 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
     val several = events.size > 1
     var expanded by rememberSaveable(session.key) { mutableStateOf(false) }
     val isMovie = first.media.type == MediaType.MOVIE
-    Column(
-        Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm).fillMaxWidth()
-            .glass(CardShape).clip(CardShape).animateContentSize(),
-    ) {
+    StackedCard(several && !expanded, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm)) {
+    Column(Modifier.fillMaxWidth().glass(CardShape).clip(CardShape).animateContentSize()) {
         Row(
             Modifier.fillMaxWidth()
                 .clickable { if (several) expanded = !expanded else open(first, onMedia, onEpisode) }
@@ -416,12 +494,7 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
                 Text(first.media.title, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 val detail = when {
                     isMovie -> listOf(first.media.year, formatDurationMinutes(first.media.runtimeMinutes)).filter(String::isNotBlank).joinToString(" · ")
-                    several -> {
-                        val from = episodeCode(first.season, first.episodeNumber)
-                        val to = if (first.season == last.season) last.episodeNumber?.let { "E%02d".format(it) } else episodeCode(last.season, last.episodeNumber)
-                        listOfNotNull(listOfNotNull(from, to).joinToString(" – ").takeIf(String::isNotBlank), pluralStringResource(R.plurals.episodes_count, events.size, events.size)).joinToString(" · ")
-                    }
-                    else -> releaseTitle(first)
+                    else -> episodesLine(events)
                 }
                 Text(detail, color = TextSecondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (session.seasonFinished || session.rewatch) {
@@ -450,5 +523,6 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
                 }
             }
         }
+    }
     }
 }

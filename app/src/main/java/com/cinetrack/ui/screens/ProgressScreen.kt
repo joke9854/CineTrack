@@ -204,6 +204,7 @@ fun ProgressScreen(
     onLoadViewingInsights: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
     releaseReminders: Set<String> = emptySet(),
+    isReminderOn: (com.cinetrack.domain.TimelineCard) -> Boolean = { false },
     onReminder: (com.cinetrack.domain.TimelineCard, Boolean) -> Unit = { _, _ -> },
 ) {
     val isSyncRunning by syncRunning.collectAsStateWithLifecycle()
@@ -244,7 +245,7 @@ fun ProgressScreen(
     }
     val upcomingEpisodes = upcomingResult.orEmpty()
     val today = remember(releaseZone) { LocalDate.now(releaseZone) }
-    val calendarDays = remember(state.calendar) { calendarDays(state.calendar) }
+    val calendarDays = remember(state.calendar, releaseZone) { calendarDays(state.calendar, releaseZone) }
     // Grouping parses every history timestamp, so it runs off the main thread.
     val historyEntries by produceState(initialValue = HistoryCache.result.takeIf { HistoryCache.input === state.history }, state.history) {
         val computed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { historyEntries(state.history) }
@@ -291,8 +292,9 @@ fun ProgressScreen(
             Box(Modifier.fillMaxSize().statusBarsPadding()) {
                 // The title row scrolls away with the list; tabs and sync card stay pinned and
                 // gain a translucent backing once content passes beneath them.
-                var titlePx by remember { mutableIntStateOf(0) }
-                var headerPx by remember { mutableIntStateOf(0) }
+                // Saved, so the rebuilt page is laid out below its header from the first frame.
+                var titlePx by rememberSaveable { mutableIntStateOf(0) }
+                var headerPx by rememberSaveable { mutableIntStateOf(0) }
                 val headerScroll = remember(activeListState) {
                     { if (activeListState.firstVisibleItemIndex > 0) Int.MAX_VALUE else activeListState.firstVisibleItemScrollOffset }
                 }
@@ -397,7 +399,7 @@ fun ProgressScreen(
                     }
                     ProgressTab.CALENDAR -> {
                         if (calendarDays.isEmpty()) item { ProgressEmpty(stringResource(R.string.no_calendar_items)) }
-                        else calendarTimeline(calendarDays, today, calendarListState, timelineScope, releaseReminders, onReminder, onMedia, onEpisode)
+                        else calendarTimeline(calendarDays, today, releaseZone, calendarListState, timelineScope, isReminderOn, onReminder, onMedia, onEpisode)
                     }
                     ProgressTab.STATISTICS -> item { StatisticsSection(state, viewingInsights) }
                 }
@@ -1526,14 +1528,18 @@ private fun computeStats(inputs: StatsInputs): StatsSummary {
         monthMinutes = dated.filter { it.first.year == now.year && it.first.month == now.month }.sumOf { watchedMinutesOf(it.second) },
         year = yearReview(dated, now),
         yearMonthMinutes = (1..12).map { month -> dated.filter { it.first.year == now.year && it.first.monthValue == month }.sumOf { watchedMinutesOf(it.second) } },
-        lastYearMinutes = dated.filter { it.first.year == now.year - 1 }.sumOf { watchedMinutesOf(it.second) },
+        // Compared with the same stretch of last year, not all of it: in October a full
+        // year always looks ahead.
+        lastYearMinutes = now.minusYears(1).let { sameDay -> dated.filter { it.first.year == sameDay.year && !it.first.isAfter(sameDay) } }.sumOf { watchedMinutesOf(it.second) },
         yearShows = dated.filter { it.first.year == now.year && it.second.media.type == MediaType.TV }.map { it.second.media.stableKey }.distinct().size,
         usualSlot = inputs.history.asSequence()
             .mapNotNull { releaseDateTime(it.timestamp, ZoneId.systemDefault()) }
             .filter { it.year == now.year }
             .groupingBy { it.dayOfWeek to it.hour }.eachCount()
             .maxByOrNull { it.value }?.key,
-        genreShares = inputs.history.flatMap { it.media.genres }.groupingBy { it.lowercase() }.eachCount().let { counts ->
+        // This year's genres, like the rest of the page; all time until something is watched this year.
+        genreShares = dated.filter { it.first.year == now.year }.map { it.second }.ifEmpty { inputs.history }
+            .flatMap { it.media.genres }.groupingBy { it.lowercase() }.eachCount().let { counts ->
             val total = counts.values.sum().coerceAtLeast(1)
             counts.entries.sortedByDescending { it.value }.take(4).map { it.key.replaceFirstChar { char -> char.uppercase() } to (it.value * 100 / total) }
         },

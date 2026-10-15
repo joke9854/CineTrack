@@ -667,9 +667,34 @@ class CineTrackViewModel(
     val releaseReminders: StateFlow<Set<String>> = repository.preferences.releaseReminders
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
+    /** Whether this release already notifies on its own: it is in the Calendar and its kind of notification is on. */
+    private fun notifiesByDefault(media: MediaCard, season: Int?, episode: Int?): Boolean {
+        val state = _state.value
+        val kindOn = if (media.type == com.cinetrack.domain.MediaType.TV) state.notificationEpisodes else state.notificationMovies
+        return kindOn && state.calendar.any { it.media.stableKey == media.stableKey && it.season == season && it.episodeNumber == episode }
+    }
+
+    /** The bell's state: a reminder the user set, or a default release notification they haven't silenced. */
+    fun isReleaseReminderOn(reminders: Set<String>, media: MediaCard, release: String, season: Int?, episode: Int?): Boolean {
+        val notifier = com.cinetrack.data.sync.ReleaseNotifier
+        if (notifier.reminderKey(media.stableKey, season, episode, release) in reminders) return true
+        return notifiesByDefault(media, season, episode) && notifier.muteKey(media.stableKey, season, episode, release) !in reminders
+    }
+
+    /**
+     * Turns the bell on or off. A release that notifies by default is silenced (or un-silenced)
+     * instead of getting a second, explicit reminder.
+     */
     fun setReleaseReminder(context: android.content.Context, media: MediaCard, release: String, season: Int?, episode: Int?, episodeTitle: String?, enabled: Boolean) {
+        val byDefault = notifiesByDefault(media, season, episode)
         viewModelScope.launch {
-            com.cinetrack.data.sync.ReleaseNotifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, enabled)
+            val notifier = com.cinetrack.data.sync.ReleaseNotifier
+            if (byDefault) {
+                repository.preferences.setReleaseReminder(notifier.muteKey(media.stableKey, season, episode, release), !enabled)
+                if (!enabled) notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, false)
+            } else {
+                notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, enabled)
+            }
         }
     }
 

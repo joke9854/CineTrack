@@ -37,6 +37,14 @@ object SharedPosterSource {
     fun select(slot: String, target: String) {
         active = slot
         activeTarget = target
+        returning = false
+    }
+
+    /** Set when a detail page closes, so the poster's flight home waits for the page beneath. */
+    @Volatile internal var returning = false
+
+    fun goingBack() {
+        returning = true
     }
 
     /** The tapped source's image, but only for the page it actually opened. */
@@ -52,8 +60,17 @@ fun rememberPosterSlot(): String = rememberSaveable { UUID.randomUUID().toString
 
 // A fixed-length curve: a spring kept the page transition (and the invisible outgoing
 // page that still catches touches) alive for about half a second after it looked done.
+// Going back, the page beneath is rebuilt first, and its first frame takes about 100 ms;
+// the animation clock runs on meanwhile, so the poster used to reappear halfway home.
+// It now waits that long before leaving, and flies the whole way smoothly.
+const val POSTER_RETURN_HOLD_MS = 120
+
 private val PosterBounds = BoundsTransform { _: Rect, _: Rect ->
-    androidx.compose.animation.core.tween(300, easing = androidx.compose.animation.core.FastOutSlowInEasing)
+    androidx.compose.animation.core.tween(
+        300,
+        delayMillis = if (SharedPosterSource.returning) POSTER_RETURN_HOLD_MS else 0,
+        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+    )
 }
 
 /**

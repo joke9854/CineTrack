@@ -42,9 +42,11 @@
     <string name="more_options">More options</string>
     <string name="refresh_info">Refresh info</string>
     <string name="stats_watched_in">Watched in %1$d</string>
-    <string name="stats_vs_last_year">%1$s h vs %2$d</string>
+    <string name="stats_vs_last_year">%1$s h vs this time in %2$d</string>
     <string name="stats_open_year">Your year in review</string>
     <string name="stats_usual_time">Your usual time</string>
+    <string name="calendar_aired">Aired</string>
+    <string name="calendar_released">Released</string>
     <plurals name="hours_unit"><item quantity="one">hour</item><item quantity="other">hours</item></plurals>
     <plurals name="shows_count"><item quantity="one">%1$d show</item><item quantity="other">%1$d shows</item></plurals>
     <string name="air_dates_from">Air dates from</string>

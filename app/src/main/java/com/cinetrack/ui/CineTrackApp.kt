@@ -108,9 +108,13 @@ private object Routes {
 private fun androidx.navigation.NavGraphBuilder.screen(
     route: String,
     arguments: List<androidx.navigation.NamedNavArgument> = emptyList(),
+    onPredictiveBack: (() -> Unit)? = null,
     content: @Composable androidx.compose.animation.AnimatedContentScope.(androidx.navigation.NavBackStackEntry) -> Unit,
 ) = composable(route, arguments) { entry ->
-    androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.components.LocalNavVisibility provides this) { content(entry) }
+    androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.components.LocalNavVisibility provides this) {
+        if (onPredictiveBack == null) content(entry)
+        else com.cinetrack.ui.components.PredictiveBackPage(onPredictiveBack) { content(entry) }
+    }
 }
 
 private fun isDetailRoute(route: String?): Boolean = route == Routes.Detail || route == Routes.Episode
@@ -120,12 +124,13 @@ private fun isDetailRoute(route: String?): Boolean = route == Routes.Detail || r
 private val DetailEnter = fadeIn(tween(90)) + androidx.compose.animation.slideInVertically(tween(300)) { 0 }
 // The leaving page is gone after its 90 ms fade, so it cannot swallow the next tap.
 private val DetailExit = fadeOut(tween(90))
+// Coming back, the poster waits for the rebuilt page before it flies, so the transition
+// lasts that much longer.
+private val DetailPopEnter = fadeIn(tween(90)) +
+    androidx.compose.animation.slideInVertically(tween(300 + com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS)) { 0 }
+// The closing page fades out while its poster flies home, not at once.
+private val DetailPopExit = fadeOut(tween(300, delayMillis = com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS / 2))
 
-// Going back (and while the back gesture is held) the detail page shrinks and fades
-// over the same 300 ms as its poster flies home, and the list settles in behind it,
-// so the poster never drifts alone over a page that stands still.
-private val DetailPopExit = androidx.compose.animation.scaleOut(tween(300, easing = FastOutSlowInEasing), targetScale = .9f) + fadeOut(tween(220, delayMillis = 80))
-private val DetailPopEnter = androidx.compose.animation.scaleIn(tween(300, easing = FastOutSlowInEasing), initialScale = .97f) + fadeIn(tween(200))
 
 private fun mainPageIndex(route: String?): Int? = when (route) {
     Routes.Discover -> 0
@@ -362,6 +367,7 @@ fun CineTrackApp(
                     onLoadViewingInsights = viewModel::loadViewingInsights,
                     onCompactNav = { compactNav = it },
                     releaseReminders = releaseReminders,
+                    isReminderOn = { item -> viewModel.isReleaseReminderOn(releaseReminders, item.media, item.timestamp, item.season, item.episodeNumber) },
                     onReminder = { item, enable ->
                         if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
                             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
@@ -451,6 +457,7 @@ fun CineTrackApp(
             }
             screen(
                 Routes.Detail,
+                onPredictiveBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                 arguments = listOf(
                     navArgument("type") { type = NavType.StringType },
                     navArgument("id") { type = NavType.IntType },
@@ -485,7 +492,7 @@ fun CineTrackApp(
                             state.rails[if (type == MediaType.TV) com.cinetrack.domain.RailIds.TRENDING_TV else com.cinetrack.domain.RailIds.TRENDING_MOVIES].orEmpty()
                         ).distinctBy(com.cinetrack.domain.MediaCard::stableKey),
                     viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
+                    onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onStatus = viewModel::setStatus,
                     onMedia = openMedia,
                     onEpisode = { episode ->
@@ -499,6 +506,7 @@ fun CineTrackApp(
             }
             screen(
                 Routes.Episode,
+                onPredictiveBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                 arguments = listOf(
                     navArgument("showId") { type = NavType.IntType },
                     navArgument("season") { type = NavType.IntType },
@@ -521,7 +529,7 @@ fun CineTrackApp(
                     allEpisodes = state.episodes.filter { it.showId == showId },
                     people = state.people,
                     viewModel = viewModel,
-                    onBack = { navController.popBackStack() },
+                    onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onSeries = { navController.navigate("detail/${MediaType.TV.name}/$showId") },
                     onMedia = openMedia,
                     onWatched = viewModel::setEpisodeWatched,
