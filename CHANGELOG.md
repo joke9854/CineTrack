@@ -1,3 +1,8 @@
+# CineTrack 0.99.58 beta
+
+**Diagnostics**
+- Settings > Logs now records how a show you removed comes back: whether Simkl accepted the removal, and whether the returning status came from Simkl or from the app's saved copy of your Simkl library.
+
 # CineTrack 0.99.57 beta
 
 **New**
