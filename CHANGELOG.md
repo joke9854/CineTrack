@@ -1,3 +1,8 @@
+# CineTrack 0.99.60 beta
+
+**Fixes**
+- Simkl: giving a movie a library status (Plan to watch, Watching, Paused, Dropped) now reaches Simkl. The status was sent, but the "not watched" update sent with it removed the movie from your Simkl lists again. Set the status once more on movies you changed recently.
+
 # CineTrack 0.99.59 beta
 
 **Fixes**
