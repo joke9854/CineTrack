@@ -1,3 +1,8 @@
+# CineTrack 0.99.59 beta
+
+**Fixes**
+- A show removed from the library no longer comes back as In progress hours later. Simkl accepted the removal, but the app's saved copy of your Simkl library kept the old status, and later syncs read it back as if Simkl still had the show. Remove the show once more after updating.
+
 # CineTrack 0.99.58 beta
 
 **Diagnostics**
