@@ -1,3 +1,12 @@
+# CineTrack 0.99.57 beta
+
+**New**
+- Floppy: when you change the server address and the app sees the same Floppy account there, it asks whether it is the same server at a new address or a different server. "Same server" keeps the connection and its finished initial sync; "Different server" starts a new initial sync.
+
+**Fixes**
+- Floppy initial sync is much faster: after each batch the app no longer re-checked the whole sync plan.
+- A show TMDB no longer has (deleted or merged) no longer stops the Floppy initial sync from finishing; its episodes are listed as not on Floppy. Needs Floppy CineTrack-API a39dd59 or later.
+
 # CineTrack 0.99.56 beta
 
 **Fixes**
