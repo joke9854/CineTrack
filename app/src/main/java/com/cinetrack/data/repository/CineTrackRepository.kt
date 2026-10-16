@@ -1392,6 +1392,10 @@ class CineTrackRepository(
                 response.notFound.shows
             }
             check(unmatched.isEmpty()) { "Simkl could not match the item being removed" }
+            recordDeliveredLibraryState(state)
+            val baselined = preferences.syncBaselineNow(TrackingProviderId.SIMKL) != null
+            preferences.appendErrorLog("${Instant.now()}  SIMKL removed ${state.mediaType}:${state.mediaId} (history/remove matched, baseline ${if (baselined) "updated" else "missing"})")
+            return
         } else {
             // Library status is its own logical field. Movie/episode history
             // operations are dispatched independently by pushOperation; this

@@ -436,6 +436,16 @@ class SimklSyncEngine(
             completeMovies = completeMovieSnapshot,
             completeShows = completeTvSnapshot,
         )
+        // Where a remote library status came from: this pull (and which list
+        // download) or only the stored baseline. No ids beyond the TMDB key.
+        fun simklOrigin(type: String, id: Int): String {
+            val pulled = resolvedItems.firstOrNull { it.type.name == type && it.tmdbId == id }
+                ?: return "source=baseline fetch=${if (type == MediaType.MOVIE.name) movieRemovalChanged else tvRemovalChanged}"
+            val inAnime = remote.second.shows.any { it.show?.ids?.tmdb == id.toString() } || remote.second.anime.any { it.show?.ids?.tmdb == id.toString() }
+            return "source=pulled list=${if (inAnime) "anime" else if (type == MediaType.MOVIE.name) "movies" else "shows"} " +
+                "full=${if (type == MediaType.MOVIE.name) movieRemovalChanged else tvRemovalChanged} status=${pulled.item.status} " +
+                "last_watched=${pulled.item.lastWatchedAt ?: "none"} added=${pulled.item.addedAt ?: "none"} seasons=${pulled.item.seasons.size}"
+        }
         val localEpisodesByKey = linkedMapOf<String, TrackedEpisodeState>()
         historyBeforeSync.forEach { history ->
             val season = history.season ?: return@forEach
@@ -826,8 +836,11 @@ class SimklSyncEngine(
                     before.updatedAt > (remoteStatesByKey["$type:$id"]?.updatedAt ?: 0L)
                 ) {
                     if (before.status == LibraryStatus.NONE.name) keptRemovals += "$type:$id"
-                    preferences.appendErrorLog("${Instant.now()}  Simkl sync: kept this device's change $type:$id ${before.status} (Simkl still had ${mutation.status.name})")
+                    preferences.appendErrorLog("${Instant.now()}  Simkl sync: kept this device's change $type:$id ${before.status} (Simkl still had ${mutation.status.name}; ${simklOrigin(type, id)})")
                     continue
+                }
+                if (mutation is LocalMutation.SetLibraryStatus && before?.status == LibraryStatus.NONE.name && mutation.status != LibraryStatus.NONE) {
+                    preferences.appendErrorLog("${Instant.now()}  Simkl sync: re-added $type:$id as ${mutation.status.name} (baseline=${lastSynced ?: "none"}; ${simklOrigin(type, id)})")
                 }
                 appliedRemoteMutations += mutation
                 val previous = database.stateDao().get(type, id)
@@ -991,10 +1004,17 @@ class SimklSyncEngine(
             acknowledgedHistoryRemovals = historyRemovalsToPushExact,
             conflicts = reconciliation.conflicts,
         )
-        preferences.saveSyncBaseline(
-            keepDeliveriesDuringSync(previousBaseline, preferences.syncBaselineNow(TrackingProviderId.SIMKL), advancedBaseline),
-            TrackingProviderId.SIMKL,
-        )
+        val storedBaseline = preferences.syncBaselineNow(TrackingProviderId.SIMKL)
+        val savedBaseline = keepDeliveriesDuringSync(previousBaseline, storedBaseline, advancedBaseline)
+        // Diagnostic: a show the device removed that the saved copy of the
+        // Simkl library still lists comes back on a later sync.
+        savedBaseline.shows.filter { it.libraryState != null && it.libraryState != LibraryStatus.NONE }.forEach { show ->
+            val id = show.ids.tmdb?.toInt() ?: return@forEach
+            if (database.stateDao().get(MediaType.TV.name, id)?.status != LibraryStatus.NONE.name) return@forEach
+            fun at(snapshot: TrackingSnapshot?) = snapshot?.shows?.firstOrNull { it.ids.tmdb == show.ids.tmdb }?.libraryState?.name ?: "absent"
+            preferences.appendErrorLog("${Instant.now()}  Simkl sync: saved copy keeps removed TV:$id as ${show.libraryState} (start=${at(previousBaseline)} stored=${at(storedBaseline)} remote=${at(remoteTrackingSnapshot)} pulled=${at(pulledTrackingSnapshot)})")
+        }
+        preferences.saveSyncBaseline(savedBaseline, TrackingProviderId.SIMKL)
         progress(true, .78f, SyncStage.COMMIT)
         val remainingPendingChanges = database.stateDao().pendingStates().size + database.syncDao().pendingWrites().size
         val addedCount = remoteStates.count { state ->
