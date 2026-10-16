@@ -367,12 +367,20 @@ class SimklSyncEngine(
             (remoteShows.isNotEmpty() || localTvCount == 0)
         val completeMovieSnapshot = movieRemovalChanged && resolvedMovies.size == remoteMovies.size &&
             (remoteMovies.isNotEmpty() || localMovieCount == 0)
+        // A full download where some items did not resolve to TMDB still lists
+        // every Simkl id the account has: an item whose Simkl id is known and
+        // missing was removed on Simkl. Items without a known Simkl id keep
+        // the conservative rule above.
+        val fullTvDownload = tvRemovalChanged && (remoteShows.isNotEmpty() || localTvCount == 0)
+        val fullMovieDownload = movieRemovalChanged && (remoteMovies.isNotEmpty() || localMovieCount == 0)
+        val remoteShowSimklIds = if (fullTvDownload && !completeTvSnapshot) remoteShows.mapNotNullTo(hashSetOf()) { it.show?.ids?.simkl } else null
+        val remoteMovieSimklIds = if (fullMovieDownload && !completeMovieSnapshot) remoteMovies.mapNotNullTo(hashSetOf()) { it.movie?.ids?.simkl } else null
         val remoteRemovedStates = if (mergeMode) emptyList() else localStates.mapNotNull { state ->
             if (state.dirty || state.status == LibraryStatus.NONE.name) return@mapNotNull null
             val key = "${state.mediaType}:${state.mediaId}"
             val removed = when (state.mediaType) {
-                MediaType.TV.name -> completeTvSnapshot && key !in remoteTvKeys
-                MediaType.MOVIE.name -> completeMovieSnapshot && key !in remoteMovieKeys
+                MediaType.TV.name -> key !in remoteTvKeys && removedFromSimklList(completeTvSnapshot, remoteShowSimklIds, state.simklId)
+                MediaType.MOVIE.name -> key !in remoteMovieKeys && removedFromSimklList(completeMovieSnapshot, remoteMovieSimklIds, state.simklId)
                 else -> false
             }
             if (removed) {
@@ -431,7 +439,7 @@ class SimklSyncEngine(
             generatedAt = Instant.now(),
         )
         val remoteTrackingSnapshot = mergePulledSnapshot(
-            previous = previousBaseline,
+            previous = previousBaseline?.withoutAbsentSimklItems(remoteShowSimklIds, remoteMovieSimklIds),
             pulled = pulledTrackingSnapshot,
             completeMovies = completeMovieSnapshot,
             completeShows = completeTvSnapshot,
@@ -1132,6 +1140,34 @@ internal fun withDeliveredLibraryState(
         shows = baseline.shows.filterNot { it.ids.tmdb == mediaId } +
             if (status == LibraryStatus.NONE) emptyList() else listOf(TrackedShowState(MediaIds(tmdb = mediaId), status)),
         episodes = if (status == LibraryStatus.NONE) baseline.episodes.filterNot { it.showIds.tmdb == mediaId } else baseline.episodes,
+    )
+}
+
+/**
+ * Whether a library item missing from Simkl's downloaded lists was removed
+ * there. A complete download decides on its own; a full download with
+ * unresolved items decides only for an item whose Simkl id is known
+ * ([remoteSimklIds] is then every Simkl id Simkl listed, else null).
+ */
+internal fun removedFromSimklList(complete: Boolean, remoteSimklIds: Set<Long>?, simklId: Long?): Boolean = when {
+    complete -> true
+    remoteSimklIds == null || simklId == null -> false
+    else -> simklId !in remoteSimklIds
+}
+
+/** The baseline without items Simkl's full lists no longer have (by known Simkl id). */
+internal fun TrackingSnapshot.withoutAbsentSimklItems(remoteShowSimklIds: Set<Long>?, remoteMovieSimklIds: Set<Long>?): TrackingSnapshot {
+    val goneShows = remoteShowSimklIds?.let { listed ->
+        shows.filter { it.ids.simkl != null && it.ids.simkl !in listed }.mapNotNullTo(hashSetOf()) { it.ids.tmdb }
+    }.orEmpty()
+    val goneMovies = remoteMovieSimklIds?.let { listed ->
+        movies.filter { it.ids.simkl != null && it.ids.simkl !in listed }.mapNotNullTo(hashSetOf()) { it.ids.tmdb }
+    }.orEmpty()
+    if (goneShows.isEmpty() && goneMovies.isEmpty()) return this
+    return copy(
+        shows = shows.filterNot { it.ids.tmdb in goneShows },
+        episodes = episodes.filterNot { it.showIds.tmdb in goneShows },
+        movies = movies.filterNot { it.ids.tmdb in goneMovies },
     )
 }
 

@@ -646,6 +646,8 @@ class CineTrackRepository(
     private val castCache = BoundedLruCache<String, List<PersonCard>>(32)
     private val recommendationCandidatesCache = BoundedLruCache<String, List<TmdbMediaDto>>(32)
     private val episodeTitleCache = BoundedLruCache<String, String>(750)
+    /** Episodes TMDB answered without a title (or not at all), not asked again this process. */
+    private val episodeTitleMisses = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val progressCacheMutex = Mutex()
     private val progressEnrichmentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var progressEnrichmentJob: Job? = null
@@ -2304,6 +2306,49 @@ class CineTrackRepository(
             it.media.type == MediaType.TV && it.season != null && it.episodeNumber != null &&
                 (it.episodeLabel.isNullOrBlank() || !it.episodeLabel.contains(" · "))
         }.distinctBy { "${it.media.id}:${it.season}:${it.episodeNumber}" }
+            .filterNot { "${it.media.id}:${it.season}:${it.episodeNumber}" in episodeTitleMisses }
+        // Plays whose season was read as a whole: a number that season does not
+        // list (an absolutely numbered anime play) has no single page either.
+        val seasonRead = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        missing.forEach { item ->
+            val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+            if (episodeTitleCache[key].isNullOrBlank()) {
+                database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
+                    ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
+            }
+        }
+        // A season with several untitled plays (a fresh import of a long show)
+        // is read in one request instead of one request per episode.
+        if (tmdbApiKey().isNotBlank()) {
+            val untitledSeasons = missing
+                .filter { episodeTitleCache["${it.media.id}:${it.season}:${it.episodeNumber}"].isNullOrBlank() }
+                .groupBy { it.media.id to it.season!! }
+                .filterValues { it.size >= SEASON_TITLE_FETCH_MIN }
+            for (batch in untitledSeasons.entries.chunked(4)) {
+                coroutineScope {
+                    batch.map { (showSeason, plays) ->
+                        async {
+                            val (showId, season) = showSeason
+                            val fetched = runCatching { services.tmdb.season(showId, season).episodes }
+                            val titles = fetched.getOrDefault(emptyList())
+                                .filter { it.name.isNotBlank() }
+                                .associate { it.number to it.name }
+                            plays.forEach { play ->
+                                val key = "$showId:$season:${play.episodeNumber}"
+                                seasonRead += key
+                                val title = titles[play.episodeNumber!!]
+                                if (title == null) {
+                                    if (fetched.isSuccess || fetched.isTmdbNotFound()) episodeTitleMisses += key
+                                    return@forEach
+                                }
+                                episodeTitleCache["$showId:$season:${play.episodeNumber}"] = title
+                                database.timelineDao().updateEpisodeTitle(MediaType.TV.name, showId, season, play.episodeNumber, title)
+                            }
+                        }
+                    }.awaitAll()
+                }
+            }
+        }
         for (batch in missing.chunked(6)) {
             coroutineScope {
                 batch.map { item ->
@@ -2313,9 +2358,10 @@ class CineTrackRepository(
                             database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
                                 ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
                         }
-                        if (episodeTitleCache[key].isNullOrBlank() && tmdbApiKey().isNotBlank()) {
-                            runCatching { services.tmdb.episode(item.media.id, item.season!!, item.episodeNumber!!).name }
-                                .getOrNull()?.takeIf(String::isNotBlank)?.let { title ->
+                        if (episodeTitleCache[key].isNullOrBlank() && key !in seasonRead && tmdbApiKey().isNotBlank()) {
+                            val fetched = runCatching { services.tmdb.episode(item.media.id, item.season!!, item.episodeNumber!!).name }
+                            if (fetched.getOrNull().isNullOrBlank() && (fetched.isSuccess || fetched.isTmdbNotFound())) episodeTitleMisses += key
+                            fetched.getOrNull()?.takeIf(String::isNotBlank)?.let { title ->
                                     episodeTitleCache[key] = title
                                     database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, item.season!!, item.episodeNumber!!, title)
                                 }
@@ -3764,3 +3810,8 @@ class CineTrackRepository(
         runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
 }
 
+
+/** Untitled plays in one season above which the whole season is fetched once. */
+private const val SEASON_TITLE_FETCH_MIN = 3
+
+private fun Result<*>.isTmdbNotFound(): Boolean = (exceptionOrNull() as? retrofit2.HttpException)?.code() == 404

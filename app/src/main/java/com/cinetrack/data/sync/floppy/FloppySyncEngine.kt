@@ -85,6 +85,8 @@ class FloppySyncEngine(
         val database = host.database
         val instanceId = provider.currentDeliveryInstanceId()
             ?: throw TrackingSyncError.AuthenticationRequired(TrackingProviderId.FLOPPY)
+        val startedAt = System.nanoTime()
+        fun since(mark: Long) = (System.nanoTime() - mark) / 1_000_000
         host.repairSyncQueue()
         progress(.08f, SyncStage.AUTH)
         val statesBefore = database.stateDao().stateSnapshot().associateBy { "${it.mediaType}:${it.mediaId}" }
@@ -97,6 +99,8 @@ class FloppySyncEngine(
         val unmatched = push.unmatchedOperationIds.filterKeys { it in operationIds && it !in completed }
         val rejected = push.rejectedOperationIds.filterKeys { it in operationIds && it !in completed && it !in unmatched }
         val deferred = operationIds - completed - unmatched.keys - rejected.keys
+        val pushMs = since(startedAt)
+        val pullStartedAt = System.nanoTime()
         progress(.25f, SyncStage.ACTIVITY)
 
         // 2. Read Floppy's state: whole library once, then only what changed.
@@ -130,6 +134,8 @@ class FloppySyncEngine(
                 pages++
             } while (page.hasMore && pages < MAX_CHANGE_PAGES)
         }
+        val pullMs = since(pullStartedAt)
+        val applyStartedAt = System.nanoTime()
         progress(.45f, SyncStage.HISTORY)
 
         // Fields whose local intent was not delivered in this pass keep their
@@ -327,14 +333,18 @@ class FloppySyncEngine(
             )
         }
 
+        val applyMs = since(applyStartedAt)
+        val mirrorStartedAt = System.nanoTime()
         host.preferences.markTrackingChecked(TrackingProviderId.FLOPPY, committedAt)
         // Remote-only changes still reach the SECONDARY provider.
         for (mirror in applied.mirrors) {
             if (!host.isMainProviderCurrent(TrackingProviderId.FLOPPY)) break
             host.enqueueSecondaryMirror(mirror.toOperation(host.nextCausalGeneration(), database), TrackingProviderId.FLOPPY)
         }
+        val mirrorMs = since(mirrorStartedAt)
         progress(.78f, SyncStage.COMMIT)
 
+        val progressStartedAt = System.nanoTime()
         val progressChanged = host.refreshProgressCache(
             ProgressRefreshRequest(
                 tvLibraryChanged = applied.tvLibraryChanged,
@@ -354,6 +364,11 @@ class FloppySyncEngine(
             databaseUntouched = !applied.libraryChanged && !applied.historyChanged && !progressChanged,
         )
         host.preferences.saveSyncReport(report)
+        host.preferences.appendErrorLog(
+            "${java.time.Instant.now()}  Floppy main sync: ${if (snapshotMode) "full" else "changes"} items=${remoteItems.size} " +
+                "pushed=${completed.size}/${operations.size} added=${applied.added} removed=${applied.removed} mirrored=${applied.mirrors.size} " +
+                "push=${pushMs}ms pull=${pullMs}ms apply=${applyMs}ms mirror=${mirrorMs}ms progress=${since(progressStartedAt)}ms total=${since(startedAt)}ms",
+        )
         onProgress(SyncProgress(false, 1f, SyncStage.COMPLETE, lastSuccessfulSync = committedAt, report = report))
         return ProviderSyncOutcome(
             itemsChanged = applied.libraryChanged || applied.historyChanged || completed.isNotEmpty() || progressChanged,

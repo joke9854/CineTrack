@@ -5,14 +5,17 @@ import okhttp3.Interceptor
 import okhttp3.OkHttpClient
 import okhttp3.Protocol
 import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RateLimitRetryTest {
-    private fun exercise(vararg codes: Int): Pair<Int, Int> {
-        val request = Request.Builder().url("https://example.invalid/test").build()
+    private fun exercise(vararg codes: Int, method: String = "GET"): Pair<Int, Int> {
+        val request = Request.Builder().url("https://example.invalid/test")
+            .apply { if (method == "POST") post("{}".toRequestBody()) }
+            .build()
         val call = OkHttpClient().newCall(request)
         var attempts = 0
         val chain = Proxy.newProxyInstance(
@@ -29,12 +32,17 @@ class RateLimitRetryTest {
                 else -> error("Unexpected chain call: ${method.name}")
             }
         } as Interceptor.Chain
-        val code = RateLimitInterceptor().intercept(chain).use { it.code }
+        val code = RateLimitInterceptor(jitterMs = { 0L }).intercept(chain).use { it.code }
         return attempts to code
     }
 
-    @Test fun retries429Once() { assertEquals(2 to 200, exercise(429, 200)) }
-    @Test fun persistentLimitDoesNotLoop() { assertEquals(2 to 429, exercise(429, 429)) }
-    @Test fun otherFailuresAreNotRetried() { assertEquals(1 to 503, exercise(503)) }
+    @Test fun retries429() { assertEquals(2 to 200, exercise(429, 200)) }
+    @Test fun retries429Twice() { assertEquals(3 to 200, exercise(429, 429, 200)) }
+    @Test fun persistentLimitDoesNotLoop() { assertEquals(3 to 429, exercise(429, 429, 429)) }
+    @Test fun aRateLimitedWriteIsRetried() { assertEquals(2 to 200, exercise(429, 200, method = "POST")) }
+    @Test fun briefUnavailabilityOfAReadIsRetried() { assertEquals(2 to 200, exercise(503, 200)) }
+    @Test fun persistentUnavailabilityDoesNotLoop() { assertEquals(3 to 502, exercise(502, 504, 502)) }
+    @Test fun anUnavailableWriteIsNotRetried() { assertEquals(1 to 503, exercise(503, method = "POST")) }
+    @Test fun otherFailuresAreNotRetried() { assertEquals(1 to 500, exercise(500)) }
     @Test fun successIsNotRetried() { assertEquals(1 to 200, exercise(200)) }
 }
