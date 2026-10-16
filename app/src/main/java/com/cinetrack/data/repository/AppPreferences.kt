@@ -369,12 +369,16 @@ class AppPreferences(private val context: Context) {
         }
     }
 
-    suspend fun setFloppyConnection(settings: FloppyConnectionSettings?, apiKey: String? = null) {
+    suspend fun setFloppyConnection(
+        settings: FloppyConnectionSettings?,
+        apiKey: String? = null,
+        acceptAddressMove: Boolean = false,
+    ) {
         settings?.let { require(it.baseUrl == it.baseUrl.trim()) { "Floppy URL must be normalized before saving" } }
         val previous = floppySettingsNow()
         val oldAlias = previous?.credentialAlias ?: "floppy_api_key"
         val identityChanged = settings != null && previous != null &&
-            !sameFloppyRemoteTarget(previous, settings, floppyApiKeyNow(), apiKey)
+            !sameFloppyRemoteTarget(previous, settings, floppyApiKeyNow(), apiKey, acceptAddressMove)
         val effectiveAlias = when {
             settings == null -> oldAlias
             identityChanged -> "floppy_api_key_${UUID.randomUUID()}"

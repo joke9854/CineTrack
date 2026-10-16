@@ -152,6 +152,27 @@ class CineTrackViewModel(
     private val _floppyConnectionUiState = MutableStateFlow(FloppyConnectionUiState())
     val floppyConnectionUiState: StateFlow<FloppyConnectionUiState> = _floppyConnectionUiState.asStateFlow()
 
+    /** A connect waiting for "is this the same Floppy at a new address?"; never shown in logs. */
+    data class FloppyAddressMove(val baseUrl: String, val credential: String, val allowInsecureLocalHttp: Boolean)
+    private val _floppyAddressMove = MutableStateFlow<FloppyAddressMove?>(null)
+    val floppyAddressMove: StateFlow<FloppyAddressMove?> = _floppyAddressMove.asStateFlow()
+
+    /** The user's answer: [same] keeps the connection and its finished initial sync. */
+    fun answerFloppyAddressMove(same: Boolean) {
+        val pending = _floppyAddressMove.value ?: return
+        _floppyAddressMove.value = null
+        appendFloppyDiagnostic("Floppy connect: new address confirmed as ${if (same) "the same server" else "a new server"}")
+        connectFloppy(pending.baseUrl, pending.credential, pending.allowInsecureLocalHttp, sameServerAtNewAddress = same)
+    }
+
+    /** Dismissed: nothing changes and the fresh sign-in is ended. */
+    fun cancelFloppyAddressMove() {
+        val pending = _floppyAddressMove.value ?: return
+        _floppyAddressMove.value = null
+        _floppyConnectionUiState.value = FloppyConnectionUiState()
+        viewModelScope.launch(Dispatchers.IO) { repository.discardFloppyCredential(pending.baseUrl, pending.credential) }
+    }
+
     private val _discoverBrowse = MutableStateFlow<Map<String, com.cinetrack.domain.DiscoverBrowseState>>(emptyMap())
     val discoverBrowse = _discoverBrowse.asStateFlow()
     private var browseGeneration = 0
@@ -1267,6 +1288,7 @@ class CineTrackViewModel(
         baseUrl: String,
         apiKey: String,
         allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
+        sameServerAtNewAddress: Boolean? = null,
     ) {
         val normalizedUrl = baseUrl.trim()
         val normalizedApiKey = apiKey.trim()
@@ -1291,10 +1313,17 @@ class CineTrackViewModel(
                     normalizedUrl,
                     normalizedApiKey,
                     allowInsecureLocalHttp,
-                ) { stage, version ->
-                    publishFloppyStage(stage, version)
-                }
+                    onStage = { stage, version -> publishFloppyStage(stage, version) },
+                    sameServerAtNewAddress = sameServerAtNewAddress,
+                )
                 when (result) {
+                    ConnectionResult.AddressMoveNeedsConfirmation -> {
+                        appendFloppyDiagnostic("Floppy connect: same account at a new address, asking")
+                        withContext(Dispatchers.Main) {
+                            _floppyConnectionUiState.value = FloppyConnectionUiState()
+                            _floppyAddressMove.value = FloppyAddressMove(normalizedUrl, normalizedApiKey, allowInsecureLocalHttp)
+                        }
+                    }
                     ConnectionResult.Connected -> {
                         withContext(Dispatchers.Main) {
                             val cached = readCachedState()

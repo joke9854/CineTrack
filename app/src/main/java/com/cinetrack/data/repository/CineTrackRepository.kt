@@ -232,13 +232,16 @@ class CineTrackRepository(
         apiKey: String,
         allowInsecureLocalHttp: Boolean? = null,
         onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
+        sameServerAtNewAddress: Boolean? = null,
     ): com.cinetrack.data.sync.ConnectionResult {
         val previousUrl = preferences.floppySettingsNow()?.baseUrl
         val previousCredential = preferences.floppyApiKeyNow()
-        val result = floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
+        val result = floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage, sameServerAtNewAddress)
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
                 ?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
             ?: com.cinetrack.data.sync.ConnectionResult.AuthenticationRequired
+        // Waiting for the user's answer: the fresh sign-in is still needed.
+        if (result == com.cinetrack.data.sync.ConnectionResult.AddressMoveNeedsConfirmation) return result
         val active = preferences.floppyApiKeyNow()
         // End sign-ins nothing uses any more: a fresh one that failed to
         // connect, or the one a new connection just replaced.
@@ -249,6 +252,13 @@ class CineTrackRepository(
             floppyOAuth?.revoke(previousUrl, previousCredential!!)
         }
         return result
+    }
+
+    /** Ends a sign-in the user abandoned at the "same Floppy at a new address?" question. */
+    suspend fun discardFloppyCredential(baseUrl: String, credential: String) {
+        if (FloppyOAuthRules.isOAuthCredential(credential) && credential.trim() != preferences.floppyApiKeyNow()) {
+            floppyOAuth?.revoke(baseUrl.trim(), credential.trim())
+        }
     }
 
     /** The normalized server URL when it offers sign-in. */

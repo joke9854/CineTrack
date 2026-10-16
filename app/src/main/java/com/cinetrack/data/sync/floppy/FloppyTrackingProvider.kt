@@ -137,11 +137,12 @@ class FloppyTrackingProvider(
     internal suspend fun commitValidatedConnectionLocked(
         settings: FloppyConnectionSettings,
         apiKey: String,
+        acceptAddressMove: Boolean = false,
     ): ActivationResult {
         val previous = preferences?.floppySettingsNow()
         val previousKey = preferences?.floppyApiKeyNow()
         val sameTarget = previous?.let {
-            sameFloppyRemoteTarget(it, settings, previousKey, apiKey)
+            sameFloppyRemoteTarget(it, settings, previousKey, apiKey, acceptAddressMove)
         } == true
         val resolvedConnectionId = when {
             previous == null -> UUID.randomUUID().toString()
@@ -165,7 +166,7 @@ class FloppyTrackingProvider(
             val reason = if (previous.serverIdentity != settings.serverIdentity) "server address" else "account"
             preferences?.appendErrorLog("${java.time.Instant.now()}  Floppy connect: new connection (different $reason)")
         }
-        preferences?.setFloppyConnection(resolvedSettings, apiKey)
+        preferences?.setFloppyConnection(resolvedSettings, apiKey, acceptAddressMove)
         if (sessionChanged) previous?.let { remote.invalidateClient(it.baseUrl, previousKey) }
         val committed = preferences?.floppySettingsNow() ?: resolvedSettings
         discovered = committed.capabilities

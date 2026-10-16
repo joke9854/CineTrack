@@ -187,13 +187,22 @@ internal const val FLOPPY_PROBE_ACCOUNT_PREFIX = "floppy-probe-v1:"
  * Identities from different schemes (a legacy preferences username versus the
  * opaque CineTrack probe account id) cannot be compared, so the unchanged API
  * key is the proof during that one-time migration.
+ *
+ * The probe's account id is an HMAC of the user id keyed with the server's own
+ * secret, so it names one Floppy installation and one account. Equal probe ids
+ * at a new address (a new tunnel or domain) are the same dataset only when the
+ * user confirms it ([acceptAddressMove]); the connection, its pending deliveries
+ * and its finished initial sync then carry over. Unconfirmed, a new address is a
+ * new target, as is any other account. A username is not unique across servers.
  */
 internal fun sameFloppyRemoteTarget(
     previous: FloppyConnectionSettings,
     candidate: FloppyConnectionSettings,
     previousApiKey: String?,
     candidateApiKey: String?,
+    acceptAddressMove: Boolean = false,
 ): Boolean {
+    if (acceptAddressMove && isFloppyAddressMove(previous, candidate)) return true
     if (previous.serverIdentity != candidate.serverIdentity) return false
     val previousAccount = previous.accountIdentity?.trim().orEmpty()
     val candidateAccount = candidate.accountIdentity?.trim().orEmpty()
@@ -204,6 +213,15 @@ internal fun sameFloppyRemoteTarget(
     } else {
         previousApiKey?.takeIf(String::isNotBlank) == candidateApiKey?.takeIf(String::isNotBlank)
     }
+}
+
+/** The same Floppy account (equal probe ids) reached at a different address. */
+internal fun isFloppyAddressMove(previous: FloppyConnectionSettings, candidate: FloppyConnectionSettings): Boolean {
+    val previousAccount = previous.accountIdentity?.trim().orEmpty()
+    return previous.serverIdentity != candidate.serverIdentity &&
+        previousAccount.startsWith(FLOPPY_PROBE_ACCOUNT_PREFIX) &&
+        previousAccount.length > FLOPPY_PROBE_ACCOUNT_PREFIX.length &&
+        previousAccount == candidate.accountIdentity?.trim()
 }
 
 /** Immutable credentials and capabilities captured for one provider pass. */

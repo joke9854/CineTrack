@@ -63,6 +63,35 @@ class FloppyRemoteTargetIdentityTest {
     }
 
     @Test
+    fun sameProbeAccountAtNewAddressNeedsTheUsersConfirmation() {
+        val a = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "a")
+        val moved = a.copy(baseUrl = "https://floppy.new.example/", serverIdentity = "https://floppy.new.example/", connectionId = "candidate")
+        assertTrue(isFloppyAddressMove(a, moved))
+        assertFalse(sameFloppyRemoteTarget(a, moved, "oauth:old", "oauth:new"))
+        assertTrue(sameFloppyRemoteTarget(a, moved, "oauth:old", "oauth:new", acceptAddressMove = true))
+    }
+
+    @Test
+    fun differentProbeAccountAtNewAddressIsDifferentTargetEvenWhenConfirmed() {
+        val a = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "a")
+        val other = a.copy(serverIdentity = "https://floppy.new.example/", accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "b")
+        assertFalse(isFloppyAddressMove(a, other))
+        assertFalse(sameFloppyRemoteTarget(a, other, "key", "key", acceptAddressMove = true))
+    }
+
+    @Test
+    fun sameAddressIsNotAMove() {
+        val a = base.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "a")
+        assertFalse(isFloppyAddressMove(a, a.copy(connectionId = "candidate")))
+    }
+
+    @Test
+    fun sameUsernameAtNewAddressIsDifferentTarget() {
+        // A username is not unique across servers.
+        assertFalse(sameFloppyRemoteTarget(base, base.copy(serverIdentity = "https://other.example/"), "key", "key"))
+    }
+
+    @Test
     fun differentServerIsDifferentTarget() {
         assertFalse(sameFloppyRemoteTarget(base, base.copy(serverIdentity = "https://other.example/"), "key", "key"))
     }

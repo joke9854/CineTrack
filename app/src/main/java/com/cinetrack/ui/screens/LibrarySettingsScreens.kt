@@ -1569,6 +1569,31 @@ private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel)
     }
 }
 
+/**
+ * Floppy recognised the account already connected, at an address CineTrack hasn't
+ * used. The same server keeps the connection, pending changes and finished initial
+ * sync; a new one starts over with a full initial sync. Tapping outside cancels.
+ */
+@Composable
+internal fun FloppyAddressMoveDialog(viewModel: CineTrackViewModel) {
+    val pending by viewModel.floppyAddressMove.collectAsStateWithLifecycle()
+    val move = pending ?: return
+    val host = remember(move.baseUrl) { runCatching { java.net.URI(move.baseUrl).host }.getOrNull() ?: move.baseUrl }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = viewModel::cancelFloppyAddressMove,
+        title = { Text(stringResource(R.string.floppy_move_title)) },
+        text = { Text(stringResource(R.string.floppy_move_body, host), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium) },
+        confirmButton = {
+            TextButton(onClick = { viewModel.answerFloppyAddressMove(same = true) }) {
+                Text(stringResource(R.string.floppy_move_same), fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = { viewModel.answerFloppyAddressMove(same = false) }) { Text(stringResource(R.string.floppy_move_new)) }
+        },
+    )
+}
+
 @Composable
 private fun FloppyUnplacedCard(
     item: com.cinetrack.domain.FloppyUnplacedItem,

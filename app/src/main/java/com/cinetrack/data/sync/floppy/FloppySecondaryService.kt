@@ -30,6 +30,7 @@ class FloppySecondaryService(
         apiKey: String,
         allowInsecureLocalHttp: Boolean? = null,
         onStage: (FloppyConnectionStage, String?) -> Unit = { _, _ -> },
+        sameServerAtNewAddress: Boolean? = null,
     ): ConnectionResult {
         val allowHttp = allowInsecureLocalHttp ?: preferences.floppyAllowInsecureLocalHttpNow()
         onStage(FloppyConnectionStage.CHECKING_SERVER, null)
@@ -40,6 +41,11 @@ class FloppySecondaryService(
                 } else ConnectionResult.Failed(error as? com.cinetrack.data.sync.TrackingSyncError
                     ?: com.cinetrack.data.sync.TrackingSyncError.Unknown(error))
         }
+        val previousSettings = preferences.floppySettingsNow()
+        if (sameServerAtNewAddress == null && previousSettings != null && isFloppyAddressMove(previousSettings, candidate.settings)) {
+            return ConnectionResult.AddressMoveNeedsConfirmation
+        }
+        val acceptMove = sameServerAtNewAddress == true
         var activated = false
         return try {
             val transition = coordinator.withProviderIoQuiesced {
@@ -50,7 +56,7 @@ class FloppySecondaryService(
                 if (configuration.current().mainProvider == TrackingProviderId.FLOPPY) {
                     val previous = preferences.floppySettingsNow()
                     val sameTarget = previous != null &&
-                        sameFloppyRemoteTarget(previous, candidate.settings, preferences.floppyApiKeyNow(), candidate.apiKey)
+                        sameFloppyRemoteTarget(previous, candidate.settings, preferences.floppyApiKeyNow(), candidate.apiKey, acceptMove)
                     if (!sameTarget) {
                         throw TrackingSyncError.Validation(
                             "Floppy is your main tracker. Make Simkl the main tracker before connecting another Floppy server or account.",
@@ -63,7 +69,7 @@ class FloppySecondaryService(
                     }
                 }
                 onStage(FloppyConnectionStage.ACTIVATING, candidate.settings.serverVersion)
-                val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey)
+                val result = provider.commitValidatedConnectionLocked(candidate.settings, candidate.apiKey, acceptMove)
                 activated = true
                 // This repair is intentionally ordered after persisting B. It
                 // is idempotent and also covers a crash between those steps.

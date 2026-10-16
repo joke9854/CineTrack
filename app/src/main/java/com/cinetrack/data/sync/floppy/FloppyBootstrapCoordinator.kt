@@ -202,6 +202,10 @@ class FloppyBootstrapCoordinator(
         val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
         if (state !in setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)) return@withLock state == ProviderBootstrapState.READY
         val instance = instanceId()
+        // This runs after every delivered batch. While items remain, one count
+        // query answers it; the full check below decodes the whole plan and
+        // queries each item's deliveries, about 2 s per batch on a large library.
+        if (operationRepository.bootstrapPendingCount(instance) > 0) return@withLock false
         val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
         if (plan?.instanceId != instance) return@withLock false
         val prefix = "bootstrap:$instance:"

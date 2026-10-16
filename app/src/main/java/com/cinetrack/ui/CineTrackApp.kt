@@ -589,6 +589,7 @@ fun CineTrackApp(
             shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
         }
         // Library artwork refresh and an available update report in the same pill spot.
+        com.cinetrack.ui.screens.FloppyAddressMoveDialog(viewModel)
         LibraryArtworkPill(state, onDismiss = viewModel::dismissLibraryArtworkProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
         // Once per launch, after the start-up animation: offer a newer release.
         var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }

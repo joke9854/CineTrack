@@ -185,6 +185,12 @@ sealed interface ConnectionResult {
     data object Connected : ConnectionResult
     data object AuthenticationRequired : ConnectionResult
     data class Failed(val error: TrackingSyncError) : ConnectionResult
+    /**
+     * The same Floppy account answered at a new address. Nothing was changed: the
+     * user decides whether it is the server already in use (keep the connection)
+     * or a new one (start over), and connects again with that answer.
+     */
+    data object AddressMoveNeedsConfirmation : ConnectionResult
 }
 
 sealed class TrackingSyncError(message: String, cause: Throwable? = null) : Exception(message, cause) {

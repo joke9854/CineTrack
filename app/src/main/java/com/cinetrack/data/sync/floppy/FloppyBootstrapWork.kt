@@ -246,6 +246,8 @@ class FloppyBootstrapWorker(
                     return Result.success()
                 }
             }
+            // Only a user's connect can meet a new address; a probe never does.
+            ConnectionResult.AddressMoveNeedsConfirmation -> Unit
             ConnectionResult.AuthenticationRequired -> {
                 application.container.preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
                 val failure = beforePlan.copy(stage = FloppyBootstrapStage.NEEDS_ATTENTION)
@@ -478,6 +480,7 @@ class FloppyBootstrapWorker(
                     // only a few episodes per show. Explicit-event requests may
                     // carry any of the show's episodes, so fill the request from
                     // all of that show's unresolved episodes instead.
+                    val selectStartedAt = System.nanoTime()
                     val batch = if (transport.canEnsureEpisodeEvents && windowUnit.first().type == SyncOperationType.EPISODE_WATCHED) {
                         application.container.syncCoordinator
                             .pendingBootstrapShowEpisodes(expected, windowUnit.first().mediaId)
@@ -522,6 +525,9 @@ class FloppyBootstrapWorker(
                     }
                     Log.i(TAG, "Floppy bootstrap batch started: run=$runId connection=$expected size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId}")
                     val batchStartedAt = System.nanoTime()
+                    val selectMs = (batchStartedAt - selectStartedAt) / 1_000_000
+                    var networkMs = 0L
+                    var outcomesMs = 0L
                     current = FloppyBootstrapProgress(
                         FloppyBootstrapStage.SYNCING,
                         processed,
@@ -542,7 +548,10 @@ class FloppyBootstrapWorker(
                                 batch.mapTo(linkedSetOf()) { it.id },
                                 expected,
                                 transport = { operations ->
+                                    val networkStartedAt = System.nanoTime()
                                     transport.push(operations).also { outcome ->
+                                        networkMs = (System.nanoTime() - networkStartedAt) / 1_000_000
+                                        val outcomesStartedAt = System.nanoTime()
                                         pushed = outcome
                                         // Record outcomes before the coordinator acknowledges
                                         // the batch: its delivery observer may mark the
@@ -554,6 +563,7 @@ class FloppyBootstrapWorker(
                                             outcome.storedCoordinates + outcome.unmatchedOperationIds.mapValues { NO_COUNTERPART },
                                             outcome.unmatchedTitles,
                                         )
+                                        outcomesMs = (System.nanoTime() - outcomesStartedAt) / 1_000_000
                                     }
                                 },
                             )
@@ -610,7 +620,10 @@ class FloppyBootstrapWorker(
                         stoppedForInstanceChange = true
                         break
                     }
+                    val countStartedAt = System.nanoTime()
                     val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
+                    val countMs = (System.nanoTime() - countStartedAt) / 1_000_000
+                    Log.i(TAG, "Floppy bootstrap timing: select=${selectMs}ms network=${networkMs}ms outcomes=${outcomesMs}ms push+ack=${(countStartedAt - batchStartedAt) / 1_000_000}ms count=${countMs}ms")
                     processed = (total - remaining).coerceIn(processed, total)
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false

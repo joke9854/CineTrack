@@ -598,6 +598,10 @@
     <string name="floppy_api_key">Chiave API</string>
     <string name="floppy_api_key_keep">Chiave API (lascia vuoto per mantenere)</string>
     <string name="floppy_connect">Collega</string>
+    <string name="floppy_move_title">Stesso Floppy, nuovo indirizzo?</string>
+    <string name="floppy_move_body">Floppy su %1$s riconosce l\'account già collegato. Se è lo stesso server a un nuovo indirizzo, CineTrack mantiene il collegamento: niente nuova sincronizzazione iniziale e le modifiche in attesa vanno lì. Se è un server diverso, ricomincia con una sincronizzazione iniziale completa.</string>
+    <string name="floppy_move_same">Stesso server</string>
+    <string name="floppy_move_new">Server diverso</string>
     <string name="floppy_reconnect">Ricollega</string>
     <string name="floppy_disconnect">Disconnetti</string>
     <string name="floppy_connected">Connesso</string>
