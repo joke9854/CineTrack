@@ -1108,6 +1108,33 @@ internal fun keepDeliveriesDuringSync(start: TrackingSnapshot?, stored: Tracking
     )
 }
 
+/**
+ * The Simkl baseline after Simkl accepted a library status: a removal drops
+ * the item (and a show's episodes), any other status replaces it. Without it
+ * a later sync whose lists count as incomplete reads the old value from the
+ * baseline as if Simkl still had it and puts a removed item back.
+ */
+internal fun withDeliveredLibraryState(
+    baseline: TrackingSnapshot,
+    mediaType: MediaType,
+    mediaId: Long,
+    status: LibraryStatus,
+    watched: Boolean,
+): TrackingSnapshot = if (mediaType == MediaType.MOVIE) {
+    val others = baseline.movies.filterNot { it.ids.tmdb == mediaId }
+    val previous = baseline.movies.firstOrNull { it.ids.tmdb == mediaId }
+    baseline.copy(
+        movies = if (status == LibraryStatus.NONE) others
+        else others + (previous?.copy(libraryState = status) ?: TrackedMovieState(MediaIds(tmdb = mediaId), status, watched = watched)),
+    )
+} else {
+    baseline.copy(
+        shows = baseline.shows.filterNot { it.ids.tmdb == mediaId } +
+            if (status == LibraryStatus.NONE) emptyList() else listOf(TrackedShowState(MediaIds(tmdb = mediaId), status)),
+        episodes = if (status == LibraryStatus.NONE) baseline.episodes.filterNot { it.showIds.tmdb == mediaId } else baseline.episodes,
+    )
+}
+
 internal fun remoteActivityAt(remoteUpdatedAt: Long?, watchedAt: Long?, previousUpdatedAt: Long?, committedAt: Long): Long =
     watchedAt ?: remoteUpdatedAt ?: previousUpdatedAt ?: committedAt
 

@@ -165,6 +165,14 @@ class SimklTrackingProvider(
             }
             else -> services.simklSync.addToList(operation.request(item.copy(to = status.toSimklStatus())))
         }
+        // Simkl holds this status now, so it is also the last state both sides
+        // agree on; the baseline must not keep the old one.
+        preferences.syncBaselineNow(TrackingProviderId.SIMKL)?.let { baseline ->
+            preferences.saveSyncBaseline(
+                withDeliveredLibraryState(baseline, operation.mediaType, operation.mediaId.toLong(), status, watched = status == LibraryStatus.COMPLETED),
+                TrackingProviderId.SIMKL,
+            )
+        }
     }
 
     private suspend fun pushEpisodeHistory(operation: SyncOperation) {

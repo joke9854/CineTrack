@@ -48,6 +48,7 @@ import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackedEpisodeState
 import com.cinetrack.data.sync.simkl.ResolvedSimklItem
 import com.cinetrack.data.sync.simkl.SimklSyncHost
+import com.cinetrack.data.sync.simkl.withDeliveredLibraryState
 import com.cinetrack.data.sync.LocalMutation
 import com.cinetrack.data.sync.SyncConflict
 import com.cinetrack.data.sync.ConflictField
@@ -1392,10 +1393,6 @@ class CineTrackRepository(
                 response.notFound.shows
             }
             check(unmatched.isEmpty()) { "Simkl could not match the item being removed" }
-            recordDeliveredLibraryState(state)
-            val baselined = preferences.syncBaselineNow(TrackingProviderId.SIMKL) != null
-            preferences.appendErrorLog("${Instant.now()}  SIMKL removed ${state.mediaType}:${state.mediaId} (history/remove matched, baseline ${if (baselined) "updated" else "missing"})")
-            return
         } else {
             // Library status is its own logical field. Movie/episode history
             // operations are dispatched independently by pushOperation; this
@@ -1414,22 +1411,11 @@ class CineTrackRepository(
     private suspend fun recordDeliveredLibraryState(state: UserMediaStateEntity) {
         val baseline = preferences.syncBaselineNow(TrackingProviderId.SIMKL) ?: return
         val status = runCatching { LibraryStatus.valueOf(state.status) }.getOrDefault(LibraryStatus.NONE)
-        val id = state.mediaId.toLong()
-        val updated = if (state.mediaType == MediaType.MOVIE.name) {
-            val others = baseline.movies.filterNot { it.ids.tmdb == id }
-            val previous = baseline.movies.firstOrNull { it.ids.tmdb == id }
-            baseline.copy(
-                movies = if (status == LibraryStatus.NONE) others
-                else others + (previous?.copy(libraryState = status) ?: TrackedMovieState(MediaIds(tmdb = id), status, watched = state.watched)),
-            )
-        } else {
-            val others = baseline.shows.filterNot { it.ids.tmdb == id }
-            baseline.copy(
-                shows = if (status == LibraryStatus.NONE) others else others + TrackedShowState(MediaIds(tmdb = id), status),
-                episodes = if (status == LibraryStatus.NONE) baseline.episodes.filterNot { it.showIds.tmdb == id } else baseline.episodes,
-            )
-        }
-        preferences.saveSyncBaseline(updated, TrackingProviderId.SIMKL)
+        val type = if (state.mediaType == MediaType.MOVIE.name) MediaType.MOVIE else MediaType.TV
+        preferences.saveSyncBaseline(
+            withDeliveredLibraryState(baseline, type, state.mediaId.toLong(), status, state.watched),
+            TrackingProviderId.SIMKL,
+        )
     }
 
     override suspend fun pushOperation(operation: SyncOperation) {
