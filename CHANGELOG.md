@@ -1,3 +1,9 @@
+# CineTrack 0.99.62 beta
+
+**Fixes**
+- Anime numbered straight through on Simkl (Naruto episode 183) are now stored with TMDB's numbering (season 4, episode 183), the same as Floppy and the show page. Switching Floppy to main tracker no longer splits a show's history into two numberings. Episodes are still sent to Simkl with Simkl's own numbers.
+- After updating, plays saved with the old numbering are renumbered once, keeping their exact watch times. This needs a Floppy connection with the latest Floppy update; shows switch over only once their renumbering has finished.
+
 # CineTrack 0.99.61 beta
 
 **Fixes**
