@@ -1,3 +1,10 @@
+# CineTrack 0.99.61 beta
+
+**Fixes**
+- Much less background traffic to TMDB: missing episode titles in History are read a whole season at a time, and episodes TMDB does not have (long anime numbered straight through) are not asked for again and again. With Floppy as main tracker this made the first sync after the switch crawl.
+- Simkl: a show or movie removed on the Simkl website now leaves the app even when another item in your Simkl library cannot be matched to TMDB.
+- When Simkl, TMDB or Floppy is briefly busy or unavailable, reads are retried a couple of times with a short, slightly randomized wait instead of failing.
+
 # CineTrack 0.99.60 beta
 
 **Fixes**
