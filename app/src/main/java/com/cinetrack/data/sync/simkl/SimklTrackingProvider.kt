@@ -21,6 +21,7 @@ import com.cinetrack.data.sync.TrackedMovieState
 import com.cinetrack.data.sync.TrackedShowState
 import com.cinetrack.data.sync.TrackedEpisodeState
 import com.cinetrack.data.sync.MediaIds
+import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.SyncProgress
@@ -207,9 +208,8 @@ class SimklTrackingProvider(
             // MOVIE_UNWATCHED may be retried independently of its library
             // operation. If context was persisted, restore that exact list
             // status after Simkl removes history.
-            val desiredStatus = operation.payload
-                ?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull() }
-            if (desiredStatus != null && desiredStatus != LibraryStatus.NONE) {
+            val desiredStatus = simklStatusToRestore(operation.payload)
+            if (desiredStatus != null) {
                 services.simklSync.addToList(
                     operation.request(
                         SimklSyncItem(
@@ -251,3 +251,11 @@ private fun String.toLibraryStatus(): LibraryStatus = when (lowercase()) {
 }
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
+
+/**
+ * The list status to put back after Simkl's history/remove for a movie, which
+ * also takes the movie off its lists. The payload is a [MovieHistoryMutationContext]
+ * (`v2|status=...`, or a plain status from older queues).
+ */
+internal fun simklStatusToRestore(payload: String?): LibraryStatus? =
+    MovieHistoryMutationContext.parse(payload)?.desiredLibraryStatus?.takeIf { it != LibraryStatus.NONE }
