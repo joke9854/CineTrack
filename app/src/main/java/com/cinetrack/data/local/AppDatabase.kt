@@ -71,6 +71,30 @@ data class EpisodeAirDateEntity(
     val updatedAt: Long,
 )
 
+/**
+ * Per-episode numbering translation between a tracker's own scheme (Simkl) and
+ * TMDB numbering. Filled from Floppy's translate endpoint; TMDB numbers are what
+ * the app stores, the tracker numbers exist only at the tracker boundary.
+ */
+@Entity(
+    tableName = "episode_numbering",
+    primaryKeys = ["showId", "scheme", "schemeSeason", "schemeEpisode"],
+    indices = [Index(value = ["showId", "tmdbSeason", "tmdbEpisode"])],
+)
+data class EpisodeNumberingEntity(
+    val showId: Int,
+    val scheme: String,
+    val schemeSeason: Int,
+    val schemeEpisode: Int,
+    val status: String,
+    val tmdbSeason: Int? = null,
+    val tmdbEpisode: Int? = null,
+    val absolute: Int? = null,
+    val tvdbSeason: Int? = null,
+    val tvdbEpisode: Int? = null,
+    val updatedAt: Long,
+)
+
 @Entity(tableName = "people")
 data class PersonEntity(
     @PrimaryKey val tmdbId: Int,
@@ -458,6 +482,10 @@ interface TimelineDao {
     @Query("DELETE FROM watch_history WHERE id IN (:ids)")
     suspend fun deleteHistoryRows(ids: List<Long>)
 
+    /** Renumbers one play in place; id and watchedAt never change. */
+    @Query("UPDATE watch_history SET season = :season, episodeNumber = :episodeNumber WHERE id = :id")
+    suspend fun moveEpisodeHistoryRow(id: Long, season: Int, episodeNumber: Int)
+
     @Query("UPDATE watch_history SET episodeTitle = :title WHERE mediaType = :mediaType AND mediaId = :mediaId AND season = :season AND episodeNumber = :episodeNumber")
     suspend fun updateEpisodeTitle(mediaType: String, mediaId: Int, season: Int, episodeNumber: Int, title: String)
 }
@@ -507,6 +535,12 @@ interface SyncDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun queue(write: PendingWriteEntity): Long
+
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE mediaType = 'TV' AND mediaId = :showId")
+    suspend fun operationCountForShow(showId: Int): Int
+
+    @Query("SELECT COUNT(*) FROM pending_writes WHERE mediaType = 'TV' AND mediaId = :showId")
+    suspend fun pendingWriteCountForShow(showId: Int): Int
 
     @Query("SELECT * FROM pending_writes ORDER BY createdAt")
     suspend fun pendingWrites(): List<PendingWriteEntity>
@@ -664,6 +698,21 @@ interface SyncDao {
 }
 
 @Dao
+interface EpisodeNumberingDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(items: List<EpisodeNumberingEntity>)
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme")
+    suspend fun forShow(showId: Int, scheme: String): List<EpisodeNumberingEntity>
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme AND schemeSeason = :schemeSeason AND schemeEpisode = :schemeEpisode")
+    suspend fun row(showId: Int, scheme: String, schemeSeason: Int, schemeEpisode: Int): EpisodeNumberingEntity?
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme AND tmdbSeason = :tmdbSeason AND tmdbEpisode = :tmdbEpisode")
+    suspend fun byTmdb(showId: Int, scheme: String, tmdbSeason: Int, tmdbEpisode: Int): List<EpisodeNumberingEntity>
+}
+
+@Dao
 interface PeopleDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertPerson(person: PersonEntity)
@@ -695,8 +744,9 @@ interface PeopleDao {
         SyncOperationEntity::class,
         SyncOperationDeliveryEntity::class,
         EpisodeAirDateEntity::class,
+        EpisodeNumberingEntity::class,
     ],
-    version = 13,
+    version = 14,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -708,6 +758,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun upNextDao(): UpNextDao
     abstract fun syncDao(): SyncDao
     abstract fun peopleDao(): PeopleDao
+    abstract fun episodeNumberingDao(): EpisodeNumberingDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -844,12 +895,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Tracker-to-TMDB episode numbering table; no existing data changes. */
+        val migration13To14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `episode_numbering` (`showId` INTEGER NOT NULL, `scheme` TEXT NOT NULL, `schemeSeason` INTEGER NOT NULL, `schemeEpisode` INTEGER NOT NULL, `status` TEXT NOT NULL, `tmdbSeason` INTEGER, `tmdbEpisode` INTEGER, `absolute` INTEGER, `tvdbSeason` INTEGER, `tvdbEpisode` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`showId`, `scheme`, `schemeSeason`, `schemeEpisode`))")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_episode_numbering_showId_tmdbSeason_tmdbEpisode` ON `episode_numbering` (`showId`, `tmdbSeason`, `tmdbEpisode`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13, migration13To14).build().also { instance = it }
         }
     }
 }

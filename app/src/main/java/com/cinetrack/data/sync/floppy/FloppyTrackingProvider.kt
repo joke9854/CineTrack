@@ -286,6 +286,20 @@ class FloppyTrackingProvider(
     suspend fun syncItemsChanges(expectedInstanceId: String, cursor: Long, limit: Int): FloppySyncItemsChangesPage =
         mainRead(expectedInstanceId) { session -> remote.syncItemsChanges(session, cursor, limit) }
 
+    /**
+     * Episode numbering translation for one show; null when no Floppy connection
+     * exists or the server lacks the capability. Failures are thrown classified.
+     */
+    suspend fun translateEpisodes(
+        tmdbId: Int,
+        from: String,
+        coords: List<Pair<Int, Int>>,
+    ): List<FloppyEpisodeTranslateResult>? {
+        val settings = preferences?.floppySettingsNow() ?: return null
+        if (!settings.capabilities.canTranslateEpisodes) return null
+        return remote.translateEpisodes(captureSession(), tmdbId, from, coords)
+    }
+
     private suspend fun <T> mainRead(expectedInstanceId: String, block: suspend (FloppySession) -> T): T {
         val generation = connectionGeneration.get()
         val session = captureSession()

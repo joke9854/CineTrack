@@ -143,24 +143,59 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val simklSyncEngine by lazy {
             SimklSyncEngine { repository }
         }
+        // Simkl's own anime numbering is converted to TMDB numbering through Floppy's translate
+        // endpoint; the table is filled lazily and the one-time local repair settles each show.
+        val numberingLog: (String) -> Unit = { message -> preferences.appendErrorLog("${java.time.Instant.now()}  $message") }
+        val floppyHolder = AtomicReference<FloppyTrackingProvider?>(null)
+        var animeRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? = null
+        val episodeNumbering = com.cinetrack.data.sync.numbering.EpisodeNumbering(
+            dao = database.episodeNumberingDao(),
+            transport = object : com.cinetrack.data.sync.numbering.EpisodeTranslateTransport {
+                override suspend fun isAvailable() =
+                    preferences.floppySettingsNow()?.capabilities?.canTranslateEpisodes == true
+
+                override suspend fun translate(tmdbId: Int, from: String, coords: List<Pair<Int, Int>>) =
+                    floppyHolder.get()?.translateEpisodes(tmdbId, from, coords)
+            },
+            log = numberingLog,
+            settled = { showId -> animeRepair?.isSettled(showId) ?: false },
+        )
+        animeRepair = com.cinetrack.data.sync.numbering.AnimeNumberingRepair(
+            episodeNumbering,
+            com.cinetrack.data.sync.numbering.RoomAnimeRepairStore(
+                database = database,
+                preferences = preferences,
+                fetchAnime = { services.simklSync.allItems("anime").anime },
+                refreshProgress = { request -> repository.refreshProgressCache(request) },
+                onInvalidate = { showId -> repository.renumberedShows.tryEmit(showId) },
+                logLine = numberingLog,
+            ),
+        )
         val simkl = SimklTrackingProvider(
             services = services,
             preferences = preferences,
             syncEngine = { simklSyncEngine },
             onRateLimited = { retryAfter -> TrackingWorkScheduler.scheduleRateLimitRetry(application, retryAfter) },
+            episodeNumbering = episodeNumbering,
         )
         val floppySyncEngine by lazy {
             com.cinetrack.data.sync.floppy.FloppySyncEngine { repository }
         }
         val floppyOAuth = com.cinetrack.data.sync.floppy.network.FloppyOAuthClient(preferences.floppyOAuthTokenStore)
+        val floppyRemote = com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource(
+            com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory(floppyOAuth),
+        )
+        // Where Floppy stored a locally submitted episode under another number is a translation too.
+        floppyRemote.storedCoordinateSink = { showId, season, episode, storedSeason, storedEpisode ->
+            episodeNumbering.recordStored(showId, season, episode, storedSeason, storedEpisode)
+        }
         val floppy = FloppyTrackingProvider(
             preferences = preferences,
-            remote = com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource(
-                com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory(floppyOAuth),
-            ),
+            remote = floppyRemote,
             syncPass = { provider, operations, onProgress -> floppySyncEngine.sync(provider, operations, onProgress) },
             onDisconnect = { trackingConfigurationService.removeProvider(com.cinetrack.data.sync.TrackingProviderId.FLOPPY) },
         )
+        floppyHolder.set(floppy)
         trackingProviderRegistry = DefaultTrackingProviderRegistry(
             providers = listOf(simkl, floppy),
             settingsRepository = settingsRepository,
@@ -237,6 +272,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             floppyUnplacedEpisodes = {
                 if (::floppyBootstrapCoordinator.isInitialized) floppyBootstrapCoordinator.unplacedEpisodes() else emptyList()
             },
+            episodeNumbering = episodeNumbering,
+            animeNumberingRepair = animeRepair,
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))

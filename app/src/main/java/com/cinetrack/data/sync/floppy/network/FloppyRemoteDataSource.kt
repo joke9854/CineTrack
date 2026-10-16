@@ -27,6 +27,9 @@ import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureEvent
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateCoord
+import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateResult
 import com.cinetrack.data.sync.floppy.FloppyInfoDto
 import com.cinetrack.data.sync.floppy.FloppyMediaDetail
 import com.cinetrack.data.sync.floppy.FloppySession
@@ -52,6 +55,7 @@ import retrofit2.HttpException
 import kotlinx.coroutines.delay
 
 private const val BULK_EPISODE_MAX = 50
+const val TRANSLATE_MAX = 400
 /** Bounds the per-play removal of one unwatched episode. */
 private const val MAX_EPISODE_UNWATCH_PLAYS = 20
 /** Per-event outcomes of the episode ensure endpoint; the last two are refusals. */
@@ -149,6 +153,7 @@ class FloppyRemoteDataSource(
             canBootstrapV2 = info.apiExtensions?.cinetrackBootstrapV2 == true,
             canSyncItems = info.apiExtensions?.syncItemsV1 == true &&
                 info.apiExtensions.syncAppConnectionsV1,
+            canTranslateEpisodes = info.apiExtensions?.cinetrackEpisodeTranslateV1 == true,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -212,6 +217,26 @@ class FloppyRemoteDataSource(
 
     suspend fun syncItemsChanges(session: FloppySession, cursor: Long, limit: Int): FloppySyncItemsChangesPage =
         mapped { api(session).syncItemsChanges(cursor, limit) }
+
+    /** Translates up to [TRANSLATE_MAX] episode coordinates of one show; [from] is "tracker" or "tmdb". */
+    suspend fun translateEpisodes(
+        session: FloppySession,
+        tmdbId: Int,
+        from: String,
+        coords: List<Pair<Int, Int>>,
+    ): List<FloppyEpisodeTranslateResult> {
+        require(coords.size in 1..TRANSLATE_MAX) { "Translate batches hold 1..$TRANSLATE_MAX episodes" }
+        return mapped {
+            api(session).translateEpisodes(
+                tmdbId.toString(),
+                FloppyEpisodeTranslateRequest(from, coords.map { FloppyEpisodeTranslateCoord(it.first, it.second) }),
+            ).results
+        }
+    }
+
+    /** Called with (show, submitted season, submitted episode, stored season, stored episode) when Floppy
+     * stored an ensured episode under another coordinate; failures here never affect delivery. */
+    @Volatile var storedCoordinateSink: (suspend (Int, Int, Int, Int, Int) -> Unit)? = null
 
     private fun api(session: FloppySession): FloppyApi =
         factory.get(session.baseUrl, session.apiKey, session.allowInsecureLocalHttp)
@@ -430,6 +455,15 @@ class FloppyRemoteDataSource(
                                 val storedEpisode = result.storedEpisodeNumber ?: event.episodeNumber
                                 if (storedSeason != event.seasonNumber || storedEpisode != event.episodeNumber) {
                                     stored[operation.id] = "$storedSeason:$storedEpisode"
+                                    storedCoordinateSink?.let { sink ->
+                                        try {
+                                            sink(showId.toInt(), event.seasonNumber, event.episodeNumber, storedSeason, storedEpisode)
+                                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                                            throw cancelled
+                                        } catch (_: Throwable) {
+                                            // The numbering table is an optimisation; delivery already succeeded.
+                                        }
+                                    }
                                 }
                                 episodeIndex?.add(EpisodeKey(operation.mediaId.toLong(), storedSeason, storedEpisode))
                             }

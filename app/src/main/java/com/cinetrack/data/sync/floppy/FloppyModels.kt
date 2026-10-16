@@ -24,6 +24,7 @@ data class FloppyApiExtensions(
     @SerialName("episode_sql_pagination") val episodeSqlPagination: Boolean = false,
     @SerialName("sync_app_connections_v1") val syncAppConnectionsV1: Boolean = false,
     @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
+    @SerialName("cinetrack_episode_translate_v1") val cinetrackEpisodeTranslateV1: Boolean = false,
     /** App sign-in (OAuth 2.0 + PKCE) for the `cinetrack` client. */
     @SerialName("oauth_v1") val oauthV1: Boolean = false,
 )
@@ -250,6 +251,8 @@ data class FloppyCapabilities(
     val canBootstrapV2: Boolean = false,
     /** Fork capability: exact per-item snapshot + change feed, so Floppy can be MAIN. */
     val canSyncItems: Boolean = false,
+    /** Fork capability: episode numbering translation (tracker/TMDB). */
+    val canTranslateEpisodes: Boolean = false,
 )
 
 /** One play of a synced item, at its exact instant. */
@@ -374,6 +377,29 @@ data class FloppyEpisodeEnsureResult(
 
 @Serializable
 data class FloppyEpisodeEnsureResponse(val results: List<FloppyEpisodeEnsureResult> = emptyList())
+
+@Serializable
+data class FloppyEpisodeTranslateCoord(val season: Int, val episode: Int)
+
+@Serializable
+data class FloppyEpisodeTranslateRequest(
+    val from: String,
+    val episodes: List<FloppyEpisodeTranslateCoord>,
+)
+
+@Serializable
+data class FloppyEpisodeTranslateResult(
+    val season: Int,
+    val episode: Int,
+    val status: String,
+    val tmdb: FloppyEpisodeTranslateCoord? = null,
+    val absolute: Int? = null,
+    val tvdb: FloppyEpisodeTranslateCoord? = null,
+    val reason: String? = null,
+)
+
+@Serializable
+data class FloppyEpisodeTranslateResponse(val results: List<FloppyEpisodeTranslateResult> = emptyList())
 
 @Serializable
 data class FloppyEpisodeBulkRequest(

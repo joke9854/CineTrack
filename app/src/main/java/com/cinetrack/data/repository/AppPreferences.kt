@@ -152,6 +152,8 @@ class AppPreferences(private val context: Context) {
         /** "showId:season:episode" of "Not on Floppy" entries the user dismissed. */
         val floppyUnplacedDismissed = stringSetPreferencesKey("floppy_unplaced_dismissed_v1")
         val floppyAllowInsecureLocalHttp = booleanPreferencesKey("floppy_allow_insecure_local_http")
+        val animeNumberingRepairDone = booleanPreferencesKey("anime_numbering_repair_v1")
+        val animeNumberingRepairShows = stringSetPreferencesKey("anime_numbering_repair_v1_shows")
     }
 
     val simklToken: Flow<String?> = context.cineTrackDataStore.data.map {
@@ -353,6 +355,7 @@ class AppPreferences(private val context: Context) {
                 canEnsureEpisodeEvents = "ensure_episode_events" in capabilities,
                 canBootstrapV2 = "bootstrap_v2" in capabilities,
                 canSyncItems = "sync_items" in capabilities,
+                canTranslateEpisodes = "translate_episodes" in capabilities,
             ),
             connectedAt = values[Keys.floppyConnectedAt],
             connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
@@ -428,6 +431,7 @@ class AppPreferences(private val context: Context) {
                     if (settings.capabilities.canEnsureEpisodeEvents) add("ensure_episode_events")
                     if (settings.capabilities.canBootstrapV2) add("bootstrap_v2")
                     if (settings.capabilities.canSyncItems) add("sync_items")
+                    if (settings.capabilities.canTranslateEpisodes) add("translate_episodes")
                 }
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
@@ -562,6 +566,24 @@ class AppPreferences(private val context: Context) {
     suspend fun setFloppyBootstrapResidualRaw(raw: String?) {
         context.cineTrackDataStore.edit { values ->
             if (raw.isNullOrBlank()) values.remove(Keys.floppyBootstrapResidual) else values[Keys.floppyBootstrapResidual] = raw
+        }
+    }
+
+    /** One-time anime renumbering (Simkl numbers to TMDB numbers): finished for every show. */
+    suspend fun animeNumberingRepairDoneNow(): Boolean =
+        context.cineTrackDataStore.data.first()[Keys.animeNumberingRepairDone] == true
+
+    suspend fun setAnimeNumberingRepairDone() {
+        context.cineTrackDataStore.edit { values -> values[Keys.animeNumberingRepairDone] = true }
+    }
+
+    /** Shows (TMDB ids) already renumbered, so partial progress survives a restart. */
+    suspend fun animeNumberingRepairShowsNow(): Set<String> =
+        context.cineTrackDataStore.data.first()[Keys.animeNumberingRepairShows].orEmpty()
+
+    suspend fun addAnimeNumberingRepairShow(showId: Int) {
+        context.cineTrackDataStore.edit { values ->
+            values[Keys.animeNumberingRepairShows] = values[Keys.animeNumberingRepairShows].orEmpty() + showId.toString()
         }
     }
 

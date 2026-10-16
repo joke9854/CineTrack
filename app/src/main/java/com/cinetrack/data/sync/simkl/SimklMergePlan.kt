@@ -7,6 +7,7 @@ import com.cinetrack.data.remote.SimklIds
 import com.cinetrack.data.remote.SimklSeason
 import com.cinetrack.data.remote.SimklSyncItem
 import com.cinetrack.data.remote.SimklSyncRequest
+import com.cinetrack.data.sync.numbering.SimklTarget
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import java.time.Instant
@@ -55,6 +56,8 @@ internal fun planSimklMerge(
     remote: SimklRemoteLibrary,
     itemsPerRequest: Int = 100,
     episodesPerRequest: Int = 500,
+    /** (show, local season, local episode) to what Simkl must be sent; missing entries go unchanged. */
+    simklTargets: Map<Triple<Int, Int, Int>, SimklTarget> = emptyMap(),
 ): SimklMergePlan {
     fun known(type: String, id: Int, simklId: Long?) =
         "$type:$id" in remote.keys || (simklId != null && simklId in remote.simklIds)
@@ -86,16 +89,13 @@ internal fun planSimklMerge(
         row.mediaType == MediaType.TV.name && row.season != null && row.episodeNumber != null &&
             Triple(row.mediaId, row.season, row.episodeNumber) !in remote.watchedEpisodes
     }
-    val showItems = episodeRows.groupBy { it.mediaId }.map { (showId, rows) ->
-        val seasons = rows.groupBy { it.season!! }.toSortedMap().map { (season, seasonRows) ->
-            SimklSeason(
-                number = season,
-                episodes = seasonRows.groupBy { it.episodeNumber!! }.toSortedMap().map { (episode, plays) ->
-                    SimklEpisode(number = episode, watchedAt = plays.latestWatchedAt())
-                },
-            )
-        }
-        SimklSyncItem(ids = SimklIds(simkl = simklIdByKey["${MediaType.TV.name}:$showId"], tmdb = showId.toString()), seasons = seasons)
+    val showItems = episodeRows.groupBy { it.mediaId }.flatMap { (showId, rows) ->
+        // One play per local episode (its latest), then mapped to the numbering Simkl uses.
+        val plays = rows.groupBy { it.season!! to it.episodeNumber!! }.toSortedMap(compareBy({ it.first }, { it.second }))
+            .map { (coord, episodePlays) ->
+                SimklEpisodePlay(coord.first, coord.second, episodePlays.latestWatchedAt(), simklTargets[Triple(showId, coord.first, coord.second)] ?: SimklTarget.Unchanged)
+            }
+        simklShowItems(SimklIds(simkl = simklIdByKey["${MediaType.TV.name}:$showId"], tmdb = showId.toString()), plays)
     }
     // Long shows can carry hundreds of episodes, so batches are bounded by episode count.
     val historyRequests = buildList {

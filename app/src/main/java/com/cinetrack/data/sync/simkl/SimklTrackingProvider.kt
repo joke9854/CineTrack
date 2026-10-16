@@ -37,6 +37,8 @@ class SimklTrackingProvider(
     private val normalizedSnapshot: (suspend () -> TrackingSnapshot)? = null,
     /** Simkl answered 429 (daily quota): schedule a retry after this many seconds, when known. */
     private val onRateLimited: (retryAfterSeconds: Long?) -> Unit = {},
+    /** Converts local (TMDB) episode numbers to Simkl's own at the Simkl boundary; null passes them through. */
+    private val episodeNumbering: com.cinetrack.data.sync.numbering.EpisodeNumbering? = null,
 ) : TrackingProvider {
     override val id = TrackingProviderId.SIMKL
     override val capabilities = TrackingCapabilities(
@@ -79,14 +81,8 @@ class SimklTrackingProvider(
 
     /** One request for many episodes: each keeps its own exact watched time. */
     private suspend fun pushEpisodeBatch(step: SimklPushStep.EpisodeBatch) {
-        val shows = step.operations.groupBy(SyncOperation::mediaId).map { (showId, operations) ->
-            val seasons = operations.map(SyncOperation::simklEpisodeTarget)
-                .groupBy(SimklEpisodeTarget::season)
-                .toSortedMap()
-                .map { (season, targets) ->
-                    SimklSeason(season, targets.sortedBy(SimklEpisodeTarget::episode).map { SimklEpisode(it.episode, it.watchedAt) })
-                }
-            SimklSyncItem(ids = SimklIds(tmdb = showId.toString()), seasons = seasons)
+        val shows = step.operations.groupBy(SyncOperation::mediaId).flatMap { (showId, operations) ->
+            simklEpisodeItems(episodeNumbering, showId, operations.map(SyncOperation::simklEpisodeTarget))
         }
         val request = SimklSyncRequest(shows = shows)
         if (step.watched) services.simklSync.addHistory(request) else services.simklSync.removeHistory(request)
@@ -117,7 +113,11 @@ class SimklTrackingProvider(
             val movies = async { services.simklSync.allItems("movies") }
             Triple(shows.await(), anime.await(), movies.await())
         }
-        val showItems = responses.first.shows + responses.first.anime + responses.second.shows + responses.second.anime
+        // Anime arrive in Simkl's numbering; the snapshot is in TMDB numbering like local data.
+        suspend fun List<com.cinetrack.data.remote.SimklLibraryItem>.localized() =
+            episodeNumbering?.localizeItems(this) { it.show?.ids?.tmdb?.toIntOrNull() } ?: this
+        val showItems = responses.first.shows + responses.first.anime.localized() +
+            responses.second.shows + responses.second.anime.localized()
         fun ids(item: com.cinetrack.data.remote.SimklLibraryItem): MediaIds =
             (item.show ?: item.movie)?.ids?.let { MediaIds(it.tmdb?.toLongOrNull(), it.tvdb?.toLongOrNull(), it.imdb, it.simkl) }
                 ?: MediaIds()
@@ -178,15 +178,12 @@ class SimklTrackingProvider(
 
     private suspend fun pushEpisodeHistory(operation: SyncOperation) {
         val target = operation.simklEpisodeTarget()
-        val request = operation.request(
-            SimklSyncItem(
-                ids = SimklIds(tmdb = operation.mediaId.toString()),
-                seasons = listOf(SimklSeason(target.season, listOf(SimklEpisode(target.episode, target.watchedAt)))),
-            ),
-        )
+        val items = simklEpisodeItems(episodeNumbering, operation.mediaId, listOf(target))
+        val request = SimklSyncRequest(shows = items)
         if (operation.type == SyncOperationType.EPISODE_WATCHED) services.simklSync.addHistory(request)
         else services.simklSync.removeHistory(request)
     }
+
 
     private suspend fun pushMovieHistory(operation: SyncOperation, watched: Boolean) {
         val watchedAt = if (watched) {

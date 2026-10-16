@@ -87,6 +87,19 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migration13To14AddsEpisodeNumberingAndKeepsHistory() {
+        helper.createDatabase("migration-13-numbering", 13).use { db ->
+            db.execSQL("INSERT INTO watch_history(mediaType,mediaId,episodeId,season,episodeNumber,episodeTitle,watchedAt) VALUES ('TV',46260,NULL,1,183,NULL,'2020-01-01T00:00:00Z')")
+        }
+        helper.runMigrationsAndValidate("migration-13-numbering", 14, true, AppDatabase.migration13To14).use { migrated ->
+            assertEquals(0, count(migrated, "episode_numbering"))
+            assertEquals(1, count(migrated, "watch_history"))
+            migrated.execSQL("INSERT INTO episode_numbering(showId,scheme,schemeSeason,schemeEpisode,status,tmdbSeason,tmdbEpisode,absolute,tvdbSeason,tvdbEpisode,updatedAt) VALUES (46260,'simkl',1,183,'translated',4,183,183,NULL,NULL,1)")
+            assertEquals(1, count(migrated, "episode_numbering"))
+        }
+    }
+
+    @Test
     fun migration11To12CancelsUnknownLegacyFloppyDelivery() {
         helper.createDatabase("migration-11-floppy", 11).use { db ->
             db.execSQL("INSERT INTO sync_operation_deliveries(operationId,operationVersion,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('legacy-floppy',1,'FLOPPY','PENDING',1,'SECONDARY',0,NULL,1,1)")

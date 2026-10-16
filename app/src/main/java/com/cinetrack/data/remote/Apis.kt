@@ -340,6 +340,8 @@ data class SimklOAuthResponse(
     @SerialName("watched_at") val watchedAt: String? = null,
     val status: String? = null,
     val seasons: List<SimklSeason> = emptyList(),
+    /** Anime episodes numbered in TVDB seasons; omitted (null) for everything else. */
+    @SerialName("use_tvdb_anime_seasons") val useTvdbAnimeSeasons: Boolean? = null,
 )
 @Serializable data class SimklNotFoundItems(
     val movies: List<JsonObject> = emptyList(),

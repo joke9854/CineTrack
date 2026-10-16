@@ -326,6 +326,10 @@ class CineTrackViewModel(
     init {
         observeSearch()
         viewModelScope.launch {
+            // The one-time anime renumbering rewrote this show's episode numbers.
+            repository.renumberedShows.collect { showId -> detailEpisodeCache.remove(showId) }
+        }
+        viewModelScope.launch {
             combine(repository.preferences.simklConnected, repository.preferences.simklReconnectReason, ::Pair)
                 .distinctUntilChanged()
                 .collect { (connected, reconnect) -> _state.update { it.copy(simklConnected = connected, simklReconnectReason = reconnect) } }

@@ -28,6 +28,10 @@ data class ResolvedSimklItem(
 
 interface SimklSyncHost : MainSyncHost {
     val services: ApiServices
+    /** Tracker-to-TMDB episode numbering; null when not configured (numbers pass through unchanged). */
+    val episodeNumbering: com.cinetrack.data.sync.numbering.EpisodeNumbering? get() = null
+    /** Runs after a successful Simkl pass; null when not configured. */
+    val animeNumberingRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? get() = null
     val tmdbApiKey: () -> String
     val syncReconciler: SyncReconciler
 
@@ -293,7 +297,20 @@ class SimklSyncEngine(
 
         val remoteShows = mergeSimklItems(remote.first.shows + remote.first.anime + remote.second.shows + remote.second.anime)
         val remoteMovies = mergeSimklItems(remote.third.movies)
-        val resolvedShows = resolveSimklItems(remoteShows, MediaType.TV)
+        val resolvedShowsRaw = resolveSimklItems(remoteShows, MediaType.TV)
+        // Simkl anime come in Simkl's own numbering; the app stores TMDB numbering. Done after the
+        // merge (which keys episodes by number) so entries that land on one coordinate all survive.
+        val resolvedShows = host.episodeNumbering?.let { numbering ->
+            val animeMedia = (remote.first.anime + remote.second.anime).mapNotNull { it.show?.ids }
+            val animeSimkl = animeMedia.mapNotNullTo(hashSetOf()) { it.simkl }
+            val animeTmdb = animeMedia.mapNotNullTo(hashSetOf()) { it.tmdb }
+            if (animeMedia.isEmpty()) resolvedShowsRaw
+            else resolvedShowsRaw.map { resolved ->
+                val ids = resolved.item.show?.ids
+                val isAnime = ids != null && ((ids.simkl != null && ids.simkl in animeSimkl) || (ids.tmdb != null && ids.tmdb in animeTmdb))
+                if (isAnime) resolved.copy(item = numbering.localizeItem(resolved.tmdbId, resolved.item)) else resolved
+            }
+        } ?: resolvedShowsRaw
         val resolvedMovies = resolveSimklItems(remoteMovies, MediaType.MOVIE)
         val resolvedItems = resolvedShows + resolvedMovies
         // Simkl's episode arrays are the watched-set, but an older baseline could
@@ -597,6 +614,7 @@ class SimklSyncEngine(
                         resolved.item.seasons.flatMap { season -> season.episodes.map { Triple(resolved.tmdbId, season.number, it.number) } }
                     },
                 ),
+                simklTargets = mergeSimklTargets(host.episodeNumbering, historyBeforeSync),
             )
         } else null
         mergePlan?.listRequests?.forEach { services.simklSync.addToList(it) }
@@ -644,18 +662,20 @@ class SimklSyncEngine(
             val repairedEpisodes = completedEpisodeRepairs[tmdb].orEmpty()
             if (type == MediaType.TV && (item.seasons.isNotEmpty() || repairedEpisodes.isNotEmpty())) {
                 if (!episodeBaselineComplete) baselineShowIds += tmdb
-                val watchedEpisodes = mutableMapOf<Pair<Int, Int>, Pair<String?, String?>>()
+                // A list, not a map: anime entries that map onto one TMDB coordinate are all kept.
+                val watchedEpisodes = mutableListOf<Pair<Pair<Int, Int>, Pair<String?, String?>>>()
                 item.seasons.forEach { season ->
                     season.episodes.forEach { episode ->
-                        watchedEpisodes[season.number to episode.number] =
-                            episode.title.takeIf(String::isNotBlank) to episode.watchedAt
+                        watchedEpisodes += (season.number to episode.number) to
+                            (episode.title.takeIf(String::isNotBlank) to episode.watchedAt)
                     }
                 }
+                val importedKeys = watchedEpisodes.mapTo(hashSetOf()) { it.first }
                 repairedEpisodes.forEach { episode ->
-                    watchedEpisodes.putIfAbsent(
-                        episode.season to episode.number,
-                        episode.title.takeIf(String::isNotBlank) to null,
-                    )
+                    if (importedKeys.add(episode.season to episode.number)) {
+                        watchedEpisodes += (episode.season to episode.number) to
+                            (episode.title.takeIf(String::isNotBlank) to null)
+                    }
                 }
                 watchedEpisodes.forEach { (key, episode) ->
                     val (seasonNumber, episodeNumber) = key
@@ -1066,6 +1086,9 @@ class SimklSyncEngine(
             acknowledgedOperationIds = acknowledgedOperationIds,
             deferredOperationIds = deferredOperationIds,
         )
+        }.onSuccess {
+            // One-time renumbering of anime plays stored in Simkl's numbering; never throws into sync.
+            host.animeNumberingRepair?.runIfNeeded()
         }.onFailure { error ->
             val committedSync = database.syncDao().get("all")?.lastSuccessfulSync
             val databaseWasUpdated = committedSync != null && committedSync != previousSuccessfulSync
@@ -1299,4 +1322,21 @@ private fun SimklIds.toTrackingIds() = MediaIds(
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { raw ->
     runCatching { Instant.parse(raw) }.getOrNull()
+}
+
+/** Simkl targets for the local TV history of a first-sync merge; entries missing from the map go unchanged. */
+private suspend fun mergeSimklTargets(
+    numbering: com.cinetrack.data.sync.numbering.EpisodeNumbering?,
+    history: List<WatchHistoryEntity>,
+): Map<Triple<Int, Int, Int>, com.cinetrack.data.sync.numbering.SimklTarget> {
+    if (numbering == null) return emptyMap()
+    val targets = mutableMapOf<Triple<Int, Int, Int>, com.cinetrack.data.sync.numbering.SimklTarget>()
+    history.filter { it.mediaType == MediaType.TV.name && it.season != null && it.episodeNumber != null }
+        .groupBy { it.mediaId }
+        .forEach { (showId, rows) ->
+            numbering.toSimklBatch(showId, rows.map { it.season!! to it.episodeNumber!! }).forEach { (coord, target) ->
+                if (target != com.cinetrack.data.sync.numbering.SimklTarget.Unchanged) targets[Triple(showId, coord.first, coord.second)] = target
+            }
+        }
+    return targets
 }

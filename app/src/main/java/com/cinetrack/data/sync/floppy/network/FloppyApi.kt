@@ -5,6 +5,8 @@ import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeBulkRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureRequest
 import com.cinetrack.data.sync.floppy.FloppyEpisodeEnsureResponse
+import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateRequest
+import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateResponse
 import com.cinetrack.data.sync.floppy.FloppyBootstrapMoviesRequest
 import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
 import com.cinetrack.data.sync.floppy.FloppyBootstrapEnsureResponse
@@ -152,6 +154,12 @@ interface FloppyApi {
         @Path("mediaId") mediaId: String,
         @Body request: FloppyEpisodeEnsureRequest,
     ): FloppyEpisodeEnsureResponse
+
+    @POST("api/v1/media/tv/tmdb/{tmdbId}/episodes/translate/")
+    suspend fun translateEpisodes(
+        @Path("tmdbId") tmdbId: String,
+        @Body request: FloppyEpisodeTranslateRequest,
+    ): FloppyEpisodeTranslateResponse
 
     @GET("api/v1/tasks/{taskId}/")
     suspend fun taskStatus(@Path("taskId") taskId: String): FloppyTaskStatusResponse

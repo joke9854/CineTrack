@@ -227,7 +227,12 @@ class CineTrackRepository(
     private val floppyOAuth: com.cinetrack.data.sync.floppy.network.FloppyOAuthClient? = null,
     private val floppyRetryBootstrap: (suspend () -> Unit)? = null,
     private val floppyUnplacedEpisodes: (suspend () -> List<com.cinetrack.data.sync.floppy.FloppyUnplacedEpisode>)? = null,
+    override val episodeNumbering: com.cinetrack.data.sync.numbering.EpisodeNumbering? = null,
+    override val animeNumberingRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? = null,
 ) : SimklSyncHost {
+    /** Shows whose local episode numbers were rewritten, so screens can drop cached episode lists. */
+    val renumberedShows = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 64)
+
     suspend fun connectFloppy(
         baseUrl: String,
         apiKey: String,
@@ -1598,20 +1603,15 @@ class CineTrackRepository(
         val season = parts.getOrNull(0)?.toIntOrNull() ?: error("Invalid queued season")
         val episode = parts.getOrNull(1)?.toIntOrNull() ?: error("Invalid queued episode")
         val watchedAt = parts.getOrNull(2) ?: Instant.now().toString()
+        // The queued coordinate is local (TMDB) numbering; Simkl may count anime differently.
+        val target = episodeNumbering?.toSimkl(write.mediaId, season, episode)
+            ?: com.cinetrack.data.sync.numbering.SimklTarget.Unchanged
         val request = SimklSyncRequest(
-            shows = listOf(
-                SimklSyncItem(
-                    ids = SimklIds(tmdb = write.mediaId.toString()),
-                    seasons = listOf(
-                        com.cinetrack.data.remote.SimklSeason(
-                            season,
-                            listOf(
-                                com.cinetrack.data.remote.SimklEpisode(
-                                    episode,
-                                    watchedAt.takeIf { write.operation == "EPISODE_WATCHED" },
-                                ),
-                            ),
-                        ),
+            shows = com.cinetrack.data.sync.simkl.simklShowItems(
+                SimklIds(tmdb = write.mediaId.toString()),
+                listOf(
+                    com.cinetrack.data.sync.simkl.SimklEpisodePlay(
+                        season, episode, watchedAt.takeIf { write.operation == "EPISODE_WATCHED" }, target,
                     ),
                 ),
             ),
