@@ -1,3 +1,12 @@
+# CineTrack 0.99.64 beta
+
+**Changes**
+- Progress: swipe a card to the left (instead of the right) to mark the episode watched.
+- Pull-to-refresh uses the Material 3 indicator. The pull length and where the spinner rests are unchanged.
+
+**Fixes**
+- Crash reports are saved correctly on Android 7.1. Saving one there could fail.
+
 # CineTrack 0.99.63 beta
 
 **New**
