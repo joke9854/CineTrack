@@ -1,0 +1,53 @@
+name: Feature
+description: Plan a new feature or improvement
+title: "[Feature] "
+labels: ["enhancement"]
+projects: ["joke9854/2"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should the user be able to do, and why?
+    validations:
+      required: true
+  - type: dropdown
+    id: repos
+    attributes:
+      label: Repos affected
+      options:
+        - CineTrack only
+        - Floppy only
+        - Both (API contract change - add the cross-repo label)
+    validations:
+      required: true
+  - type: textarea
+    id: design
+    attributes:
+      label: Design notes
+      description: Approach, screens, endpoints, data/Room changes.
+  - type: textarea
+    id: invariants
+    attributes:
+      label: Sync and invariant impact
+      description: Timestamps, event IDs, ACK handling, dedup, provider-instance safety, migrations. Write "none" if it doesn't touch sync.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      value: |
+        - [ ]
+    validations:
+      required: true
+  - type: textarea
+    id: tests
+    attributes:
+      label: Tests
+      description: Tests to add or update. Bigger test work can be a "Test task" sub-issue.
+      value: |
+        - [ ] Unit:
+        - [ ] Floppy contract:
+        - [ ] Room migration:
+        - [ ] Manual check on phone:

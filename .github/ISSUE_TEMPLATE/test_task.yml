@@ -1,0 +1,36 @@
+name: Test task
+description: Add or fix tests (coverage gap, regression test, CI job)
+title: "[Test] "
+labels: ["test"]
+projects: ["joke9854/2"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What to test
+      description: Behavior, class or endpoint, and why it needs coverage.
+    validations:
+      required: true
+  - type: dropdown
+    id: kind
+    attributes:
+      label: Kind
+      options:
+        - Unit test (CineTrack)
+        - Instrumented / Room integration (CineTrack)
+        - Floppy app tests
+        - Floppy contract test + CineTrack client test
+        - CI workflow
+    validations:
+      required: true
+  - type: input
+    id: command
+    attributes:
+      label: Test command
+      placeholder: "./gradlew :app:testDebugUnitTest --tests 'com.cinetrack...'"
+  - type: textarea
+    id: cases
+    attributes:
+      label: Cases
+      value: |
+        - [ ]

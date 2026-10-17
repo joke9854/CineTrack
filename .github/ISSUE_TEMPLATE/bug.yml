@@ -1,0 +1,50 @@
+name: Bug
+description: Something is broken or wrong
+title: "[Bug] "
+labels: ["bug"]
+projects: ["joke9854/2"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Include what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: CineTrack version and Floppy commit SHA, if relevant.
+      placeholder: "CineTrack 0.99.63, Floppy c2bfb856"
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Sync (Simkl / Trakt / Floppy)
+        - Floppy API
+        - UI
+        - Data / Room
+        - Release / build
+        - Crash / ANR
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Settings > Logs export or the crash report. Remove API keys, tokens and Authorization headers first.
+      render: text
+  - type: textarea
+    id: regression-test
+    attributes:
+      label: Regression test
+      description: The test that should fail before the fix and pass after it.
