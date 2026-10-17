@@ -2,6 +2,7 @@ package com.cinetrack.data.sync
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.AlarmManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -15,6 +16,9 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import androidx.work.CoroutineWorker
+import androidx.work.Data
+import androidx.work.ForegroundInfo
+import androidx.work.OutOfQuotaPolicy
 import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -426,6 +430,10 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
                     .setInputData(inputData)
                     .build(),
             )
+            // WorkManager delays are held back while the phone is idle, so an
+            // idle-safe alarm also wakes the app when quiet hours end. Whichever
+            // runs second finds the release already notified and posts nothing.
+            QuietHoursEndReceiver.schedule(applicationContext, key, inputData, wait)
             return Result.success()
         }
         ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
@@ -433,6 +441,55 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
         runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
         com.cinetrack.UpNextWidgetProvider.refresh(applicationContext)
         return Result.success()
+    }
+
+    // Expedited work needs this before Android 12; on later versions it is unused.
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        ReleaseNotifier.createChannel(applicationContext)
+        val notification = NotificationCompat.Builder(applicationContext, ReleaseNotifier.CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_notification_cinetrack)
+            .setContentTitle(applicationContext.getString(R.string.release_notifications))
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .build()
+        return ForegroundInfo("cinetrack-release-fg".hashCode(), notification)
+    }
+}
+
+/** Fires when quiet hours end and runs the held release notification, even while the phone is idle. */
+class QuietHoursEndReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val key = intent.getStringExtra(EXTRA_KEY) ?: return
+        val bytes = intent.getByteArrayExtra(EXTRA_DATA) ?: return
+        val data = runCatching { Data.fromByteArray(bytes) }.getOrNull() ?: return
+        WorkManager.getInstance(context).enqueueUniqueWork(
+            "cinetrack-release-quiet-${key.hashCode()}",
+            ExistingWorkPolicy.REPLACE,
+            OneTimeWorkRequestBuilder<ReleaseNotificationWorker>()
+                .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
+                .setInputData(data)
+                .build(),
+        )
+    }
+
+    companion object {
+        private const val EXTRA_KEY = "key"
+        private const val EXTRA_DATA = "data"
+
+        fun schedule(context: Context, key: String, data: Data, delayMillis: Long) {
+            val alarms = context.getSystemService(AlarmManager::class.java) ?: return
+            val intent = Intent(context, QuietHoursEndReceiver::class.java)
+                .putExtra(EXTRA_KEY, key)
+                .putExtra(EXTRA_DATA, data.toByteArray())
+            val pending = PendingIntent.getBroadcast(
+                context,
+                "quiet:$key".hashCode(),
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+            )
+            // A minute past the end so the hour check no longer reads as quiet.
+            val at = System.currentTimeMillis() + delayMillis + 60_000L
+            runCatching { alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, at, pending) }
+        }
     }
 }
 

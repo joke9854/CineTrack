@@ -16,7 +16,29 @@ internal suspend fun loadTrendingCandidates(
     val trending = pages.map { page -> async { loadPage(page) } }.awaitAll().flatten()
         .filter(include).distinctBy { it.id }
     if (allowedOrigins.isEmpty()) return@coroutineScope trending
-    val matching = trending.filter { title -> title.originCountries.any { it in allowedOrigins } }
+    val matching = trending.filter { title -> title.inContentRegions(allowedOrigins) }
     if (matching.size >= 10) matching
     else (matching + loadFallback().filter(include)).distinctBy { it.id }
+}
+
+/**
+ * Whether a TMDB title belongs to the content regions. TMDB list entries for
+ * movies carry no origin country, so a title without one is judged by its
+ * original language: kept only when that language is spoken in a chosen region.
+ */
+internal fun TmdbMediaDto.inContentRegions(allowed: Set<String>): Boolean {
+    if (allowed.isEmpty()) return true
+    val regions = allowed.mapTo(HashSet()) { it.uppercase() }
+    if (originCountries.isNotEmpty()) return originCountries.any { it.uppercase() in regions }
+    val language = originalLanguage?.lowercase() ?: return false
+    return language in regionLanguages(regions)
+}
+
+private val regionLanguageCache = java.util.concurrent.ConcurrentHashMap<Set<String>, Set<String>>()
+
+internal fun regionLanguages(allowed: Set<String>): Set<String> = regionLanguageCache.getOrPut(allowed) {
+    java.util.Locale.getAvailableLocales()
+        .filter { it.country.uppercase() in allowed && it.language.isNotBlank() }
+        .map { it.language.lowercase() }
+        .toSet()
 }

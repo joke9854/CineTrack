@@ -1010,6 +1010,8 @@ class CineTrackViewModel(
                 repository.loadCachedState().copy(
                     simklReconnectReason = repository.preferences.simklReconnectReason.first(),
                     simklFirstSyncPending = repository.preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
+                    floppyUsername = repository.preferences.floppyUsername.first(),
+                    hideAdultTitles = repository.preferences.hideAdultTitles.first(),
                 )
             }
         } while (version != pendingEpisodeEdits.version)
@@ -1284,6 +1286,16 @@ class CineTrackViewModel(
         viewModelScope.launch {
             withContext(Dispatchers.IO) { repository.refreshSimklUsername() }?.let { name ->
                 _state.value = _state.value.copy(simklUsername = name)
+            }
+        }
+    }
+
+    /** Fills in the Floppy account name shown in Settings, once per connection. */
+    fun loadFloppyUsername() {
+        if (!_state.value.floppyConnected) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.refreshFloppyUsername() }?.let { name ->
+                _state.value = _state.value.copy(floppyUsername = name)
             }
         }
     }
@@ -1666,6 +1678,12 @@ class CineTrackViewModel(
             quietHoursEnd = endHour ?: _state.value.quietHoursEnd,
         )
         viewModelScope.launch { repository.preferences.setQuietHours(enabled, startHour, endHour) }
+    }
+
+    fun setHideAdultTitles(enabled: Boolean) {
+        _state.value = _state.value.copy(hideAdultTitles = enabled)
+        com.cinetrack.data.remote.TmdbContentFilter.hideAdult = enabled
+        viewModelScope.launch { repository.preferences.setHideAdultTitles(enabled) }
     }
 
     fun setExcludeSpecials(enabled: Boolean) {

@@ -33,6 +33,8 @@ data class FloppyApiExtensions(
 data class FloppyConnectionProbeDto(
     val authenticated: Boolean = false,
     @SerialName("account_id") val accountId: String = "",
+    // Display only ("Connected as ..."); the account is identified by accountId.
+    val username: String? = null,
     @SerialName("server_version") val serverVersion: String = "",
     @SerialName("api_extensions") val apiExtensions: FloppyApiExtensions = FloppyApiExtensions(),
 )

@@ -65,6 +65,10 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
     override fun onCreate() {
         super.onCreate()
         container = AppContainer(this, applicationScope)
+        // Keep the TMDB adult filter in step with Settings > Metadata, also for background work.
+        applicationScope.launch {
+            container.preferences.hideAdultTitles.collect { com.cinetrack.data.remote.TmdbContentFilter.hideAdult = it }
+        }
         ReleaseNotifier.createChannel(this)
         applicationScope.launch {
             TrackingWorkScheduler.update(

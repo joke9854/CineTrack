@@ -725,13 +725,14 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
         ServiceStatus(
             "Simkl", SettingsPages.ServiceSimkl, state.simklConnected,
             when {
+                state.simklConnected && !state.simklUsername.isNullOrBlank() -> stringResource(R.string.simkl_connected_as, state.simklUsername.orEmpty())
                 state.simklConnected -> connected
                 state.simklReconnectReason != null -> stringResource(R.string.simkl_reconnect_needed)
                 else -> notConnected
             },
         ),
         ServiceStatus("Trakt", SettingsPages.ServiceTrakt, state.traktConfigured, if (state.traktConfigured) configured else notConfigured),
-        ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyStatusLabel(state.floppyUiState) else notConnected),
+        ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyConnectedLabel(state) else notConnected),
         ServiceStatus("MDBList", SettingsPages.ServiceMdblist, state.mdbListApiConfigured, if (state.mdbListApiConfigured) configured else notConfigured),
     )
     // Catalogue, tracking and server get a full brand card; the two add-ons share a row.
@@ -1362,6 +1363,12 @@ private fun floppyIntegrationSubtitle(state: AppUiState): String = if (state.flo
     FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_needs_attention)
 }
 
+/** "Connected as <name>" once Floppy is ready and has sent a name; otherwise the setup stage. */
+@Composable
+private fun floppyConnectedLabel(state: AppUiState): String =
+    if (state.floppyUiState == FloppyUiState.READY && !state.floppyUsername.isNullOrBlank()) stringResource(R.string.floppy_connected_as, state.floppyUsername.orEmpty())
+    else floppyStatusLabel(state.floppyUiState)
+
 @Composable
 private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
     FloppyUiState.NOT_CONNECTED -> stringResource(R.string.floppy_not_connected)
@@ -1374,6 +1381,9 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 @Composable
 private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
     val connectionUiState by viewModel.floppyConnectionUiState.collectAsStateWithLifecycle()
+    LaunchedEffect(state.floppyConnected, state.floppyUsername) {
+        if (state.floppyConnected && state.floppyUsername == null) viewModel.loadFloppyUsername()
+    }
     val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
     // The header already says "not connected"; the status details matter once connected.
     if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
@@ -1669,7 +1679,10 @@ internal fun FloppyConnectionSettingsForm(
     // isn't offered. Once connected, neither shows (like the Simkl section).
     val keyFlow = onSignInRequested == null && !editing
     val signInFlow = onSignInRequested != null && !editing
-    val validUrl = isFloppyUrlValid(url)
+    // An address typed without a scheme is taken as https://, or http:// when
+    // local-network HTTP is on.
+    val fullUrl = withDefaultFloppyScheme(url, allowLocalHttp)
+    val validUrl = isFloppyUrlValid(fullUrl)
     val canSubmit = validUrl && (apiKey.isNotBlank() || editing) && !connectionUiState.running
 
     val uriHandler = LocalUriHandler.current
@@ -1705,6 +1718,9 @@ internal fun FloppyConnectionSettingsForm(
                 singleLine = true,
                 enabled = !connectionUiState.running,
                 label = { Text(stringResource(R.string.floppy_server_url)) },
+                prefix = if (url.isNotBlank() && !hasUrlScheme(url)) {
+                    { Text(if (allowLocalHttp) "http://" else "https://", color = TextMuted) }
+                } else null,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
                 colors = credentialFieldColors(),
                 isError = url.isNotBlank() && !validUrl,
@@ -1716,7 +1732,7 @@ internal fun FloppyConnectionSettingsForm(
                 Button(
                     onClick = {
                         focusManager.clearFocus()
-                        onSignInRequested(url.trim(), allowLocalHttp)
+                        onSignInRequested(fullUrl, allowLocalHttp)
                     },
                     enabled = validUrl && !connectionUiState.running,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sign_in_button"),
@@ -1742,7 +1758,7 @@ internal fun FloppyConnectionSettingsForm(
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     focusManager.clearFocus()
-                    onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
+                    onConnectRequested(fullUrl, apiKey.trim(), allowLocalHttp)
                 }),
                 trailingIcon = {
                     IconButton(onClick = { showApiKey = !showApiKey }, enabled = !connectionUiState.running) {
@@ -1779,7 +1795,7 @@ internal fun FloppyConnectionSettingsForm(
             }
             // Connected to this address, the button syncs (like Simkl's); a changed
             // address turns it back into Reconnect.
-            val syncAction = editing && onSyncRequested != null && url.trim() == state.floppyBaseUrl.orEmpty().trim()
+            val syncAction = editing && onSyncRequested != null && fullUrl == state.floppyBaseUrl.orEmpty().trim()
             if (syncAction) Button(
                 onClick = { onSyncRequested?.invoke() },
                 enabled = !syncing && !connectionUiState.running,
@@ -1800,7 +1816,7 @@ internal fun FloppyConnectionSettingsForm(
             else if (!signInFlow) Button(
                 onClick = {
                     focusManager.clearFocus()
-                    onConnectRequested(url.trim(), apiKey.trim(), allowLocalHttp)
+                    onConnectRequested(fullUrl, apiKey.trim(), allowLocalHttp)
                 },
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_connect_button"),
@@ -1858,6 +1874,14 @@ private fun credentialFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedTextColor = TextPrimary,
     unfocusedTextColor = TextPrimary,
 )
+
+internal fun hasUrlScheme(value: String): Boolean = Regex("^[A-Za-z][A-Za-z0-9+.-]*://").containsMatchIn(value.trim())
+
+internal fun withDefaultFloppyScheme(value: String, allowLocalHttp: Boolean): String {
+    val trimmed = value.trim()
+    if (trimmed.isEmpty() || hasUrlScheme(trimmed)) return trimmed
+    return (if (allowLocalHttp) "http://" else "https://") + trimmed
+}
 
 private fun isFloppyUrlValid(value: String): Boolean = runCatching {
     val uri = java.net.URI(value.trim())
@@ -2073,6 +2097,7 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
         KitRow(Icons.Filled.Schedule, stringResource(R.string.timezone_short), value = timezone, onClick = { activeChoice = "timezone" })
         // The provider whose episode air dates are shown; the others fill in where it has none.
         KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.air_dates_from), value = airDateSources.firstOrNull { it.first == state.airDateSource }?.second ?: "Trakt", onClick = { activeChoice = "airdates" })
+        KitToggleRow(Icons.Filled.VisibilityOff, stringResource(R.string.hide_adult_titles), stringResource(R.string.hide_adult_titles_sub), state.hideAdultTitles, viewModel::setHideAdultTitles)
     }
     activeChoice?.let { key ->
         val choices = when (key) { "language" -> languages; "region" -> regions; "airdates" -> airDateSources; else -> timezones }
@@ -2674,7 +2699,7 @@ private fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> Un
     }
     val status = when {
         brand.name == "Simkl" && active && !state.simklUsername.isNullOrBlank() -> stringResource(R.string.simkl_connected_as, state.simklUsername.orEmpty())
-        brand.name == "Floppy" && active -> floppyStatusLabel(state.floppyUiState)
+        brand.name == "Floppy" && active -> floppyConnectedLabel(state)
         brand.name in setOf("Simkl", "Floppy") -> stringResource(if (active) R.string.connected else R.string.not_connected)
         else -> stringResource(if (active) R.string.configured else R.string.not_configured)
     }

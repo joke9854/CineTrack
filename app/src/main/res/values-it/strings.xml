@@ -168,6 +168,8 @@
     <string name="database_untouched">Nessuna modifica remota rilevata—database invariato.</string>
     <string name="sync_summary">Scaricati %1$d · Caricati %2$d · Aggiunti %3$d · Rimossi %4$d</string>
     <string name="exclude_specials">Escludi gli speciali</string>
+    <string name="hide_adult_titles">Nascondi titoli per adulti</string>
+    <string name="hide_adult_titles_sub">Esclude i titoli 18+ da ricerca, Scopri e filmografie, compresi i video per adulti giapponesi che TMDB non segnala</string>
     <string name="upcoming_diagnostic_explanation">Gli elementi futuri vengono mostrati solo per i titoli seguiti con una data valida nel fuso orario dei metadati. Vengono preferite le date Simkl e la cache resta visibile offline.</string>
     <string name="coming_soon">In arrivo</string>
     <string name="why_not_shown">Perché non viene mostrato?</string>
@@ -742,6 +744,7 @@
     <string name="section_preview">Anteprima</string>
     <string name="preview_example">Valori di esempio, per mostrare il layout.</string>
     <string name="simkl_connected_as">Collegato come %1$s</string>
+    <string name="floppy_connected_as">Collegato come %1$s</string>
     <string name="stat_shows">Serie</string>
     <string name="stat_movies">Film</string>
     <string name="stat_last_sync">Ultima sync</string>

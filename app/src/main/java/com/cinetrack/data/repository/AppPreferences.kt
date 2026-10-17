@@ -116,8 +116,10 @@ class AppPreferences(private val context: Context) {
         val metadataTimezone = stringPreferencesKey("metadata_timezone")
         val airDateSource = stringPreferencesKey("air_date_source")
         val simklUsername = stringPreferencesKey("simkl_username")
+        val floppyUsername = stringPreferencesKey("floppy_username")
         val syncReport = stringPreferencesKey("sync_report")
         val excludeSpecials = booleanPreferencesKey("exclude_specials")
+        val hideAdultTitles = booleanPreferencesKey("hide_adult_titles")
         val posterAccent = booleanPreferencesKey("poster_accent")
         val preferredProviders = stringPreferencesKey("preferred_providers")
         val visibleProviderTypes = stringPreferencesKey("visible_provider_types")
@@ -197,6 +199,7 @@ class AppPreferences(private val context: Context) {
     /** Which provider's episode air dates are shown (see AirDateSource). */
     val airDateSource: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.airDateSource] ?: com.cinetrack.data.schedule.AirDateSource.DEFAULT }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
+    val hideAdultTitles: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.hideAdultTitles] ?: true }
     /** Detail pages take their accent from the poster; on unless turned off in Aspetto. */
     val posterAccent: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.posterAccent] ?: true }
 
@@ -721,12 +724,22 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { if (value.isNullOrBlank()) it.remove(Keys.simklUsername) else it[Keys.simklUsername] = value }
     }
 
+    val floppyUsername: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.floppyUsername] }
+
+    suspend fun setFloppyUsername(value: String?) {
+        context.cineTrackDataStore.edit { if (value.isNullOrBlank()) it.remove(Keys.floppyUsername) else it[Keys.floppyUsername] = value }
+    }
+
     suspend fun setMetadataTimezone(value: String) {
         context.cineTrackDataStore.edit { it[Keys.metadataTimezone] = value }
     }
 
     suspend fun setAirDateSource(value: String) {
         context.cineTrackDataStore.edit { it[Keys.airDateSource] = value }
+    }
+
+    suspend fun setHideAdultTitles(value: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.hideAdultTitles] = value }
     }
 
     suspend fun setExcludeSpecials(value: Boolean) {

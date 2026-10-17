@@ -57,6 +57,7 @@
             <meta-data android:name="android.appwidget.provider" android:resource="@xml/up_next_widget_info" />
         </receiver>
         <receiver android:name=".data.sync.MarkEpisodeWatchedReceiver" android:exported="false" />
+        <receiver android:name=".data.sync.QuietHoursEndReceiver" android:exported="false" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

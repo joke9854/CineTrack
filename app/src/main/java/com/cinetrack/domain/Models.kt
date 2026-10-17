@@ -394,6 +394,7 @@ data class AppUiState(
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
     val simklUsername: String? = null,
+    val floppyUsername: String? = null,
     /** Why a Simkl grant was dropped ("upgrade" or "signed_out"); null while connected or never connected. */
     val simklReconnectReason: String? = null,
     /** A Simkl account was just connected and the user has not chosen merge or replace yet. */
@@ -426,6 +427,7 @@ data class AppUiState(
     val metadataTimezone: String = "system",
     val airDateSource: String = "trakt",
     val excludeSpecials: Boolean = true,
+    val hideAdultTitles: Boolean = true,
     val preferredProviders: Set<String> = emptySet(),
     val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
     val heroLayout: String = "standard",

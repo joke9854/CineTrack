@@ -691,13 +691,13 @@ fun MediaPoster(
                 StateBadge(libraryStatusColor(media.status), stateIcon, stringResource(R.string.in_library), Modifier.align(Alignment.TopEnd))
             }
             if (!selectionMode && progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
-                CircularProgressIndicator(
-                    progress = { progress.coerceIn(0f, 1f) },
-                    modifier = Modifier.align(Alignment.BottomEnd).padding(com.cinetrack.ui.theme.Spacing.sm).size(27.dp),
-                    color = Success,
-                    trackColor = com.cinetrack.ui.theme.SurfacePalette.BlueOverlay,
-                    strokeWidth = 2.5.dp,
-                )
+                // A thin line along the bottom edge, as on the Progress card; the art stays clear.
+                Box(
+                    Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp)
+                        .background(com.cinetrack.ui.theme.SurfacePalette.BlueOverlay),
+                ) {
+                    Box(Modifier.fillMaxWidth(progress.coerceIn(0f, 1f)).fillMaxHeight().background(Success))
+                }
             }
         }
         if (showTitle) {

@@ -242,6 +242,8 @@ class CineTrackRepository(
     ): com.cinetrack.data.sync.ConnectionResult {
         val previousUrl = preferences.floppySettingsNow()?.baseUrl
         val previousCredential = preferences.floppyApiKeyNow()
+        // The account may change; Settings fetches the name again.
+        preferences.setFloppyUsername(null)
         val result = floppySecondaryService?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage, sameServerAtNewAddress)
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)
                 ?.connect(baseUrl.trim(), apiKey.trim(), allowInsecureLocalHttp, onStage)
@@ -288,6 +290,7 @@ class CineTrackRepository(
     suspend fun disconnectFloppy() {
         val previousUrl = preferences.floppySettingsNow()?.baseUrl
         val previousCredential = preferences.floppyApiKeyNow()
+        preferences.setFloppyUsername(null)
         floppySecondaryService?.disconnect()
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
         if (FloppyOAuthRules.isOAuthCredential(previousCredential) && previousUrl != null) {
@@ -688,7 +691,7 @@ class CineTrackRepository(
         val hiddenDiscovery = preferences.hiddenDiscovery.first()
         val regionQuery = allowedRegions.takeIf { it.isNotEmpty() }?.sorted()?.joinToString("|")
         fun List<com.cinetrack.data.remote.TmdbMediaDto>.inAllowedRegions() = filter { dto ->
-            allowedRegions.isEmpty() || dto.originCountries.isEmpty() || dto.originCountries.any(allowedRegions::contains)
+            dto.inContentRegions(allowedRegions)
         }
         // Bound all Discover requests, and reuse Popular's first page when a
         // country-filtered Trending list needs filling. No extra fallback call.
@@ -795,8 +798,7 @@ class CineTrackRepository(
         val states = database.stateDao().observeAll().first().associateBy { "${it.mediaType}:${it.mediaId}" }
         val cards = responses.flatMap { (type, response) ->
             response.results.filter { dto ->
-                regions.isEmpty() || dto.originCountries.any(regions::contains) ||
-                    (railId != RailIds.TRENDING_TV && railId != RailIds.TRENDING_MOVIES && dto.originCountries.isEmpty())
+                dto.inContentRegions(regions)
             }.map { it.toEntity(type) }.map { it.toDomain(states["${it.mediaType}:${it.tmdbId}"]) }
         }.distinctBy(MediaCard::stableKey).filterNot { it.stableKey in hidden }
             .filter { railId != RailIds.UPCOMING || it.releaseDate?.let { raw ->
@@ -872,7 +874,7 @@ class CineTrackRepository(
                 ).also { totalPages = it.totalPages }.results
             }
         }.filter { dto ->
-            val regionAllowed = allowedRegions.isEmpty() || dto.originCountries.isEmpty() || dto.originCountries.any(allowedRegions::contains)
+            val regionAllowed = dto.inContentRegions(allowedRegions)
             val isAnime = dto.originalLanguage.equals("ja", ignoreCase = true) && 16 in dto.genreIds
             regionAllowed && when (filters.animeMode) {
                 "only" -> isAnime
@@ -3150,6 +3152,10 @@ class CineTrackRepository(
         }
 
     /** Reads the Simkl account name for the Settings page; null when it cannot be read. */
+    suspend fun refreshFloppyUsername(): String? =
+        runCatching { (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.displayName() }.getOrNull()
+            ?.also { preferences.setFloppyUsername(it) }
+
     suspend fun refreshSimklUsername(): String? =
         runCatching { services.simklSync.userSettings().user?.name?.trim() }.getOrNull()
             ?.takeIf(String::isNotBlank)

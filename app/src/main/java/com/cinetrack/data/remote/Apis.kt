@@ -25,9 +25,27 @@ import java.util.concurrent.TimeUnit
 @Serializable
 data class TmdbPage(
     val page: Int = 1,
-    val results: List<TmdbMediaDto> = emptyList(),
+    @SerialName("results") val allResults: List<TmdbMediaDto> = emptyList(),
     @SerialName("total_pages") val totalPages: Int = 1,
-)
+) {
+    // Adult (18+) titles stay out of CineTrack's lists unless the user turns the filter off.
+    val results: List<TmdbMediaDto> get() = if (!TmdbContentFilter.hideAdult) allResults
+        else allResults.filterNot { it.adult || isLikelyAdultVideo(it.originalLanguage, it.title, it.name, it.originalTitle, it.originalName) }
+}
+
+/** Settings > Metadata > Hide adult titles, mirrored here so every TMDB list applies it. */
+object TmdbContentFilter {
+    @Volatile var hideAdult: Boolean = true
+}
+
+// TMDB leaves `adult` false on many Japanese adult videos (START-205 is listed
+// as a Drama, rated R18+ only in its JP release). They are titled by their
+// catalogue code, which ordinary Japanese titles don't start with.
+private val adultVideoCode = Regex("""^(FC2-PPV-\d+|[A-Z]{2,6}-\d{2,5}[A-Z]?)(?![A-Za-z0-9])""")
+
+internal fun isLikelyAdultVideo(originalLanguage: String?, vararg titles: String?): Boolean =
+    originalLanguage.equals("ja", ignoreCase = true) &&
+        titles.any { title -> title != null && adultVideoCode.containsMatchIn(title.trim()) }
 
 @Serializable
 data class TmdbFindResponse(
@@ -38,6 +56,7 @@ data class TmdbFindResponse(
 @Serializable
 data class TmdbMediaDto(
     val id: Int,
+    val adult: Boolean = false,
     val title: String? = null,
     val name: String? = null,
     val overview: String = "",
@@ -51,6 +70,8 @@ data class TmdbMediaDto(
     @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
     @SerialName("origin_country") val originCountries: List<String> = emptyList(),
     @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
     @SerialName("media_type") val mediaType: String? = null,
     @SerialName("known_for_department") val knownForDepartment: String? = null,
     val runtime: Int? = null,
@@ -162,11 +183,18 @@ data class TmdbMovieCreditDto(
 )
 
 @Serializable
-data class TmdbCombinedCreditsDto(val cast: List<TmdbCombinedCreditDto> = emptyList())
+data class TmdbCombinedCreditsDto(@SerialName("cast") val allCast: List<TmdbCombinedCreditDto> = emptyList()) {
+    val cast: List<TmdbCombinedCreditDto> get() = if (!TmdbContentFilter.hideAdult) allCast
+        else allCast.filterNot { it.adult || isLikelyAdultVideo(it.originalLanguage, it.title, it.name, it.originalTitle, it.originalName) }
+}
 
 @Serializable
 data class TmdbCombinedCreditDto(
     val id: Int,
+    val adult: Boolean = false,
+    @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
     val title: String? = null,
     val name: String? = null,
     @SerialName("media_type") val mediaType: String? = null,

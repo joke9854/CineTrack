@@ -208,6 +208,10 @@ class FloppyRemoteDataSource(
     }
 
     /** Turns on the server's change index for this install (idempotent). */
+    /** The account's display name for Settings, or null on servers that don't send one. */
+    suspend fun displayName(session: FloppySession): String? =
+        mapped { api(session).connection().username?.trim()?.takeIf(String::isNotBlank) }
+
     suspend fun registerAppConnection(session: FloppySession, instanceKey: String) {
         mapped { api(session).registerAppConnection(FloppyAppConnectionRequest("cinetrack", instanceKey, "CineTrack")) }
     }

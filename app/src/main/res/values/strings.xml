@@ -168,6 +168,8 @@
     <string name="database_untouched">No remote changes detected—database untouched.</string>
     <string name="sync_summary">Downloaded %1$d · Uploaded %2$d · Added %3$d · Removed %4$d</string>
     <string name="exclude_specials">Exclude specials</string>
+    <string name="hide_adult_titles">Hide adult titles</string>
+    <string name="hide_adult_titles_sub">Keeps 18+ titles out of search, Discover and filmographies, including Japanese adult videos that TMDB leaves unflagged</string>
     <string name="upcoming_diagnostic_explanation">Upcoming items are shown only for tracked titles with a valid release date in the selected metadata timezone. Simkl dates are preferred and cached results remain visible offline.</string>
     <string name="coming_soon">Coming soon</string>
     <string name="why_not_shown">Why isn’t this shown?</string>
@@ -742,6 +744,7 @@
     <string name="section_preview">Preview</string>
     <string name="preview_example">Sample values, to show the layout.</string>
     <string name="simkl_connected_as">Connected as %1$s</string>
+    <string name="floppy_connected_as">Connected as %1$s</string>
     <string name="stat_shows">Shows</string>
     <string name="stat_movies">Films</string>
     <string name="stat_last_sync">Last sync</string>

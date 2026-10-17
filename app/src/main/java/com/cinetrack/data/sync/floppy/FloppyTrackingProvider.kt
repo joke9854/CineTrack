@@ -300,6 +300,9 @@ class FloppyTrackingProvider(
         return remote.translateEpisodes(captureSession(), tmdbId, from, coords)
     }
 
+    /** Display-only account name; never used to tell accounts apart. */
+    suspend fun displayName(): String? = remote.displayName(captureSession())
+
     private suspend fun <T> mainRead(expectedInstanceId: String, block: suspend (FloppySession) -> T): T {
         val generation = connectionGeneration.get()
         val session = captureSession()
