@@ -648,6 +648,7 @@
     <string name="floppy_saved_securely">Saved securely</string>
     <string name="floppy_advanced">Advanced</string>
     <string name="floppy_allow_http_local_network">Allow HTTP on local network</string>
+    <string name="floppy_send_crash_reports">Send crash reports to Floppy</string>
     <string name="floppy_http_local_supporting">Allows unencrypted connections only to private/local Floppy servers. HTTPS remains recommended.</string>
     <string name="floppy_how_to_connect">How to connect</string>
     <string name="floppy_how_to_connect_steps">1. Open your Floppy web interface.\n2. Go to Settings → Integrations.\n3. Find API Token and copy it.\n4. Enter your Floppy base URL here.\n5. Paste the token and connect.</string>

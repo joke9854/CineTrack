@@ -161,6 +161,9 @@ interface FloppyApi {
         @Body request: FloppyEpisodeTranslateRequest,
     ): FloppyEpisodeTranslateResponse
 
+    @POST("api/v1/cinetrack/crash-reports/")
+    suspend fun submitCrashReport(@Body report: com.cinetrack.crash.CrashReportDto): com.cinetrack.crash.CrashReportResponse
+
     @GET("api/v1/tasks/{taskId}/")
     suspend fun taskStatus(@Path("taskId") taskId: String): FloppyTaskStatusResponse
 

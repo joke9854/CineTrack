@@ -359,6 +359,7 @@ class AppPreferences(private val context: Context) {
                 canBootstrapV2 = "bootstrap_v2" in capabilities,
                 canSyncItems = "sync_items" in capabilities,
                 canTranslateEpisodes = "translate_episodes" in capabilities,
+                canCrashReports = "crash_reports_v1" in capabilities,
             ),
             connectedAt = values[Keys.floppyConnectedAt],
             connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
@@ -435,6 +436,7 @@ class AppPreferences(private val context: Context) {
                     if (settings.capabilities.canBootstrapV2) add("bootstrap_v2")
                     if (settings.capabilities.canSyncItems) add("sync_items")
                     if (settings.capabilities.canTranslateEpisodes) add("translate_episodes")
+                    if (settings.capabilities.canCrashReports) add("crash_reports_v1")
                 }
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)

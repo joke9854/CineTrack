@@ -2,6 +2,7 @@
 
 package com.cinetrack.ui.components
 
+import coil3.request.crossfade
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.BoundsTransform
 import androidx.compose.animation.SharedTransitionScope
@@ -48,10 +49,10 @@ object SharedPosterSource {
     }
 
     /** The tapped source's image, but only for the page it actually opened. */
-    fun imageKeyFor(target: String): coil.memory.MemoryCache.Key? = if (activeTarget == target) activeImageKey else null
+    fun imageKeyFor(target: String): coil3.memory.MemoryCache.Key? = if (activeTarget == target) activeImageKey else null
     /** Memory-cache key of each poster's loaded image, so the detail page can show it at once. */
-    internal val loadedKeys = java.util.concurrent.ConcurrentHashMap<String, coil.memory.MemoryCache.Key>()
-    val activeImageKey: coil.memory.MemoryCache.Key? get() = active?.let(loadedKeys::get)
+    internal val loadedKeys = java.util.concurrent.ConcurrentHashMap<String, coil3.memory.MemoryCache.Key>()
+    val activeImageKey: coil3.memory.MemoryCache.Key? get() = active?.let(loadedKeys::get)
 }
 
 /** A stable id for one poster on screen; survives scrolling it away and back. */
@@ -98,11 +99,11 @@ fun SharedPosterImage(url: String, contentDescription: String?, slot: String, mo
     // A page rebuilt on going back shows its poster from memory at once, so the poster
     // flying back into it is never an empty box while the image reloads.
     val request = androidx.compose.runtime.remember(url, slot) {
-        coil.request.ImageRequest.Builder(context).data(url)
+        coil3.request.ImageRequest.Builder(context).data(url)
             .placeholderMemoryCacheKey(SharedPosterSource.loadedKeys[slot])
             .build()
     }
-    coil.compose.AsyncImage(
+    coil3.compose.AsyncImage(
         model = request,
         contentDescription = contentDescription,
         contentScale = contentScale,
@@ -120,9 +121,9 @@ fun SharedPosterTargetImage(url: String, contentDescription: String?, sharedKey:
     val context = androidx.compose.ui.platform.LocalContext.current
     val placeholder = androidx.compose.runtime.remember(url) { SharedPosterSource.imageKeyFor(sharedKey) }
     val request = androidx.compose.runtime.remember(url, placeholder) {
-        coil.request.ImageRequest.Builder(context).data(url).placeholderMemoryCacheKey(placeholder).crossfade(220).build()
+        coil3.request.ImageRequest.Builder(context).data(url).placeholderMemoryCacheKey(placeholder).crossfade(220).build()
     }
-    coil.compose.AsyncImage(model = request, contentDescription = contentDescription, contentScale = contentScale, modifier = modifier)
+    coil3.compose.AsyncImage(model = request, contentDescription = contentDescription, contentScale = contentScale, modifier = modifier)
 }
 
 /**

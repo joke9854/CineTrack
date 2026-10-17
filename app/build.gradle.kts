@@ -6,6 +6,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
     id("androidx.baselineprofile")
+    id("io.github.takahirom.roborazzi")
 }
 
 val localProperties = Properties().apply {
@@ -98,6 +99,9 @@ android {
     // MigrationTestHelper loads exported Room schemas from the instrumentation
     // APK's assets. Keep the historical schemas alongside the generated ones
     // and package them for every connectedDebugAndroidTest run.
+    // Robolectric needs merged resources/manifest on the unit-test classpath (Roborazzi screenshots).
+    testOptions.unitTests.isIncludeAndroidResources = true
+
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
     }
@@ -105,6 +109,10 @@ android {
 
 ksp {
     arg("room.schemaLocation", "$projectDir/schemas")
+}
+
+roborazzi {
+    outputDir.set(layout.projectDirectory.dir("src/test/screenshots"))
 }
 
 baselineProfile {
@@ -145,13 +153,17 @@ dependencies {
     implementation("androidx.datastore:datastore-preferences:1.2.0")
     implementation("androidx.security:security-crypto:1.1.0-alpha06")
     implementation("androidx.work:work-runtime-ktx:2.11.2")
+    // Crash capture only: reports go to Floppy through our own sender, never an ACRA HTTP/mail plugin.
+    implementation("ch.acra:acra-core:5.13.1")
 
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:3.0.0")
     implementation("com.squareup.okhttp3:logging-interceptor:5.3.2")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
-    implementation("io.coil-kt:coil-compose:2.7.0")
+    implementation("io.coil-kt.coil3:coil-compose:3.4.0")
+    implementation("io.coil-kt.coil3:coil-network-okhttp:3.4.0")
+    implementation("androidx.glance:glance-appwidget:1.2.0")
     // Stable Haze API compatible with the app's current Compose toolchain.
     implementation("dev.chrisbanes.haze:haze:1.6.10")
     // Liquid glass (AGSL refraction, specular rim) for compact controls.
@@ -160,6 +172,11 @@ dependencies {
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 
     testImplementation("junit:junit:4.13.2")
+    testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi:1.75.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-compose:1.75.0")
+    testImplementation("io.github.takahirom.roborazzi:roborazzi-junit-rule:1.75.0")
+    testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("androidx.work:work-testing:2.11.2")
     testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")

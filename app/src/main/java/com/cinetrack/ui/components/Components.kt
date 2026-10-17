@@ -115,10 +115,12 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import coil.compose.AsyncImage
-import coil.imageLoader
-import coil.request.ImageRequest
-import coil.request.SuccessResult
+import coil3.compose.AsyncImage
+import coil3.imageLoader
+import coil3.request.ImageRequest
+import coil3.request.SuccessResult
+import coil3.request.allowHardware
+import coil3.toBitmap
 import androidx.core.graphics.drawable.toBitmap
 import com.cinetrack.R
 import com.cinetrack.domain.LibraryStatus
@@ -471,7 +473,7 @@ private suspend fun extractPosterAccent(context: android.content.Context, url: S
     runCatching {
         val request = ImageRequest.Builder(context).data(url).size(72).allowHardware(false).build()
         val result = context.imageLoader.execute(request) as? SuccessResult ?: return@runCatching null
-        val bitmap = result.drawable.toBitmap(72, 72)
+        val bitmap = result.image.toBitmap(72, 72)
         val weights = DoubleArray(12)
         val sums = Array(12) { DoubleArray(3) }
         val hsv = FloatArray(3)
@@ -504,7 +506,7 @@ private suspend fun extractArtworkColors(context: android.content.Context, url: 
     runCatching {
         val request = ImageRequest.Builder(context).data(url).size(72).allowHardware(false).build()
         val result = context.imageLoader.execute(request) as? SuccessResult ?: return@runCatching null
-        val bitmap = result.drawable.toBitmap(72, 72)
+        val bitmap = result.image.toBitmap(72, 72)
         var red = 0.0
         var green = 0.0
         var blue = 0.0

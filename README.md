@@ -139,3 +139,18 @@ Pushing a version-bumped commit to `beta-testing` (or `testing/**`) runs the sig
 ## Attribution and license
 
 The previous app was based on Showly 2.0. This rebuild preserves and adapts relevant API endpoint/data-model ideas from the user-supplied GPL project, so the included project remains distributed under the GNU GPL v3 in `LICENSE`.
+
+## Screenshot tests (Roborazzi, JVM)
+
+Robolectric + Roborazzi goldens for the Progress artwork card, a status pill and an
+empty state (light and dark qualifiers) live in `app/src/test/java/com/cinetrack/screenshot/`
+and `app/src/test/screenshots/`. No device or network is needed. AGSL glass falls back
+under Robolectric, so goldens guard layout and colors only.
+
+```sh
+./gradlew :app:recordRoborazziDebug --tests 'com.cinetrack.screenshot.*'   # (re)write goldens
+./gradlew :app:verifyRoborazziDebug --tests 'com.cinetrack.screenshot.*'   # compare against goldens
+```
+
+Review the PNG diff before committing re-recorded goldens. Normal `testDebugUnitTest`
+runs do not compare screenshots.

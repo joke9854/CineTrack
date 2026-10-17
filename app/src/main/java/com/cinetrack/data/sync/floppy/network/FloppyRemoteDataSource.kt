@@ -54,6 +54,8 @@ import kotlinx.serialization.json.jsonPrimitive
 import retrofit2.HttpException
 import kotlinx.coroutines.delay
 
+enum class CrashSubmitOutcome { CREATED, ALREADY_RECEIVED, REJECTED }
+
 private const val BULK_EPISODE_MAX = 50
 const val TRANSLATE_MAX = 400
 /** Bounds the per-play removal of one unwatched episode. */
@@ -154,6 +156,7 @@ class FloppyRemoteDataSource(
             canSyncItems = info.apiExtensions?.syncItemsV1 == true &&
                 info.apiExtensions.syncAppConnectionsV1,
             canTranslateEpisodes = info.apiExtensions?.cinetrackEpisodeTranslateV1 == true,
+            canCrashReports = info.apiExtensions?.cinetrackCrashReportsV1 == true,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -236,6 +239,24 @@ class FloppyRemoteDataSource(
                 FloppyEpisodeTranslateRequest(from, coords.map { FloppyEpisodeTranslateCoord(it.first, it.second) }),
             ).results
         }
+    }
+
+    /**
+     * Sends one crash/ANR report. Only a known outcome is returned (201 created,
+     * 200 already_received, 400 rejected); every other failure is thrown classified.
+     */
+    suspend fun submitCrashReport(session: FloppySession, report: com.cinetrack.crash.CrashReportDto): CrashSubmitOutcome = try {
+        when (api(session).submitCrashReport(report).status) {
+            "created" -> CrashSubmitOutcome.CREATED
+            "already_received" -> CrashSubmitOutcome.ALREADY_RECEIVED
+            else -> throw TrackingSyncError.InvalidRemoteData("Floppy returned an unknown crash report status")
+        }
+    } catch (cancelled: kotlinx.coroutines.CancellationException) {
+        throw cancelled
+    } catch (error: HttpException) {
+        if (error.code() == 400) CrashSubmitOutcome.REJECTED else throw FloppyApiErrorMapper.map(error)
+    } catch (error: Throwable) {
+        throw FloppyApiErrorMapper.map(error)
     }
 
     /** Called with (show, submitted season, submitted episode, stored season, stored episode) when Floppy

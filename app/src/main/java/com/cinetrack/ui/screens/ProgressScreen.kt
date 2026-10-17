@@ -137,7 +137,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil3.compose.AsyncImage
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.blur
 import com.cinetrack.R
@@ -748,7 +748,7 @@ private fun PlaybackOrderSheet(
 }
 
 @Composable
-private fun PlaybackRow(
+internal fun PlaybackRow(
     item: PlaybackCard,
     onMedia: (MediaCard) -> Unit,
     onEpisode: (EpisodeCard) -> Unit,
@@ -972,7 +972,7 @@ private fun AnimatedProgressBar(progress: Float, modifier: Modifier = Modifier) 
 }
 
 @Composable
-private fun ProgressEmpty(message: String) {
+internal fun ProgressEmpty(message: String) {
     Text(
         message,
         color = TextSecondary,
@@ -1597,7 +1597,7 @@ private fun YearReviewCard(review: YearReview) {
         review.topShow?.let { show ->
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.width(40.dp).height(60.dp).clip(RoundedCornerShape(8.dp)).background(Color.White.copy(alpha = .06f))) {
-                    show.posterUrl?.let { coil.compose.AsyncImage(it, show.title, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
+                    show.posterUrl?.let { coil3.compose.AsyncImage(it, show.title, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop) }
                 }
                 Spacer(Modifier.width(12.dp))
                 Column(Modifier.weight(1f)) {

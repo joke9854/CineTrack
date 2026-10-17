@@ -325,11 +325,11 @@ fun LibraryScreen(
                 ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 40.dp - 12.dp * (columns - 1)) / columns).roundToPx()
             }
             LaunchedEffect(typeItems, posterPx) {
-                val loader = coil.Coil.imageLoader(prefetchContext)
+                val loader = coil3.SingletonImageLoader.get(prefetchContext)
                 filterChoices.forEach { (value, _, _) ->
                     typeItems.filter { value == null || it.status == value }.take(12).forEach { media ->
                         media.posterUrl?.let { url ->
-                            loader.enqueue(coil.request.ImageRequest.Builder(prefetchContext).data(url).size(posterPx, posterPx * 3 / 2).build())
+                            loader.enqueue(coil3.request.ImageRequest.Builder(prefetchContext).data(url).size(posterPx, posterPx * 3 / 2).build())
                         }
                     }
                 }
@@ -1476,6 +1476,16 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         syncing = sync.running,
         onSyncRequested = viewModel::sync,
     )
+    if (state.floppyConnected) {
+        val crashContext = LocalContext.current
+        var sendCrashReports by remember { mutableStateOf(com.cinetrack.crash.CrashReportSettings.isEnabled(crashContext)) }
+        SettingsSection(stringResource(R.string.floppy_send_crash_reports)) {
+            ToggleRow(stringResource(R.string.floppy_send_crash_reports), sendCrashReports) {
+                sendCrashReports = it
+                com.cinetrack.crash.CrashReporting.setEnabled(crashContext, it)
+            }
+        }
+    }
     val floppyUri = LocalUriHandler.current
     KitSteps(
         stringResource(R.string.where_find_token),

@@ -353,7 +353,7 @@ private fun PosterRow(items: List<MediaCard>) {
 private fun MiniArt(media: MediaCard, wide: Boolean, modifier: Modifier) {
     val art = if (wide) media.backdropUrl ?: media.posterUrl else media.posterUrl ?: media.backdropUrl
     Box(modifier.clip(RoundedCornerShape(14.dp)).background(GlassBare)) {
-        if (!art.isNullOrBlank()) coil.compose.AsyncImage(art, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+        if (!art.isNullOrBlank()) coil3.compose.AsyncImage(art, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
     }
 }
 

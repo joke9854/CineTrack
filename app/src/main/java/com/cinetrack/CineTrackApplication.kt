@@ -1,6 +1,16 @@
 package com.cinetrack
 
 import android.app.Application
+import android.content.Context
+import com.cinetrack.crash.CrashOutbox
+import com.cinetrack.crash.CrashReportSettings
+import com.cinetrack.crash.CrashReportUploader
+import com.cinetrack.crash.CrashReporting
+import com.cinetrack.data.sync.floppy.FloppySession
+import org.acra.ACRA
+import org.acra.ReportField
+import org.acra.data.StringFormat
+import org.acra.ktx.initAcra
 import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.library.LibraryRepository
 import com.cinetrack.data.library.RoomLibraryRepository
@@ -43,10 +53,13 @@ import com.cinetrack.data.sync.simkl.SimklSyncEngine
 import com.cinetrack.data.watchprovider.DefaultWatchProviderRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.sync.ReleaseNotifier
-import coil.ImageLoader
-import coil.ImageLoaderFactory
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
+import coil3.ImageLoader
+import coil3.PlatformContext
+import coil3.SingletonImageLoader
+import coil3.request.crossfade
+import okio.Path.Companion.toOkioPath
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -57,19 +70,45 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CompletableDeferred
 import java.util.concurrent.atomic.AtomicReference
 
-class CineTrackApplication : Application(), ImageLoaderFactory {
+class CineTrackApplication : Application(), SingletonImageLoader.Factory {
     lateinit var container: AppContainer
         private set
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        initAcra {
+            buildConfigClass = BuildConfig::class.java
+            reportFormat = StringFormat.JSON
+            // Whitelist only: no logcat, preferences, device ids, settings, environment or custom data.
+            reportContent = listOf(
+                ReportField.REPORT_ID,
+                ReportField.APP_VERSION_CODE,
+                ReportField.APP_VERSION_NAME,
+                ReportField.ANDROID_VERSION,
+                ReportField.PHONE_MODEL,
+                ReportField.BRAND,
+                ReportField.STACK_TRACE,
+                ReportField.USER_CRASH_DATE,
+                ReportField.THREAD_DETAILS,
+            )
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
+        // ACRA's sender runs in its own process, which only writes the outbox: skip the app's heavy init there.
+        if (ACRA.isACRASenderServiceProcess()) return
         container = AppContainer(this, applicationScope)
         // Keep the TMDB adult filter in step with Settings > Metadata, also for background work.
         applicationScope.launch {
             container.preferences.hideAdultTitles.collect { com.cinetrack.data.remote.TmdbContentFilter.hideAdult = it }
         }
         ReleaseNotifier.createChannel(this)
+        applicationScope.launch(Dispatchers.IO) {
+            val connected = runCatching { container.preferences.floppySettingsNow() != null }.getOrDefault(false)
+            runCatching { CrashReporting.startup(this@CineTrackApplication, connected) }
+        }
         applicationScope.launch {
             TrackingWorkScheduler.update(
                 this@CineTrackApplication,
@@ -79,15 +118,15 @@ class CineTrackApplication : Application(), ImageLoaderFactory {
         }
     }
 
-    override fun newImageLoader(): ImageLoader = ImageLoader.Builder(this)
+    override fun newImageLoader(context: PlatformContext): ImageLoader = ImageLoader.Builder(context)
         .memoryCache {
-            MemoryCache.Builder(this)
-                .maxSizePercent(.15)
+            MemoryCache.Builder()
+                .maxSizePercent(context, .15)
                 .build()
         }
         .diskCache {
             DiskCache.Builder()
-                .directory(cacheDir.resolve("cinetrack_image_cache"))
+                .directory(cacheDir.resolve("cinetrack_image_cache").toOkioPath())
                 .maxSizeBytes(150L * 1024 * 1024)
                 .build()
         }
@@ -135,6 +174,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     lateinit var floppySecondaryService: FloppySecondaryService
     lateinit var libraryArtworkRefreshManager: LibraryArtworkRefreshManager
     lateinit var floppyBootstrapWorkManager: FloppyBootstrapWorkManager
+    val crashReportUploader: CrashReportUploader
     val repository: CineTrackRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
@@ -188,6 +228,32 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         val floppyOAuth = com.cinetrack.data.sync.floppy.network.FloppyOAuthClient(preferences.floppyOAuthTokenStore)
         val floppyRemote = com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource(
             com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory(floppyOAuth),
+        )
+        crashReportUploader = CrashReportUploader(
+            outbox = CrashOutbox.forContext(application),
+            enabled = { CrashReportSettings.isEnabled(application) },
+            session = {
+                preferences.floppySettingsNow()?.let { settings ->
+                    preferences.floppyApiKeyNow(settings.credentialAlias)?.let { apiKey ->
+                        FloppySession(
+                            instanceId = settings.connectionId,
+                            baseUrl = settings.baseUrl,
+                            accountIdentity = settings.accountIdentity,
+                            credentialAlias = settings.credentialAlias,
+                            apiKey = apiKey,
+                            capabilities = settings.capabilities,
+                            serverVersion = settings.serverVersion,
+                            allowInsecureLocalHttp = settings.allowInsecureLocalHttp,
+                        )
+                    }
+                }
+            },
+            // Connections saved before the capability existed learn it from the public /info.
+            hasCapability = { session ->
+                session.capabilities.canCrashReports ||
+                    floppyRemote.inspect(session.baseUrl, session.allowInsecureLocalHttp).apiExtensions?.cinetrackCrashReportsV1 == true
+            },
+            remote = floppyRemote,
         )
         // Where Floppy stored a locally submitted episode under another number is a translation too.
         floppyRemote.storedCoordinateSink = { showId, season, episode, storedSeason, storedEpisode ->

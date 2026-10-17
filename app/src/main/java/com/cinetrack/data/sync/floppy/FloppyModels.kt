@@ -25,6 +25,7 @@ data class FloppyApiExtensions(
     @SerialName("sync_app_connections_v1") val syncAppConnectionsV1: Boolean = false,
     @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
     @SerialName("cinetrack_episode_translate_v1") val cinetrackEpisodeTranslateV1: Boolean = false,
+    @SerialName("cinetrack_crash_reports_v1") val cinetrackCrashReportsV1: Boolean = false,
     /** App sign-in (OAuth 2.0 + PKCE) for the `cinetrack` client. */
     @SerialName("oauth_v1") val oauthV1: Boolean = false,
 )
@@ -255,6 +256,8 @@ data class FloppyCapabilities(
     val canSyncItems: Boolean = false,
     /** Fork capability: episode numbering translation (tracker/TMDB). */
     val canTranslateEpisodes: Boolean = false,
+    /** Fork capability: accepts CineTrack crash/ANR reports. */
+    val canCrashReports: Boolean = false,
 )
 
 /** One play of a synced item, at its exact instant. */
