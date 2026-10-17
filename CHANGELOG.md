@@ -1,3 +1,15 @@
+# CineTrack 0.99.63 beta
+
+**New**
+- Settings > Metadata > Hide adult titles (on by default) keeps 18+ titles out of search, Discover and filmographies, including Japanese adult videos that TMDB does not flag as adult.
+- Settings shows which account you are signed in with: "Connected as <name>" on the Simkl and Floppy cards. The Floppy name needs the latest Floppy update.
+- The Floppy server address field adds https:// for you, or http:// when "Allow HTTP on local network" is on.
+- Library posters show watch progress as a thin line along the bottom edge instead of a circle.
+
+**Fixes**
+- Release notifications held back by quiet hours now arrive when quiet hours end, even with the app closed and the phone idle.
+- Content regions: Trending in Discover's browse grid, and other lists, no longer show titles from regions you did not choose. A title TMDB gives no country is kept only when its original language is spoken in one of your regions.
+
 # CineTrack 0.99.62 beta
 
 **Fixes**
