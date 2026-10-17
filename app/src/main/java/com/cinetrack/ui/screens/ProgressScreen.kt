@@ -815,7 +815,8 @@ internal fun PlaybackRow(
     val backdrop = item.media.backdropUrl ?: item.media.posterUrl
     val posterArt = item.media.posterUrl ?: item.media.backdropUrl
     val animatedProgress by animateFloatAsState(timelineProgress.coerceIn(0f, 1f), tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
-    // Swipe right to tick: the card slides over a green check and snaps back once released.
+    // Swipe left to tick: the card slides over a green check and snaps back once released.
+    // swipe.value is negative while the card is pulled left.
     val swipe = remember(item.media.stableKey, item.season, item.episodeNumber) { androidx.compose.animation.core.Animatable(0f) }
     val swipeScope = rememberCoroutineScope()
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
@@ -829,11 +830,12 @@ internal fun PlaybackRow(
             .onSizeChanged { cardWidth = it.width.toFloat().coerceAtLeast(1f) }
             .drawBehind {
                 // Revealed behind the card: green, with the check growing as the threshold nears.
-                val reveal = (swipe.value / swipeThreshold).coerceIn(0f, 1f)
-                if (swipe.value > 0f) {
+                val pulled = -swipe.value
+                val reveal = (pulled / swipeThreshold).coerceIn(0f, 1f)
+                if (pulled > 0f) {
                     drawRoundRect(com.cinetrack.ui.theme.Success.copy(alpha = .25f + .6f * reveal), cornerRadius = androidx.compose.ui.geometry.CornerRadius(20.dp.toPx()))
                     val icon = (22.dp.toPx() * (.7f + .45f * reveal))
-                    translate(left = 26.dp.toPx(), top = (size.height - icon) / 2f) {
+                    translate(left = size.width - 26.dp.toPx() - icon, top = (size.height - icon) / 2f) {
                         with(checkPainter) { draw(androidx.compose.ui.geometry.Size(icon, icon), alpha = .5f + .5f * reveal, colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Color.White)) }
                     }
                 }
@@ -843,15 +845,15 @@ internal fun PlaybackRow(
                 state = androidx.compose.foundation.gestures.rememberDraggableState { delta ->
                     swipeScope.launch {
                         // Past the threshold the card resists, so it never runs off the screen.
-                        val next = swipe.value + if (swipe.value > swipeThreshold) delta * .35f else delta
-                        swipe.snapTo(next.coerceIn(0f, cardWidth * .6f))
-                        val armed = swipe.value >= swipeThreshold
+                        val next = swipe.value + if (-swipe.value > swipeThreshold) delta * .35f else delta
+                        swipe.snapTo(next.coerceIn(-cardWidth * .6f, 0f))
+                        val armed = -swipe.value >= swipeThreshold
                         if (armed && !swipeArmed) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                         swipeArmed = armed
                     }
                 },
                 onDragStopped = {
-                    if (swipe.value >= swipeThreshold) confirming = true
+                    if (-swipe.value >= swipeThreshold) confirming = true
                     swipeArmed = false
                     swipe.animateTo(0f, spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow))
                 },

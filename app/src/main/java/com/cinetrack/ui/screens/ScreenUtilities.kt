@@ -1,5 +1,3 @@
-@file:OptIn(androidx.compose.material.ExperimentalMaterialApi::class)
-
 package com.cinetrack.ui.screens
 
 import androidx.compose.foundation.layout.Box
@@ -8,9 +6,10 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.pullToRefresh
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.snapshotFlow
@@ -25,6 +24,7 @@ import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
 import java.time.ZoneId
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun LongPullRefreshContainer(
     refreshing: Boolean,
@@ -33,21 +33,25 @@ internal fun LongPullRefreshContainer(
     enabled: Boolean = true,
     content: @Composable () -> Unit,
 ) {
-    val pullState = rememberPullRefreshState(
-        refreshing = refreshing,
-        onRefresh = onRefresh,
-        refreshThreshold = 132.dp,
-        refreshingOffset = 62.dp,
-    )
-    Box(modifier.fillMaxSize().pullRefresh(pullState, enabled && !refreshing)) {
-        content()
-        PullRefreshIndicator(
-            refreshing = refreshing,
+    // A long pull (132dp) triggers the refresh; the indicator travels only 62dp and rests there.
+    val pullState = rememberPullToRefreshState()
+    Box(
+        modifier.fillMaxSize().pullToRefresh(
+            isRefreshing = refreshing,
             state = pullState,
+            enabled = enabled && !refreshing,
+            threshold = 132.dp,
+            onRefresh = onRefresh,
+        ),
+    ) {
+        content()
+        PullToRefreshDefaults.Indicator(
+            state = pullState,
+            isRefreshing = refreshing,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.xs),
-            backgroundColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
-            contentColor = AccentLight,
-            scale = true,
+            containerColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
+            color = AccentLight,
+            maxDistance = 62.dp,
         )
     }
 }

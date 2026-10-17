@@ -3,8 +3,7 @@ package com.cinetrack.crash
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
-import java.nio.file.Files
-import java.nio.file.StandardCopyOption
+import java.io.IOException
 
 /** Maps an ACRA report into the outbox, unless crash reporting is switched off. */
 class CrashReportIntake(
@@ -29,7 +28,12 @@ class CrashOutbox(private val directory: File, private val maxFiles: Int = MAX_F
         val tmp = File(directory, "$name.tmp")
         tmp.writeText(json.encodeToString(report))
         try {
-            Files.move(tmp.toPath(), File(directory, name).toPath(), StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING)
+            // rename(2) is atomic and replaces the target on Android; java.nio.file needs API 26 (minSdk is 25).
+            // Filesystems that refuse to replace (Windows, in JVM tests) get the old file removed first.
+            val target = File(directory, name)
+            if (!tmp.renameTo(target) && !(target.delete() && tmp.renameTo(target))) {
+                throw IOException("Could not move crash report into the outbox")
+            }
         } catch (error: Exception) {
             tmp.delete()
             throw error
