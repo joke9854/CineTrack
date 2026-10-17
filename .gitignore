@@ -18,3 +18,5 @@ captures/
 .claude/settings.local.json
 .kotlin/
 .trail/cache/
+CLAUDE.md
+.claude/agents/
