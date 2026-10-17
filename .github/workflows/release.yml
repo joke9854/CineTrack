@@ -6,18 +6,68 @@ on:
     branches:
       - "testing/**"
       - "beta-testing"
+  workflow_run:
+    workflows: ["Android test build"]
+    types: [completed]
 
 permissions:
   contents: write
 
 jobs:
   release:
-    if: (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') && !contains(github.event.head_commit.message, '[skip release]')
+    # Publishing is opt-in. Every push still gets the Android validation
+    # workflow, but only an explicit [release] commit (or manual dispatch)
+    # reaches the signed build and GitHub Release steps.
+    if: >-
+      (github.event_name == 'workflow_dispatch' ||
+       (github.event_name == 'push' &&
+        (startsWith(github.ref_name, 'testing/') || github.ref_name == 'beta-testing') &&
+        contains(github.event.head_commit.message, '[release]')) ||
+       (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        (startsWith(github.event.workflow_run.head_branch, 'testing/') || github.event.workflow_run.head_branch == 'beta-testing') &&
+        contains(github.event.workflow_run.head_commit.message, '[release]'))) &&
+      (github.event_name != 'workflow_run' || !contains(github.event.workflow_run.head_commit.message, '[skip release]'))
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify database index migration
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.ref }}
+      - name: Verify beta version policy
+        if: >-
+          (github.event_name == 'push' && !contains(github.event.head_commit.message, '[release]')) ||
+          (github.event_name == 'workflow_run' && !contains(github.event.workflow_run.head_commit.message, '[release]'))
+        run: |
+          PREVIOUS_FILE="$RUNNER_TEMP/cinetrack-previous-build.gradle.kts"
+          if git show "HEAD^:app/build.gradle.kts" > "$PREVIOUS_FILE" 2>/dev/null; then
+            python3 scripts/check_version_policy.py --previous-file "$PREVIOUS_FILE"
+          else
+            python3 scripts/check_version_policy.py
+          fi
+      - name: Verify beta version format
+        if: github.event_name == 'workflow_dispatch'
+        run: python3 scripts/check_version_policy.py
+      - name: Verify database schema and migration chain
         run: python3 scripts/check_database_indexes.py
+      - name: Wait for Android validation
+        if: >-
+          github.event_name == 'push' &&
+          !contains(github.event.head_commit.message, '[skip tests]')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for attempt in $(seq 1 60); do
+            RUN=$(gh run list --workflow "Android test build" --branch "$GITHUB_REF_NAME" --commit "$GITHUB_SHA" --limit 1 --json status,conclusion)
+            STATUS=$(echo "$RUN" | jq -r '.[0].status // empty')
+            CONCLUSION=$(echo "$RUN" | jq -r '.[0].conclusion // empty')
+            if [ "$STATUS" = "completed" ]; then
+              test "$CONCLUSION" = "success"
+              exit 0
+            fi
+            sleep 30
+          done
+          echo "Timed out waiting for Android validation for $GITHUB_SHA" >&2
+          exit 1
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -41,14 +91,15 @@ jobs:
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE" | base64 --decode > "$RUNNER_TEMP/cinetrack-release.jks"
-      - name: Test and build signed APK
+      - name: Build signed release APK
         env:
           ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/cinetrack-release.jks
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
           SIMKL_CLIENT_ID: ${{ secrets.SIMKL_CLIENT_ID }}
-        run: ./gradlew :app:testReleaseUnitTest :app:lintRelease :app:assembleRelease
+        run: |
+          ./gradlew :app:assembleRelease
       - name: Verify signed APK and profile assets
         run: |
           APK="app/build/outputs/apk/release/app-release.apk"
@@ -62,12 +113,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -1)
+          TARGET_SHA="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}"
           TAG="v$VERSION-testing"
           APK="app/build/outputs/apk/release/app-release.apk"
           cp "$APK" "CineTrack-$VERSION-universal.apk"
           sha256sum "CineTrack-$VERSION-universal.apk" > "CineTrack-$VERSION-universal.apk.sha256"
-          gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
-            --target "$GITHUB_SHA" \
-            --title "CineTrack $VERSION" \
-            --notes-file CHANGELOG.md \
-            --latest
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" \
+              --target "$TARGET_SHA" \
+              --title "CineTrack $VERSION beta" \
+              --notes-file CHANGELOG.md \
+              --latest
+            gh release upload "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" --clobber
+          else
+            gh release create "$TAG" "CineTrack-$VERSION-universal.apk" "CineTrack-$VERSION-universal.apk.sha256" \
+              --target "$TARGET_SHA" \
+              --title "CineTrack $VERSION beta" \
+              --notes-file CHANGELOG.md \
+              --latest
+          fi
+

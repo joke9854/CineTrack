@@ -1,12 +1,11 @@
 plugins {
     id("com.android.test")
-    id("org.jetbrains.kotlin.android")
     id("androidx.baselineprofile")
 }
 
 android {
     namespace = "com.cinetrack.baselineprofile"
-    compileSdk = 36
+    compileSdk = 37
     defaultConfig {
         minSdk = 28
         targetSdk = 36
@@ -17,7 +16,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions.jvmTarget = "17"
 }
 
 baselineProfile { useConnectedDevices = true }

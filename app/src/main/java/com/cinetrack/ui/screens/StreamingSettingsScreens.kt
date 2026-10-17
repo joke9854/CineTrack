@@ -108,7 +108,7 @@ internal fun StreamingProvidersScreen(state: AppUiState, viewModel: CineTrackVie
                     Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).clickable { showCountries = true }.padding(Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text(stringResource(R.string.provider_country), color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                            Text("${Locale("", region).getDisplayCountry(Locale.getDefault())} ($region)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            Text("${Locale("", region).getDisplayCountry(com.cinetrack.ui.currentLocale())} ($region)", color = TextSecondary, style = MaterialTheme.typography.bodySmall)
                         }
                         Text(stringResource(R.string.change), color = AccentLight, style = MaterialTheme.typography.bodyMedium)
                     }
@@ -183,7 +183,7 @@ private fun ProviderTile(provider: StreamingProvider, selected: Boolean, onToggl
 
 @Composable
 private fun ProviderCountrySheet(selected: String, onDismiss: () -> Unit, onSelected: (String) -> Unit) {
-    val locale = Locale.getDefault()
+    val locale = com.cinetrack.ui.currentLocale()
     val countries = remember(locale) { Locale.getISOCountries().map { it to Locale("", it).getDisplayCountry(locale) }.sortedBy { it.second } }
     SearchableChoiceSheet(stringResource(R.string.provider_country), stringResource(R.string.search_countries), countries, selected, onDismiss, onSelected)
 }
@@ -234,7 +234,7 @@ internal fun SearchableChoiceSheet(
 
 @Composable
 internal fun ContentRegionsSheet(initial: Set<String>, onDismiss: () -> Unit, onApply: (Set<String>) -> Unit) {
-    val locale = Locale.getDefault()
+    val locale = com.cinetrack.ui.currentLocale()
     val countries = remember(locale) { Locale.getISOCountries().map { it to Locale("", it).getDisplayCountry(locale) }.sortedBy { it.second } }
     var selected by rememberSaveable(initial.sorted()) { mutableStateOf(initial.sorted()) }
     SearchableChoiceSheet(

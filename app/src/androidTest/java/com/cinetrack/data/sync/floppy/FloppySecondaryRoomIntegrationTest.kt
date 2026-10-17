@@ -1,0 +1,903 @@
+package com.cinetrack.data.sync.floppy
+
+import android.content.Context
+import androidx.room.Room
+import androidx.test.core.app.ApplicationProvider
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import com.cinetrack.data.library.RoomLibraryRepository
+import com.cinetrack.data.local.AppDatabase
+import com.cinetrack.data.repository.AppPreferences
+import com.cinetrack.data.sync.ConnectionResult
+import com.cinetrack.data.sync.DurableSyncOperationWriter
+import com.cinetrack.data.sync.DurableTrackingQueue
+import com.cinetrack.data.sync.ProviderPushResult
+import com.cinetrack.data.sync.ProviderSyncOutcome
+import com.cinetrack.data.sync.ProviderBootstrapState
+import com.cinetrack.data.sync.DeliveryStatus
+import com.cinetrack.data.sync.RoomSyncOperationRepository
+import com.cinetrack.data.sync.SyncCoordinator
+import com.cinetrack.data.sync.SyncOperation
+import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.SyncReconciler
+import com.cinetrack.data.sync.TrackingCapabilities
+import com.cinetrack.data.sync.TrackingCapability
+import com.cinetrack.data.sync.TrackingConfiguration
+import com.cinetrack.data.sync.TrackingConfigurationService
+import com.cinetrack.data.sync.TrackingProvider
+import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.TrackingRoutingMutex
+import com.cinetrack.data.sync.TrackingSnapshot
+import com.cinetrack.data.sync.MediaIds
+import com.cinetrack.data.sync.TrackedMovieState
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaCard
+import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.SyncProgress
+import com.cinetrack.data.sync.TrackingSyncError
+import java.time.Instant
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
+import kotlinx.serialization.json.long
+import kotlinx.serialization.json.Json
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
+import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+import org.junit.runner.RunWith
+
+/** Real Room producer -> durable queue -> Floppy consumer coverage. */
+@RunWith(AndroidJUnit4::class)
+class FloppySecondaryRoomIntegrationTest {
+    private lateinit var database: AppDatabase
+    private lateinit var preferences: AppPreferences
+    private lateinit var server: MockWebServer
+    private lateinit var repository: RoomSyncOperationRepository
+    private lateinit var floppy: FloppyTrackingProvider
+    private lateinit var coordinator: SyncCoordinator
+    private lateinit var main: IntegrationMainProvider
+    private lateinit var movie: MediaCard
+
+    @Before
+    fun setUp() = runBlocking {
+        val context = ApplicationProvider.getApplicationContext<Context>()
+        database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java)
+            .allowMainThreadQueries()
+            .build()
+        preferences = AppPreferences(context)
+        server = MockWebServer().also { it.start() }
+        repository = RoomSyncOperationRepository(database, preferences)
+        main = IntegrationMainProvider()
+        floppy = FloppyTrackingProvider(
+            preferences = preferences,
+            remote = FloppyRemoteDataSource(FloppyApiClientFactory()),
+        )
+        preferences.setTrackingProviders(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY)
+        preferences.setFloppyConnection(
+            FloppyConnectionSettings(
+                baseUrl = server.url("/").toString(),
+                serverIdentity = server.url("/").toString(),
+                accountIdentity = "integration-user",
+                connectionId = "integration-instance-a",
+                capabilities = FloppyCapabilities(
+                    canReadLibrary = true,
+                    canWriteLibrary = true,
+                    canReadHistory = true,
+                    canWriteMovieHistory = true,
+                    canWriteEpisodeHistory = true,
+                    canRemoveHistory = true,
+                ),
+            ),
+            "integration-secret",
+        )
+        val registry = IntegrationRegistry(preferences, main, floppy)
+        coordinator = SyncCoordinator(registry, repository, SyncReconciler())
+        movie = MediaCard(
+            id = 42,
+            type = MediaType.MOVIE,
+            title = "Integration movie",
+            overview = "",
+            posterUrl = null,
+            backdropUrl = null,
+            releaseDate = null,
+            score = null,
+            status = LibraryStatus.PLAN_TO_WATCH,
+            watched = false,
+            runtimeMinutes = null,
+            genres = emptyList(),
+            providers = emptyList(),
+            collectionId = null,
+        )
+    }
+
+    @After
+    fun tearDown() = runBlocking {
+        preferences.setTrackingProviders(null, null)
+        database.close()
+        server.shutdown()
+    }
+
+    @Test
+    fun roomMoviePlanToWatchProducesStructuredUnwatchAndFloppySucceeds() = runBlocking {
+        val library = RoomLibraryRepository(
+            database,
+            preferences,
+            coordinator,
+            onLocalStateChanged = {},
+            providerRegistry = IntegrationRegistry(preferences, main, floppy),
+            routingMutex = TrackingRoutingMutex(),
+        )
+        main.authenticated = false
+        library.setLibraryStatus(movie, LibraryStatus.PLAN_TO_WATCH)
+
+        val pending = repository.pending()
+        val unwatch = pending.single { it.type == SyncOperationType.MOVIE_UNWATCHED }
+        val context = com.cinetrack.data.sync.MovieHistoryMutationContext.parse(unwatch.payload)
+        assertEquals(LibraryStatus.PLAN_TO_WATCH, context?.desiredLibraryStatus)
+        assertEquals(false, context?.previousWatched)
+        assertNotNull(pending.single { it.type == SyncOperationType.LIBRARY_STATUS })
+
+        server.enqueue(json("{\"consumptions\":[]}"))
+        server.enqueue(json("{}"))
+        val result = floppy.push(pending)
+        assertEquals(pending.mapTo(linkedSetOf(), SyncOperation::id), result.completedOperationIds)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals("POST", server.takeRequest().method)
+    }
+
+    @Test
+    fun roomWatchedToWatchingCarriesExactTimestampAndDeletesOnlyMatchingConsumption() = runBlocking {
+        val library = RoomLibraryRepository(
+            database,
+            preferences,
+            coordinator,
+            onLocalStateChanged = {},
+            providerRegistry = IntegrationRegistry(preferences, main, floppy),
+            routingMutex = TrackingRoutingMutex(),
+        )
+        main.authenticated = false
+        library.setLibraryStatus(movie, LibraryStatus.COMPLETED)
+        val exactTimestamp = database.timelineDao().movieHistory(MediaType.MOVIE.name, movie.id).single().watchedAt
+        library.setLibraryStatus(movie, LibraryStatus.WATCHING)
+        val unwatch = repository.pending().single { it.type == SyncOperationType.MOVIE_UNWATCHED }
+        val context = com.cinetrack.data.sync.MovieHistoryMutationContext.parse(unwatch.payload)
+        assertEquals(true, context?.previousWatched)
+        assertEquals(Instant.parse(exactTimestamp), context?.previousWatchedAt)
+        assertEquals(LibraryStatus.WATCHING, context?.desiredLibraryStatus)
+
+        server.enqueue(json("{\"pagination\":{\"total\":2,\"limit\":200,\"offset\":0,\"next\":null,\"previous\":null},\"results\":[{\"consumption_id\":7,\"status\":3,\"end_date\":\"$exactTimestamp\"},{\"consumption_id\":8,\"status\":3,\"end_date\":\"2025-01-01T00:00:00Z\"}]}"))
+        server.enqueue(MockResponse().setResponseCode(204))
+        floppy.push(listOf(unwatch))
+
+        server.takeRequest()
+        assertTrue(server.takeRequest().path?.endsWith("/history/7/") == true)
+    }
+
+    @Test
+    fun connectedFloppyActivationPersistsSecondaryWithoutRestart() = runBlocking {
+        preferences.setTrackingProviders(TrackingProviderId.SIMKL, null)
+        server.enqueue(json("{\"version\":\"26.1\"}"))
+        server.enqueue(probe())
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(emptyList(), emptyList(), emptyList(), Instant.now()) },
+            verifyRemote = { true },
+        )
+        val service = FloppySecondaryService(
+            provider = floppy,
+            preferences = preferences,
+            configuration = TrackingConfigurationService(preferences, repository, routingMutex),
+            coordinator = coordinator,
+            bootstrap = { bootstrap },
+        )
+
+        assertEquals(com.cinetrack.data.sync.ConnectionResult.Connected, service.connect(server.url("/").toString(), "integration-secret", allowInsecureLocalHttp = true))
+        assertEquals(TrackingProviderId.FLOPPY, preferences.secondaryTrackingProvider.first())
+        assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+    }
+
+    @Test
+    fun roomCompletedMovieBootstrapPersistsOneSharedGenerationAndFallbackTimestamp() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+
+        bootstrap.start()
+
+        val raw = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        val operations = Json.parseToJsonElement(raw).jsonObject.getValue("operations").jsonArray
+        val library = operations.first { it.jsonObject.getValue("type").jsonPrimitive.content == "LIBRARY_STATUS" }
+        val watched = operations.first { it.jsonObject.getValue("type").jsonPrimitive.content == "MOVIE_WATCHED" }
+        val generation = library.jsonObject.getValue("sourceVersion").jsonPrimitive.long
+        assertEquals(generation, watched.jsonObject.getValue("sourceVersion").jsonPrimitive.long)
+        assertEquals(Instant.ofEpochMilli(generation), Instant.parse(watched.jsonObject.getValue("payload").jsonPrimitive.content))
+    }
+
+    @Test
+    fun failedRoomBootstrapRestartReusesThePersistedPlanExactly() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val first = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        first.start()
+        val before = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+
+        val recreated = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        recreated.start()
+
+        assertEquals(before, preferences.floppyBootstrapPlanRawNow())
+    }
+
+    @Test
+    fun sameTargetReconnectPreservesDeliveryInstanceAndRetriesFailedOperation() = runBlocking {
+        // Start from a persisted target, then validate it twice. This keeps
+        // the Room delivery target independent from the transport session
+        // while exercising the real validation -> activation path.
+        preferences.setTrackingProviders(TrackingProviderId.SIMKL, TrackingProviderId.FLOPPY)
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        main.authenticated = true
+        server.enqueue(json("{\"version\":\"26.1\"}"))
+        server.enqueue(probe())
+
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(emptyList(), emptyList(), emptyList(), Instant.now()) },
+            verifyRemote = { true },
+        )
+        val trackingConfiguration = TrackingConfigurationService(preferences, repository, routingMutex)
+        val service = FloppySecondaryService(
+            provider = floppy,
+            preferences = preferences,
+            configuration = trackingConfiguration,
+            coordinator = coordinator,
+            bootstrap = { bootstrap },
+        )
+        val baseUrl = server.url("/").toString()
+        assertEquals(ConnectionResult.Connected, service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true))
+        assertEquals(TrackingProviderId.SIMKL, trackingConfiguration.current().mainProvider)
+        assertEquals(TrackingProviderId.FLOPPY, trackingConfiguration.current().secondaryProvider)
+        val beforeSettings = requireNotNull(preferences.floppySettingsNow())
+        val operation = SyncOperation(
+            id = "same-target-operation",
+            type = SyncOperationType.LIBRARY_STATUS,
+            mediaType = MediaType.MOVIE,
+            mediaId = 42,
+            title = "Integration movie",
+            value = LibraryStatus.PLAN_TO_WATCH.name,
+            sourceVersion = 99L,
+        )
+        writer.enqueueForProviders(operation, setOf(TrackingProviderId.FLOPPY))
+        assertTrue("Floppy must support the library-status operation", floppy.capabilities.supports(operation))
+        val beforeDeliveries = repository.deliveries(setOf(operation.id))
+        assertEquals("one Floppy delivery should be persisted", 1, beforeDeliveries.size)
+        val beforeDelivery = beforeDeliveries.single()
+        assertEquals(beforeSettings.connectionId, beforeDelivery.providerInstanceId)
+        assertEquals(DeliveryStatus.PENDING, beforeDelivery.status)
+
+        // Same-target reconnect keeps the instance, but the first delivery
+        // attempt fails after activation so the row remains retryable.
+        server.enqueue(json("{\"version\":\"26.1\"}"))
+        server.enqueue(probe())
+        server.enqueue(MockResponse().setResponseCode(500))
+        val failed = service.connect(baseUrl, "integration-secret", allowInsecureLocalHttp = true)
+        assertTrue(
+            "a same-target reconnect must retry the ordinary failed Floppy delivery",
+            failed is ConnectionResult.Failed,
+        )
+        val afterFailedReconnect = requireNotNull(preferences.floppySettingsNow())
+        val failedDeliveries = repository.deliveries(setOf(operation.id))
+        assertEquals("the failed Floppy delivery must remain retryable", 1, failedDeliveries.size)
+        val failedDelivery = failedDeliveries.single()
+        assertEquals(beforeSettings.connectionId, afterFailedReconnect.connectionId)
+        assertEquals(beforeDelivery.operationVersion, failedDelivery.operationVersion)
+        assertEquals(beforeDelivery.providerInstanceId, failedDelivery.providerInstanceId)
+        assertEquals(DeliveryStatus.FAILED, failedDelivery.status)
+
+        // A later normal retry succeeds against the same instance and only
+        // then acknowledges the exact durable operation.
+        server.enqueue(json("{\"consumptions\":[]}"))
+        server.enqueue(json("{}"))
+        assertTrue(coordinator.pushPending().isSuccess)
+        // A fully acknowledged generation is retired by the Room repository;
+        // the important invariant is that the failed row no longer remains
+        // pending and the exact operation is not retried again.
+        assertTrue(repository.deliveries(setOf(operation.id)).isEmpty())
+        assertTrue(repository.pending(setOf(operation.id)).isEmpty())
+    }
+
+    @Test
+    fun sameAccountApiKeyRotationKeepsInstanceButChangesTransportGeneration() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val generationBefore = floppy.transportSessionGeneration()
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(connectionId = "candidate"),
+            "rotated-secret",
+        )
+
+        assertFalse(activation.instanceChanged)
+        assertTrue(activation.sessionChanged)
+        assertEquals(previous.connectionId, activation.committed.connectionId)
+        assertTrue(floppy.transportSessionGeneration() > generationBefore)
+        assertEquals(previous.connectionId, preferences.floppySettingsNow()?.connectionId)
+        assertEquals(ProviderBootstrapState.READY, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+    }
+
+    @Test
+    fun differentServerAllocatesNewInstanceAndResetsBootstrap() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(
+                baseUrl = "https://other-floppy.example/",
+                serverIdentity = "https://other-floppy.example/",
+                connectionId = "candidate",
+            ),
+            "integration-secret",
+        )
+
+        assertTrue(activation.instanceChanged)
+        assertTrue(activation.sessionChanged)
+        assertTrue(activation.committed.connectionId != previous.connectionId)
+        assertEquals(ProviderBootstrapState.NOT_STARTED, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+    }
+
+    @Test
+    fun retryPreflightMigratesLegacyAccountAndReusesFailedPlan() = runBlocking {
+        val legacy = requireNotNull(preferences.floppySettingsNow())
+        preferences.setFloppyConnection(legacy.copy(allowInsecureLocalHttp = true), "integration-secret")
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val canonical = TrackingSnapshot(
+            movies = listOf(TrackedMovieState(MediaIds(tmdb = 42), LibraryStatus.COMPLETED, watched = true)),
+        )
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { canonical },
+            verifyRemote = { false },
+        )
+        bootstrap.start()
+        val plan = requireNotNull(preferences.floppyBootstrapPlanRawNow())
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+
+        // The worker's Retry preflight: the stored identity is a legacy
+        // username, the server now answers with the opaque probe account.
+        server.enqueue(json("{\"version\":\"26.9.17\",\"api_extensions\":{\"cinetrack_bootstrap_v2\":true,\"cinetrack_episode_events_v1\":true}}"))
+        server.enqueue(probe())
+        assertEquals(ConnectionResult.Connected, floppy.testConnection())
+
+        val refreshed = requireNotNull(preferences.floppySettingsNow())
+        assertEquals("integration-instance-a", refreshed.connectionId)
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-integration-account", refreshed.accountIdentity)
+        assertTrue(refreshed.capabilities.canBootstrapV2)
+        assertTrue(refreshed.capabilities.canEnsureEpisodeEvents)
+        assertEquals(ProviderBootstrapState.FAILED, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+
+        bootstrap.start()
+        assertEquals(plan, preferences.floppyBootstrapPlanRawNow())
+    }
+
+    @Test
+    fun showEpisodeQueryReturnsAllPendingEpisodesOfOneShowOnly() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..30).flatMap { n ->
+            listOf(
+                com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 12), 1, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L)),
+                com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 123), 1, n, true, Instant.parse("2025-02-01T00:00:00Z").plusSeconds(n * 60L)),
+            )
+        }.reversed()
+        // Loads the persisted capabilities, as the worker does before delivery.
+        floppy.openBootstrapSession("integration-instance-a")
+        FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        ).start()
+
+        assertEquals(60, repository.bootstrapPendingCount("integration-instance-a"))
+        assertEquals(60, repository.bootstrapEpisodePending("integration-instance-a", 100).size)
+        val show12 = repository.bootstrapShowEpisodesPending("integration-instance-a", 12)
+
+        assertEquals(30, show12.size)
+        assertTrue(show12.all { it.mediaId == 12 && it.type == SyncOperationType.EPISODE_WATCHED })
+    }
+
+    @Test
+    fun restartAfterPartialDeliveryDoesNotRequeueAcknowledgedOperations() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..3).map { n ->
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 12), 1, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L))
+        }
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        )
+        bootstrap.start()
+        assertEquals(3, repository.bootstrapPendingCount("integration-instance-a"))
+
+        // Floppy confirms one operation; Room retires its rows.
+        val delivered = repository.bootstrapPending("integration-instance-a", 1)
+        repository.acknowledge(TrackingProviderId.FLOPPY, delivered)
+        repository.completeReady(delivered)
+        assertEquals(2, repository.bootstrapPendingCount("integration-instance-a"))
+
+        // A Retry or worker restart must resume, not resend the finished work.
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+        bootstrap.start()
+
+        assertEquals(2, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(repository.bootstrapPending("integration-instance-a", 10).none { it.id == delivered.single().id })
+    }
+
+    @Test
+    fun mixedOutcomeAcknowledgesAppliedAndKeepsOnlyRefusedUnresolved() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = (1..2).map { n ->
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 6, n, true, Instant.parse("2025-01-01T00:00:00Z").plusSeconds(n * 60L))
+        }
+        floppy.openBootstrapSession("integration-instance-a")
+        FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { false },
+        ).start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val (applied, refused) = pending
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = { ProviderPushResult(setOf(applied.id), mapOf(refused.id to "TV:2316 S06E02 not_found")) },
+        )
+
+        val error = result.exceptionOrNull()
+        assertTrue(error is TrackingSyncError.PartiallyRejected)
+        val left = repository.bootstrapPending("integration-instance-a", 10)
+        assertEquals(listOf(refused.id), left.map { it.id })
+        assertEquals(DeliveryStatus.FAILED, repository.deliveries(setOf(refused.id)).single().status)
+        assertTrue(repository.deliveries(setOf(applied.id)).isEmpty())
+    }
+
+    @Test
+    fun unmatchedEpisodesCloseAndCompletionUsesStoredCoordinates() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 37854), 1, 62, true, Instant.parse("2025-01-01T00:00:00Z")),
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 6, 26, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val anime = pending.single { it.mediaId == 37854 }
+        val double = pending.single { it.mediaId == 2316 }
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = setOf(anime.id),
+                    unmatchedOperationIds = mapOf(double.id to "TV:2316 S06E26 has no Floppy counterpart"),
+                    storedCoordinates = mapOf(anime.id to "2:1"),
+                )
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to NO_COUNTERPART))
+
+        assertTrue(result.isSuccess)
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            listOf(Triple(37854L, 2, 1)),
+            verified!!.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+    }
+
+    @Test
+    fun episodesClosedBeforeIdentityMatchingAreReopenedExactlyOnce() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val double = repository.bootstrapPending("integration-instance-a", 10).single()
+        suspend fun closeAsUnmatched() {
+            coordinator.pushPendingForProvider(
+                TrackingProviderId.FLOPPY,
+                setOf(double.id),
+                "integration-instance-a",
+                transport = {
+                    ProviderPushResult(completedOperationIds = emptySet(), unmatchedOperationIds = mapOf(double.id to "TV:2316 S04E19 has no Floppy counterpart"))
+                },
+            )
+            bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART), mapOf(double.id to "Double Part 2"))
+        }
+        closeAsUnmatched()
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        // A plan written before identity matching existed has no retry marker.
+        val legacyPlan = requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7")
+        preferences.setFloppyBootstrapPlanRaw(legacyPlan)
+
+        bootstrap.start()
+
+        assertEquals(listOf(double.id), repository.bootstrapPending("integration-instance-a", 10).map { it.id })
+
+        // Still unmatched after the retry: closed again, and never reopened.
+        closeAsUnmatched()
+        bootstrap.start()
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertTrue(verified!!.episodes.isEmpty())
+        // Kept after READY so the user can be pointed at it to mark by hand.
+        assertEquals(listOf(FloppyUnplacedEpisode(2316, 4, 19, "Double Part 2")), bootstrap.unplacedEpisodes())
+    }
+
+    @Test
+    fun reopenedEpisodeMatchedByIdentityIsVerifiedAtItsStoredCoordinate() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val double = repository.bootstrapPending("integration-instance-a", 10).single()
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(double.id),
+            "integration-instance-a",
+            transport = { ProviderPushResult(completedOperationIds = emptySet(), unmatchedOperationIds = mapOf(double.id to "no counterpart")) },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to NO_COUNTERPART))
+        preferences.setFloppyBootstrapPlanRaw(
+            requireNotNull(preferences.floppyBootstrapPlanRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7"),
+        )
+        bootstrap.start()
+
+        val result = coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(double.id),
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(completedOperationIds = setOf(double.id), storedCoordinates = mapOf(double.id to "4:14"))
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(double.id to "4:14"))
+
+        assertTrue(result.isSuccess)
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            listOf(Triple(2316L, 4, 14)),
+            verified!!.episodes.map { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+    }
+
+    @Test
+    fun readyBootstrapRetriesUnmatchedEpisodesWhenMatchingImproves() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 37854), 1, 62, true, Instant.parse("2025-01-01T00:00:00Z")),
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        var verified: TrackingSnapshot? = null
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { verified = it; true },
+        )
+        bootstrap.start()
+        val pending = repository.bootstrapPending("integration-instance-a", 10)
+        val anime = pending.single { it.mediaId == 37854 }
+        val double = pending.single { it.mediaId == 2316 }
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            pending.mapTo(linkedSetOf()) { it.id },
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = setOf(anime.id),
+                    unmatchedOperationIds = mapOf(double.id to "no counterpart"),
+                    storedCoordinates = mapOf(anime.id to "2:1"),
+                )
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to NO_COUNTERPART))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+
+        // A later Floppy matching generation than the one this sync used.
+        preferences.setFloppyBootstrapResidualRaw(
+            requireNotNull(preferences.floppyBootstrapResidualRawNow()).replace(",\"counterpartRetries\":8", ",\"counterpartRetries\":7"),
+        )
+        assertTrue(bootstrap.hasPendingCounterpartRetry())
+
+        bootstrap.start()
+
+        assertEquals(ProviderBootstrapState.RUNNING, preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY))
+        // Residuals from before the full-resend generation re-send the whole
+        // plan once (writes skipped at process start and outcomes lost to the
+        // READY race can only be recovered that way); same deterministic ids.
+        val resent = repository.bootstrapPending("integration-instance-a", 10).map { it.id }.toSet()
+        assertEquals(setOf(anime.id, double.id), resent)
+        // ...in repair mode, so Floppy moves plays older versions misplaced.
+        assertTrue(bootstrap.repairCoordinatesActive("integration-instance-a"))
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            resent,
+            "integration-instance-a",
+            transport = {
+                ProviderPushResult(
+                    completedOperationIds = resent,
+                    storedCoordinates = mapOf(anime.id to "2:1", double.id to "4:14"),
+                )
+            },
+        )
+        bootstrap.recordEpisodeOutcomes("integration-instance-a", mapOf(anime.id to "2:1", double.id to "4:14"))
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertEquals(
+            setOf(Triple(37854L, 2, 1), Triple(2316L, 4, 14)),
+            verified!!.episodes.mapTo(hashSetOf()) { Triple(it.showIds.tmdb, it.season, it.episode) },
+        )
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+    }
+
+    @Test
+    fun readyWithoutUnmatchedRecordResendsThePlanOnce() = runBlocking {
+        val routingMutex = TrackingRoutingMutex()
+        val writer = DurableSyncOperationWriter(
+            repository,
+            DurableTrackingQueue(IntegrationRegistry(preferences, main, floppy), routingMutex),
+            routingMutex,
+        )
+        val history = listOf(
+            com.cinetrack.data.sync.TrackedEpisodeState(MediaIds(tmdb = 2316), 4, 19, true, Instant.parse("2025-01-02T00:00:00Z")),
+        )
+        floppy.openBootstrapSession("integration-instance-a")
+        val bootstrap = FloppyBootstrapCoordinator(
+            preferences = preferences,
+            operationRepository = repository,
+            operationWriter = writer,
+            canonicalSnapshot = { TrackingSnapshot(episodes = history) },
+            verifyRemote = { true },
+        )
+        // Completed by a version that kept no record of unmatched episodes.
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        assertTrue(bootstrap.hasPendingCounterpartRetry())
+
+        bootstrap.start()
+
+        val resent = repository.bootstrapPending("integration-instance-a", 10).single()
+        coordinator.pushPendingForProvider(
+            TrackingProviderId.FLOPPY,
+            setOf(resent.id),
+            "integration-instance-a",
+            transport = { ProviderPushResult(completedOperationIds = setOf(resent.id)) },
+        )
+        assertTrue(bootstrap.markReadyIfComplete())
+        assertFalse(bootstrap.hasPendingCounterpartRetry())
+        assertEquals(0, bootstrap.start())
+        assertEquals(0, repository.bootstrapPendingCount("integration-instance-a"))
+    }
+
+    @Test
+    fun freshProviderInstanceStillDeliversWritesFromPersistedCapabilities() = runBlocking {
+        // A new process: the provider object has not run a connection check,
+        // so its in-memory capabilities are empty. The persisted connection
+        // must decide, or the watch is filed as unsupported and never sent.
+        val freshFloppy = FloppyTrackingProvider(
+            preferences = preferences,
+            remote = FloppyRemoteDataSource(FloppyApiClientFactory()),
+        )
+        val queue = DurableTrackingQueue(IntegrationRegistry(preferences, main, freshFloppy), TrackingRoutingMutex())
+        val operation = SyncOperation(
+            id = "live:episode:watch",
+            type = SyncOperationType.EPISODE_WATCHED,
+            mediaType = MediaType.TV,
+            mediaId = 136311,
+            title = "Shrinking",
+            payload = "2:7:2026-10-10T02:49:00Z",
+            sourceVersion = 1L,
+        )
+
+        val delivery = requireNotNull(queue.snapshotSecondaryUnlocked(operation))
+
+        assertEquals(TrackingProviderId.FLOPPY, delivery.providerId)
+        assertEquals(DeliveryStatus.PENDING, delivery.status)
+        assertTrue(delivery.required)
+    }
+
+    @Test
+    fun legacyAccountMigrationWithRotatedKeyIsNewInstance() = runBlocking {
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+        val previous = requireNotNull(preferences.floppySettingsNow())
+        val activation = floppy.commitValidatedConnectionLocked(
+            previous.copy(accountIdentity = FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-integration-account", connectionId = "candidate"),
+            "rotated-secret",
+        )
+
+        assertTrue(activation.instanceChanged)
+        assertTrue(activation.committed.connectionId != previous.connectionId)
+    }
+
+    private fun probe() = json(
+        "{\"authenticated\":true,\"account_id\":\"opaque-integration-account\",\"user\":\"opaque-integration-account\",\"server_version\":\"26.9.17\",\"api_extensions\":{\"cinetrack_bootstrap_v2\":true,\"cinetrack_episode_events_v1\":true,\"episode_sql_pagination\":true}}",
+    )
+
+    private fun json(body: String) = MockResponse()
+        .addHeader("Content-Type", "application/json")
+        .setBody(body)
+}
+
+private class IntegrationRegistry(
+    private val preferences: AppPreferences,
+    private val main: TrackingProvider,
+    private val floppy: TrackingProvider,
+) : TrackingProviderRegistry {
+    override fun getProvider(id: TrackingProviderId): TrackingProvider? = when (id) {
+        TrackingProviderId.SIMKL -> main
+        TrackingProviderId.FLOPPY -> floppy
+    }
+
+    override suspend fun configuration() = TrackingConfiguration.normalized(
+        preferences.mainTrackingProvider.first(),
+        preferences.secondaryTrackingProvider.first(),
+    )
+}
+
+private class IntegrationMainProvider : TrackingProvider {
+    override val id = TrackingProviderId.SIMKL
+    override val capabilities = TrackingCapabilities(
+        supportsMovies = true,
+        supportsShows = true,
+        supportsWatchHistory = true,
+        supportsLibrary = true,
+        supported = TrackingCapability.entries.toSet(),
+    )
+    var authenticated = false
+
+    override suspend fun isAuthenticated() = authenticated
+    override suspend fun push(operations: List<SyncOperation>) = ProviderPushResult(operations.mapTo(linkedSetOf(), SyncOperation::id))
+    override suspend fun syncBidirectionally(operations: List<SyncOperation>, onProgress: (SyncProgress) -> Unit) =
+        ProviderSyncOutcome(
+            itemsChanged = false,
+            acknowledgedOperationIds = operations.mapTo(linkedSetOf(), SyncOperation::id),
+        )
+    override suspend fun testConnection() = ConnectionResult.Connected
+}
+

@@ -7,14 +7,14 @@ CineTrack 0.70 is a ground-up Kotlin/Jetpack Compose movie and TV tracker. It co
 1. Extract the ZIP and open the `CineTrack` folder in Android Studio.
 2. Use JDK 17 and let Android Studio install Android SDK 36 if it is missing.
 3. Copy `local.properties.example` to `local.properties`.
-4. Set `sdk.dir` and the SIMKL application client ID:
+4. Set `sdk.dir` and the Simkl AUTH V2 application client ID:
 
    ```properties
    sdk.dir=C\:\\Users\\YOUR_NAME\\AppData\\Local\\Android\\Sdk
    SIMKL_CLIENT_ID=your_simkl_client_id
    ```
 
-5. Register `cinetrack://simkl` as the Simkl redirect URI in the Simkl developer app. It must match exactly, including casing and the absence of a trailing slash. CineTrack uses the Android-safe PKCE authorization flow and does not require a client secret.
+5. Register a Simkl AUTH V2 app of type "Mobile, desktop & browser apps" with `cinetrack://simkl` as its redirect URI. It must match exactly, including casing and the absence of a trailing slash. CineTrack uses the V2 OAuth flow with PKCE, requests `media:read media:write`, refreshes the 7-day access token itself and needs no client secret. AUTH V1 client IDs no longer work.
 6. Sync Gradle and run the `app` configuration.
 
 Enter your personal TMDB and MDBList keys in the app's Settings. They are never injected from local.properties, Gradle properties or CI secrets into any APK. Only the SIMKL application client ID is embedded at build time. Existing keys saved in Settings are retained.

@@ -1,15 +1,21 @@
-"""Run the production 4→5 and 5→6 migration SQL against SQLite."""
+"""Run lightweight checks for the current Room schema and migration chain."""
 from pathlib import Path
 import re
 import sqlite3
 
 source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
-migration = source.split("object : Migration(4, 5) {", 1)[1].split("private val migration5To6", 1)[0]
+schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
+for version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+    assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
+assert "version = 14" in source, "Room database version must be 14"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12", "migration12To13", "migration13To14"):
+    assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
+migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
 assert len(statements) == 3, "Expected the three production index statements"
 assert all(sql.startswith("CREATE INDEX IF NOT EXISTS ") for sql in statements)
 
-migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("fun create(context:", 1)[0]
+migration_6 = source.split("object : Migration(5, 6) {", 1)[1].split("val migration6To7", 1)[0]
 table_match = re.search(r'database\.execSQL\(\s*"""(CREATE TABLE.*?)""",?\s*\)', migration_6, re.S)
 assert table_match, "Expected the production sync_operations table statement"
 sync_table_statement = " ".join(table_match.group(1).split())
@@ -95,4 +101,26 @@ for key, index in (("history", "index_watch_history_watchedAt"), ("playback", "i
 assert "SELECT * FROM media WHERE title LIKE '%' || :query || '%' ORDER BY score DESC LIMIT 60" in source
 sync_columns = [row[1] for row in db.execute("PRAGMA table_info('sync_operations')")]
 assert sync_columns == ["operationId", "operation", "mediaType", "mediaId", "title", "status", "message", "localValue", "remoteValue", "createdAt", "updatedAt", "attemptCount"]
-print("PASS: 6,000 rows preserved; database indexes and durable sync-operation migration verified.")
+
+# Validate the current Room entities independently of the historical 5->6
+# fixture above. This catches drift in the generation-aware delivery schema.
+assert 'primaryKeys = ["operationId", "operationVersion", "providerId"]' in source
+for column in ("operationId", "operationVersion", "providerId", "status", "required", "roleAtEnqueue", "providerInstanceId", "attemptCount", "lastError", "createdAt", "updatedAt"):
+    assert re.search(rf"val {column}\s*:", source), f"Missing delivery column {column}"
+for column in ("operationId", "operation", "mediaType", "mediaId", "title", "status", "providerId", "season", "episode", "payload"):
+    assert re.search(rf"data class SyncOperationEntity[\s\S]*?val {column}\s*:", source), f"Missing sync-operation column {column}"
+for index in (
+    "index_sync_operation_deliveries_providerId_status",
+    "index_sync_operation_deliveries_operationId",
+    "index_sync_operation_deliveries_status",
+):
+    assert index in source, f"Missing delivery index {index}"
+assert "COALESCE(o.`createdAt`, 0)" in source, "9->10 must derive operationVersion from the logical operation"
+assert "Migration(11, 12)" in source, "12 must have an explicit 11->12 migration"
+assert "CANCELLED_PROVIDER_INSTANCE_CHANGED" in source, "Unknown legacy Floppy deliveries must be terminally cancelled"
+assert "Migration(12, 13)" in source, "13 must have an explicit 12->13 migration"
+assert "CREATE TABLE IF NOT EXISTS `episode_air_dates`" in source, "12->13 must create the per-provider air date table"
+assert "Migration(13, 14)" in source, "14 must have an explicit 13->14 migration"
+assert "CREATE TABLE IF NOT EXISTS `episode_numbering`" in source, "13->14 must create the episode numbering table"
+print("PASS: static schema, delivery indexes, migration declarations, and 5-11 fixtures verified; MigrationTestHelper remains authoritative for execution.")
+

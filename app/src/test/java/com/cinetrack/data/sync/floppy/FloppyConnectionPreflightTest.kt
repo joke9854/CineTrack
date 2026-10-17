@@ -1,0 +1,167 @@
+package com.cinetrack.data.sync.floppy
+
+import com.cinetrack.data.sync.ConnectionResult
+import com.cinetrack.data.sync.TrackingSyncError
+import com.cinetrack.data.sync.floppy.network.FloppyApiClientFactory
+import com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource
+import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Before
+import org.junit.Test
+
+class FloppyConnectionPreflightTest {
+    private lateinit var server: MockWebServer
+    private lateinit var remote: FloppyRemoteDataSource
+
+    @Before
+    fun setUp() {
+        server = MockWebServer().also { it.start() }
+        remote = FloppyRemoteDataSource(FloppyApiClientFactory())
+    }
+
+    @After
+    fun tearDown() {
+        server.shutdown()
+    }
+
+    @Test
+    fun connectUsesInfoThenAuthenticatedCineTrackProbeAndNeverPreferences() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(probe())
+
+        val settings = remote.connect(server.url("/proxy/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertEquals(FLOPPY_PROBE_ACCOUNT_PREFIX + "opaque-account", settings.accountIdentity)
+        assertEquals("26.9.17", settings.serverVersion)
+        assertTrue(settings.capabilities.canBootstrapV2)
+        assertTrue(settings.capabilities.canEnsureEpisodeEvents)
+
+        val infoRequest = server.takeRequest()
+        val probeRequest = server.takeRequest()
+        assertEquals("/proxy/api/v1/info/", infoRequest.path)
+        assertNull(infoRequest.getHeader("X-API-Key"))
+        assertEquals("/proxy/api/v1/cinetrack/connection/", probeRequest.path)
+        assertEquals("tracking-token", probeRequest.getHeader("X-API-Key"))
+        assertFalse(probeRequest.path.orEmpty().contains("user/preferences"))
+    }
+
+    @Test
+    fun testConnectionUsesFreshNetworkProbe() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = false, canEnsureEpisodes = false))
+        server.enqueue(probe())
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertEquals(ConnectionResult.Connected, result)
+        assertEquals("/api/v1/info/", server.takeRequest().path)
+        assertEquals("/api/v1/cinetrack/connection/", server.takeRequest().path)
+    }
+
+    @Test
+    fun serverWithoutProbeFallsBackToLegacyPreferences() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = false, canEnsureEpisodes = false))
+        server.enqueue(MockResponse().setResponseCode(404))
+        server.enqueue(json("""{"username":"alice"}"""))
+
+        val settings = remote.connect(server.url("/").toString(), "legacy-token", allowInsecureLocalHttp = true)
+
+        assertEquals("alice", settings.accountIdentity)
+        assertFalse(settings.capabilities.canBootstrapV2)
+        assertEquals("/api/v1/info/", server.takeRequest().path)
+        assertEquals("/api/v1/cinetrack/connection/", server.takeRequest().path)
+        assertEquals("/api/v1/user/preferences/", server.takeRequest().path)
+    }
+
+    @Test
+    fun forbiddenProbeNeverFallsBackToPreferences() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(MockResponse().setResponseCode(403))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertTrue((result as ConnectionResult.Failed).error is TrackingSyncError.TokenScope)
+        assertEquals(2, server.requestCount)
+    }
+
+    @Test
+    fun allApiRedirectCodesAreExplicitAndSanitized() = runBlocking {
+        for (code in listOf(301, 302, 307, 308)) {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(code)
+                    .setHeader("Location", "https://final.example/api/?token=must-not-survive#fragment"),
+            )
+
+            val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+            val error = (result as ConnectionResult.Failed).error
+            assertTrue("HTTP $code", error is TrackingSyncError.ApiRedirect)
+            assertEquals("https://final.example/api/", (error as TrackingSyncError.ApiRedirect).location)
+        }
+    }
+
+    @Test
+    fun forbiddenProbeIsTokenScopeFailure() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(MockResponse().setResponseCode(403).setBody("{\"detail\":\"insufficient_scope\"}"))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertTrue((result as ConnectionResult.Failed).error is TrackingSyncError.TokenScope)
+    }
+
+    @Test
+    fun badRequestCarriesFloppysShortDetail() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(
+            MockResponse().setResponseCode(400).setHeader("Content-Type", "application/json")
+                .setBody("""{"detail":"events[3] has invalid coordinates\nor watched_at.","extra":"x"}"""),
+        )
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        val error = (result as ConnectionResult.Failed).error
+        assertTrue(error is TrackingSyncError.InvalidRemoteData)
+        assertEquals("Floppy returned HTTP 400: events[3] has invalid coordinates or watched_at.", error.message)
+    }
+
+    @Test
+    fun serverFailureRemainsRetryable() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(503))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        val error = (result as ConnectionResult.Failed).error
+        assertTrue(error is TrackingSyncError.ProviderUnavailable)
+        assertTrue(isFloppyBootstrapRetryable(error))
+    }
+
+    @Test
+    fun malformedProbeIsInvalidRemoteData() = runBlocking {
+        server.enqueue(info(canBootstrapV2 = true, canEnsureEpisodes = true))
+        server.enqueue(MockResponse().setResponseCode(200).setHeader("Content-Type", "application/json").setBody("<html>not-json</html>"))
+
+        val result = remote.test(server.url("/").toString(), "tracking-token", allowInsecureLocalHttp = true)
+
+        assertTrue((result as ConnectionResult.Failed).error is TrackingSyncError.InvalidRemoteData)
+    }
+
+    private fun info(canBootstrapV2: Boolean, canEnsureEpisodes: Boolean) = json(
+        """{"version":"26.9.17","api_extensions":{"cinetrack_bootstrap_v2":$canBootstrapV2,"cinetrack_episode_events_v1":$canEnsureEpisodes,"episode_sql_pagination":true}}""",
+    )
+
+    private fun probe() = json(
+        """{"authenticated":true,"account_id":"opaque-account","user":"opaque-account","server_version":"26.9.17","api_extensions":{"cinetrack_bootstrap_v2":true,"cinetrack_episode_events_v1":true,"episode_sql_pagination":true}}""",
+    )
+
+    private fun json(body: String) = MockResponse()
+        .setResponseCode(200)
+        .setHeader("Content-Type", "application/json")
+        .setBody(body)
+}

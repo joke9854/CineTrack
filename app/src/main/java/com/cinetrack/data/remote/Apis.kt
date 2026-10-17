@@ -25,9 +25,27 @@ import java.util.concurrent.TimeUnit
 @Serializable
 data class TmdbPage(
     val page: Int = 1,
-    val results: List<TmdbMediaDto> = emptyList(),
+    @SerialName("results") val allResults: List<TmdbMediaDto> = emptyList(),
     @SerialName("total_pages") val totalPages: Int = 1,
-)
+) {
+    // Adult (18+) titles stay out of CineTrack's lists unless the user turns the filter off.
+    val results: List<TmdbMediaDto> get() = if (!TmdbContentFilter.hideAdult) allResults
+        else allResults.filterNot { it.adult || isLikelyAdultVideo(it.originalLanguage, it.title, it.name, it.originalTitle, it.originalName) }
+}
+
+/** Settings > Metadata > Hide adult titles, mirrored here so every TMDB list applies it. */
+object TmdbContentFilter {
+    @Volatile var hideAdult: Boolean = true
+}
+
+// TMDB leaves `adult` false on many Japanese adult videos (START-205 is listed
+// as a Drama, rated R18+ only in its JP release). They are titled by their
+// catalogue code, which ordinary Japanese titles don't start with.
+private val adultVideoCode = Regex("""^(FC2-PPV-\d+|[A-Z]{2,6}-\d{2,5}[A-Z]?)(?![A-Za-z0-9])""")
+
+internal fun isLikelyAdultVideo(originalLanguage: String?, vararg titles: String?): Boolean =
+    originalLanguage.equals("ja", ignoreCase = true) &&
+        titles.any { title -> title != null && adultVideoCode.containsMatchIn(title.trim()) }
 
 @Serializable
 data class TmdbFindResponse(
@@ -38,6 +56,7 @@ data class TmdbFindResponse(
 @Serializable
 data class TmdbMediaDto(
     val id: Int,
+    val adult: Boolean = false,
     val title: String? = null,
     val name: String? = null,
     val overview: String = "",
@@ -51,6 +70,8 @@ data class TmdbMediaDto(
     @SerialName("genre_ids") val genreIds: List<Int> = emptyList(),
     @SerialName("origin_country") val originCountries: List<String> = emptyList(),
     @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
     @SerialName("media_type") val mediaType: String? = null,
     @SerialName("known_for_department") val knownForDepartment: String? = null,
     val runtime: Int? = null,
@@ -63,6 +84,7 @@ data class TmdbMediaDto(
     @SerialName("episode_run_time") val episodeRunTime: List<Int> = emptyList(),
     val genres: List<TmdbGenreDto> = emptyList(),
     @SerialName("belongs_to_collection") val collection: TmdbCollectionRefDto? = null,
+    @SerialName("release_dates") val releaseDates: TmdbReleaseDatesDto? = null,
     val credits: TmdbCreditsDto? = null,
     @SerialName("aggregate_credits") val aggregateCredits: TmdbCreditsDto? = null,
     val recommendations: TmdbPage? = null,
@@ -131,6 +153,7 @@ data class TmdbEpisodeDto(
     val runtime: Int? = null,
     @SerialName("season_number") val season: Int,
     @SerialName("episode_number") val number: Int,
+    @SerialName("vote_average") val voteAverage: Double? = null,
     @SerialName("guest_stars") val guestStars: List<TmdbPersonCreditDto> = emptyList(),
     val crew: List<TmdbPersonCreditDto> = emptyList(),
     val credits: TmdbCreditsDto? = null,
@@ -160,11 +183,18 @@ data class TmdbMovieCreditDto(
 )
 
 @Serializable
-data class TmdbCombinedCreditsDto(val cast: List<TmdbCombinedCreditDto> = emptyList())
+data class TmdbCombinedCreditsDto(@SerialName("cast") val allCast: List<TmdbCombinedCreditDto> = emptyList()) {
+    val cast: List<TmdbCombinedCreditDto> get() = if (!TmdbContentFilter.hideAdult) allCast
+        else allCast.filterNot { it.adult || isLikelyAdultVideo(it.originalLanguage, it.title, it.name, it.originalTitle, it.originalName) }
+}
 
 @Serializable
 data class TmdbCombinedCreditDto(
     val id: Int,
+    val adult: Boolean = false,
+    @SerialName("original_language") val originalLanguage: String? = null,
+    @SerialName("original_title") val originalTitle: String? = null,
+    @SerialName("original_name") val originalName: String? = null,
     val title: String? = null,
     val name: String? = null,
     @SerialName("media_type") val mediaType: String? = null,
@@ -179,6 +209,11 @@ data class TmdbCombinedCreditDto(
 interface TmdbService {
     @GET("3/trending/tv/day") suspend fun trendingTv(@Query("page") page: Int = 1): TmdbPage
     @GET("3/trending/movie/day") suspend fun trendingMovies(@Query("page") page: Int = 1): TmdbPage
+    @GET("3/trending/{type}/{window}") suspend fun trending(
+        @Path("type") type: String,
+        @Path("window") window: String,
+        @Query("page") page: Int = 1,
+    ): TmdbPage
     @GET("3/watch/providers/movie")
     suspend fun movieProviders(@Query("watch_region") region: String? = null): TmdbProviderListDto
     @GET("3/watch/providers/tv")
@@ -198,6 +233,7 @@ interface TmdbService {
         @Query("with_runtime.lte") maximumRuntime: Int? = null,
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("primary_release_date.lte") dateTo: String? = null,
+        @Query("vote_count.lte") maximumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -215,6 +251,7 @@ interface TmdbService {
         @Query("with_original_language") originalLanguage: String? = null,
         @Query("first_air_date.gte") dateFrom: String? = null,
         @Query("first_air_date.lte") dateTo: String? = null,
+        @Query("vote_count.lte") maximumVotes: Int? = null,
         @Query("page") page: Int = 1,
     ): TmdbPage
     @GET("3/discover/tv")
@@ -262,14 +299,25 @@ interface MdbListService {
     ): MdbListRatingResponse
 }
 
+/** TMDB per-country release dates; type 4 is a digital release. */
+@Serializable data class TmdbReleaseDatesDto(val results: List<TmdbReleaseCountryDto> = emptyList())
+@Serializable data class TmdbReleaseCountryDto(
+    @SerialName("iso_3166_1") val country: String = "",
+    @SerialName("release_dates") val dates: List<TmdbReleaseDateDto> = emptyList(),
+)
+@Serializable data class TmdbReleaseDateDto(@SerialName("release_date") val date: String = "", val type: Int = 0)
+
 @Serializable
 data class SimklOAuthResponse(
     @SerialName("access_token") val accessToken: String,
     @SerialName("token_type") val tokenType: String? = null,
     val scope: String? = null,
     @SerialName("expires_in") val expiresIn: Long? = null,
+    @SerialName("refresh_token") val refreshToken: String? = null,
 )
 
+@Serializable data class SimklUserSettings(val user: SimklUserProfile? = null)
+@Serializable data class SimklUserProfile(val name: String? = null)
 @Serializable data class SimklActivity(val all: String = "", @SerialName("tv_shows") val tvShows: SimklActivityGroup = SimklActivityGroup(), val movies: SimklActivityGroup = SimklActivityGroup(), val anime: SimklActivityGroup = SimklActivityGroup())
 @Serializable data class SimklActivityGroup(
     val all: String = "",
@@ -320,6 +368,8 @@ data class SimklOAuthResponse(
     @SerialName("watched_at") val watchedAt: String? = null,
     val status: String? = null,
     val seasons: List<SimklSeason> = emptyList(),
+    /** Anime episodes numbered in TVDB seasons; omitted (null) for everything else. */
+    @SerialName("use_tvdb_anime_seasons") val useTvdbAnimeSeasons: Boolean? = null,
 )
 @Serializable data class SimklNotFoundItems(
     val movies: List<JsonObject> = emptyList(),
@@ -329,9 +379,10 @@ data class SimklOAuthResponse(
     @SerialName("not_found") val notFound: SimklNotFoundItems = SimklNotFoundItems(),
 )
 
+/** Simkl AUTH V2 (OAuth 2.0 with mandatory PKCE). */
 interface SimklAuthService {
     @FormUrlEncoded
-    @POST("oauth/token")
+    @POST("oauth2/token")
     suspend fun exchangeCode(
         @Field("code") code: String,
         @Field("client_id") clientId: String,
@@ -339,6 +390,23 @@ interface SimklAuthService {
         @Field("redirect_uri") redirectUri: String,
         @Field("grant_type") grantType: String = "authorization_code",
     ): SimklOAuthResponse
+
+    /** Non-rotating: the same refresh token comes back; the previous access token dies at once. */
+    @FormUrlEncoded
+    @POST("oauth2/token")
+    suspend fun refresh(
+        @Field("refresh_token") refreshToken: String,
+        @Field("client_id") clientId: String,
+        @Field("grant_type") grantType: String = "refresh_token",
+    ): SimklOAuthResponse
+
+    /** Always answers 200 (RFC 7009), so the response says nothing about what was revoked. */
+    @FormUrlEncoded
+    @POST("oauth2/revoke")
+    suspend fun revoke(
+        @Field("token") token: String,
+        @Field("client_id") clientId: String,
+    ): retrofit2.Response<okhttp3.ResponseBody>
 }
 
 interface SimklSyncService {
@@ -354,6 +422,8 @@ interface SimklSyncService {
     @POST("sync/history") suspend fun addHistory(@Body request: SimklSyncRequest)
     @POST("sync/history/remove") suspend fun removeHistory(@Body request: SimklSyncRequest): SimklRemoveResponse
     @POST("sync/add-to-list") suspend fun addToList(@Body request: SimklSyncRequest)
+    /** The signed-in account's profile; only the display name is used. */
+    @POST("users/settings") suspend fun userSettings(): SimklUserSettings
 }
 
 interface SimklCalendarService {
@@ -361,12 +431,37 @@ interface SimklCalendarService {
     @GET("calendar/anime.json") suspend fun anime(): List<SimklCalendarItem>
 }
 
+/** Trakt public calendar: exact first-air instants (including streaming
+ * release times) for every show, read with a client ID only (no sign-in). */
+interface TraktCalendarService {
+    @GET("calendars/all/shows/{start}/{days}")
+    suspend fun shows(
+        @retrofit2.http.Header("trakt-api-key") clientId: String,
+        @retrofit2.http.Path("start") start: String,
+        @retrofit2.http.Path("days") days: Int,
+    ): List<TraktCalendarItem>
+}
+
+@Serializable data class TraktCalendarItem(
+    @SerialName("first_aired") val firstAired: String? = null,
+    val episode: TraktCalendarEpisode = TraktCalendarEpisode(),
+    val show: TraktCalendarShow = TraktCalendarShow(),
+)
+@Serializable data class TraktCalendarEpisode(
+    val season: Int = 0,
+    val number: Int = 0,
+    val ids: TraktIds = TraktIds(),
+)
+@Serializable data class TraktCalendarShow(val ids: TraktIds = TraktIds())
+@Serializable data class TraktIds(val tmdb: Int? = null)
+
 data class ApiServices(
     val tmdb: TmdbService,
     val mdbList: MdbListService,
     val simklAuth: SimklAuthService,
     val simklSync: SimklSyncService,
     val simklCalendar: SimklCalendarService,
+    val traktCalendar: TraktCalendarService? = null,
 )
 
 object NetworkFactory {
@@ -379,10 +474,14 @@ object NetworkFactory {
         metadataLanguage: () -> String,
         metadataRegion: () -> String,
         metadataTimezone: () -> String,
+        /** Called on a Simkl 401 with the token that was rejected; returns the token to retry with. */
+        refreshSimklToken: (rejected: String) -> String? = { null },
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
+            redactHeader("simkl-api-key")
             redactQueryParams("api_key")
+            redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
         val common = OkHttpClient.Builder()
@@ -429,6 +528,12 @@ object NetworkFactory {
                 header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
             }.build()
             chain.proceed(request)
+        }.authenticator { _, response ->
+            // A 7-day V2 token expired (or was replaced): refresh once and retry once.
+            val rejected = response.request.header("Authorization")?.removePrefix("Bearer ")?.takeIf(String::isNotBlank)
+            if (rejected == null || response.priorResponse != null) return@authenticator null
+            val fresh = refreshSimklToken(rejected)?.takeIf { it != rejected } ?: return@authenticator null
+            response.request.newBuilder().header("Authorization", "Bearer $fresh").build()
         }.build()
         val simklAuthClient = common.newBuilder().addInterceptor { chain ->
             chain.proceed(
@@ -451,6 +556,19 @@ object NetworkFactory {
             simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
             simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
             simklCalendar = retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java),
+            traktCalendar = retrofit(
+                "https://api.trakt.tv/",
+                common.newBuilder().addInterceptor { chain ->
+                    chain.proceed(
+                        chain.request().newBuilder()
+                            .header("Content-Type", "application/json")
+                            .header("trakt-api-version", "2")
+                            .header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
+                            .build(),
+                    )
+                }.build(),
+            ).create(TraktCalendarService::class.java),
         )
     }
 }
+

@@ -27,17 +27,19 @@ internal class SecureCredentialStore(context: Context) {
         }.getOrNull()
     }
 
+    /** [durable] writes to disk before returning (rotating sign-in tokens must survive a crash). */
     @Synchronized
-    fun put(key: String, value: String?) {
+    fun put(key: String, value: String?, durable: Boolean = false) {
         if (value.isNullOrBlank()) {
-            preferences.edit().remove(key).apply()
+            preferences.edit().remove(key).let { if (durable) it.commit() else it.apply() }
             return
         }
         val cipher = Cipher.getInstance(TRANSFORMATION)
         cipher.init(Cipher.ENCRYPT_MODE, secretKey())
         val encrypted = cipher.doFinal(value.toByteArray())
         val payload = cipher.iv + encrypted
-        preferences.edit().putString(key, Base64.encodeToString(payload, Base64.NO_WRAP)).apply()
+        preferences.edit().putString(key, Base64.encodeToString(payload, Base64.NO_WRAP))
+            .let { if (durable) it.commit() else it.apply() }
     }
 
     private fun secretKey(): SecretKey = (keyStore.getKey(KEY_ALIAS, null) as? SecretKey) ?: run {

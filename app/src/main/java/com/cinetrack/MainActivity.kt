@@ -13,6 +13,10 @@ data class SimklAuthCallback(
     val code: String? = null,
     val state: String? = null,
     val error: String? = null,
+    /** RFC 9207 issuer, checked against Simkl before the code is exchanged. */
+    val issuer: String? = null,
+    /** Which sign-in returned: Simkl, or Floppy's app sign-in. */
+    val floppy: Boolean = false,
 )
 
 class MainActivity : AppCompatActivity() {
@@ -30,6 +34,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onStop() {
+        super.onStop()
+        // Leaving the app is when the home screen widget becomes visible again.
+        UpNextWidgetProvider.refresh(this)
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -38,11 +48,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleIntent(intent: Intent?) {
         val uri = intent?.data ?: return
-        if (uri.scheme == "cinetrack" && uri.host == "simkl") {
+        if (uri.scheme == "cinetrack" && (uri.host == "simkl" || uri.host == "floppy")) {
             authCallback.value = SimklAuthCallback(
                 code = uri.getQueryParameter("code"),
                 state = uri.getQueryParameter("state"),
-                error = uri.getQueryParameter("error_description") ?: uri.getQueryParameter("error"),
+                error = uri.getQueryParameter("error"),
+                issuer = uri.getQueryParameter("iss"),
+                floppy = uri.host == "floppy",
             )
         } else if (uri.scheme == "cinetrack" && uri.host == "app") {
             navigationRequest.value = when (uri.path) {

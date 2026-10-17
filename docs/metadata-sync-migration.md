@@ -1,0 +1,45 @@
+# Metadata and reconciliation migration map
+
+The focused repositories now define the dependency direction used by the UI:
+
+| Responsibility | Public owner | Current implementation boundary | Legacy callers |
+| --- | --- | --- | --- |
+| Discover rails, pagination, filters, search | `DiscoveryRepository` | `DefaultDiscoveryRepository` delegates to the existing TMDB-backed metadata implementation while behavior is preserved | notification/legacy paths through `CineTrackRepository` |
+| Media details, seasons, episodes, cast, ratings, recommendations, trailers, collections | `MediaRepository` | `DefaultMediaRepository` compatibility adapter; transport mapping remains below the repository boundary | `ReleaseNotifier`, legacy façade |
+| People search, person details, viewing insights | `PeopleRepository` | `DefaultPeopleRepository` adapter over `MediaRepository` | older widget/notification paths |
+| Region-specific watch providers | `WatchProviderRepository` | `DefaultWatchProviderRepository` adapter over `MediaRepository` | settings compatibility methods |
+| Library writes and derived progress | `LibraryRepository` | `RoomLibraryRepository` | façade delegates |
+| Air dates and release timestamps | `ReleaseScheduleRepository` | `DefaultReleaseScheduleRepository` | façade delegates |
+
+`CineTrackViewModel` uses the focused Discovery, People, Watch Provider, Media, Library, and SyncCoordinator dependencies directly. `CineTrackRepository` remains a compatibility façade for existing notifications, widgets, exports, authentication, and the still-incremental metadata/full Simkl migration.
+
+## Reconciliation boundary
+
+`TrackingSnapshot`, `MediaIds`, `LocalTrackingSnapshot`, `SyncReconciler`, `ReconciliationResult`, `LocalMutation`, and `SyncConflict` are provider-neutral. The reconciler performs no I/O and evaluates a three-way baseline (previous remote, current local, current MAIN snapshot). A local value is authoritative only when a field-specific durable operation matches its current value and source version; arbitrary dirty or stale rows do not protect a field. MAIN-only remote changes are applied locally without outbound writes, while true concurrent edits become conflicts.
+
+Only the configured MAIN provider may pull and reconcile. SECONDARY is dispatched through `push` only. Every logical `SyncOperation` can have independent provider delivery rows, so acknowledgements and failures are retried per provider. Existing delivery rows are the routing authority: a missing row is never treated as pending, and a role switch preserves the provider set while changing only pull/push direction. Explicit provider removal transitions pending/failed rows to `CANCELLED_PROVIDER_REMOVED`; re-adding the provider never resurrects old work. Simkl DTOs and request mapping are contained in `SimklTrackingProvider`, with the proven full-import path isolated behind `SimklSyncEngine` until its Room commit logic is fully migrated.
+
+```text
+Local mutation
+      |
+Logical SyncOperation
+      |
+      +-- Simkl delivery (MAIN or SECONDARY)
+      |
+      +-- Floppy delivery (when configured and supported)
+```
+
+Each logical operation carries a stable media/logical identity plus an exact
+`sourceVersion` generation. Delivery rows persist the target provider,
+`roleAtEnqueue`, operation generation, status, attempt count, and last error.
+`ACKNOWLEDGED`, `SKIPPED_UNSUPPORTED`, and `CANCELLED_PROVIDER_REMOVED` are
+terminal for that generation; role switches never rewrite existing rows, and a newer local state generation
+supersedes the old state operation and its deliveries.
+
+Installations upgraded from the pre-delivery schema receive one idempotent
+startup backfill: each genuine pending or failed legacy operation is bound to
+the configured MAIN provider and marked as repaired. Missing MAIN targets are
+never inferred again after that snapshot. When required deliveries disagree,
+the operation card reports a partial/attention state while retaining the
+provider rows as the source of truth for retry.
+

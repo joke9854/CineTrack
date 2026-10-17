@@ -2,7 +2,6 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.devtools.ksp")
@@ -25,14 +24,14 @@ val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
 
 android {
     namespace = "com.cinetrack"
-    compileSdk = 36
+    compileSdk = 37
 
     defaultConfig {
         applicationId = "com.cinetrack"
-        minSdk = 23
+        minSdk = 25
         targetSdk = 36
-        versionCode = 84
-        versionName = "0.84"
+        versionCode = 162
+        versionName = "0.99.63"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -71,6 +70,15 @@ android {
                 "proguard-rules.pro",
             )
         }
+        // Release-optimised build installed over the debug app (same id and key, so its
+        // data stays): previews and performance checks on a phone without the release key.
+        create("preview") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-preview"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+        }
     }
 
     compileOptions {
@@ -79,7 +87,6 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
 
-    kotlinOptions.jvmTarget = "17"
 
     buildFeatures {
         compose = true
@@ -87,6 +94,13 @@ android {
     }
 
     packaging.resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
+
+    // MigrationTestHelper loads exported Room schemas from the instrumentation
+    // APK's assets. Keep the historical schemas alongside the generated ones
+    // and package them for every connectedDebugAndroidTest run.
+    sourceSets {
+        getByName("androidTest").assets.srcDir("$projectDir/schemas")
+    }
 }
 
 ksp {
@@ -101,9 +115,8 @@ dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.0.3")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     baselineProfile(project(":baselineprofile"))
-    // Compose 1.12 (BOM 2026.08.00) requires compileSdk 37 and AGP 9.1.
-    // Compose 1.9 is the stable API 36-compatible baseline for this project.
-    val composeBom = platform("androidx.compose:compose-bom:2025.08.00")
+    // Matches the Compose BOM PrismalAGSL 1.0.4 exposes (needs compileSdk 37, AGP 9).
+    val composeBom = platform("androidx.compose:compose-bom:2026.06.01")
     implementation(composeBom)
     androidTestImplementation(composeBom)
 
@@ -141,12 +154,17 @@ dependencies {
     implementation("io.coil-kt:coil-compose:2.7.0")
     // Stable Haze API compatible with the app's current Compose toolchain.
     implementation("dev.chrisbanes.haze:haze:1.6.10")
+    // Liquid glass (AGSL refraction, specular rim) for compact controls.
+    implementation("com.github.styropyr0:PrismalAGSL:1.0.4")
     implementation("com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0")
     implementation("com.google.errorprone:error_prone_annotations:2.36.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
+    testImplementation("androidx.work:work-testing:2.11.2")
+    testImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
     androidTestImplementation("androidx.test.ext:junit:1.3.0")
     androidTestImplementation("androidx.compose.ui:ui-test-junit4")
     androidTestImplementation("androidx.room:room-testing:2.8.4")
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:5.3.2")
 }

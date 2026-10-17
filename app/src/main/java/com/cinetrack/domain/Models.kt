@@ -46,6 +46,10 @@ data class MediaCard(
     val networks: List<String> = emptyList(),
     val budget: Long? = null,
     val boxOffice: Long? = null,
+    /** A film's digital release (yyyy-MM-dd) for the user's region, or the US date when the region has none. */
+    val digitalRelease: String? = null,
+    /** Set when [digitalRelease] is another country's date (e.g. "US"); null for the user's own region. */
+    val digitalReleaseCountry: String? = null,
     val productionCompanies: List<String> = emptyList(),
     val productionCountries: List<String> = emptyList(),
     val originalLanguage: String? = null,
@@ -87,6 +91,8 @@ data class PlaybackCard(
     val remainingMinutes: Int? = null,
     val durationMinutes: Int? = null,
     val episodeAirDate: String? = null,
+    /** Remote playback activity timestamp, in epoch milliseconds. */
+    val progressUpdatedAtMillis: Long = 0L,
 )
 
 @Immutable
@@ -108,6 +114,8 @@ data class EpisodeCard(
     val stillUrl: String? = null,
     val runtimeMinutes: Int? = null,
     val watched: Boolean = false,
+    /** TMDB's score for this episode; only known after the episode itself is loaded. */
+    val score: Double? = null,
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')} · E${number.toString().padStart(2, '0')}"
     val scheduleKey: String get() = "$showId:$season:$number"
@@ -147,6 +155,7 @@ data class TimelineCard(
     val episodeId: Int? = null,
     val season: Int? = null,
     val episodeNumber: Int? = null,
+    val episodeTitle: String? = null,
 )
 
 enum class SyncStage {
@@ -194,7 +203,111 @@ data class ViewingPeopleInsights(
     val loading: Boolean = false,
 )
 
-enum class SyncOperationStatus { PENDING, FAILED, CONFLICT }
+enum class SyncOperationStatus { PENDING, FAILED, PARTIAL, CONFLICT }
+
+/** Presentation-only state for the Floppy settings/integrations surfaces. */
+enum class FloppyUiState { NOT_CONNECTED, CONNECTED_INACTIVE, SETTING_UP, READY, NEEDS_ATTENTION }
+
+/** Durable stages reported by the Floppy bootstrap WorkManager job. */
+enum class FloppyBootstrapStage {
+    PREPARING,
+    BUILDING_PLAN,
+    MATERIALIZING_QUEUE,
+    QUEUED,
+    CHECKING_REMOTE_STATE,
+    WAITING_FOR_SERVER,
+    SYNCING,
+    VERIFYING,
+    STALLED,
+    COMPLETE,
+    NEEDS_ATTENTION,
+}
+
+internal fun FloppyBootstrapStage.allowsRetry(): Boolean = this in setOf(
+    FloppyBootstrapStage.WAITING_FOR_SERVER,
+    FloppyBootstrapStage.STALLED,
+    FloppyBootstrapStage.NEEDS_ATTENTION,
+)
+
+internal fun FloppyBootstrapStage.isManagedActive(): Boolean = this != FloppyBootstrapStage.COMPLETE
+
+@Immutable
+data class FloppyBootstrapProgress(
+    val stage: FloppyBootstrapStage = FloppyBootstrapStage.PREPARING,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val succeeded: Int = 0,
+    val failed: Int = 0,
+    val providerInstanceId: String? = null,
+    val currentOperationType: String? = null,
+    val currentTitle: String? = null,
+    val lastProgressAtMillis: Long? = null,
+    val planningProcessed: Int = 0,
+    val planningTotal: Int = 0,
+    /** Immutable WorkManager execution identity; retries keep the same id. */
+    val bootstrapRunId: String? = null,
+)
+
+/** Durable stages reported by the library artwork/metadata refresh job. */
+enum class LibraryArtworkRefreshStage { PREPARING, REFRESHING, APPLYING, COMPLETE, COMPLETE_WITH_ERRORS, FAILED }
+
+@Immutable
+data class LibraryArtworkRefreshProgress(
+    val stage: LibraryArtworkRefreshStage = LibraryArtworkRefreshStage.PREPARING,
+    val processed: Int = 0,
+    val total: Int = 0,
+    val changed: Int = 0,
+    val unchanged: Int = 0,
+    val failed: Int = 0,
+    val currentTitle: String? = null,
+)
+
+enum class FloppyConnectionStage {
+    IDLE,
+    CHECKING_SERVER,
+    AUTHENTICATING,
+    ACTIVATING,
+    INITIAL_SYNC,
+    COMPLETE,
+    FAILED,
+}
+
+enum class FloppyConnectionError {
+    INVALID_REQUEST,
+    AUTHENTICATION,
+    DNS,
+    TIMEOUT,
+    TLS,
+    NETWORK,
+    WRONG_API,
+    INVALID_RESPONSE,
+    BOOTSTRAP,
+    UNKNOWN,
+}
+
+/** Progress of a MAIN/SECONDARY swap started from Settings. */
+@Immutable
+data class MainTrackerSwapUiState(
+    val running: Boolean = false,
+    val error: String? = null,
+)
+
+@Immutable
+data class FloppyConnectionUiState(
+    val stage: FloppyConnectionStage = FloppyConnectionStage.IDLE,
+    val error: FloppyConnectionError? = null,
+    /** A specific explanation, shown instead of the generic text for [error]. */
+    val message: String? = null,
+    val serverVersion: String? = null,
+) {
+    val running: Boolean
+        get() = stage in setOf(
+            FloppyConnectionStage.CHECKING_SERVER,
+            FloppyConnectionStage.AUTHENTICATING,
+            FloppyConnectionStage.ACTIVATING,
+            FloppyConnectionStage.INITIAL_SYNC,
+        )
+}
 
 enum class SyncConflictChoice { KEEP_LOCAL, USE_REMOTE }
 
@@ -212,12 +325,64 @@ data class SyncOperationCard(
     val createdAt: Long,
     val updatedAt: Long,
     val attemptCount: Int = 0,
+    val providerId: String = "SIMKL",
+    val deliveries: List<SyncDeliveryCard> = emptyList(),
 )
+
+@Immutable
+data class SyncDeliveryCard(
+    val providerId: String,
+    val status: String,
+    val required: Boolean,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+)
+
+@Immutable
+data class TrackingProviderState(
+    val providerId: String,
+    val role: String,
+    val configured: Boolean = false,
+    val authenticated: Boolean = false,
+    val connectionStatus: String = "UNKNOWN",
+    val lastSuccessfulSync: Long? = null,
+    val lastError: String? = null,
+    val bootstrapState: String = "NOT_STARTED",
+    /** The provider can serve as MAIN (two-way). */
+    val twoWayCapable: Boolean = false,
+)
+
+/** A watched episode Floppy could not place, to be marked by hand there. */
+@Immutable
+data class FloppyUnplacedItem(
+    val showId: Int,
+    val showTitle: String,
+    val season: Int,
+    val episode: Int,
+    /** The episode title as TVDB knows it, when Floppy returned one. */
+    val episodeTitle: String?,
+) {
+    val label: String get() = "S${season.toString().padStart(2, '0')}E${episode.toString().padStart(2, '0')}"
+
+    /** Stable key used to remember a dismissed entry. */
+    val dismissKey: String get() = "$showId:$season:$episode"
+
+    /** Floppy search for the item: a titled special is usually filed by TMDB
+     * as a movie (e.g. "A Parks and Recreation Special"); anything else opens
+     * the show, where the episode can be marked. */
+    fun floppySearchUrl(baseUrl: String): String {
+        val (type, query) = if (season == 0 && !episodeTitle.isNullOrBlank()) "movie" to episodeTitle else "tv" to showTitle
+        return baseUrl.trimEnd('/') + "/search?media_type=$type&q=" + java.net.URLEncoder.encode(query, "UTF-8")
+    }
+}
 
 @Immutable
 data class AppUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
+    val libraryArtworkRefreshing: Boolean = false,
+    val libraryArtworkProgress: LibraryArtworkRefreshProgress? = null,
+    val libraryArtworkProgressVisible: Boolean = false,
     val error: String? = null,
     val rails: Map<String, List<MediaCard>> = emptyMap(),
     val playbackTv: List<PlaybackCard> = emptyList(),
@@ -228,6 +393,20 @@ data class AppUiState(
     val people: List<PersonCard> = emptyList(),
     val sync: SyncProgress = SyncProgress(),
     val simklConnected: Boolean = false,
+    val simklUsername: String? = null,
+    val floppyUsername: String? = null,
+    /** Why a Simkl grant was dropped ("upgrade" or "signed_out"); null while connected or never connected. */
+    val simklReconnectReason: String? = null,
+    /** A Simkl account was just connected and the user has not chosen merge or replace yet. */
+    val simklFirstSyncPending: Boolean = false,
+    val floppyConnected: Boolean = false,
+    val floppyServerVersion: String? = null,
+    val floppyBaseUrl: String? = null,
+    val floppyConnectionId: String? = null,
+    val floppyBootstrapProgress: FloppyBootstrapProgress? = null,
+    val floppyAllowInsecureLocalHttp: Boolean = false,
+    val floppyUiState: FloppyUiState = FloppyUiState.NOT_CONNECTED,
+    val trackingProviders: List<TrackingProviderState> = emptyList(),
     val backgroundSync: Boolean = true,
     val wifiOnly: Boolean = false,
     val notificationEpisodes: Boolean = true,
@@ -241,14 +420,21 @@ data class AppUiState(
     val uiAccent: String = "watching",
     val tmdbApiConfigured: Boolean = false,
     val mdbListApiConfigured: Boolean = false,
+    val traktConfigured: Boolean = false,
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
     val providerRegion: String = "system",
     val metadataTimezone: String = "system",
+    val airDateSource: String = "trakt",
     val excludeSpecials: Boolean = true,
+    val hideAdultTitles: Boolean = true,
     val preferredProviders: Set<String> = emptySet(),
     val visibleProviderTypes: Set<String> = setOf("flatrate", "rent", "buy", "free", "ads"),
     val heroLayout: String = "standard",
+    /** "a" = classic Discover (hero carousel + rails), "b" = mosaic. */
+    val discoverLayout: String = "a",
+    val seasonPicker: String = "text",
+    val posterAccent: Boolean = true,
     val posterFormat: String = "classic",
     val posterSize: String = "standard",
     val cardDensity: String = "standard",
@@ -256,6 +442,14 @@ data class AppUiState(
     val hiddenDiscovery: Set<String> = emptySet(),
     val introductionCompleted: Boolean = false,
 ) {
+    /** Floppy is the two-way MAIN tracker (Simkl, if connected, is SECONDARY). */
+    val floppyIsMain: Boolean
+        get() = trackingProviders.any { it.providerId == "FLOPPY" && it.role == "MAIN" }
+
+    /** The connected Floppy server has the exact two-way read side. */
+    val floppyCanBeMain: Boolean
+        get() = trackingProviders.any { it.providerId == "FLOPPY" && it.twoWayCapable }
+
     val allMedia: List<MediaCard>
         get() = (
             rails.values.flatten() +
@@ -284,6 +478,13 @@ data class DiscoverMovieFilters(
     val maximumRuntime: Int? = null,
     val originalLanguage: String? = null,
     val decadeStart: Int? = null,
+    /** Release-date window (ISO dates); overrides [decadeStart] when set. */
+    val dateFrom: String? = null,
+    val dateTo: String? = null,
+    val minimumVotes: Int? = null,
+    val maximumVotes: Int? = null,
+    /** "day" or "week": read TMDB trending instead of discover. Genres then filter locally. */
+    val trendingWindow: String? = null,
 )
 
 object RailIds {
@@ -295,3 +496,13 @@ object RailIds {
     const val LIBRARY = "library"
     const val RECOMMENDED = "recommended"
 }
+
+/** A running backup creation or restore: [stage] is a string resource, [fraction] null while unknown. */
+@Immutable
+data class BackupProgress(
+    val restore: Boolean,
+    val stage: Int,
+    val fraction: Float?,
+    val finished: Boolean = false,
+    val failed: Boolean = false,
+)

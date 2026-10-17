@@ -9,14 +9,28 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.cinetrack.data.library.LibraryRepository
+import com.cinetrack.data.discovery.DiscoveryRepository
+import com.cinetrack.data.media.MediaRepository
+import com.cinetrack.data.people.PeopleRepository
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.BoundedLruCache
 import com.cinetrack.data.repository.ProgressRefreshRequest
-import com.cinetrack.data.repository.SimklSyncOutcome
+import com.cinetrack.data.sync.SyncCoordinator
+import com.cinetrack.data.sync.SyncCoordinatorOutcome
+import com.cinetrack.data.sync.ConnectionResult
+import com.cinetrack.data.sync.TrackingSyncError
+import com.cinetrack.data.watchprovider.WatchProviderRepository
+import com.cinetrack.data.work.LibraryArtworkRefreshManager
+import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
 import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.data.update.GitHubAppUpdater
 import com.cinetrack.domain.AppUiState
+import com.cinetrack.domain.FloppyConnectionError
+import com.cinetrack.domain.FloppyConnectionStage
+import com.cinetrack.domain.FloppyConnectionUiState
+import com.cinetrack.domain.MainTrackerSwapUiState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
@@ -26,6 +40,9 @@ import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.domain.RatingScore
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.StreamingProvider
+import com.cinetrack.domain.LibraryArtworkRefreshStage
+import com.cinetrack.domain.LibraryArtworkRefreshProgress
+import com.cinetrack.domain.FloppyBootstrapStage
 import com.cinetrack.domain.SyncProgress
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.domain.SyncOperationCard
@@ -41,10 +58,13 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -64,21 +84,44 @@ import java.util.zip.ZipOutputStream
 import java.util.zip.ZipInputStream
 import android.net.Uri
 
-class CineTrackViewModel(private val repository: CineTrackRepository) : ViewModel() {
+class CineTrackViewModel(
+    private val repository: CineTrackRepository,
+    private val libraryRepository: LibraryRepository,
+    private val mediaRepository: MediaRepository,
+    private val discoveryRepository: DiscoveryRepository,
+    private val peopleRepository: PeopleRepository,
+    private val watchProviderRepository: WatchProviderRepository,
+    private val syncCoordinator: SyncCoordinator,
+    private val libraryArtworkRefreshManager: LibraryArtworkRefreshManager,
+    private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
+) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
+    private val libraryArtworkRefreshMutex = Mutex()
+    private val floppyConnectionMutex = Mutex()
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
     private var pendingProgressRefresh = ProgressRefreshRequest()
+    private var pendingProgressRepublish = false
     private var startupStateBuilding = true
     private val foregroundObserver = LifecycleEventObserver { _, event ->
         if (event == Lifecycle.Event.ON_RESUME && !startupStateBuilding && !syncMutex.isLocked) {
-            viewModelScope.launch { performSimklSync(force = false) }
+            viewModelScope.launch {
+                performTrackingSync(force = false)
+                // A skipped sync (not due, or no provider) must still re-select
+                // Progress: episodes may have been released in the background.
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+            }
         }
     }
     private val pendingEpisodeEdits = PendingEpisodeEdits()
     private val detailCastCache = BoundedLruCache<String, List<PersonCard>>(32)
     private val detailMediaCache = BoundedLruCache<String, MediaCard>(64)
+    // Rows of a detail page, kept so going back to it shows the same page at once.
+    private val detailCollectionCache = BoundedLruCache<String, List<MediaCard>>(32)
+    private val detailRecommendationsCache = BoundedLruCache<String, List<MediaCard>>(32)
+    // Titles opened from rows that are not in the library, so their page can draw at once.
+    private val openedMediaCache = BoundedLruCache<String, MediaCard>(32)
     private val detailRatingsCache = BoundedLruCache<String, List<RatingScore>>(64)
     private val detailEpisodeCache = BoundedLruCache<Int, List<EpisodeCard>>(32)
     private val _state = MutableStateFlow(
@@ -91,12 +134,44 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         .map { progress: SyncProgress -> progress.running }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+    private val _floppyUnplaced = MutableStateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>>(emptyList())
+    /** Episodes Floppy could not place; the settings screen links each to Floppy. */
+    val floppyUnplaced: StateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>> = _floppyUnplaced.asStateFlow()
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
     private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
     val syncOperations: StateFlow<List<SyncOperationCard>> = _syncOperations.asStateFlow()
+    private val _managedBootstrapSummary = MutableStateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?>(null)
+    val managedBootstrapSummary: StateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?> = _managedBootstrapSummary.asStateFlow()
+    /** WorkManager-owned progress is kept outside Room-derived AppUiState so
+     * delivery invalidations cannot erase an active Floppy bootstrap. */
+    private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
+    val floppyBootstrapProgress: StateFlow<com.cinetrack.domain.FloppyBootstrapProgress?> = _floppyBootstrapProgress.asStateFlow()
+    private val _floppyConnectionUiState = MutableStateFlow(FloppyConnectionUiState())
+    val floppyConnectionUiState: StateFlow<FloppyConnectionUiState> = _floppyConnectionUiState.asStateFlow()
+
+    /** A connect waiting for "is this the same Floppy at a new address?"; never shown in logs. */
+    data class FloppyAddressMove(val baseUrl: String, val credential: String, val allowInsecureLocalHttp: Boolean)
+    private val _floppyAddressMove = MutableStateFlow<FloppyAddressMove?>(null)
+    val floppyAddressMove: StateFlow<FloppyAddressMove?> = _floppyAddressMove.asStateFlow()
+
+    /** The user's answer: [same] keeps the connection and its finished initial sync. */
+    fun answerFloppyAddressMove(same: Boolean) {
+        val pending = _floppyAddressMove.value ?: return
+        _floppyAddressMove.value = null
+        appendFloppyDiagnostic("Floppy connect: new address confirmed as ${if (same) "the same server" else "a new server"}")
+        connectFloppy(pending.baseUrl, pending.credential, pending.allowInsecureLocalHttp, sameServerAtNewAddress = same)
+    }
+
+    /** Dismissed: nothing changes and the fresh sign-in is ended. */
+    fun cancelFloppyAddressMove() {
+        val pending = _floppyAddressMove.value ?: return
+        _floppyAddressMove.value = null
+        _floppyConnectionUiState.value = FloppyConnectionUiState()
+        viewModelScope.launch(Dispatchers.IO) { repository.discardFloppyCredential(pending.baseUrl, pending.credential) }
+    }
 
     private val _discoverBrowse = MutableStateFlow<Map<String, com.cinetrack.domain.DiscoverBrowseState>>(emptyMap())
     val discoverBrowse = _discoverBrowse.asStateFlow()
@@ -125,7 +200,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     val targetCount = existing.items.size + 20
                     // Skip cached duplicates and sparse filtered pages, but bound each user action.
                     while (current.hasMore && current.items.size < targetCount && scanned < 6) {
-                        val page = withContext(Dispatchers.IO) { repository.loadDiscoverPage(railId, current.nextPage) }
+                        val page = withContext(Dispatchers.IO) { discoveryRepository.page(railId, current.nextPage) }
                         current = current.appendPage(page, railId == com.cinetrack.domain.RailIds.UPCOMING)
                         publish(current)
                         scanned++
@@ -159,6 +234,16 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
     private val _discoverFiltersLoading = MutableStateFlow(false)
     val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
+    /** Results for the Mosaic layout's type / window / genre chips; kept apart from the filter page. */
+    private val _mosaicResults = MutableStateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?>(null)
+    val mosaicResults: StateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?> = _mosaicResults.asStateFlow()
+    private val mosaicCache = mutableMapOf<DiscoverMovieFilters, List<MediaCard>>()
+    // Next batch to load for each mosaic view; absent once TMDB has no more.
+    private val mosaicNextBatch = mutableMapOf<DiscoverMovieFilters, Int>()
+    private var mosaicMoreJob: Job? = null
+    private val _mosaicCanLoadMore = MutableStateFlow(false)
+    val mosaicCanLoadMore: StateFlow<Boolean> = _mosaicCanLoadMore.asStateFlow()
+    private var mosaicJob: kotlinx.coroutines.Job? = null
     private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
     private val _settingsProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
@@ -167,6 +252,34 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     val settingsProvidersLoading = _settingsProvidersLoading.asStateFlow()
     private val _settingsProvidersError = MutableStateFlow(false)
     val settingsProvidersError = _settingsProvidersError.asStateFlow()
+    /** Backup creation or restore in progress, shown as a pill over the app; null when idle. */
+    private val _backupProgress = MutableStateFlow<com.cinetrack.domain.BackupProgress?>(null)
+    val backupProgress: StateFlow<com.cinetrack.domain.BackupProgress?> = _backupProgress.asStateFlow()
+    private var backupProgressClear: kotlinx.coroutines.Job? = null
+
+    private fun backupStep(restore: Boolean, stage: Int, fraction: Float?) {
+        backupProgressClear?.cancel()
+        _backupProgress.value = com.cinetrack.domain.BackupProgress(restore, stage, fraction)
+    }
+
+    private fun backupFinished(restore: Boolean, failed: Boolean) {
+        _backupProgress.value = com.cinetrack.domain.BackupProgress(
+            restore = restore,
+            stage = when {
+                failed -> com.cinetrack.R.string.backup_failed
+                restore -> com.cinetrack.R.string.restore_done
+                else -> com.cinetrack.R.string.backup_done
+            },
+            fraction = 1f,
+            finished = true,
+            failed = failed,
+        )
+        backupProgressClear = viewModelScope.launch {
+            kotlinx.coroutines.delay(2600)
+            _backupProgress.value = null
+        }
+    }
+
     private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
     val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
     private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
@@ -183,7 +296,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                         _searchResults.value = emptyList()
                         _searchLoading.value = false
                     } else {
-                        val results = withContext(Dispatchers.IO) { repository.search(query) }
+                        val results = withContext(Dispatchers.IO) { discoveryRepository.search(query) }
                         // A newer keystroke may still be inside its debounce window.
                         if (searchQuery.value == query) {
                             _searchResults.value = results
@@ -200,7 +313,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                         _personSearchResults.value = emptyList()
                         _personSearchLoading.value = false
                     } else {
-                        val results = withContext(Dispatchers.IO) { repository.searchPeople(query) }
+                        val results = withContext(Dispatchers.IO) { peopleRepository.search(query) }
                         if (personSearchQuery.value == query) {
                             _personSearchResults.value = results
                             _personSearchLoading.value = false
@@ -212,17 +325,63 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     init {
         observeSearch()
+        viewModelScope.launch {
+            // The one-time anime renumbering rewrote this show's episode numbers.
+            repository.renumberedShows.collect { showId -> detailEpisodeCache.remove(showId) }
+        }
+        viewModelScope.launch {
+            combine(repository.preferences.simklConnected, repository.preferences.simklReconnectReason, ::Pair)
+                .distinctUntilChanged()
+                .collect { (connected, reconnect) -> _state.update { it.copy(simklConnected = connected, simklReconnectReason = reconnect) } }
+        }
+        viewModelScope.launch {
+            repository.preferences.simklFirstSyncMode
+                .map { it == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK }
+                .distinctUntilChanged()
+                .collect { pending -> _state.update { it.copy(simklFirstSyncPending = pending) } }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
+        viewModelScope.launch {
+            libraryArtworkRefreshManager.progress.collectLatest { progress ->
+                _state.update { current -> current.copy(libraryArtworkProgress = progress, libraryArtworkRefreshing = false) }
+            }
+        }
+        viewModelScope.launch {
+            _state.map { it.floppyConnectionId }.distinctUntilChanged().collectLatest { connectionId ->
+                floppyBootstrapWorkManager.progressFor(connectionId).collectLatest { progress ->
+                    _floppyBootstrapProgress.value = progress
+                    _state.update { current ->
+                        val ui = when (progress?.stage) {
+                            FloppyBootstrapStage.COMPLETE -> com.cinetrack.domain.FloppyUiState.READY
+                            FloppyBootstrapStage.NEEDS_ATTENTION -> com.cinetrack.domain.FloppyUiState.NEEDS_ATTENTION
+                            FloppyBootstrapStage.PREPARING,
+                            FloppyBootstrapStage.BUILDING_PLAN,
+                            FloppyBootstrapStage.MATERIALIZING_QUEUE,
+                            FloppyBootstrapStage.QUEUED,
+                            FloppyBootstrapStage.CHECKING_REMOTE_STATE,
+                            FloppyBootstrapStage.WAITING_FOR_SERVER,
+                            FloppyBootstrapStage.SYNCING,
+                            FloppyBootstrapStage.VERIFYING,
+                            FloppyBootstrapStage.STALLED,
+                            -> if (current.floppyConnected) com.cinetrack.domain.FloppyUiState.SETTING_UP else current.floppyUiState
+                            null -> current.floppyUiState
+                        }
+                        current.copy(floppyBootstrapProgress = progress, floppyUiState = ui)
+                    }
+                }
+            }
+        }
         viewModelScope.launch {
             _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             state
                 .map { uiState: AppUiState -> uiState.error }
                 .filterNotNull()
                 .distinctUntilChanged()
                 .collect { message: String ->
                     val line = "${java.time.Instant.now()}  $message"
-                    _errorLogs.value = (_errorLogs.value + line).takeLast(200)
+                    _errorLogs.value = (_errorLogs.value + line).takeLast(500)
                     withContext(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
                 }
         }
@@ -230,7 +389,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             // Room is the source of truth for imports performed by either this
             // ViewModel or WorkManager. Refresh the active pages whenever an
             // import transaction commits instead of waiting for process restart.
-            repository.observeLocalChanges().collectLatest {
+            libraryRepository.observeLocalChanges().collectLatest {
                 // Room can emit several invalidations for one synchronization.
                 // Wait for the burst to settle and never publish a raw snapshot
                 // while the coordinated sync is still rebuilding derived rows.
@@ -242,10 +401,14 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 _syncProgress.value = latestSync
                 _state.value = cached.copy(
                     refreshing = current.refreshing,
+                    libraryArtworkRefreshing = current.libraryArtworkRefreshing,
+                    libraryArtworkProgress = current.libraryArtworkProgress,
+                    libraryArtworkProgressVisible = current.libraryArtworkProgressVisible,
                     error = current.error,
                     people = current.people,
                     sync = latestSync,
                 )
+                _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             }
         }
         viewModelScope.launch {
@@ -256,12 +419,28 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             val cached = readCachedState()
             _syncProgress.value = cached.sync
             _state.value = cached
-            val coldSync = if (cached.simklConnected) {
+            // WorkManager may have emitted before Room/DataStore startup
+            // finished. Re-read both durable jobs after the cached projection
+            // is published so process recreation cannot lose visible progress.
+            val restoredArtwork = withContext(Dispatchers.IO) { libraryArtworkRefreshManager.progress.first() }
+            val restoredBootstrap = withContext(Dispatchers.IO) { floppyBootstrapWorkManager.progressFor(cached.floppyConnectionId).first() }
+            _state.update { current ->
+                val bootstrapMatches = restoredBootstrap?.providerInstanceId.isNullOrBlank() ||
+                    current.floppyConnectionId.isNullOrBlank() ||
+                    restoredBootstrap?.providerInstanceId == current.floppyConnectionId
+                current.copy(
+                    libraryArtworkProgress = restoredArtwork ?: current.libraryArtworkProgress,
+                    floppyBootstrapProgress = if (bootstrapMatches) restoredBootstrap ?: current.floppyBootstrapProgress else current.floppyBootstrapProgress,
+                )
+            }
+            _floppyBootstrapProgress.value = restoredBootstrap
+            val mainProviderConnected = withContext(Dispatchers.IO) { syncCoordinator.isMainProviderConnected() }
+            val coldSync = if (mainProviderConnected) {
                 // Keep the cached UI stable while a cold-start delta check runs.
                 // Publishing its intermediate snapshots caused the visible reorder
                 // and scroll stalls captured in the supplied recording.
-                performSimklSync(force = true, publishResult = false, exposeProgress = false)
-            } else Result.success(SimklSyncOutcome(itemsChanged = false))
+                performTrackingSync(force = true, publishResult = false, exposeProgress = false)
+            } else Result.success(SyncCoordinatorOutcome(itemsChanged = false))
             var databaseChanged = coldSync.getOrNull()?.itemsChanged == true
             var discoverError: Throwable? = null
             val discoverRails = listOf(
@@ -271,7 +450,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             )
             if (cached.tmdbApiConfigured && discoverRails.any { cached.rails[it].isNullOrEmpty() }) {
                 withContext(Dispatchers.IO) {
-                    runCatching { repository.refreshDiscover() }
+                    runCatching { discoveryRepository.refresh() }
                         .onSuccess { databaseChanged = true }
                         .onFailure { discoverError = it }
                 }
@@ -286,13 +465,13 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             // A successful Simkl sync already rebuilt the correctness-critical
             // Progress cache and queued cosmetic enrichment. Only disconnected or
             // failed startup paths still need an independent cache refresh.
-            if (!cached.simklConnected || coldSync.isFailure) scheduleProgressCacheRefresh()
+            if (!mainProviderConnected || coldSync.isFailure) scheduleProgressCacheRefresh()
         }
         viewModelScope.launch {
             val interval = TimeUnit.MINUTES.toMillis(510)
             delay(interval)
             while (isActive) {
-                performSimklSync(force = false)
+                performTrackingSync(force = false)
                 delay(interval)
             }
         }
@@ -307,7 +486,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch {
             try {
                 val refreshed = withContext(Dispatchers.IO) {
-                    runDiscoverRefresh { repository.refreshDiscover() }
+                    runDiscoverRefresh { discoveryRepository.refresh() }
                     readCachedState()
                 }
                 _state.value = refreshed.copy(refreshing = false, sync = _syncProgress.value)
@@ -322,6 +501,32 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 refreshMutex.unlock()
             }
         }
+    }
+
+    /** Refresh all cached library metadata/artwork without touching tracking data. */
+    fun refreshLibraryArtwork() {
+        if (!_state.value.tmdbApiConfigured) return
+        _state.value = _state.value.copy(
+            libraryArtworkRefreshing = true,
+            libraryArtworkProgress = LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.PREPARING),
+            libraryArtworkProgressVisible = true,
+            error = null,
+        )
+        viewModelScope.launch {
+            try {
+                val wifiOnly = repository.preferences.wifiOnly.first()
+                withContext(Dispatchers.IO) { libraryArtworkRefreshManager.enqueue(wifiOnly) }
+                _state.value = _state.value.copy(libraryArtworkRefreshing = false)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.value = _state.value.copy(libraryArtworkRefreshing = false, error = error.message)
+            }
+        }
+    }
+
+    fun dismissLibraryArtworkProgress() {
+        _state.update { it.copy(libraryArtworkProgressVisible = false) }
     }
 
     fun search(query: String) {
@@ -347,6 +552,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         if (normalized.isNotBlank()) viewModelScope.launch { repository.preferences.addSearchHistory(normalized) }
     }
 
+    fun clearSearchHistory() {
+        viewModelScope.launch { repository.preferences.clearSearchHistory() }
+    }
+
     fun removeSearchHistory(query: String) {
         viewModelScope.launch { repository.preferences.removeSearchHistory(query) }
     }
@@ -363,17 +572,62 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun applyDiscoverFilters(filters: DiscoverMovieFilters) {
         viewModelScope.launch {
             _discoverFiltersLoading.value = true
-            runCatching { withContext(Dispatchers.IO) { repository.discoverMovies(filters) } }
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discover(filters) } }
                 .onSuccess { _discoverFilterResults.value = it }
                 .onFailure { _state.value = _state.value.copy(error = it.message) }
             _discoverFiltersLoading.value = false
         }
     }
 
+    fun loadMosaic(filters: DiscoverMovieFilters) {
+        mosaicCache[filters]?.let {
+            _mosaicResults.value = filters to it
+            _mosaicCanLoadMore.value = filters in mosaicNextBatch
+            return
+        }
+        mosaicJob?.cancel()
+        mosaicMoreJob?.cancel()
+        _mosaicCanLoadMore.value = false
+        mosaicJob = viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, 1) } }
+                .onSuccess { page ->
+                    if (mosaicCache.size > 24) {
+                        mosaicCache.clear()
+                        mosaicNextBatch.clear()
+                    }
+                    mosaicCache[filters] = page.items
+                    if (page.hasMore) mosaicNextBatch[filters] = 2 else mosaicNextBatch.remove(filters)
+                    _mosaicResults.value = filters to page.items
+                    _mosaicCanLoadMore.value = page.hasMore
+                }
+                .onFailure { if (it !is kotlinx.coroutines.CancellationException) _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    /** Appends the next batch to the mosaic on screen; called as its end scrolls into view. */
+    fun loadMoreMosaic() {
+        val filters = _mosaicResults.value?.first ?: return
+        val batch = mosaicNextBatch[filters] ?: return
+        if (mosaicMoreJob?.isActive == true) return
+        mosaicMoreJob = viewModelScope.launch {
+            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, batch) } }
+                .onSuccess { page ->
+                    val merged = (mosaicCache[filters].orEmpty() + page.items).distinctBy(MediaCard::stableKey)
+                    mosaicCache[filters] = merged
+                    // A batch that added nothing new (all duplicates or hidden) still moves on.
+                    if (page.hasMore) mosaicNextBatch[filters] = batch + 1 else mosaicNextBatch.remove(filters)
+                    if (_mosaicResults.value?.first == filters) {
+                        _mosaicResults.value = filters to merged
+                        _mosaicCanLoadMore.value = page.hasMore
+                    }
+                }
+        }
+    }
+
     fun loadStreamingProviders(mediaType: MediaType) {
         viewModelScope.launch {
             _streamingProviders.value = withContext(Dispatchers.IO) {
-                repository.loadStreamingProviders(mediaType).let { providers ->
+                watchProviderRepository.getWatchProviders(mediaType).let { providers ->
                     val preferred = _state.value.preferredProviders
                     if (preferred.isEmpty()) providers else providers.filter { it.name in preferred }
                 }
@@ -392,7 +646,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         settingsProvidersJob = viewModelScope.launch {
             try {
                 _settingsProviders.value = withContext(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeout(30_000) { repository.loadSettingsStreamingProviders(region) }
+                    kotlinx.coroutines.withTimeout(30_000) { watchProviderRepository.getAvailableProviders(region) }
                 }
             } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
                 _settingsProvidersError.value = true
@@ -433,6 +687,57 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch {
             providerPreferenceMutex.withLock { repository.preferences.setVisibleProviderTypes(values) }
         }
+    }
+
+    val releaseReminders: StateFlow<Set<String>> = repository.preferences.releaseReminders
+        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
+
+    /** Whether this release already notifies on its own: it is in the Calendar and its kind of notification is on. */
+    private fun notifiesByDefault(media: MediaCard, season: Int?, episode: Int?): Boolean {
+        val state = _state.value
+        val kindOn = if (media.type == com.cinetrack.domain.MediaType.TV) state.notificationEpisodes else state.notificationMovies
+        return kindOn && state.calendar.any { it.media.stableKey == media.stableKey && it.season == season && it.episodeNumber == episode }
+    }
+
+    /** The bell's state: a reminder the user set, or a default release notification they haven't silenced. */
+    fun isReleaseReminderOn(reminders: Set<String>, media: MediaCard, release: String, season: Int?, episode: Int?): Boolean {
+        val notifier = com.cinetrack.data.sync.ReleaseNotifier
+        if (notifier.reminderKey(media.stableKey, season, episode, release) in reminders) return true
+        return notifiesByDefault(media, season, episode) && notifier.muteKey(media.stableKey, season, episode, release) !in reminders
+    }
+
+    /**
+     * Turns the bell on or off. A release that notifies by default is silenced (or un-silenced)
+     * instead of getting a second, explicit reminder.
+     */
+    fun setReleaseReminder(context: android.content.Context, media: MediaCard, release: String, season: Int?, episode: Int?, episodeTitle: String?, enabled: Boolean) {
+        val byDefault = notifiesByDefault(media, season, episode)
+        viewModelScope.launch {
+            val notifier = com.cinetrack.data.sync.ReleaseNotifier
+            if (byDefault) {
+                repository.preferences.setReleaseReminder(notifier.muteKey(media.stableKey, season, episode, release), !enabled)
+                if (!enabled) notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, false)
+            } else {
+                notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, enabled)
+            }
+        }
+    }
+
+    fun setPosterAccent(enabled: Boolean) {
+        _state.value = _state.value.copy(posterAccent = enabled)
+        viewModelScope.launch { repository.preferences.setPosterAccent(enabled) }
+    }
+
+    fun setSeasonPicker(value: String) {
+        val normalized = if (value == "posters") "posters" else "text"
+        _state.value = _state.value.copy(seasonPicker = normalized)
+        viewModelScope.launch { repository.preferences.setSeasonPicker(normalized) }
+    }
+
+    fun setDiscoverLayout(value: String) {
+        val normalized = if (value == "b") "b" else "a"
+        _state.value = _state.value.copy(discoverLayout = normalized)
+        viewModelScope.launch { repository.preferences.setDiscoverLayout(normalized) }
     }
 
     fun setHeroLayout(value: String) {
@@ -477,6 +782,8 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         )
         _searchResults.value = _searchResults.value.filterNot { it.stableKey == media.stableKey }
         _discoverFilterResults.value = _discoverFilterResults.value.filterNot { it.stableKey == media.stableKey }
+        _mosaicResults.value = _mosaicResults.value?.let { (key, items) -> key to items.filterNot { it.stableKey == media.stableKey } }
+        mosaicCache.replaceAll { _, items -> items.filterNot { it.stableKey == media.stableKey } }
         viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
     }
 
@@ -484,7 +791,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         _state.value = _state.value.copy(hiddenDiscovery = emptySet())
         viewModelScope.launch {
             repository.preferences.setHiddenDiscovery(emptySet())
-            val error = withContext(Dispatchers.IO) { runCatching { repository.refreshDiscover() }.exceptionOrNull() }
+            val error = withContext(Dispatchers.IO) { runCatching { discoveryRepository.refresh() }.exceptionOrNull() }
             if (error == null) {
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value)
@@ -496,7 +803,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         if (_viewingInsights.value.loading || _viewingInsights.value.actors.isNotEmpty() || _viewingInsights.value.directors.isNotEmpty()) return
         viewModelScope.launch {
             _viewingInsights.value = ViewingPeopleInsights(loading = true)
-            val result = withContext(Dispatchers.IO) { runCatching { repository.loadViewingPeople(_state.value.history) } }
+            val result = withContext(Dispatchers.IO) { runCatching { peopleRepository.viewingPeople(_state.value.history) } }
             _viewingInsights.value = result.fold(
                 onSuccess = { (actors, directors) -> ViewingPeopleInsights(actors, directors) },
                 onFailure = { ViewingPeopleInsights() },
@@ -526,29 +833,23 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun setStatus(media: MediaCard, status: LibraryStatus) {
         viewModelScope.launch {
             val syncState = _syncProgress.value
-            withContext(Dispatchers.IO) { repository.setLibraryStatus(media, status) }
+            withContext(Dispatchers.IO) { libraryRepository.setLibraryStatus(media, status) }
             val refreshed = readCachedState().copy(sync = syncState)
             _state.value = refreshed
             _discoverBrowse.value = _discoverBrowse.value.mapValues { (_, browse) ->
                 browse.copy(items = browse.items.map { if (it.stableKey == media.stableKey) it.copy(status = status, watched = status == LibraryStatus.COMPLETED) else it })
             }
-            val pushError = if (repository.simklConnectedNow()) withContext(Dispatchers.IO) {
-                repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
-            } else null
             // The Simkl request starts immediately after the local commit. TMDB
             // metadata enrichment is independent and must never delay that push.
             scheduleProgressCacheRefresh(
                 ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
             )
-            if (pushError != null) {
-                _state.value = _state.value.copy(error = pushError.message)
-            }
         }
     }
 
     fun markWatched(media: MediaCard) {
         viewModelScope.launch {
-            repository.markWatched(media)
+            libraryRepository.markWatched(media)
             val current = _state.value
             fun update(item: MediaCard) = if (item.stableKey == media.stableKey) item.copy(watched = true, status = LibraryStatus.COMPLETED) else item
             _state.value = current.copy(
@@ -556,12 +857,6 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 playbackTv = current.playbackTv.filterNot { it.media.stableKey == media.stableKey },
                 playbackMovies = current.playbackMovies.filterNot { it.media.stableKey == media.stableKey },
             )
-            if (repository.simklConnectedNow()) {
-                val pushError = withContext(Dispatchers.IO) {
-                    repository.pushLibraryChange(media.type, media.id).exceptionOrNull()
-                }
-                if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
-            }
             scheduleProgressCacheRefresh(
                 ProgressRefreshRequest(tvLibraryChanged = media.type == MediaType.TV),
             )
@@ -589,21 +884,15 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         viewModelScope.launch {
             if (episode != null) {
-                withContext(Dispatchers.IO) { repository.markEpisodeWatched(episode) }
+                withContext(Dispatchers.IO) { libraryRepository.markEpisodeWatched(episode) }
                 scheduleProgressCacheRefresh(
                     ProgressRefreshRequest(episodeHistoryChanged = true),
                 )
             } else if (playback.media.type == MediaType.MOVIE) {
-                repository.markWatched(playback.media)
+                libraryRepository.markWatched(playback.media)
                 _state.value = _state.value.copy(
                     playbackMovies = _state.value.playbackMovies.filterNot { it.media.stableKey == playback.media.stableKey },
                 )
-                if (repository.simklConnectedNow()) {
-                    val pushError = withContext(Dispatchers.IO) {
-                        repository.pushLibraryChange(playback.media.type, playback.media.id).exceptionOrNull()
-                    }
-                    if (pushError != null) _state.value = _state.value.copy(error = pushError.message)
-                }
             }
         }
     }
@@ -662,7 +951,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun markEpisodeWatched(episode: EpisodeCard) {
         updateCachedEpisode(episode, watched = true)
         viewModelScope.launch {
-            repository.markEpisodeWatched(episode)
+            libraryRepository.markEpisodeWatched(episode)
             refreshCachedState(refreshProgress = true, promoteShowId = episode.showId)
         }
     }
@@ -670,7 +959,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun setEpisodeWatched(episode: EpisodeCard, watched: Boolean) {
         updateCachedEpisode(episode, watched)
         viewModelScope.launch {
-            repository.setEpisodeWatched(episode, watched)
+            libraryRepository.setEpisodeWatched(episode, watched)
             refreshCachedState(refreshProgress = true, promoteShowId = episode.showId.takeIf { watched })
         }
     }
@@ -683,9 +972,14 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             }
         }
         viewModelScope.launch {
-            episodes.forEach { repository.setEpisodeWatched(it, watched) }
+            libraryRepository.setEpisodesWatched(episodes, watched)
             refreshCachedState(refreshProgress = true, promoteShowId = episodes.firstOrNull()?.showId.takeIf { watched })
         }
+    }
+
+    /** Clears the watched marks of a show's cached episodes (its history was removed). */
+    fun forgetWatchedEpisodes(showId: Int) {
+        detailEpisodeCache[showId]?.let { cached -> detailEpisodeCache[showId] = cached.map { it.copy(watched = false) } }
     }
 
     fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
@@ -698,7 +992,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
-                changed.forEach { repository.setEpisodeWatched(it, watched) }
+                libraryRepository.setEpisodesWatched(changed, watched)
             }
             refreshCachedState(refreshProgress = true, promoteShowId = changed.firstOrNull()?.showId.takeIf { watched })
         }
@@ -711,7 +1005,15 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         var cached: AppUiState
         do {
             version = pendingEpisodeEdits.version
-            cached = withContext(Dispatchers.IO) { repository.loadCachedState() }
+            cached = withContext(Dispatchers.IO) {
+                // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
+                repository.loadCachedState().copy(
+                    simklReconnectReason = repository.preferences.simklReconnectReason.first(),
+                    simklFirstSyncPending = repository.preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
+                    floppyUsername = repository.preferences.floppyUsername.first(),
+                    hideAdultTitles = repository.preferences.hideAdultTitles.first(),
+                )
+            }
         } while (version != pendingEpisodeEdits.version)
         val watched = cached.history.mapNotNull { event ->
             val season = event.season ?: return@mapNotNull null
@@ -738,12 +1040,20 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     }
 
     private suspend fun refreshCachedState(refreshProgress: Boolean = false, promoteShowId: Int? = null) {
-        val current = _state.value
         if (refreshProgress) {
+            // The local transaction already advanced the show's next episode;
+            // show that at once instead of the watched one until the network
+            // refresh (which may fetch an uncached next season) completes.
+            publishCachedState(promoteShowId)
             withContext(Dispatchers.IO) {
                 repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true))
             }
         }
+        publishCachedState(promoteShowId)
+    }
+
+    private suspend fun publishCachedState(promoteShowId: Int?) {
+        val current = _state.value
         val cached = readCachedState()
         val watchedNumbers = cached.history.mapNotNull { event ->
             if (event.media.type == MediaType.TV && event.season != null && event.episodeNumber != null) {
@@ -751,6 +1061,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
             } else null
         }.toSet()
         _state.value = cached.copy(
+            libraryArtworkRefreshing = current.libraryArtworkRefreshing,
+            libraryArtworkProgress = current.libraryArtworkProgress,
+            libraryArtworkProgressVisible = current.libraryArtworkProgressVisible,
+            floppyBootstrapProgress = current.floppyBootstrapProgress,
             sync = _syncProgress.value,
             people = current.people,
             playbackTv = cached.playbackTv.let { items ->
@@ -766,28 +1080,68 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     fun sync() {
         if (_syncProgress.value.running) return
-        viewModelScope.launch { performSimklSync(force = true) }
+        val queued = syncMutex.isLocked
+        val starting = _syncProgress.value.copy(
+            running = true,
+            stage = com.cinetrack.domain.SyncStage.PROCESSING,
+            message = if (queued) "Waiting for current Simkl operation…" else "Starting synchronization…",
+        )
+        _syncProgress.value = starting
+        _state.update { it.copy(sync = starting) }
+        viewModelScope.launch { performTrackingSync(force = true) }
     }
 
-    private suspend fun performSimklSync(
+    private suspend fun performTrackingSync(
         force: Boolean,
         publishResult: Boolean = true,
         exposeProgress: Boolean = true,
-    ): Result<SimklSyncOutcome> = syncMutex.withLock {
-        if (!repository.simklConnectedNow()) {
-            return@withLock Result.success(SimklSyncOutcome(itemsChanged = false))
+    ): Result<SyncCoordinatorOutcome> = syncMutex.withLock {
+        if (exposeProgress) {
+            val started = _syncProgress.value.copy(
+                running = true,
+                stage = com.cinetrack.domain.SyncStage.AUTH,
+                message = null,
+            )
+            _syncProgress.value = started
+            _state.update { it.copy(sync = started) }
         }
-        if (!force && !repository.isSimklSyncDue(TimeUnit.HOURS.toMillis(8))) {
-            return@withLock Result.success(SimklSyncOutcome(itemsChanged = false))
+        if (!syncCoordinator.isMainProviderConnected()) {
+            if (exposeProgress) {
+                val idle = SyncProgress(running = false, stage = com.cinetrack.domain.SyncStage.IDLE)
+                _syncProgress.value = idle
+                _state.update { it.copy(sync = idle) }
+            }
+            return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
+        }
+        if (!force && !repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) {
+            if (exposeProgress) {
+                val idle = _syncProgress.value.copy(running = false, stage = com.cinetrack.domain.SyncStage.IDLE, message = null)
+                _syncProgress.value = idle
+                _state.update { it.copy(sync = idle) }
+            }
+            return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
         var completedSync = _syncProgress.value
         val result = withContext(Dispatchers.IO) {
-            repository.syncSimkl { progress ->
+            syncCoordinator.sync { progress ->
                 completedSync = progress
                 if (exposeProgress) {
                     _syncProgress.value = progress
                 }
             }
+        }
+        completedSync = when {
+            result.isFailure -> completedSync.copy(
+                running = false,
+                stage = com.cinetrack.domain.SyncStage.ERROR,
+                message = result.exceptionOrNull()?.message ?: completedSync.message,
+            )
+            completedSync.running -> completedSync.copy(
+                running = false,
+                stage = com.cinetrack.domain.SyncStage.COMPLETE,
+                message = null,
+            )
+            else -> completedSync
         }
         _syncProgress.value = completedSync
         _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
@@ -815,10 +1169,15 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
     fun refreshSyncOperations() {
         viewModelScope.launch {
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
+            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
         }
     }
 
     fun retrySyncOperation(operationId: String) {
+        if (operationId.startsWith("bootstrap:")) {
+            retryFloppyInitialSync()
+            return
+        }
         viewModelScope.launch {
             val result = withContext(Dispatchers.IO) { repository.retrySyncOperation(operationId) }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
@@ -842,21 +1201,27 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
      * Refreshes derived Progress metadata without extending the visible Simkl
      * synchronization or queueing duplicate refreshes after rapid status taps.
      */
+    /** [republish] re-reads Progress even when the cache needed no refresh,
+     * because selection depends on the current time and timezone. */
     private fun scheduleProgressCacheRefresh(
         request: ProgressRefreshRequest = ProgressRefreshRequest(force = true),
+        republish: Boolean = false,
     ) {
         progressRefreshRequested = true
         pendingProgressRefresh = pendingProgressRefresh.mergedWith(request)
+        pendingProgressRepublish = pendingProgressRepublish || republish
         if (progressRefreshJob?.isActive == true) return
         progressRefreshJob = viewModelScope.launch {
             do {
                 progressRefreshRequested = false
                 val refreshRequest = pendingProgressRefresh
                 pendingProgressRefresh = ProgressRefreshRequest()
+                val republish = pendingProgressRepublish
+                pendingProgressRepublish = false
                 val refreshResult = withContext(Dispatchers.IO) {
                     runCatching { repository.refreshProgressCache(refreshRequest) }
                 }
-                if (refreshResult.getOrDefault(false)) {
+                if (refreshResult.getOrDefault(false) || republish) {
                     val cached = readCachedState()
                     val current = _state.value
                     _state.value = cached.copy(
@@ -879,58 +1244,413 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         }
     }
 
-    fun completeSimklLogin(code: String?, state: String?, callbackError: String?) {
+    fun completeSimklLogin(code: String?, state: String?, callbackError: String?, issuer: String?) {
         viewModelScope.launch {
             if (!callbackError.isNullOrBlank()) {
-                _state.value = _state.value.copy(error = callbackError)
+                _state.value = _state.value.copy(error = com.cinetrack.domain.SimklAuthRules.callbackErrorMessage(callbackError))
                 return@launch
             }
             if (code.isNullOrBlank()) {
                 _state.value = _state.value.copy(error = "Simkl did not return an authorization code. Please connect again")
                 return@launch
             }
-            repository.completeLogin(code, state).onSuccess {
-                _state.value = _state.value.copy(simklConnected = true, error = null)
-                sync()
+            repository.completeLogin(code, state, issuer).onSuccess {
+                // The first sync waits for chooseSimklFirstSync.
+                _state.value = _state.value.copy(simklConnected = true, simklFirstSyncPending = true, error = null)
+                loadSimklUsername()
             }.onFailure { _state.value = _state.value.copy(error = it.message) }
+        }
+    }
+
+    /** Merge keeps everything on this device and uploads what Simkl lacks; otherwise the account replaces it. */
+    fun chooseSimklFirstSync(merge: Boolean) {
+        viewModelScope.launch {
+            repository.preferences.setSimklFirstSyncMode(
+                if (merge) com.cinetrack.data.sync.simkl.SimklFirstSyncMode.MERGE else com.cinetrack.data.sync.simkl.SimklFirstSyncMode.REPLACE,
+            )
+            _state.update { it.copy(simklFirstSyncPending = false) }
+            sync()
         }
     }
 
     fun disconnectSimkl() {
         viewModelScope.launch {
             repository.disconnectSimkl()
-            _state.value = _state.value.copy(simklConnected = false)
+            _state.value = _state.value.copy(simklConnected = false, simklUsername = null)
         }
     }
 
+    /** Fills in the Simkl account name shown in Settings, once per connection. */
+    fun loadSimklUsername() {
+        if (!_state.value.simklConnected) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.refreshSimklUsername() }?.let { name ->
+                _state.value = _state.value.copy(simklUsername = name)
+            }
+        }
+    }
+
+    /** Fills in the Floppy account name shown in Settings, once per connection. */
+    fun loadFloppyUsername() {
+        if (!_state.value.floppyConnected) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.refreshFloppyUsername() }?.let { name ->
+                _state.value = _state.value.copy(floppyUsername = name)
+            }
+        }
+    }
+
+    fun connectFloppy(
+        baseUrl: String,
+        apiKey: String,
+        allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
+        sameServerAtNewAddress: Boolean? = null,
+    ) {
+        val normalizedUrl = baseUrl.trim()
+        val normalizedApiKey = apiKey.trim()
+        if (normalizedUrl.isBlank()) {
+            publishFloppyFailure(FloppyConnectionError.INVALID_REQUEST)
+            return
+        }
+        if (!floppyConnectionMutex.tryLock()) return
+        // This acknowledgement is intentionally synchronous. It must be
+        // published before launching work or reading DataStore so the next
+        // Compose frame proves that the tap reached the ViewModel.
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.CHECKING_SERVER,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        appendFloppyDiagnostic("Floppy connect: UI event received")
+        appendFloppyDiagnostic("Floppy connect: checking server")
+        viewModelScope.launch(Dispatchers.IO) {
+            var cancelled = false
+            try {
+                val result = repository.connectFloppy(
+                    normalizedUrl,
+                    normalizedApiKey,
+                    allowInsecureLocalHttp,
+                    onStage = { stage, version -> publishFloppyStage(stage, version) },
+                    sameServerAtNewAddress = sameServerAtNewAddress,
+                )
+                when (result) {
+                    ConnectionResult.AddressMoveNeedsConfirmation -> {
+                        appendFloppyDiagnostic("Floppy connect: same account at a new address, asking")
+                        withContext(Dispatchers.Main) {
+                            _floppyConnectionUiState.value = FloppyConnectionUiState()
+                            _floppyAddressMove.value = FloppyAddressMove(normalizedUrl, normalizedApiKey, allowInsecureLocalHttp)
+                        }
+                    }
+                    ConnectionResult.Connected -> {
+                        withContext(Dispatchers.Main) {
+                            val cached = readCachedState()
+                            _state.value = cached.copy(error = null)
+                            publishFloppyStage(FloppyConnectionStage.COMPLETE, cached.floppyServerVersion)
+                        }
+                    }
+                    ConnectionResult.AuthenticationRequired -> {
+                        withContext(Dispatchers.Main) {
+                            _state.value = readCachedState().copy(error = null)
+                            publishFloppyFailure(FloppyConnectionError.AUTHENTICATION)
+                        }
+                    }
+                    is ConnectionResult.Failed -> {
+                        withContext(Dispatchers.Main) {
+                            // Validation can commit the provider before a
+                            // bootstrap/delivery failure. Always refresh the
+                            // persistent projection, but never overwrite the
+                            // dedicated action flow with that publication.
+                            _state.value = readCachedState().copy(error = null)
+                            publishFloppyFailure(result.error.toFloppyConnectionError(), result.error.userMessage())
+                        }
+                    }
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                cancelled = true
+                throw error
+            } catch (error: Throwable) {
+                withContext(Dispatchers.Main) {
+                    _state.value = readCachedState().copy(error = null)
+                    publishFloppyFailure(error.toFloppyConnectionError())
+                }
+            } finally {
+                if (!cancelled && _floppyConnectionUiState.value.running) {
+                    publishFloppyFailure(FloppyConnectionError.UNKNOWN)
+                }
+                floppyConnectionMutex.unlock()
+            }
+        }
+    }
+
+    fun setFloppyAllowInsecureLocalHttp(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.preferences.setFloppyAllowInsecureLocalHttp(enabled)
+            withContext(Dispatchers.Main) {
+                _state.value = _state.value.copy(floppyAllowInsecureLocalHttp = enabled)
+            }
+        }
+    }
+
+    fun retryFloppyInitialSync() {
+        if (!floppyConnectionMutex.tryLock()) return
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.INITIAL_SYNC,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        appendFloppyDiagnostic("Floppy connect: retrying initial sync")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                repository.retryFloppyBootstrap()
+                withContext(Dispatchers.Main) {
+                    val cached = readCachedState()
+                    _state.value = cached.copy(error = null)
+                    publishFloppyStage(FloppyConnectionStage.COMPLETE, cached.floppyServerVersion)
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                withContext(Dispatchers.Main) {
+                    _state.value = readCachedState().copy(error = null)
+                    publishFloppyFailure(FloppyConnectionError.BOOTSTRAP)
+                }
+            } finally {
+                floppyConnectionMutex.unlock()
+            }
+        }
+    }
+
+    private val _mainTrackerSwap = MutableStateFlow(MainTrackerSwapUiState())
+    val mainTrackerSwap: StateFlow<MainTrackerSwapUiState> = _mainTrackerSwap.asStateFlow()
+
+    /**
+     * Swaps MAIN and SECONDARY: one last full sync with the current MAIN, the
+     * role change (refused unless the new MAIN finished its initial sync),
+     * then the new MAIN's first two-way pass.
+     */
+    fun swapMainTracker() {
+        if (_mainTrackerSwap.value.running) return
+        _mainTrackerSwap.value = MainTrackerSwapUiState(running = true)
+        viewModelScope.launch {
+            val error = try {
+                performTrackingSync(force = true).getOrThrow()
+                withContext(Dispatchers.IO) { repository.swapMainTracker() }
+                null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                failure
+            }
+            if (error == null) performTrackingSync(force = true)
+            _state.value = readCachedState().copy(sync = _syncProgress.value, error = null)
+            _mainTrackerSwap.value = MainTrackerSwapUiState(running = false, error = error?.message)
+        }
+    }
+
+    fun disconnectFloppy() {
+        _floppyConnectionUiState.value = FloppyConnectionUiState()
+        viewModelScope.launch(Dispatchers.IO) {
+            repository.disconnectFloppy()
+            withContext(Dispatchers.Main) { _state.value = readCachedState().copy(error = null) }
+        }
+    }
+
+    private fun publishFloppyStage(stage: FloppyConnectionStage, serverVersion: String?) {
+        val current = _floppyConnectionUiState.value
+        _floppyConnectionUiState.value = current.copy(
+            stage = stage,
+            error = null,
+            message = null,
+            serverVersion = serverVersion ?: current.serverVersion,
+        )
+        val message = when (stage) {
+            FloppyConnectionStage.CHECKING_SERVER -> "Floppy connect: checking server"
+            FloppyConnectionStage.AUTHENTICATING -> "Floppy connect: authenticating"
+            FloppyConnectionStage.ACTIVATING -> "Floppy connect: activating provider"
+            FloppyConnectionStage.INITIAL_SYNC -> "Floppy connect: starting bootstrap"
+            FloppyConnectionStage.COMPLETE -> "Floppy connect: complete"
+            else -> null
+        }
+        message?.let(::appendFloppyDiagnostic)
+        if (stage == FloppyConnectionStage.AUTHENTICATING) {
+            appendFloppyDiagnostic("Floppy connect: server info OK, version=${serverVersion ?: current.serverVersion ?: "unknown"}")
+        }
+    }
+
+    private fun publishFloppyFailure(error: FloppyConnectionError, message: String? = null) {
+        _floppyConnectionUiState.value = _floppyConnectionUiState.value.copy(
+            stage = FloppyConnectionStage.FAILED,
+            error = error,
+            message = message,
+        )
+        appendFloppyDiagnostic("Floppy connect: ${error.diagnosticName}")
+    }
+
+    fun refreshFloppyUnplaced() {
+        viewModelScope.launch {
+            _floppyUnplaced.value = withContext(Dispatchers.IO) {
+                runCatching {
+                    val dismissed = repository.preferences.floppyUnplacedDismissedNow()
+                    repository.floppyUnplacedItems().filterNot { it.dismissKey in dismissed }
+                }.getOrDefault(emptyList())
+            }
+        }
+    }
+
+    /** Hides an entry the user handled (or chose to ignore); it stays hidden. */
+    fun dismissFloppyUnplaced(item: com.cinetrack.domain.FloppyUnplacedItem) {
+        _floppyUnplaced.update { items -> items.filterNot { it.dismissKey == item.dismissKey } }
+        viewModelScope.launch(Dispatchers.IO) { repository.preferences.dismissFloppyUnplaced(item.dismissKey) }
+    }
+
+    fun clearErrorLogs() {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.preferences.clearErrorLog() }
+            _errorLogs.value = emptyList()
+        }
+    }
+
+    fun refreshErrorLogs() {
+        viewModelScope.launch {
+            _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
+        }
+    }
+
+    private fun appendFloppyDiagnostic(message: String) {
+        val line = "${java.time.Instant.now()}  $message"
+        _errorLogs.update { (it + line).takeLast(500) }
+        viewModelScope.launch(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
+    }
+
+    private val FloppyConnectionError.diagnosticName: String
+        get() = name.lowercase()
+
+    /** Errors whose own text tells the user what to do; others use the generic text. */
+    private fun Throwable.userMessage(): String? = when (this) {
+        is TrackingSyncError.Validation, is TrackingSyncError.TokenScope -> message
+        is TrackingSyncError.BootstrapFailure -> (cause as? TrackingSyncError.Validation)?.message
+        else -> null
+    }
+
+    /** Opens Floppy's sign-in page once the server confirms it offers sign-in. */
+    fun beginFloppySignIn(
+        context: Context,
+        baseUrl: String,
+        allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
+    ) {
+        if (baseUrl.isBlank()) {
+            publishFloppyFailure(FloppyConnectionError.INVALID_REQUEST)
+            return
+        }
+        if (floppyConnectionMutex.isLocked) return
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.CHECKING_SERVER,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        appendFloppyDiagnostic("Floppy sign-in: checking server")
+        viewModelScope.launch {
+            val server = withContext(Dispatchers.IO) { repository.floppySignInServer(baseUrl.trim(), allowInsecureLocalHttp) }
+            server.onSuccess { url ->
+                repository.preferences.beginFloppyLogin(context, url, allowInsecureLocalHttp)
+                    .onSuccess {
+                        appendFloppyDiagnostic("Floppy sign-in: browser opened")
+                        _floppyConnectionUiState.value = FloppyConnectionUiState(serverVersion = _state.value.floppyServerVersion)
+                    }
+                    .onFailure { publishFloppyFailure(FloppyConnectionError.UNKNOWN, it.message) }
+            }.onFailure { error ->
+                publishFloppyFailure(error.toFloppyConnectionError(), error.userMessage())
+            }
+        }
+    }
+
+    /** Finishes a sign-in returned by the browser, then connects exactly like an API key. */
+    fun completeFloppySignIn(code: String?, state: String?, callbackError: String?, issuer: String?) {
+        if (floppyConnectionMutex.isLocked) return
+        _floppyConnectionUiState.value = FloppyConnectionUiState(
+            stage = FloppyConnectionStage.AUTHENTICATING,
+            serverVersion = _state.value.floppyServerVersion,
+        )
+        viewModelScope.launch {
+            val signIn = withContext(Dispatchers.IO) { repository.completeFloppySignIn(code, state, callbackError, issuer) }
+            signIn.onSuccess {
+                appendFloppyDiagnostic("Floppy sign-in: tokens received")
+                connectFloppy(it.baseUrl, it.credential, it.allowInsecureLocalHttp)
+            }.onFailure { error ->
+                appendFloppyDiagnostic("Floppy sign-in: refused")
+                publishFloppyFailure(FloppyConnectionError.AUTHENTICATION, error.message)
+            }
+        }
+    }
+
+    private fun Throwable.toFloppyConnectionError(): FloppyConnectionError = when (this) {
+        is TrackingSyncError.AuthenticationRequired -> FloppyConnectionError.AUTHENTICATION
+        is TrackingSyncError.DnsFailure -> FloppyConnectionError.DNS
+        is TrackingSyncError.Timeout -> FloppyConnectionError.TIMEOUT
+        is TrackingSyncError.TlsFailure -> FloppyConnectionError.TLS
+        is TrackingSyncError.NetworkUnavailable -> FloppyConnectionError.NETWORK
+        is TrackingSyncError.WrongApi -> FloppyConnectionError.WRONG_API
+        is TrackingSyncError.InvalidRemoteData -> FloppyConnectionError.INVALID_RESPONSE
+        is TrackingSyncError.InvalidUrl -> FloppyConnectionError.INVALID_REQUEST
+        is TrackingSyncError.BootstrapFailure -> FloppyConnectionError.BOOTSTRAP
+        else -> FloppyConnectionError.UNKNOWN
+    }
+
     fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
+
+    /** Drops what this session cached for [media] and fetches it again (for a TV show, every season). */
+    suspend fun refreshTitle(media: MediaCard) {
+        detailMediaCache.remove(media.stableKey)
+        detailRatingsCache.remove(media.stableKey)
+        detailCastCache.remove(media.stableKey)
+        detailCollectionCache.remove(media.stableKey)
+        detailRecommendationsCache.remove(media.stableKey)
+        if (media.type == MediaType.TV) detailEpisodeCache.remove(media.id)
+        val fresh = loadDetails(media)
+        if (media.type == MediaType.TV) {
+            withContext(Dispatchers.IO) {
+                fresh.seasons.map(com.cinetrack.domain.SeasonCard::number).distinct().forEach { season -> mediaRepository.loadEpisodes(fresh, season) }
+            }
+            loadAllEpisodes(fresh)
+            refreshCachedState(refreshProgress = true)
+        }
+    }
     fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
     fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
 
-    suspend fun loadTagline(media: MediaCard): String? = withContext(Dispatchers.IO) { repository.loadTagline(media) }
+    suspend fun loadTagline(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTagline(media) }
     suspend fun loadSeasonDetails(show: MediaCard, number: Int): Result<com.cinetrack.domain.SeasonDetails> =
-        withContext(Dispatchers.IO) { repository.loadSeasonDetails(show, number) }
+        withContext(Dispatchers.IO) { mediaRepository.loadSeasonDetails(show, number) }
     suspend fun loadDetails(media: MediaCard): MediaCard = detailMediaCache[media.stableKey]
-        ?: withContext(Dispatchers.IO) { repository.loadDetails(media) }.also { detailMediaCache[media.stableKey] = it }
-    suspend fun loadMedia(type: MediaType, id: Int): MediaCard? = withContext(Dispatchers.IO) { repository.loadMedia(type, id) }
-    suspend fun loadPerson(person: PersonCard): PersonCard = withContext(Dispatchers.IO) { repository.loadPerson(person) }
+        ?: withContext(Dispatchers.IO) { mediaRepository.loadDetails(media) }.also { detailMediaCache[media.stableKey] = it }
+    suspend fun loadMedia(type: MediaType, id: Int): MediaCard? = withContext(Dispatchers.IO) { mediaRepository.loadMedia(type, id) }
+    suspend fun loadPerson(person: PersonCard): PersonCard = withContext(Dispatchers.IO) { peopleRepository.getPerson(person) }
     suspend fun loadRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey]
         ?.takeIf { it.isNotEmpty() }
-        ?: withContext(Dispatchers.IO) { repository.loadRatings(media) }.also { if (it.isNotEmpty()) detailRatingsCache[media.stableKey] = it }
+        ?: withContext(Dispatchers.IO) { mediaRepository.loadRatings(media) }.also { if (it.isNotEmpty()) detailRatingsCache[media.stableKey] = it }
     fun cachedCast(media: MediaCard): List<PersonCard> = detailCastCache[media.stableKey].orEmpty()
     suspend fun loadCast(media: MediaCard): List<PersonCard> = detailCastCache[media.stableKey]
-        ?: withContext(Dispatchers.IO) { repository.loadCast(media) }.also {
+        ?: withContext(Dispatchers.IO) { mediaRepository.loadCast(media) }.also {
             if (it.isNotEmpty()) detailCastCache[media.stableKey] = it
         }
-    suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> = withContext(Dispatchers.IO) { repository.loadEpisodes(show, season) }
+    suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodes(show, season) }
     suspend fun loadAllEpisodes(show: MediaCard): List<EpisodeCard> = detailEpisodeCache[show.id]
         ?.takeIf { it.isNotEmpty() }
-        ?: withContext(Dispatchers.IO) { repository.loadAllEpisodes(show) }.also { if (it.isNotEmpty()) detailEpisodeCache[show.id] = it }
-    suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard? = withContext(Dispatchers.IO) { repository.loadEpisode(show, season, number) }
-    suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> = withContext(Dispatchers.IO) { repository.loadEpisodeCast(show, season, number) }
-    suspend fun loadCollection(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { repository.loadCollection(media) }
-    suspend fun loadRecommendations(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { repository.loadRecommendations(media) }
-    suspend fun loadTrailerKey(media: MediaCard): String? = withContext(Dispatchers.IO) { repository.loadTrailerKey(media) }
+        ?: withContext(Dispatchers.IO) { mediaRepository.loadAllEpisodes(show) }.also { if (it.isNotEmpty()) detailEpisodeCache[show.id] = it }
+    suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard? = withContext(Dispatchers.IO) { mediaRepository.loadEpisode(show, season, number) }
+    suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodeCast(show, season, number) }
+    fun cachedCollection(media: MediaCard): List<MediaCard> = detailCollectionCache[media.stableKey].orEmpty()
+    fun cachedRecommendations(media: MediaCard): List<MediaCard> = detailRecommendationsCache[media.stableKey].orEmpty()
+    suspend fun loadCollection(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadCollection(media) }
+        .also { if (it.isNotEmpty()) detailCollectionCache[media.stableKey] = it }
+    suspend fun loadRecommendations(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadRecommendations(media) }
+        .also { if (it.isNotEmpty()) detailRecommendationsCache[media.stableKey] = it }
+
+    /** Remembers a title being opened, so its page can draw before it is loaded. */
+    fun rememberOpened(media: MediaCard) {
+        openedMediaCache[media.stableKey] = media
+    }
+
+    fun openedMedia(type: MediaType, id: Int): MediaCard? =
+        openedMediaCache["${type.name}:$id"] ?: detailMediaCache["${type.name}:$id"]
+    suspend fun loadTrailerKey(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTrailerKey(media) }
 
     fun setBackgroundSync(enabled: Boolean) {
         _state.value = _state.value.copy(backgroundSync = enabled)
@@ -960,6 +1680,12 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch { repository.preferences.setQuietHours(enabled, startHour, endHour) }
     }
 
+    fun setHideAdultTitles(enabled: Boolean) {
+        _state.value = _state.value.copy(hideAdultTitles = enabled)
+        com.cinetrack.data.remote.TmdbContentFilter.hideAdult = enabled
+        viewModelScope.launch { repository.preferences.setHideAdultTitles(enabled) }
+    }
+
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
         viewModelScope.launch {
@@ -984,7 +1710,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch {
             repository.preferences.setContentRegions(regions)
             val refreshError = withContext(Dispatchers.IO) {
-                runCatching { repository.refreshDiscover() }.exceptionOrNull()
+                runCatching { discoveryRepository.refresh() }.exceptionOrNull()
             }
             if (refreshError == null) {
                 val cached = readCachedState()
@@ -1013,7 +1739,7 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                 _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)
                 onResult(Result.success(Unit))
                 val refreshError = withContext(Dispatchers.IO) {
-                    runCatching { repository.refreshDiscover() }.exceptionOrNull()
+                runCatching { discoveryRepository.refresh() }.exceptionOrNull()
                 }
                 if (refreshError == null) {
                     val current = _state.value
@@ -1025,6 +1751,18 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     _state.value = _state.value.copy(error = refreshError.message)
                 }
             } else onResult(result)
+        }
+    }
+
+    fun verifyAndSetTraktClientId(value: String, onResult: (Result<Unit>) -> Unit) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTraktClientId(value) }
+            if (result.isSuccess) {
+                _state.value = _state.value.copy(traktConfigured = true, error = null)
+                // Pull exact air times now rather than at the next schedule refresh.
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true))
+            }
+            onResult(result)
         }
     }
 
@@ -1059,7 +1797,11 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         detailMediaCache.clear()
         detailCastCache.clear()
         detailEpisodeCache.clear()
-        viewModelScope.launch { repository.setMetadataLanguage(value) }
+        viewModelScope.launch {
+            repository.setMetadataLanguage(value)
+            // Cached episode titles are in the previous language.
+            scheduleProgressCacheRefresh()
+        }
     }
 
     fun setMetadataRegion(value: String) {
@@ -1068,9 +1810,22 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         viewModelScope.launch { repository.setMetadataRegion(value) }
     }
 
+    fun setAirDateSource(value: String) {
+        _state.value = _state.value.copy(airDateSource = value)
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.setAirDateSource(value) }
+            // Release days and what counts as out follow the new dates.
+            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+        }
+    }
+
     fun setMetadataTimezone(value: String) {
         _state.value = _state.value.copy(metadataTimezone = value)
-        viewModelScope.launch { repository.setMetadataTimezone(value) }
+        viewModelScope.launch {
+            repository.setMetadataTimezone(value)
+            // Which episodes count as released depends on the timezone.
+            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+        }
     }
 
     fun dismissError() {
@@ -1079,20 +1834,26 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     fun exportData(context: Context, sections: Set<String> = emptySet()) {
         viewModelScope.launch {
+            backupStep(restore = false, stage = com.cinetrack.R.string.backup_stage_collect, fraction = null)
             runCatching {
                 val file = withContext(Dispatchers.IO) {
                     val files = repository.exportBackupFiles(sections)
                     val directory = File(context.cacheDir, "exports").apply { mkdirs() }
                     val target = File(directory, "cinetrack-backup-${LocalDate.now()}.zip")
+                    val total = files.values.sumOf { it.length.toLong() }.coerceAtLeast(1L)
+                    var written = 0L
                     ZipOutputStream(FileOutputStream(target)).use { archive ->
                         files.forEach { (path, contents) ->
                             archive.putNextEntry(ZipEntry(path))
                             archive.write(contents.toByteArray())
                             archive.closeEntry()
+                            written += contents.length
+                            backupStep(restore = false, stage = com.cinetrack.R.string.backup_stage_compress, fraction = .3f + .7f * written / total)
                         }
                     }
                     target
                 }
+                backupFinished(restore = false, failed = false)
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
                 val share = Intent(Intent.ACTION_SEND).apply {
                     type = "application/zip"
@@ -1100,7 +1861,10 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
                 context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_data)))
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+            }.onFailure {
+                backupFinished(restore = false, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
@@ -1180,10 +1944,28 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
 
     fun restoreData(context: Context, uri: Uri) {
         viewModelScope.launch {
+            backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_read, fraction = 0f)
             runCatching {
                 val restored = withContext(Dispatchers.IO) {
                     val entries = linkedMapOf<String, String>()
-                    context.contentResolver.openInputStream(uri)?.use { input ->
+                    val archiveSize = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length } }.getOrNull() ?: -1L
+                    var lastReported = 0f
+                    context.contentResolver.openInputStream(uri)?.use { raw ->
+                        // Reading is a third of the restore; report it by compressed bytes read.
+                        val input = object : java.io.FilterInputStream(raw) {
+                            var count = 0L
+                            private fun advance(read: Long) {
+                                if (read <= 0 || archiveSize <= 0) return
+                                count += read
+                                val fraction = .33f * (count.toFloat() / archiveSize).coerceIn(0f, 1f)
+                                if (fraction - lastReported >= .01f) {
+                                    lastReported = fraction
+                                    backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_read, fraction = fraction)
+                                }
+                            }
+                            override fun read(): Int = super.read().also { if (it >= 0) advance(1) }
+                            override fun read(b: ByteArray, off: Int, len: Int): Int = super.read(b, off, len).also { advance(it.toLong()) }
+                        }
                         ZipInputStream(input).use { archive ->
                             var totalBytes = 0L
                             var entry = archive.nextEntry
@@ -1210,26 +1992,41 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
                             }
                         }
                     } ?: error("Could not open backup")
-                    repository.restoreBackupFiles(entries)
-                    repository.refreshProgressCache()
+                    repository.restoreBackupFiles(entries) { stage ->
+                        if (stage == "verify") backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_verify, fraction = .38f)
+                        else backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_write, fraction = .55f)
+                    }.also {
+                        backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_refresh, fraction = .8f)
+                        repository.refreshProgressCache()
+                    }
                 }
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value, error = null)
+                backupFinished(restore = true, failed = false)
                 restored
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+            }.onFailure {
+                backupFinished(restore = true, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
     fun restoreAutomaticBackup() {
         viewModelScope.launch {
+            backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_verify, fraction = .2f)
             runCatching {
                 withContext(Dispatchers.IO) {
                     repository.restoreAutomaticBackup()
+                    backupStep(restore = true, stage = com.cinetrack.R.string.backup_stage_refresh, fraction = .8f)
                     repository.refreshProgressCache()
                 }
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value, error = null)
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
+                backupFinished(restore = true, failed = false)
+            }.onFailure {
+                backupFinished(restore = true, failed = true)
+                _state.value = _state.value.copy(error = it.message)
+            }
         }
     }
 
@@ -1285,8 +2082,30 @@ class CineTrackViewModel(private val repository: CineTrackRepository) : ViewMode
         super.onCleared()
     }
 
-    class Factory(private val repository: CineTrackRepository) : ViewModelProvider.Factory {
+    class Factory(
+        private val repository: CineTrackRepository,
+        private val libraryRepository: LibraryRepository,
+        private val mediaRepository: MediaRepository,
+        private val discoveryRepository: DiscoveryRepository,
+        private val peopleRepository: PeopleRepository,
+        private val watchProviderRepository: WatchProviderRepository,
+        private val syncCoordinator: SyncCoordinator,
+        private val libraryArtworkRefreshManager: LibraryArtworkRefreshManager,
+        private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
+    ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = CineTrackViewModel(repository) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T =
+            CineTrackViewModel(
+                repository,
+                libraryRepository,
+                mediaRepository,
+                discoveryRepository,
+                peopleRepository,
+                watchProviderRepository,
+                syncCoordinator,
+                libraryArtworkRefreshManager,
+                floppyBootstrapWorkManager,
+            ) as T
     }
 }
+

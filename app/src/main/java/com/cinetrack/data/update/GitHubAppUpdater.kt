@@ -134,12 +134,19 @@ object GitHubAppUpdater {
                 FileOutputStream(temporary).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                     var downloaded = 0L
+                    var reportedPercent = -1
                     while (true) {
                         val count = input.read(buffer)
                         if (count < 0) break
                         output.write(buffer, 0, count)
                         downloaded += count
-                        if (expectedSize != null) onProgress((downloaded.toFloat() / expectedSize).coerceIn(0f, 1f))
+                        // Once per whole percent, not for every 8 KB read: each report
+                        // restarts the pill's bar animation.
+                        val percent = if (expectedSize != null) (downloaded * 100 / expectedSize).toInt().coerceIn(0, 100) else -1
+                        if (percent > reportedPercent) {
+                            reportedPercent = percent
+                            onProgress(percent / 100f)
+                        }
                     }
                 }
             }

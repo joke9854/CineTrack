@@ -1,5 +1,7 @@
 package com.cinetrack.ui.screens
 
+import com.cinetrack.ui.components.tonalPill
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -74,34 +76,7 @@ fun DiscoverFiltersScreen(
     onNotInterested: (MediaCard) -> Unit,
 ) {
     var mediaType by remember { mutableStateOf(MediaType.MOVIE) }
-    val genres = if (mediaType == MediaType.TV) {
-        listOf(
-            10759 to stringResource(R.string.genre_action),
-            16 to stringResource(R.string.genre_animation),
-            35 to stringResource(R.string.genre_comedy),
-            80 to stringResource(R.string.genre_crime),
-            99 to stringResource(R.string.genre_documentary),
-            18 to stringResource(R.string.genre_drama),
-            10751 to stringResource(R.string.genre_family),
-            9648 to stringResource(R.string.genre_mystery),
-            10765 to stringResource(R.string.genre_science_fiction),
-        )
-    } else {
-        listOf(
-            28 to stringResource(R.string.genre_action),
-            12 to stringResource(R.string.genre_adventure),
-            16 to stringResource(R.string.genre_animation),
-            35 to stringResource(R.string.genre_comedy),
-            80 to stringResource(R.string.genre_crime),
-            99 to stringResource(R.string.genre_documentary),
-            18 to stringResource(R.string.genre_drama),
-            14 to stringResource(R.string.genre_fantasy),
-            27 to stringResource(R.string.genre_horror),
-            10749 to stringResource(R.string.genre_romance),
-            878 to stringResource(R.string.genre_science_fiction),
-            53 to stringResource(R.string.genre_thriller),
-        )
-    }
+    val genres = discoverGenreOptions(mediaType)
     val years = listOf<Int?>(null) + (Year.now().value downTo Year.now().value - 8).toList()
     val ratings = listOf<Double?>(null, 6.0, 7.0, 8.0)
     val sorts = listOf(
@@ -274,8 +249,7 @@ private fun FilterSection(title: String, content: @Composable RowScope.() -> Uni
 private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
     Row(
-        Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .background(if (selected) Accent.copy(alpha = .30f) else Color.Transparent)
+        Modifier.heightIn(min = 40.dp).tonalPill(selected)
             .clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -292,8 +266,7 @@ private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
     val activeColor = if (mode < 0) com.cinetrack.ui.theme.SurfacePalette.Negative else AccentLight
     Row(
-        Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill))
-            .background(if (mode == 0) Color.Transparent else activeColor.copy(alpha = .24f))
+        Modifier.heightIn(min = 40.dp).tonalPill(mode != 0, if (mode < 0) activeColor else Accent)
             .clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -314,3 +287,35 @@ private fun GenreFilterPill(label: String, mode: Int, onClick: () -> Unit) {
         )
     }
 }
+
+/** TMDB genre ids with their labels, for the filter page and the Mosaic genre chip. */
+@Composable
+internal fun discoverGenreOptions(mediaType: MediaType): List<Pair<Int, String>> =
+    if (mediaType == MediaType.TV) {
+        listOf(
+            10759 to stringResource(R.string.genre_action),
+            16 to stringResource(R.string.genre_animation),
+            35 to stringResource(R.string.genre_comedy),
+            80 to stringResource(R.string.genre_crime),
+            99 to stringResource(R.string.genre_documentary),
+            18 to stringResource(R.string.genre_drama),
+            10751 to stringResource(R.string.genre_family),
+            9648 to stringResource(R.string.genre_mystery),
+            10765 to stringResource(R.string.genre_science_fiction),
+        )
+    } else {
+        listOf(
+            28 to stringResource(R.string.genre_action),
+            12 to stringResource(R.string.genre_adventure),
+            16 to stringResource(R.string.genre_animation),
+            35 to stringResource(R.string.genre_comedy),
+            80 to stringResource(R.string.genre_crime),
+            99 to stringResource(R.string.genre_documentary),
+            18 to stringResource(R.string.genre_drama),
+            14 to stringResource(R.string.genre_fantasy),
+            27 to stringResource(R.string.genre_horror),
+            10749 to stringResource(R.string.genre_romance),
+            878 to stringResource(R.string.genre_science_fiction),
+            53 to stringResource(R.string.genre_thriller),
+        )
+    }

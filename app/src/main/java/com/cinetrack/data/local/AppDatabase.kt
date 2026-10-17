@@ -60,6 +60,41 @@ data class EpisodeEntity(
     val runtimeMinutes: Int?,
 )
 
+/** One provider's air date for an episode; the date shown comes from the provider chosen in Settings. */
+@Entity(tableName = "episode_air_dates", primaryKeys = ["showId", "season", "number", "source"])
+data class EpisodeAirDateEntity(
+    val showId: Int,
+    val season: Int,
+    val number: Int,
+    val source: String,
+    val airDate: String,
+    val updatedAt: Long,
+)
+
+/**
+ * Per-episode numbering translation between a tracker's own scheme (Simkl) and
+ * TMDB numbering. Filled from Floppy's translate endpoint; TMDB numbers are what
+ * the app stores, the tracker numbers exist only at the tracker boundary.
+ */
+@Entity(
+    tableName = "episode_numbering",
+    primaryKeys = ["showId", "scheme", "schemeSeason", "schemeEpisode"],
+    indices = [Index(value = ["showId", "tmdbSeason", "tmdbEpisode"])],
+)
+data class EpisodeNumberingEntity(
+    val showId: Int,
+    val scheme: String,
+    val schemeSeason: Int,
+    val schemeEpisode: Int,
+    val status: String,
+    val tmdbSeason: Int? = null,
+    val tmdbEpisode: Int? = null,
+    val absolute: Int? = null,
+    val tvdbSeason: Int? = null,
+    val tvdbEpisode: Int? = null,
+    val updatedAt: Long,
+)
+
 @Entity(tableName = "people")
 data class PersonEntity(
     @PrimaryKey val tmdbId: Int,
@@ -174,6 +209,29 @@ data class SyncOperationEntity(
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
     val attemptCount: Int = 0,
+    val providerId: String = "SIMKL",
+    val season: Int? = null,
+    val episode: Int? = null,
+    val payload: String? = null,
+)
+
+@Entity(
+    tableName = "sync_operation_deliveries",
+    primaryKeys = ["operationId", "operationVersion", "providerId"],
+    indices = [Index("providerId", "status"), Index("operationId"), Index("status")],
+)
+data class SyncOperationDeliveryEntity(
+    val operationId: String,
+    val operationVersion: Long,
+    val providerId: String,
+    val status: String,
+    val required: Boolean,
+    val roleAtEnqueue: String,
+    val providerInstanceId: String? = null,
+    val attemptCount: Int = 0,
+    val lastError: String? = null,
+    val createdAt: Long = System.currentTimeMillis(),
+    val updatedAt: Long = System.currentTimeMillis(),
 )
 
 /**
@@ -327,6 +385,18 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEpisodes(items: List<EpisodeEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertAirDates(items: List<EpisodeAirDateEntity>)
+
+    @Query("SELECT * FROM episode_air_dates WHERE showId IN (:showIds)")
+    suspend fun airDatesForShows(showIds: List<Int>): List<EpisodeAirDateEntity>
+
+    @Query("SELECT * FROM episode_air_dates")
+    suspend fun allAirDates(): List<EpisodeAirDateEntity>
+
+    @Query("UPDATE episodes SET airDate = :airDate WHERE showId = :showId AND season = :season AND number = :number")
+    suspend fun setEpisodeAirDate(showId: Int, season: Int, number: Int, airDate: String)
+
     @Query("SELECT * FROM episodes WHERE showId = :showId ORDER BY season, number")
     suspend fun episodesForShow(showId: Int): List<EpisodeEntity>
 
@@ -397,6 +467,9 @@ interface TimelineDao {
     @Query("SELECT * FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season IS NOT NULL AND episodeNumber IS NOT NULL")
     suspend fun episodeHistoryForShow(mediaType: String, mediaId: Int): List<WatchHistoryEntity>
 
+    @Query("SELECT * FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season IS NULL AND episodeNumber IS NULL ORDER BY watchedAt DESC")
+    suspend fun movieHistory(mediaType: String, mediaId: Int): List<WatchHistoryEntity>
+
     @Query("DELETE FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season = :season AND episodeNumber = :episodeNumber")
     suspend fun deleteEpisodeHistory(mediaType: String, mediaId: Int, season: Int, episodeNumber: Int)
 
@@ -408,6 +481,10 @@ interface TimelineDao {
 
     @Query("DELETE FROM watch_history WHERE id IN (:ids)")
     suspend fun deleteHistoryRows(ids: List<Long>)
+
+    /** Renumbers one play in place; id and watchedAt never change. */
+    @Query("UPDATE watch_history SET season = :season, episodeNumber = :episodeNumber WHERE id = :id")
+    suspend fun moveEpisodeHistoryRow(id: Long, season: Int, episodeNumber: Int)
 
     @Query("UPDATE watch_history SET episodeTitle = :title WHERE mediaType = :mediaType AND mediaId = :mediaId AND season = :season AND episodeNumber = :episodeNumber")
     suspend fun updateEpisodeTitle(mediaType: String, mediaId: Int, season: Int, episodeNumber: Int, title: String)
@@ -459,6 +536,12 @@ interface SyncDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun queue(write: PendingWriteEntity): Long
 
+    @Query("SELECT COUNT(*) FROM sync_operations WHERE mediaType = 'TV' AND mediaId = :showId")
+    suspend fun operationCountForShow(showId: Int): Int
+
+    @Query("SELECT COUNT(*) FROM pending_writes WHERE mediaType = 'TV' AND mediaId = :showId")
+    suspend fun pendingWriteCountForShow(showId: Int): Int
+
     @Query("SELECT * FROM pending_writes ORDER BY createdAt")
     suspend fun pendingWrites(): List<PendingWriteEntity>
 
@@ -467,6 +550,9 @@ interface SyncDao {
 
     @Query("DELETE FROM pending_writes WHERE id = :id")
     suspend fun deleteWrite(id: Long)
+
+    @Query("DELETE FROM pending_writes WHERE id = :id AND createdAt = :createdAt")
+    suspend fun deletePendingWriteIfGeneration(id: Long, createdAt: Long): Int
 
     @Query("DELETE FROM pending_writes WHERE id IN (:ids)")
     suspend fun deleteWrites(ids: List<Long>)
@@ -480,17 +566,150 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operations ORDER BY CASE status WHEN 'CONFLICT' THEN 0 WHEN 'FAILED' THEN 1 ELSE 2 END, updatedAt DESC")
     suspend fun syncOperations(): List<SyncOperationEntity>
 
+    /** Current-generation Floppy bootstrap rows only; avoids the broad queue projection. */
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+        LIMIT :limit
+    """)
+    suspend fun pendingFloppyBootstrapOperations(prefix: String, connectionId: String, limit: Int): List<SyncOperationEntity>
+
+    @Query("""
+        SELECT COUNT(*) FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+    """)
+    suspend fun pendingFloppyBootstrapCount(prefix: String, connectionId: String): Int
+
+    /** Minimal remote-index seed query; avoids loading the complete bootstrap
+     * plan just to decide whether episode history must be prepared. */
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId LIKE :prefix || '%'
+          AND o.operation = 'EPISODE_WATCHED'
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+        LIMIT :limit
+    """)
+    suspend fun pendingFloppyBootstrapEpisodeOperations(prefix: String, connectionId: String, limit: Int): List<SyncOperationEntity>
+
+    @Query("""
+        SELECT o.* FROM sync_operations o
+        INNER JOIN sync_operation_deliveries d
+          ON d.operationId = o.operationId AND d.operationVersion = o.createdAt
+        WHERE o.operationId IN (:operationIds)
+          AND d.providerId = 'FLOPPY'
+          AND d.providerInstanceId = :connectionId
+          AND d.status IN ('PENDING', 'FAILED')
+        ORDER BY o.createdAt, o.operationId
+    """)
+    suspend fun pendingFloppyBootstrapOperationsByIds(operationIds: List<String>, connectionId: String): List<SyncOperationEntity>
+
     @Query("SELECT * FROM sync_operations WHERE operationId = :operationId LIMIT 1")
     suspend fun syncOperation(operationId: String): SyncOperationEntity?
 
     @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId")
     suspend fun markOperationFailed(operationId: String, message: String, updatedAt: Long = System.currentTimeMillis())
 
+    @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId AND createdAt = :operationVersion")
+    suspend fun markOperationFailedIfGeneration(operationId: String, operationVersion: Long, message: String, updatedAt: Long = System.currentTimeMillis()): Int
+
     @Query("DELETE FROM sync_operations WHERE operationId = :operationId")
     suspend fun deleteOperation(operationId: String)
 
+    @Query("DELETE FROM sync_operations WHERE operationId = :operationId AND createdAt = :operationVersion")
+    suspend fun deleteOperationIfGeneration(operationId: String, operationVersion: Long): Int
+
     @Query("DELETE FROM sync_operations WHERE operationId IN (:operationIds)")
     suspend fun deleteOperations(operationIds: List<String>)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertDeliveries(items: List<SyncOperationDeliveryEntity>)
+
+    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
+    suspend fun deliveries(operationIds: List<String>): List<SyncOperationDeliveryEntity>
+
+    @Query("SELECT * FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId LIMIT 1")
+    suspend fun delivery(operationId: String, operationVersion: Long, providerId: String): SyncOperationDeliveryEntity?
+
+    @Query("UPDATE sync_operation_deliveries SET status = :status, attemptCount = attemptCount + 1, lastError = :lastError, updatedAt = :updatedAt WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun updateDelivery(providerId: String, operationId: String, operationVersion: Long, status: String, lastError: String?, updatedAt: Long = System.currentTimeMillis())
+
+    /** Acknowledges exact current-generation deliveries in one set-based update. */
+    @Query("""
+        UPDATE sync_operation_deliveries
+        SET status = 'ACKNOWLEDGED', attemptCount = attemptCount + 1, lastError = NULL, updatedAt = :updatedAt
+        WHERE providerId = :providerId
+          AND operationId IN (:operationIds)
+          AND status IN ('PENDING','FAILED')
+          AND operationVersion = (
+              SELECT createdAt FROM sync_operations
+              WHERE operationId = sync_operation_deliveries.operationId
+          )
+    """)
+    suspend fun acknowledgeCurrentDeliveries(providerId: String, operationIds: List<String>, updatedAt: Long = System.currentTimeMillis()): Int
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId IN (:operationIds)")
+    suspend fun deleteDeliveries(operationIds: List<String>)
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion")
+    suspend fun deleteDeliveriesForGeneration(operationId: String, operationVersion: Long): Int
+
+    @Query("SELECT * FROM sync_operation_deliveries")
+    suspend fun allDeliveries(): List<SyncOperationDeliveryEntity>
+
+    @Query("DELETE FROM sync_operation_deliveries WHERE operationId = :operationId AND operationVersion = :operationVersion AND providerId = :providerId")
+    suspend fun deleteDelivery(operationId: String, operationVersion: Long, providerId: String)
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_REMOVED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun cancelOutstandingDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'FAILED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun failOutstandingDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND status IN ('PENDING','FAILED')")
+    suspend fun cancelInstanceDeliveries(providerId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
+    /** Repairs rows left behind when a provider instance was persisted before
+     * process death interrupted the cleanup phase.  Identity is immutable:
+     * stale rows are terminally cancelled, never retargeted. */
+    @Query("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND (providerInstanceId IS NULL OR providerInstanceId != :currentInstanceId) AND status IN ('PENDING','FAILED')")
+    suspend fun repairInstanceDeliveries(providerId: String, currentInstanceId: String, reason: String, updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE providerId = :providerId AND operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
+    suspend fun supersedeDeliveries(providerId: String, operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
+
+    @Query("UPDATE sync_operation_deliveries SET status = 'SUPERSEDED', lastError = :reason, updatedAt = :updatedAt WHERE operationId IN (:operationIds) AND status IN ('PENDING','FAILED')")
+    suspend fun supersedeAllDeliveries(operationIds: List<String>, reason: String = "Superseded by newer canonical generation", updatedAt: Long = System.currentTimeMillis())
+}
+
+@Dao
+interface EpisodeNumberingDao {
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(items: List<EpisodeNumberingEntity>)
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme")
+    suspend fun forShow(showId: Int, scheme: String): List<EpisodeNumberingEntity>
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme AND schemeSeason = :schemeSeason AND schemeEpisode = :schemeEpisode")
+    suspend fun row(showId: Int, scheme: String, schemeSeason: Int, schemeEpisode: Int): EpisodeNumberingEntity?
+
+    @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme AND tmdbSeason = :tmdbSeason AND tmdbEpisode = :tmdbEpisode")
+    suspend fun byTmdb(showId: Int, scheme: String, tmdbSeason: Int, tmdbEpisode: Int): List<EpisodeNumberingEntity>
 }
 
 @Dao
@@ -523,8 +742,11 @@ interface PeopleDao {
         SyncStateEntity::class,
         PendingWriteEntity::class,
         SyncOperationEntity::class,
+        SyncOperationDeliveryEntity::class,
+        EpisodeAirDateEntity::class,
+        EpisodeNumberingEntity::class,
     ],
-    version = 6,
+    version = 14,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -536,11 +758,12 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun upNextDao(): UpNextDao
     abstract fun syncDao(): SyncDao
     abstract fun peopleDao(): PeopleDao
+    abstract fun episodeNumberingDao(): EpisodeNumberingDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
 
-        private val migration3To4 = object : Migration(3, 4) {
+        val migration3To4 = object : Migration(3, 4) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     """CREATE TABLE IF NOT EXISTS `up_next` (
@@ -561,7 +784,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration4To5 = object : Migration(4, 5) {
+        val migration4To5 = object : Migration(4, 5) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_watch_history_watchedAt` ON `watch_history` (`watchedAt`)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS `index_playback_updatedAt` ON `playback` (`updatedAt`)")
@@ -569,7 +792,7 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        private val migration5To6 = object : Migration(5, 6) {
+        val migration5To6 = object : Migration(5, 6) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL(
                     """CREATE TABLE IF NOT EXISTS `sync_operations` (
@@ -592,12 +815,100 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val migration6To7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN providerId TEXT NOT NULL DEFAULT 'SIMKL'")
+            }
+        }
+
+        val migration7To8 = object : Migration(7, 8) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN season INTEGER")
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN episode INTEGER")
+            }
+        }
+
+        val migration8To9 = object : Migration(8, 9) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries` (
+                    `operationId` TEXT NOT NULL,
+                    `providerId` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `required` INTEGER NOT NULL,
+                    `roleAtEnqueue` TEXT NOT NULL,
+                    `attemptCount` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`operationId`, `providerId`))""")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_providerId_status` ON `sync_operation_deliveries` (`providerId`, `status`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_operationId` ON `sync_operation_deliveries` (`operationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_status` ON `sync_operation_deliveries` (`status`)")
+            }
+        }
+
+        val migration9To10 = object : Migration(9, 10) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("""CREATE TABLE IF NOT EXISTS `sync_operation_deliveries_new` (
+                    `operationId` TEXT NOT NULL,
+                    `operationVersion` INTEGER NOT NULL,
+                    `providerId` TEXT NOT NULL,
+                    `status` TEXT NOT NULL,
+                    `required` INTEGER NOT NULL,
+                    `roleAtEnqueue` TEXT NOT NULL,
+                    `attemptCount` INTEGER NOT NULL,
+                    `lastError` TEXT,
+                    `createdAt` INTEGER NOT NULL,
+                    `updatedAt` INTEGER NOT NULL,
+                    PRIMARY KEY(`operationId`, `operationVersion`, `providerId`))""")
+                database.execSQL("""INSERT OR IGNORE INTO `sync_operation_deliveries_new`
+                    (`operationId`,`operationVersion`,`providerId`,`status`,`required`,`roleAtEnqueue`,`attemptCount`,`lastError`,`createdAt`,`updatedAt`)
+                    SELECT d.`operationId`, COALESCE(o.`createdAt`, 0), d.`providerId`, d.`status`, d.`required`, d.`roleAtEnqueue`, d.`attemptCount`, d.`lastError`, d.`createdAt`, d.`updatedAt`
+                    FROM `sync_operation_deliveries` d INNER JOIN `sync_operations` o ON o.`operationId` = d.`operationId`""")
+                database.execSQL("DROP TABLE IF EXISTS `sync_operation_deliveries`")
+                database.execSQL("ALTER TABLE `sync_operation_deliveries_new` RENAME TO `sync_operation_deliveries`")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_providerId_status` ON `sync_operation_deliveries` (`providerId`, `status`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_operationId` ON `sync_operation_deliveries` (`operationId`)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_sync_operation_deliveries_status` ON `sync_operation_deliveries` (`status`)")
+            }
+        }
+
+        val migration10To11 = object : Migration(10, 11) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operations ADD COLUMN payload TEXT")
+            }
+        }
+
+        val migration11To12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_operation_deliveries ADD COLUMN providerInstanceId TEXT")
+                // Legacy Floppy rows have no trustworthy target identity and
+                // must never be replayed against a newly connected server.
+                database.execSQL("UPDATE sync_operation_deliveries SET status = 'CANCELLED_PROVIDER_INSTANCE_CHANGED', lastError = 'Legacy Floppy target instance is unknown' WHERE providerId = 'FLOPPY' AND providerInstanceId IS NULL AND status IN ('PENDING','FAILED')")
+            }
+        }
+
+        /** Per-provider air dates; existing episode dates stay as they are until providers report again. */
+        val migration12To13 = object : Migration(12, 13) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `episode_air_dates` (`showId` INTEGER NOT NULL, `season` INTEGER NOT NULL, `number` INTEGER NOT NULL, `source` TEXT NOT NULL, `airDate` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`showId`, `season`, `number`, `source`))")
+            }
+        }
+
+        /** Tracker-to-TMDB episode numbering table; no existing data changes. */
+        val migration13To14 = object : Migration(13, 14) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `episode_numbering` (`showId` INTEGER NOT NULL, `scheme` TEXT NOT NULL, `schemeSeason` INTEGER NOT NULL, `schemeEpisode` INTEGER NOT NULL, `status` TEXT NOT NULL, `tmdbSeason` INTEGER, `tmdbEpisode` INTEGER, `absolute` INTEGER, `tvdbSeason` INTEGER, `tvdbEpisode` INTEGER, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`showId`, `scheme`, `schemeSeason`, `schemeEpisode`))")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_episode_numbering_showId_tmdbSeason_tmdbEpisode` ON `episode_numbering` (`showId`, `tmdbSeason`, `tmdbEpisode`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13, migration13To14).build().also { instance = it }
         }
     }
 }
@@ -635,3 +946,4 @@ fun MediaCard.toEntity() = MediaEntity(
     providers = providers.joinToString("|"),
     collectionId = collectionId,
 )
+

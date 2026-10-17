@@ -1,0 +1,517 @@
+package com.cinetrack.data.sync.floppy
+
+import com.cinetrack.data.sync.DurableSyncOperationWriter
+import com.cinetrack.data.sync.ProviderBootstrapState
+import com.cinetrack.data.sync.DeliveryStatus
+import com.cinetrack.data.sync.SyncOperation
+import com.cinetrack.data.sync.SyncOperationRepository
+import com.cinetrack.data.sync.SyncOperationType
+import com.cinetrack.data.sync.MutationGeneration
+import com.cinetrack.data.sync.TrackingProviderId
+import com.cinetrack.data.sync.TrackingSnapshot
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.FloppyBootstrapProgress
+import com.cinetrack.domain.FloppyBootstrapStage
+import java.time.Instant
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/** Durable, restart-safe canonical seed targeted only to a configured Floppy SECONDARY. */
+class FloppyBootstrapCoordinator(
+    private val preferences: com.cinetrack.data.repository.AppPreferences,
+    private val operationRepository: SyncOperationRepository,
+    private val operationWriter: DurableSyncOperationWriter,
+    private val canonicalSnapshot: suspend () -> TrackingSnapshot,
+    private val instanceId: suspend () -> String = {
+        preferences.floppySettingsNow()?.connectionId ?: "unknown"
+    },
+    private val verifyRemote: suspend (TrackingSnapshot) -> Boolean = { true },
+) {
+    private val mutex = Mutex()
+
+    /** Clears a persisted plan when the configured Floppy identity changes. */
+    suspend fun resetForInstanceChange(newInstanceId: String) = mutex.withLock {
+        val old = decodePlan(preferences.floppyBootstrapPlanRawNow())
+        if (old?.instanceId != newInstanceId ||
+            preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY
+        ) {
+            preferences.clearFloppyBootstrapPlan()
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.NOT_STARTED)
+        }
+    }
+
+    suspend fun start(
+        onPreparationProgress: suspend (stage: FloppyBootstrapStage, processed: Int, total: Int) -> Unit = { _, _, _ -> },
+    ): Int = mutex.withLock {
+        try {
+            val instance = instanceId()
+            // A stale queued WorkManager record can outlive a successful
+            // empty-plan bootstrap. Never rebuild a new plan for an instance
+            // that is already semantically READY, unless Floppy's episode
+            // matching improved since episodes were closed as unmatched.
+            var resendAfterReady = false
+            if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
+                decodePlan(preferences.floppyBootstrapPlanRawNow()) == null
+            ) {
+                when (val retry = counterpartRetryAfterReady(instance)) {
+                    null -> return@withLock 0
+                    // READY before unmatched episodes were recorded: one full,
+                    // idempotent re-send rebuilds them (synced items answer
+                    // already_satisfied without new writes). It runs in repair
+                    // mode so plays older versions stored on the wrong episode
+                    // are moved to where the current rules place them.
+                    LEGACY_READY -> resendAfterReady = true
+                    else -> preferences.setFloppyBootstrapPlanRaw(encodePlan(retry))
+                }
+                preferences.setFloppyBootstrapResidualRaw(null)
+                preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+            }
+            val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
+                ?.takeIf {
+                    it.instanceId == instance &&
+                        preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) in
+                            setOf(
+                                ProviderBootstrapState.NOT_STARTED,
+                                ProviderBootstrapState.RUNNING,
+                                ProviderBootstrapState.FAILED,
+                            )
+                }
+            val snapshot = if (existing == null) canonicalSnapshot() else null
+            val operations = existing?.operations?.map(::toOperation)
+                ?: buildFloppyBootstrapOperations(instance, snapshot ?: error("Bootstrap snapshot unavailable"))
+            // Keep the plan after Room retires acknowledged rows. The marker
+            // is written before enqueueing so a restart can reconstruct the
+            // same deterministic operation ids.
+            if (existing == null) {
+                preferences.setFloppyBootstrapPlanRaw(
+                    encodePlan(PersistedPlan(instance, operations.map(::toPersisted), repairCoordinates = resendAfterReady)),
+                )
+            }
+            onPreparationProgress(FloppyBootstrapStage.BUILDING_PLAN, 0, operations.size)
+            // Persist the immutable plan before advertising RUNNING. If the
+            // process dies between these writes, the next attempt sees the
+            // plan even while the state is still NOT_STARTED and reuses its
+            // exact operation ids/generations instead of rebuilding them.
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+            // Once fully queued, acknowledged operations disappear from Room;
+            // re-queueing "missing" rows then would resend finished work on
+            // every Retry or worker restart.
+            val missing = if (existing?.materialized == true) {
+                emptyList()
+            } else {
+                val operationIds = operations.mapTo(linkedSetOf(), SyncOperation::id)
+                val materialized = operationRepository.deliveries(operationIds)
+                    .filter { it.providerId == TrackingProviderId.FLOPPY }
+                    .mapTo(hashSetOf()) { "${it.operationId}:${it.operationVersion}" }
+                operations.filterNot { operation -> "${operation.id}:${operation.sourceVersion}" in materialized }
+            }
+            // Episodes closed as "no counterpart" get one more attempt each
+            // time Floppy's matching improves (a new generation); anything
+            // still unmatched afterwards is closed again, never looped.
+            val closed = existing?.takeIf { it.counterpartRetryGeneration() < COUNTERPART_RETRY_GENERATION }
+                ?.episodeOutcomes?.filterValues { it == NO_COUNTERPART }?.keys.orEmpty()
+            val reopened = if (closed.isEmpty()) emptyList() else {
+                val queued = operationRepository.deliveries(closed)
+                    .filter { it.providerId == TrackingProviderId.FLOPPY }
+                    .mapTo(hashSetOf()) { it.operationId }
+                val missingIds = missing.mapTo(hashSetOf(), SyncOperation::id)
+                operations.filter { it.id in closed && it.id !in queued && it.id !in missingIds }
+            }
+            var prepared = operations.size - missing.size
+            onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
+            (missing + reopened).chunked(CHUNK_SIZE).forEach { chunk ->
+                operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
+                prepared = (prepared + chunk.size).coerceAtMost(operations.size)
+                onPreparationProgress(FloppyBootstrapStage.MATERIALIZING_QUEUE, prepared, operations.size)
+            }
+            // Written only after enqueueing: a crash in between re-finds the
+            // reopened rows as queued instead of losing them.
+            if (existing?.materialized != true || closed.isNotEmpty()) {
+                preferences.setFloppyBootstrapPlanRaw(
+                    encodePlan(
+                        existing?.copy(
+                            materialized = true,
+                            counterpartRetries = COUNTERPART_RETRY_GENERATION,
+                            episodeOutcomes = existing.episodeOutcomes - closed,
+                        ) ?: PersistedPlan(
+                            instance,
+                            operations.map(::toPersisted),
+                            materialized = true,
+                            counterpartRetries = COUNTERPART_RETRY_GENERATION,
+                            repairCoordinates = resendAfterReady,
+                        ),
+                    ),
+                )
+            }
+            if (operations.isEmpty() && verifyRemote(snapshot ?: canonicalSnapshot())) {
+                preferences.setFloppyBootstrapResidualRaw(
+                    encodePlan(PersistedPlan(instance, emptyList(), materialized = true, counterpartRetries = COUNTERPART_RETRY_GENERATION)),
+                )
+                preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+                preferences.clearFloppyBootstrapPlan()
+            }
+            operations.size
+        } catch (error: Throwable) {
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.FAILED)
+            throw error
+        }
+    }
+
+    /** Returns the immutable operation plan, creating it once when necessary. */
+    suspend fun ensurePlan(): List<SyncOperation> = mutex.withLock {
+        val instance = instanceId()
+        val existing = decodePlan(preferences.floppyBootstrapPlanRawNow())
+            ?.takeIf { it.instanceId == instance }
+        if (existing != null) return@withLock existing.operations.map(::toOperation)
+        val operations = buildFloppyBootstrapOperations(instance, canonicalSnapshot())
+        preferences.setFloppyBootstrapPlanRaw(encodePlan(PersistedPlan(instance, operations.map(::toPersisted))))
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+        operations
+    }
+
+    /** Snapshot used by WorkManager for durable item-count progress. */
+    suspend fun progress(instance: String): FloppyBootstrapProgress = mutex.withLock {
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
+            ?.takeIf { it.instanceId == instance }
+        val total = plan?.operations?.size ?: 0
+        // Durable delivery rows, not one WorkManager attempt's in-memory
+        // counter, are authoritative. This survives cancellation, retry, and
+        // process recreation without making the completed count regress.
+        val remaining = if (plan == null) 0 else operationRepository.bootstrapPendingCount(instance)
+        val processed = (total - remaining).coerceIn(0, total)
+        val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
+        val stage = when (state) {
+            ProviderBootstrapState.READY -> FloppyBootstrapStage.COMPLETE
+            ProviderBootstrapState.FAILED -> FloppyBootstrapStage.NEEDS_ATTENTION
+            else -> if (processed > 0) FloppyBootstrapStage.SYNCING else FloppyBootstrapStage.PREPARING
+        }
+        FloppyBootstrapProgress(
+            stage = stage,
+            processed = processed,
+            total = total,
+            succeeded = processed,
+            failed = 0,
+            providerInstanceId = instance,
+        )
+    }
+
+    suspend fun markReadyIfComplete(): Boolean = mutex.withLock {
+        val state = preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY)
+        if (state !in setOf(ProviderBootstrapState.RUNNING, ProviderBootstrapState.FAILED)) return@withLock state == ProviderBootstrapState.READY
+        val instance = instanceId()
+        // This runs after every delivered batch. While items remain, one count
+        // query answers it; the full check below decodes the whole plan and
+        // queries each item's deliveries, about 2 s per batch on a large library.
+        if (operationRepository.bootstrapPendingCount(instance) > 0) return@withLock false
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())
+        if (plan?.instanceId != instance) return@withLock false
+        val prefix = "bootstrap:$instance:"
+        val planned = operationRepository.pending().filter { it.id.startsWith(prefix) }
+        val incomplete = planned.any { operation ->
+            operationRepository.deliveries(setOf(operation.id)).any { delivery ->
+                delivery.providerId == TrackingProviderId.FLOPPY &&
+                    delivery.status in setOf(DeliveryStatus.PENDING, DeliveryStatus.FAILED)
+            }
+        }
+        if (!incomplete && verifyRemote(canonicalSnapshot().withEpisodeOutcomes(instance, plan.episodeOutcomes))) {
+            // Keep what stayed unplaced (and every outcome, which completion
+            // checks need) so a later Floppy matching improvement can retry it.
+            val unmatched = plan.episodeOutcomes.filterValues { it == NO_COUNTERPART }.keys
+            preferences.setFloppyBootstrapResidualRaw(
+                encodePlan(
+                    plan.copy(
+                        operations = plan.operations.filter { it.id in unmatched },
+                        materialized = true,
+                        counterpartRetries = plan.counterpartRetryGeneration(),
+                    ),
+                ),
+            )
+            preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.READY)
+            preferences.clearFloppyBootstrapPlan()
+            return@withLock true
+        }
+        false
+    }
+
+    /** What Floppy should hold once READY: episodes where Floppy stored them,
+     * without the ones it has no counterpart for. Null while a plan runs. */
+    suspend fun expectedOnFloppy(instance: String): TrackingSnapshot? = mutex.withLock {
+        if (instanceId() != instance) return@withLock null
+        if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY) return@withLock null
+        if (decodePlan(preferences.floppyBootstrapPlanRawNow()) != null) return@withLock null
+        val outcomes = decodePlan(preferences.floppyBootstrapResidualRawNow())
+            ?.takeIf { it.instanceId == instance }?.episodeOutcomes.orEmpty()
+        canonicalSnapshot().withEpisodeOutcomes(instance, outcomes)
+    }
+
+    /**
+     * Re-sends what the library check found missing as a small plan for the
+     * bootstrap worker (same idempotent requests and outcome handling). The
+     * READY record (outcomes, unplaced episodes kept for a later retry) is
+     * carried over, so finishing this plan does not forget it. Returns how
+     * many operations were queued.
+     */
+    suspend fun startRepair(instance: String, missing: TrackingSnapshot): Int = mutex.withLock {
+        if (instanceId() != instance) return@withLock 0
+        if (preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) != ProviderBootstrapState.READY) return@withLock 0
+        if (decodePlan(preferences.floppyBootstrapPlanRawNow()) != null) return@withLock 0
+        val operations = buildFloppyBootstrapOperations(instance, missing)
+        if (operations.isEmpty()) return@withLock 0
+        val residual = decodePlan(preferences.floppyBootstrapResidualRawNow())?.takeIf { it.instanceId == instance }
+        val repairIds = operations.mapTo(hashSetOf(), SyncOperation::id)
+        // Written as already materialized: only the repair operations are
+        // queued below; the kept unplaced ones wait for a matching retry.
+        preferences.setFloppyBootstrapPlanRaw(
+            encodePlan(
+                PersistedPlan(
+                    instanceId = instance,
+                    operations = operations.map(::toPersisted) + residual?.operations.orEmpty().filter { it.id !in repairIds },
+                    materialized = true,
+                    episodeOutcomes = residual?.episodeOutcomes.orEmpty() - repairIds,
+                    counterpartRetries = residual?.counterpartRetryGeneration() ?: COUNTERPART_RETRY_GENERATION,
+                    unplacedTitles = residual?.unplacedTitles.orEmpty(),
+                ),
+            ),
+        )
+        preferences.setProviderBootstrapState(TrackingProviderId.FLOPPY, ProviderBootstrapState.RUNNING)
+        operations.chunked(CHUNK_SIZE).forEach { chunk ->
+            operationWriter.enqueueForProviders(chunk, setOf(TrackingProviderId.FLOPPY))
+        }
+        operations.size
+    }
+
+    /** Whether the current plan is a repair re-send (see [PersistedPlan.repairCoordinates]). */
+    suspend fun repairCoordinatesActive(instance: String): Boolean = mutex.withLock {
+        decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance }?.repairCoordinates == true
+    }
+
+    /** Whether a READY bootstrap has unmatched episodes the current Floppy
+     * matching generation has not retried yet (or predates that record). */
+    suspend fun hasPendingCounterpartRetry(): Boolean = mutex.withLock {
+        preferences.providerBootstrapStateNow(TrackingProviderId.FLOPPY) == ProviderBootstrapState.READY &&
+            decodePlan(preferences.floppyBootstrapPlanRawNow()) == null &&
+            counterpartRetryAfterReady(instanceId()) != null
+    }
+
+    /** null: nothing to retry; [LEGACY_READY]: no record, re-send everything;
+     * otherwise the residual plan to resume with. */
+    private suspend fun counterpartRetryAfterReady(instance: String): PersistedPlan? {
+        val raw = preferences.floppyBootstrapResidualRawNow() ?: return LEGACY_READY
+        val residual = decodePlan(raw)?.takeIf { it.instanceId == instance } ?: return null
+        if (residual.counterpartRetryGeneration() < FULL_RESEND_GENERATION) return LEGACY_READY
+        return residual.takeIf {
+            it.counterpartRetryGeneration() < COUNTERPART_RETRY_GENERATION && it.operations.isNotEmpty()
+        }
+    }
+
+    /** [materialized] is set once every operation has been queued. Room
+     * retires acknowledged rows, so afterwards a missing row means "done",
+     * not "never queued", and must not be re-queued. */
+    /** Records where Floppy stored episodes under another coordinate
+     * ("season:episode") or that it has no counterpart for ([NO_COUNTERPART]),
+     * keyed by operation id, so completion is verified against reality. */
+    suspend fun recordEpisodeOutcomes(
+        instance: String,
+        outcomes: Map<String, String>,
+        unplacedTitles: Map<String, String> = emptyMap(),
+    ) = mutex.withLock {
+        if (outcomes.isEmpty()) return@withLock
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance } ?: return@withLock
+        preferences.setFloppyBootstrapPlanRaw(
+            encodePlan(
+                plan.copy(
+                    episodeOutcomes = plan.episodeOutcomes + outcomes,
+                    unplacedTitles = plan.unplacedTitles + unplacedTitles,
+                ),
+            ),
+        )
+    }
+
+    /** Episodes Floppy could not place (closed as no counterpart), from the
+     * running plan or, once READY, the kept residual; for marking by hand. */
+    suspend fun unplacedEpisodes(): List<FloppyUnplacedEpisode> = mutex.withLock {
+        val instance = instanceId()
+        val plan = decodePlan(preferences.floppyBootstrapPlanRawNow())?.takeIf { it.instanceId == instance }
+            ?: decodePlan(preferences.floppyBootstrapResidualRawNow())?.takeIf { it.instanceId == instance }
+            ?: return@withLock emptyList()
+        plan.episodeOutcomes.filterValues { it == NO_COUNTERPART }.keys.mapNotNull { id ->
+            val parts = id.substringAfter(":episode:", "").split(':')
+            val showId = parts.getOrNull(0)?.toIntOrNull() ?: return@mapNotNull null
+            val season = parts.getOrNull(1)?.toIntOrNull() ?: return@mapNotNull null
+            val episode = parts.getOrNull(2)?.toIntOrNull() ?: return@mapNotNull null
+            FloppyUnplacedEpisode(showId, season, episode, plan.unplacedTitles[id])
+        }.sortedWith(compareBy(FloppyUnplacedEpisode::showId, FloppyUnplacedEpisode::season, FloppyUnplacedEpisode::episode))
+    }
+
+    @Serializable
+    private data class PersistedPlan(
+        val instanceId: String,
+        val operations: List<PersistedOperation>,
+        val materialized: Boolean = false,
+        val episodeOutcomes: Map<String, String> = emptyMap(),
+        /** Written by 0.99.30: the first identity-match retry happened. */
+        val counterpartsRetried: Boolean = false,
+        /** Highest [COUNTERPART_RETRY_GENERATION] already applied. */
+        val counterpartRetries: Int = 0,
+        /** Floppy (TVDB) titles of episodes closed as unmatched. */
+        val unplacedTitles: Map<String, String> = emptyMap(),
+        /** A re-send after READY that asks Floppy to move misplaced plays. */
+        val repairCoordinates: Boolean = false,
+    ) {
+        fun counterpartRetryGeneration() = maxOf(counterpartRetries, if (counterpartsRetried) 1 else 0)
+    }
+
+    @Serializable
+    private data class PersistedOperation(
+        val id: String,
+        val type: String,
+        val mediaType: String,
+        val mediaId: Int,
+        val title: String,
+        val value: String? = null,
+        val payload: String? = null,
+        val sourceVersion: Long,
+    )
+
+    private fun toPersisted(operation: SyncOperation) = PersistedOperation(operation.id, operation.type.name, operation.mediaType.name, operation.mediaId, operation.title, operation.value, operation.payload, operation.sourceVersion)
+    private fun toOperation(operation: PersistedOperation) = SyncOperation(operation.id, SyncOperationType.valueOf(operation.type), MediaType.valueOf(operation.mediaType), operation.mediaId, operation.title, operation.value, operation.payload, operation.sourceVersion)
+    private fun encodePlan(plan: PersistedPlan) = Json.encodeToString(PersistedPlan.serializer(), plan)
+    private fun decodePlan(raw: String?): PersistedPlan? = raw?.let { runCatching { Json.decodeFromString(PersistedPlan.serializer(), it) }.getOrNull() }
+
+    private companion object {
+        const val CHUNK_SIZE = 100
+        /** Bumped when Floppy's episode matching improves: 1 = TVDB identity,
+         * 2 = TVDB absolute order and language-independent anime detection,
+         * 3 = personal TVDB keys and TVDB ids from TMDB metadata,
+         * 4 = double-episode days paired by order within the day,
+         * 5 = absolute numbers in TMDB seasons, titles inside longer titles,
+         * 6 = Floppy returns the title of what it cannot place (Settings list),
+         * 7 = full re-send (see [FULL_RESEND_GENERATION]),
+         * 8 = full re-send in repair mode (plays moved to their episode). */
+        const val COUNTERPART_RETRY_GENERATION = 8
+        /** Residuals older than this re-send the whole plan once: before it,
+         * writes marked right after a process start were filed as unsupported
+         * for Floppy (never sent), and READY could race the last batch's
+         * outcomes, losing unplaced episodes. Only a full idempotent re-send
+         * recovers both; synced items answer already_satisfied. */
+        const val FULL_RESEND_GENERATION = 8
+        val LEGACY_READY = PersistedPlan(instanceId = "", operations = emptyList())
+    }
+}
+
+internal const val NO_COUNTERPART = "-"
+
+/** A watched episode Floppy has no counterpart for; the user marks it by hand. */
+data class FloppyUnplacedEpisode(val showId: Int, val season: Int, val episode: Int, val title: String?)
+
+/** The snapshot Floppy should now hold: episodes it stored under another
+ * coordinate are expected there, and episodes it has no counterpart for are
+ * not expected at all. Outcomes are keyed by bootstrap operation id. */
+internal fun TrackingSnapshot.withEpisodeOutcomes(instance: String, outcomes: Map<String, String>): TrackingSnapshot {
+    if (outcomes.isEmpty()) return this
+    return copy(
+        episodes = episodes.mapNotNull { episode ->
+            val showId = episode.showIds.tmdb ?: return@mapNotNull episode
+            when (val outcome = outcomes["bootstrap:$instance:episode:$showId:${episode.season}:${episode.episode}"]) {
+                null -> episode
+                NO_COUNTERPART -> null
+                else -> {
+                    val (season, number) = outcome.split(':').map(String::toInt)
+                    episode.copy(season = season, episode = number)
+                }
+            }
+        },
+    )
+}
+
+/** Pure operation construction kept separate so generation/timestamp
+ * invariants can be tested without Android DataStore dependencies. */
+internal fun buildFloppyBootstrapOperations(instance: String, snapshot: TrackingSnapshot): List<SyncOperation> = buildList {
+    snapshot.movies.forEach { movie ->
+        movie.ids.tmdb?.let { id ->
+            val libraryState = movie.libraryState
+            if (libraryState == LibraryStatus.COMPLETED && movie.watched) {
+                // Completion and its exact play are one causal mutation. The
+                // generation also anchors the deterministic fallback timestamp
+                // for legacy rows with no usable watchedAt.
+                val generation = MutationGeneration.next()
+                val watchedAt = movie.watchedAt
+                    ?: movie.updatedAt
+                    ?: Instant.ofEpochMilli(generation)
+                add(SyncOperation(
+                    id = "bootstrap:$instance:movie:$id:library",
+                    type = SyncOperationType.LIBRARY_STATUS,
+                    mediaType = MediaType.MOVIE,
+                    mediaId = id.toInt(),
+                    title = "",
+                    value = LibraryStatus.COMPLETED.name,
+                    sourceVersion = generation,
+                ))
+                add(SyncOperation(
+                    id = "bootstrap:$instance:movie:$id:watched",
+                    type = SyncOperationType.MOVIE_WATCHED,
+                    mediaType = MediaType.MOVIE,
+                    mediaId = id.toInt(),
+                    title = "",
+                    payload = watchedAt.toString(),
+                    sourceVersion = generation,
+                ))
+            } else {
+                libraryState?.let { status ->
+                    add(SyncOperation(
+                        id = "bootstrap:$instance:movie:$id:library",
+                        type = SyncOperationType.LIBRARY_STATUS,
+                        mediaType = MediaType.MOVIE,
+                        mediaId = id.toInt(),
+                        title = "",
+                        value = status.name,
+                        sourceVersion = MutationGeneration.next(),
+                    ))
+                }
+                if (movie.watched && movie.watchedAt != null) {
+                    add(SyncOperation(
+                        id = "bootstrap:$instance:movie:$id:watched",
+                        type = SyncOperationType.MOVIE_WATCHED,
+                        mediaType = MediaType.MOVIE,
+                        mediaId = id.toInt(),
+                        title = "",
+                        payload = movie.watchedAt.toString(),
+                        sourceVersion = MutationGeneration.next(),
+                    ))
+                }
+            }
+        }
+    }
+    snapshot.shows.forEach { show ->
+        show.ids.tmdb?.let { id ->
+            show.libraryState?.let { status ->
+                add(SyncOperation(
+                    id = "bootstrap:$instance:show:$id:library",
+                    type = SyncOperationType.LIBRARY_STATUS,
+                    mediaType = MediaType.TV,
+                    mediaId = id.toInt(),
+                    title = "",
+                    value = status.name,
+                    sourceVersion = MutationGeneration.next(),
+                ))
+            }
+        }
+    }
+    snapshot.episodes.filter { it.watched }.forEach { episode ->
+        episode.showIds.tmdb?.let { id ->
+            add(SyncOperation(
+                id = "bootstrap:$instance:episode:$id:${episode.season}:${episode.episode}",
+                type = SyncOperationType.EPISODE_WATCHED,
+                mediaType = MediaType.TV,
+                mediaId = id.toInt(),
+                title = "",
+                payload = "${episode.season}:${episode.episode}${episode.watchedAt?.let { ":$it" }.orEmpty()}",
+                sourceVersion = MutationGeneration.next(),
+            ))
+        }
+    }
+}
+
