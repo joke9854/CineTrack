@@ -455,6 +455,28 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
     }
 }
 
+/** After a play marked from a notification or the widget: fetches the following episode, then redraws the widget. */
+class WatchedProgressRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val repository = (applicationContext as CineTrackApplication).container.repository
+        repository.awaitStartup()
+        runCatching { repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
+        com.cinetrack.UpNextWidgetProvider.refreshNow(applicationContext)
+        return Result.success()
+    }
+
+    companion object {
+        /** Appends, so a second tap during a running refresh still gets its own pass. */
+        fun enqueue(context: Context) {
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
+                "cinetrack-watched-progress-refresh",
+                ExistingWorkPolicy.APPEND_OR_REPLACE,
+                OneTimeWorkRequestBuilder<WatchedProgressRefreshWorker>().build(),
+            )
+        }
+    }
+}
+
 /** Fires when quiet hours end and runs the held release notification, even while the phone is idle. */
 class QuietHoursEndReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -501,13 +523,15 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                 val showId = intent.getIntExtra("showId", 0)
                 val season = intent.getIntExtra("season", 0)
                 val number = intent.getIntExtra("episode", 0)
+                android.util.Log.i("CineTrackWidget", "mark: $showId:S${season}E$number")
                 if (showId > 0 && season >= 0 && number > 0) {
                     val repository = (context.applicationContext as CineTrackApplication).container.repository
                     repository.awaitStartup()
                     repository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
-                    // Fetch the following episode if it is not cached yet.
-                    runCatching { repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
-                    com.cinetrack.UpNextWidgetProvider.refresh(context)
+                    // Redraw at once from the local up-next. Fetching the following episode can take
+                    // longer than a broadcast may run (about 10s for a widget tap), so it goes to work.
+                    com.cinetrack.UpNextWidgetProvider.refreshNow(context)
+                    WatchedProgressRefreshWorker.enqueue(context)
                 }
             } finally { result.finish() }
         }

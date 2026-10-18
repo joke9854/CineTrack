@@ -23,6 +23,21 @@ fun escaped(value: String) = value.replace("\\", "\\\\").replace("\"", "\\\"")
 
 val releaseKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH").orNull
 
+fun git(vararg args: String): String = runCatching {
+    providers.exec {
+        commandLine("git", *args)
+        isIgnoreExitValue = true
+    }.standardOutput.asText.get().trim()
+}.getOrDefault("")
+
+// Debug and preview builds carry their own number (commit count + short commit) so a test
+// can name the exact build, e.g. 0.99.64-preview.1042+96d14a6. Beta versionName/versionCode
+// are untouched, and the in-app updater ignores everything after the first '-'.
+// ".dirty-<hash>" marks a build made from uncommitted changes on top of that commit; the hash
+// of the diff tells two such builds apart.
+val devBuildTag = "${git("rev-list", "--count", "HEAD").ifBlank { "0" }}+${git("rev-parse", "--short", "HEAD").ifBlank { "nogit" }}" +
+    git("diff", "HEAD").let { diff -> if (diff.isBlank()) "" else ".dirty-" + "%08x".format(diff.hashCode()).take(6) }
+
 android {
     namespace = "com.cinetrack"
     compileSdk = 37
@@ -60,7 +75,7 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-debug"
+            versionNameSuffix = "-debug.$devBuildTag"
         }
         release {
             isMinifyEnabled = true
@@ -76,7 +91,7 @@ android {
         create("preview") {
             initWith(getByName("release"))
             applicationIdSuffix = ".debug"
-            versionNameSuffix = "-preview"
+            versionNameSuffix = "-preview.$devBuildTag"
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += listOf("release")
         }
