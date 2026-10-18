@@ -1,3 +1,15 @@
+# CineTrack 0.99.67 beta
+
+**New**
+- Characters: with Floppy connected and a TVDB key set on Floppy, the cast row on show, movie and episode pages has two headlines, Characters and Cast. Characters shows each character's picture with the character name first and the actor below; a character without a picture keeps the actor photo. Directors, producers and other crew appear only under Cast.
+- Settings > Appearance > Cast photos: choose round photos or poster-shaped ones.
+
+**Changes**
+- Cast photos are a bit bigger, and names and roles stay on one line using the full card width.
+- The cast shows at once; character pictures fill in when Floppy answers. Without Floppy the cast row works as before, from TMDB.
+
+Requires Floppy 5b8e6a9a or newer for character pictures.
+
 # CineTrack 0.99.66 beta
 
 **Changes**
