@@ -1,3 +1,12 @@
+# CineTrack 0.99.65 beta
+
+**New**
+- Up Next widget: tap the green check on a row to mark that episode watched without opening the app. The widget then moves on to the next episode.
+- The widget resizes from 1 cell tall (one row) to 4 or more cells tall (five rows). When it is narrow, posters are hidden so titles stay readable.
+
+**Fixes**
+- Marking an episode from a release notification no longer keeps the app busy while the next episode loads; that now happens in the background.
+
 # CineTrack 0.99.64 beta
 
 **Changes**
