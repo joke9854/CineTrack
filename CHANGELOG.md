@@ -1,3 +1,9 @@
+# CineTrack 0.99.66 beta
+
+**Changes**
+- Behind the scenes: the About, Logs and Language settings pages now run on their own, separate from the rest of the app. Checking for updates, the changelog, and viewing, exporting or clearing logs work as before.
+- Library versions are kept in one place, so dependency updates can arrive as small, separately tested changes.
+
 # CineTrack 0.99.65 beta
 
 **New**
