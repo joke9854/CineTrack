@@ -300,6 +300,27 @@ class FloppyTrackingProvider(
         return remote.translateEpisodes(captureSession(), tmdbId, from, coords)
     }
 
+    /** Capability learned from the public /info when the saved connection predates it. */
+    @Volatile private var charactersFromInfo: Boolean? = null
+
+    /**
+     * TVDB characters of one TMDB title; null when no Floppy connection exists or
+     * the server lacks the capability. Failures are thrown classified.
+     */
+    suspend fun characterImages(mediaType: String, tmdbId: Int): List<FloppyCharacterDto>? {
+        val settings = preferences?.floppySettingsNow() ?: return null
+        val supported = settings.capabilities.canCharacterImages || charactersFromInfo ?: try {
+            (remote.inspect(settings.baseUrl, settings.allowInsecureLocalHttp).apiExtensions?.cinetrackCharactersV1 == true)
+                .also { charactersFromInfo = it }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+        if (!supported) return null
+        return remote.characters(captureSession(), mediaType, tmdbId)
+    }
+
     /** Display-only account name; never used to tell accounts apart. */
     suspend fun displayName(): String? = remote.displayName(captureSession())
 

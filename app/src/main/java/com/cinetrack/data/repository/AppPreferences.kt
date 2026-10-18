@@ -133,6 +133,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
         val seasonPicker = stringPreferencesKey("season_picker")
         val releaseReminders = stringPreferencesKey("release_reminders")
         val posterFormat = stringPreferencesKey("poster_format")
+        val castPhotoShape = stringPreferencesKey("cast_photo_shape")
         val posterSize = stringPreferencesKey("poster_size")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
@@ -227,6 +228,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
     val seasonPicker: Flow<String> = context.cineTrackDataStore.data.map { if (it[Keys.seasonPicker] == "posters") "posters" else "text" }
     val heroLayout: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeHero(it[Keys.heroLayout] ?: "standard") }
     val posterFormat: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeFormat(it[Keys.posterFormat] ?: "classic") }
+    val castPhotoShape: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle") }
     val posterSize: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard") }
     val cardDensity: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.cardDensity] ?: "standard" }
     val notificationEpisodes: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyEpisodes] ?: true }
@@ -365,6 +367,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
                 canSyncItems = "sync_items" in capabilities,
                 canTranslateEpisodes = "translate_episodes" in capabilities,
                 canCrashReports = "crash_reports_v1" in capabilities,
+                canCharacterImages = "character_images_v1" in capabilities,
             ),
             connectedAt = values[Keys.floppyConnectedAt],
             connectionId = values[Keys.floppyConnectionId] ?: values[Keys.floppyServerIdentity].orEmpty(),
@@ -442,6 +445,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
                     if (settings.capabilities.canSyncItems) add("sync_items")
                     if (settings.capabilities.canTranslateEpisodes) add("translate_episodes")
                     if (settings.capabilities.canCrashReports) add("crash_reports_v1")
+                    if (settings.capabilities.canCharacterImages) add("character_images_v1")
                 }
                 values[Keys.floppyCapabilities] = capabilities.joinToString(",")
                 settings.connectedAt?.let { values[Keys.floppyConnectedAt] = it } ?: values.remove(Keys.floppyConnectedAt)
@@ -787,6 +791,10 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
 
     suspend fun setPosterFormat(value: String) {
         context.cineTrackDataStore.edit { it[Keys.posterFormat] = com.cinetrack.domain.CardAppearance.normalizeFormat(value) }
+    }
+
+    suspend fun setCastPhotoShape(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.castPhotoShape] = com.cinetrack.domain.CardAppearance.normalizeCastShape(value) }
     }
 
     suspend fun setPosterSize(value: String) {

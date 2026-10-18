@@ -168,6 +168,7 @@ fun CineTrackApp(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val castPhotoShape by viewModel.castPhotoShape.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val searchLoading by viewModel.searchLoading.collectAsStateWithLifecycle()
     val personSearchResults by viewModel.personSearchResults.collectAsStateWithLifecycle()
@@ -275,7 +276,7 @@ fun CineTrackApp(
     Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
         com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, pageGlass, navShown) { captureModifier ->
         androidx.compose.runtime.CompositionLocalProvider(
-            com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize),
+            com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape),
             com.cinetrack.ui.components.LocalPopupBlur provides popupBlur,
         ) {
         // Shared elements (the tapped poster flying into the detail page) need one scope

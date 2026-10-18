@@ -15,6 +15,8 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.horizontalScroll
 import com.cinetrack.ui.components.liquidGlassPill
+import com.cinetrack.ui.components.softTab
+import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -229,6 +231,8 @@ fun DetailScreen(
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var returnToSeason by remember(media.stableKey) { mutableStateOf<Int?>(null) }
     var showFullCast by remember(media.stableKey) { mutableStateOf(false) }
+    // Characters is the first headline, so it is selected whenever pictures exist.
+    var showCharacters by remember(media.stableKey) { mutableStateOf(true) }
     var pendingPreviousEpisodes by remember(media.stableKey) {
         mutableStateOf<Pair<EpisodeCard, List<EpisodeCard>>?>(null)
     }
@@ -264,6 +268,8 @@ fun DetailScreen(
             launch {
                 detailPeople = viewModel.loadCast(loadedDetail).ifEmpty { detailPeople }
                 castLoaded = true
+                // Character pictures arrive later through Floppy; the TMDB cast is already on screen.
+                detailPeople = viewModel.withCharacterPictures(loadedDetail, detailPeople)
             }
             launch {
                 if (loadedDetail.type == MediaType.TV) {
@@ -459,7 +465,7 @@ fun DetailScreen(
                     DetailSectionSurface {
                         LoadedSection(castLoaded, { CastSkeleton() }) {
                             if (detailPeople.isNotEmpty()) {
-                                CastSection(detailPeople, onViewAll = { showFullCast = true }) { selectedPerson = it }
+                                CastSection(detailPeople, showCharacters, { showCharacters = it }, onViewAll = { showFullCast = true }) { selectedPerson = it }
                             }
                         }
                     }
@@ -574,7 +580,7 @@ fun DetailScreen(
         )
     }
     if (showFullCast) {
-        FullCastSheet(detailPeople, onDismiss = { showFullCast = false }) { person ->
+        FullCastSheet(detailPeople, showCharacters, onDismiss = { showFullCast = false }) { person ->
             showFullCast = false
             selectedPerson = person
         }
@@ -1688,49 +1694,112 @@ private object DetailLayout {
     val HeadingInset = Gutter + Inner
     val SectionGap = 24.dp
     val RatingsGap = 12.dp
-    val CastWidth = 88.dp
-    val CastPhoto = 72.dp
+    val CastWidth = 96.dp
+    val CastPhoto = 84.dp
 }
 
 @Composable
-private fun CastAvatar(person: PersonCard, onPerson: (PersonCard) -> Unit) {
+private fun CastAvatar(person: PersonCard, onPerson: (PersonCard) -> Unit, showCharacter: Boolean = false) {
+    // A character without a TVDB picture keeps the actor photo.
+    val photo = person.characterImageUrl?.takeIf { showCharacter && it.isNotBlank() } ?: person.profileUrl
     Column(
         Modifier.width(DetailLayout.CastWidth).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-            .clickable { onPerson(person) }.padding(horizontal = 4.dp, vertical = 6.dp),
+            .clickable { onPerson(person) }.padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
+        // Settings > Appearance picks a round photo or a 2:3 poster; names use the full card width.
+        val poster = com.cinetrack.ui.theme.LocalCardAppearance.current.castPhotoShape == "poster"
+        val shape = if (poster) RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small) else CircleShape
         Box(
-            Modifier.size(DetailLayout.CastPhoto).clip(CircleShape).background(com.cinetrack.ui.theme.GlassBare)
-                .border(.6.dp, Color.White.copy(alpha = .12f), CircleShape),
+            (if (poster) Modifier.padding(horizontal = 4.dp).fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(DetailLayout.CastPhoto))
+                .clip(shape).background(com.cinetrack.ui.theme.GlassBare)
+                .border(.6.dp, Color.White.copy(alpha = .12f), shape),
             contentAlignment = Alignment.Center,
         ) {
-            if (!person.profileUrl.isNullOrBlank()) {
-                AsyncImage(person.profileUrl, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+            if (!photo.isNullOrBlank()) {
+                androidx.compose.animation.Crossfade(photo, label = "castPhoto") { url ->
+                    AsyncImage(url, person.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                }
             } else {
                 Icon(Icons.Filled.Person, null, tint = TextSecondary, modifier = Modifier.size(32.dp))
             }
         }
         Spacer(Modifier.height(8.dp))
-        // Fixed line slots keep every name and role aligned across the row.
-        Text(person.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-            fontWeight = FontWeight.SemiBold, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        // Characters mode leads with the character, then the actor.
+        val (primary, secondary) = if (showCharacter && person.role.isNotBlank()) person.role to person.name else person.name to person.role
+        // One line each keeps every name and role aligned across the row.
+        Text(primary, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-        Text(person.role, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
+        Text(secondary, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
     }
 }
 
 @Composable
-private fun CastSection(people: List<PersonCard>, onViewAll: () -> Unit, onPerson: (PersonCard) -> Unit) {
+private fun CastSection(
+    people: List<PersonCard>,
+    showCharacters: Boolean = false,
+    onShowCharacters: (Boolean) -> Unit = {},
+    onViewAll: () -> Unit,
+    onPerson: (PersonCard) -> Unit,
+) {
+    // The Characters / Cast switch appears only when Floppy found character pictures.
+    val hasCharacters = people.any { !it.characterImageUrl.isNullOrBlank() }
     Column {
-        SectionHeader(stringResource(R.string.cast_title), Modifier.padding(horizontal = DetailLayout.Gutter), stringResource(R.string.see_all), onViewAll)
+        if (hasCharacters) {
+            CastModeHeader(showCharacters, onShowCharacters, onViewAll, Modifier.padding(horizontal = DetailLayout.Gutter))
+        } else {
+            SectionHeader(stringResource(R.string.cast_title), Modifier.padding(horizontal = DetailLayout.Gutter), stringResource(R.string.see_all), onViewAll)
+        }
         Spacer(Modifier.height(12.dp))
         LazyRow(contentPadding = PaddingValues(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            items(people.take(18), key = PersonCard::id) { person ->
-                CastAvatar(person, onPerson)
+            // Directors, producers and other crew appear only under Cast.
+            val shown = if (showCharacters && hasCharacters) people.filter(PersonCard::isCastMember) else people
+            items(shown.take(18), key = PersonCard::id) { person ->
+                CastAvatar(person, onPerson, showCharacter = showCharacters && hasCharacters)
             }
         }
     }
+}
+
+/** Characters / Cast headlines that switch like the Film / Serie header. */
+@Composable
+private fun CastModeHeader(showCharacters: Boolean, onShowCharacters: (Boolean) -> Unit, onViewAll: () -> Unit, modifier: Modifier = Modifier) {
+    Row(modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        CastModeHeadline(stringResource(R.string.characters_title), showCharacters) { onShowCharacters(true) }
+        Spacer(Modifier.width(14.dp))
+        CastModeHeadline(stringResource(R.string.cast_title), !showCharacters) { onShowCharacters(false) }
+        Spacer(Modifier.weight(1f))
+        val viewAll = rememberUiAction(onViewAll)
+        Row(
+            Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = viewAll).padding(start = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(stringResource(R.string.see_all), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.width(2.dp))
+            Icon(Icons.Filled.ChevronRight, null, tint = TextSecondary, modifier = Modifier.size(15.dp))
+        }
+    }
+}
+
+@Composable
+private fun CastModeHeadline(text: String, selected: Boolean, onClick: () -> Unit) {
+    val color by androidx.compose.animation.animateColorAsState(
+        if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),
+        androidx.compose.animation.core.tween(com.cinetrack.ui.theme.Motion.Extended),
+        label = "castModeHeadline",
+    )
+    Text(
+        text,
+        color = color,
+        lineHeight = 21.sp,
+        fontWeight = FontWeight.ExtraBold,
+        style = androidx.compose.material3.MaterialTheme.typography.titleMedium.copy(
+            shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .62f), androidx.compose.ui.geometry.Offset(0f, 2.5f), 6f),
+        ),
+        modifier = Modifier.softTab(selected, onClick),
+    )
 }
 
 @Composable
@@ -1809,7 +1878,8 @@ private fun SeasonInfoSheet(
 }
 
 @Composable
-private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPerson: (PersonCard) -> Unit) {
+private fun FullCastSheet(people: List<PersonCard>, showCharacters: Boolean = false, onDismiss: () -> Unit, onPerson: (PersonCard) -> Unit) {
+    val hasCharacters = people.any { !it.characterImageUrl.isNullOrBlank() }
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter)) {
             SectionHeader(stringResource(R.string.full_cast), Modifier.padding(horizontal = DetailLayout.Inner))
@@ -1821,9 +1891,9 @@ private fun FullCastSheet(people: List<PersonCard>, onDismiss: () -> Unit, onPer
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 contentPadding = PaddingValues(bottom = 20.dp),
             ) {
-                gridItems(people, key = PersonCard::id) { person ->
+                gridItems(if (showCharacters && hasCharacters) people.filter(PersonCard::isCastMember) else people, key = PersonCard::id) { person ->
                     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
-                        CastAvatar(person, onPerson)
+                        CastAvatar(person, onPerson, showCharacter = showCharacters && hasCharacters)
                     }
                 }
             }
@@ -2212,6 +2282,11 @@ fun EpisodeDetailScreen(
                 castByEpisode[key] = runCatching { viewModel.loadEpisodeCast(series, target.season, target.number) }.getOrDefault(emptyList()).ifEmpty { showCast }
             }
         }
+        // The show's TVDB character pictures fill in after the TMDB cast is on screen.
+        listOfNotNull(currentEpisode, pages.getOrNull(index + 1), pages.getOrNull(index - 1)).forEach { target ->
+            val key = target.season to target.number
+            castByEpisode[key]?.let { cast -> castByEpisode[key] = viewModel.withCharacterPictures(series, cast, remember = false) }
+        }
     }
     // Episodes arriving (the season loading) move the current one to another index.
     LaunchedEffect(pages) {
@@ -2231,6 +2306,7 @@ fun EpisodeDetailScreen(
     val loadedPeople = castByEpisode[currentEpisode.season to currentEpisode.number] ?: people
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
+    var showCharacters by remember(show?.stableKey) { mutableStateOf(true) }
     val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsState(initial = emptyList())
     val posterAccent = com.cinetrack.ui.components.rememberPosterAccent(show?.posterUrl ?: show?.backdropUrl, rememberPosterAccentEnabled(viewModel))
     androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.theme.LocalDetailAccent provides posterAccent) {
@@ -2361,7 +2437,7 @@ fun EpisodeDetailScreen(
                             if (displayedEpisode.overview.isNotBlank()) PlotSection(displayedEpisode.overview)
                         }
                         LoadedSection(pageCast != null, { CastSkeleton() }) {
-                            if (!pageCast.isNullOrEmpty()) CastSection(pageCast, onViewAll = { showFullCast = true }) { selectedPerson = it }
+                            if (!pageCast.isNullOrEmpty()) CastSection(pageCast, showCharacters, { showCharacters = it }, onViewAll = { showFullCast = true }) { selectedPerson = it }
                         }
                         if (pageCast != null) {
                             // Episode credits list crew by their job; show who directed and wrote it.
@@ -2427,7 +2503,7 @@ fun EpisodeDetailScreen(
         ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
     }
     if (showFullCast) {
-        FullCastSheet(loadedPeople, onDismiss = { showFullCast = false }) { person ->
+        FullCastSheet(loadedPeople, showCharacters, onDismiss = { showFullCast = false }) { person ->
             showFullCast = false
             selectedPerson = person
         }

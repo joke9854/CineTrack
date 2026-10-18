@@ -133,6 +133,8 @@ data class PersonCard(
     val movieCredits: List<MediaCard> = emptyList(),
     val isCastMember: Boolean = false,
     val isDirector: Boolean = false,
+    /** TVDB picture of the character this person plays, when Floppy has one. */
+    val characterImageUrl: String? = null,
 ) {
     fun age(on: LocalDate = LocalDate.now()): Int? = runCatching {
         birthday?.let { Period.between(LocalDate.parse(it), on).years }

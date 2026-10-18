@@ -28,6 +28,8 @@ interface MediaRepository {
     suspend fun loadPerson(person: PersonCard): PersonCard
     suspend fun loadRatings(media: MediaCard): List<RatingScore>
     suspend fun loadCast(media: MediaCard): List<PersonCard>
+    /** TVDB character pictures through Floppy; empty without Floppy or on failure. */
+    suspend fun loadCharacterPictures(media: MediaCard): List<com.cinetrack.domain.CharacterImage> = emptyList()
     suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard>
     suspend fun loadAllEpisodes(show: MediaCard): List<EpisodeCard>
     suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard?
@@ -59,6 +61,7 @@ class DefaultMediaRepository(private val source: MediaDataSource) : MediaReposit
     override suspend fun loadPerson(person: PersonCard) = source.loadPerson(person)
     override suspend fun loadRatings(media: MediaCard) = source.loadRatings(media)
     override suspend fun loadCast(media: MediaCard) = source.loadCast(media)
+    override suspend fun loadCharacterPictures(media: MediaCard) = source.loadCharacterPictures(media)
     override suspend fun loadEpisodes(show: MediaCard, season: Int) = source.loadEpisodes(show, season)
     override suspend fun loadAllEpisodes(show: MediaCard) = source.loadAllEpisodes(show)
     override suspend fun loadEpisode(show: MediaCard, season: Int, number: Int) = source.loadEpisode(show, season, number)

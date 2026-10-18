@@ -161,6 +161,12 @@ interface FloppyApi {
         @Body request: FloppyEpisodeTranslateRequest,
     ): FloppyEpisodeTranslateResponse
 
+    @GET("api/v1/media/{mediaType}/tmdb/{tmdbId}/characters/")
+    suspend fun characters(
+        @Path("mediaType") mediaType: String,
+        @Path("tmdbId") tmdbId: String,
+    ): com.cinetrack.data.sync.floppy.FloppyCharactersResponse
+
     @POST("api/v1/cinetrack/crash-reports/")
     suspend fun submitCrashReport(@Body report: com.cinetrack.crash.CrashReportDto): com.cinetrack.crash.CrashReportResponse
 

@@ -1,5 +1,6 @@
 package com.cinetrack.ui.screens
 
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
@@ -66,7 +67,8 @@ private val MiniatureHeight = 560.dp
 @Composable
 internal fun AppearancePage(title: String, state: AppUiState, viewModel: CineTrackViewModel, onBack: () -> Unit) {
     var posterMode by rememberSaveable { mutableStateOf("rows") }
-    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(state.heroLayout, state.posterFormat, state.posterSize)) {
+    val castPhotoShape by viewModel.castPhotoShape.collectAsStateWithLifecycle()
+    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
@@ -181,6 +183,12 @@ private fun AppearanceChoices(state: AppUiState, viewModel: CineTrackViewModel, 
             state.cardDensity, onSelected = viewModel::setCardDensity,
         )
     }
+
+    AppearanceLabel(stringResource(R.string.appearance_cast_photos_short))
+    SegmentedChoice(
+        listOf("circle" to stringResource(R.string.cast_photo_circle), "poster" to stringResource(R.string.cast_photo_poster)),
+        viewModel.castPhotoShape.collectAsStateWithLifecycle().value, onSelected = viewModel::setCastPhotoShape,
+    )
 }
 
 @Composable

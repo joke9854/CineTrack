@@ -14,6 +14,7 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.MovieHistoryMutationContext
 import com.cinetrack.data.sync.floppy.FLOPPY_PROBE_ACCOUNT_PREFIX
 import com.cinetrack.data.sync.floppy.FloppyCapabilities
+import com.cinetrack.data.sync.floppy.FloppyCharacterDto
 import com.cinetrack.data.sync.floppy.FloppyConnectionSettings
 import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
@@ -157,6 +158,7 @@ class FloppyRemoteDataSource(
                 info.apiExtensions.syncAppConnectionsV1,
             canTranslateEpisodes = info.apiExtensions?.cinetrackEpisodeTranslateV1 == true,
             canCrashReports = info.apiExtensions?.cinetrackCrashReportsV1 == true,
+            canCharacterImages = info.apiExtensions?.cinetrackCharactersV1 == true,
         )
         FloppyConnectionSettings(
             baseUrl = identity.baseUrl,
@@ -240,6 +242,10 @@ class FloppyRemoteDataSource(
             ).results
         }
     }
+
+    /** TVDB characters of one TMDB title ([mediaType] is "tv" or "movie"). */
+    suspend fun characters(session: FloppySession, mediaType: String, tmdbId: Int): List<FloppyCharacterDto> =
+        mapped { api(session).characters(mediaType, tmdbId.toString()).characters }
 
     /**
      * Sends one crash/ANR report. Only a known outcome is returned (201 created,

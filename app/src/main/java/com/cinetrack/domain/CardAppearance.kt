@@ -5,6 +5,8 @@ data class CardAppearance(
     val heroLayout: String = "standard",
     val posterFormat: String = "classic",
     val posterSize: String = "standard",
+    /** Cast and character photos: "circle" or "poster" (2:3). */
+    val castPhotoShape: String = "circle",
 ) {
     val heroAspectRatio: Float? get() = when (heroLayout) {
         "landscape" -> 16f / 9f
@@ -24,6 +26,7 @@ data class CardAppearance(
     companion object {
         fun normalizeHero(value: String) = value.takeIf { it in setOf("standard", "landscape", "balanced") } ?: "standard"
         fun normalizeFormat(value: String) = value.takeIf { it in setOf("classic", "compact", "tall") } ?: "classic"
+        fun normalizeCastShape(value: String) = value.takeIf { it in setOf("circle", "poster") } ?: "circle"
         fun normalizeSize(value: String) = value.takeIf { it in setOf("small", "standard", "large") } ?: "standard"
         fun gridColumns(density: String) = when (density) { "compact" -> 4; "large" -> 2; else -> 3 }
     }

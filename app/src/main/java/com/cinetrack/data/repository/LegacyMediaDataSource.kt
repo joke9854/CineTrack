@@ -28,6 +28,7 @@ class LegacyMediaDataSource(private val facade: CineTrackRepository) : MediaData
     override suspend fun loadPerson(person: PersonCard) = facade.loadPerson(person)
     override suspend fun loadRatings(media: MediaCard) = facade.loadRatings(media)
     override suspend fun loadCast(media: MediaCard) = facade.loadCast(media)
+    override suspend fun loadCharacterPictures(media: MediaCard) = facade.loadCharacterPictures(media)
     override suspend fun loadEpisodes(show: MediaCard, season: Int) = facade.loadEpisodes(show, season)
     override suspend fun loadAllEpisodes(show: MediaCard) = facade.loadAllEpisodes(show)
     override suspend fun loadEpisode(show: MediaCard, season: Int, number: Int) = facade.loadEpisode(show, season, number)

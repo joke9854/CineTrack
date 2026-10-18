@@ -23,6 +23,7 @@ import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.work.LibraryArtworkRefreshManager
 import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
+import com.cinetrack.domain.withCharacterImages
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.FloppyConnectionError
 import com.cinetrack.domain.FloppyConnectionStage
@@ -737,6 +738,14 @@ class CineTrackViewModel(
         val normalized = com.cinetrack.domain.CardAppearance.normalizeFormat(value)
         _state.value = _state.value.copy(posterFormat = normalized)
         viewModelScope.launch { repository.preferences.setPosterFormat(normalized) }
+    }
+
+    /** Kept out of AppUiState: loadCachedState is at the JVM method-size limit. */
+    val castPhotoShape: StateFlow<String> = repository.preferences.castPhotoShape
+        .stateIn(viewModelScope, SharingStarted.Eagerly, "circle")
+
+    fun setCastPhotoShape(value: String) {
+        viewModelScope.launch { repository.preferences.setCastPhotoShape(value) }
     }
 
     fun setPosterSize(value: String) {
@@ -1603,6 +1612,15 @@ class CineTrackViewModel(
         ?: withContext(Dispatchers.IO) { mediaRepository.loadCast(media) }.also {
             if (it.isNotEmpty()) detailCastCache[media.stableKey] = it
         }
+    /**
+     * Adds TVDB character pictures to an already shown cast; the cast is returned unchanged
+     * without them. [remember] keeps the result as the title's cast (episode casts don't).
+     */
+    suspend fun withCharacterPictures(media: MediaCard, cast: List<PersonCard>, remember: Boolean = true): List<PersonCard> {
+        if (cast.isEmpty() || cast.any { it.characterImageUrl != null }) return cast
+        val pictures = withContext(Dispatchers.IO) { mediaRepository.loadCharacterPictures(media) }
+        return cast.withCharacterImages(pictures).also { if (remember && it !== cast) detailCastCache[media.stableKey] = it }
+    }
     suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodes(show, season) }
     suspend fun loadAllEpisodes(show: MediaCard): List<EpisodeCard> = detailEpisodeCache[show.id]
         ?.takeIf { it.isNotEmpty() }

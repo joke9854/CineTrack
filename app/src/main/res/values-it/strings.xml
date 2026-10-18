@@ -811,6 +811,10 @@
     <string name="plot_more">Altro</string>
     <string name="plot_less">Meno</string>
     <string name="cast_title">Cast</string>
+    <string name="appearance_cast_photos_short">Foto del cast</string>
+    <string name="cast_photo_circle">Cerchio</string>
+    <string name="cast_photo_poster">Poster</string>
+    <string name="characters_title">Personaggi</string>
     <string name="offer_flatrate">Incluso nell\'abbonamento</string>
     <string name="offer_free">Gratis</string>
     <string name="offer_ads">Gratis con pubblicità</string>

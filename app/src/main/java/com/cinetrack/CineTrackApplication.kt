@@ -344,6 +344,10 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             },
             episodeNumbering = episodeNumbering,
             animeNumberingRepair = animeRepair,
+            characterImages = { type, tmdbId ->
+                floppy.characterImages(if (type == com.cinetrack.domain.MediaType.MOVIE) "movie" else "tv", tmdbId)
+                    ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
+            },
         )
         libraryRepository = localLibrary
         mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))

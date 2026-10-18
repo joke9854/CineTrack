@@ -229,6 +229,8 @@ class CineTrackRepository(
     private val floppyUnplacedEpisodes: (suspend () -> List<com.cinetrack.data.sync.floppy.FloppyUnplacedEpisode>)? = null,
     override val episodeNumbering: com.cinetrack.data.sync.numbering.EpisodeNumbering? = null,
     override val animeNumberingRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? = null,
+    /** TVDB character pictures through Floppy; null (or a failure) keeps the TMDB-only cast. */
+    private val characterImages: (suspend (MediaType, Int) -> List<com.cinetrack.domain.CharacterImage>?)? = null,
 ) : SimklSyncHost {
     /** Shows whose local episode numbers were rewritten, so screens can drop cached episode lists. */
     val renumberedShows = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 64)
@@ -652,6 +654,7 @@ class CineTrackRepository(
     } ?: 0L
 
     private val castCache = BoundedLruCache<String, List<PersonCard>>(32)
+    private val characterPictureCache = BoundedLruCache<String, List<com.cinetrack.domain.CharacterImage>>(32)
     private val recommendationCandidatesCache = BoundedLruCache<String, List<TmdbMediaDto>>(32)
     private val episodeTitleCache = BoundedLruCache<String, String>(750)
     /** Episodes TMDB answered without a title (or not at all), not asked again this process. */
@@ -2464,6 +2467,18 @@ class CineTrackRepository(
         }.getOrDefault(emptyList())
     }
 
+    /**
+     * TVDB character pictures through Floppy, loaded after the TMDB cast so the
+     * row never waits for them. A failure returns nothing and retries on the next open.
+     */
+    suspend fun loadCharacterPictures(media: MediaCard): List<com.cinetrack.domain.CharacterImage> {
+        val fetch = characterImages ?: return emptyList()
+        characterPictureCache[media.stableKey]?.let { return it }
+        return cancellableResult { fetch(media.type, media.id).orEmpty() }
+            .onSuccess { characterPictureCache[media.stableKey] = it }
+            .getOrDefault(emptyList())
+    }
+
     suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> {
         val watchedNumbers = watchedEpisodeNumbers(show.id)
         val cachedEntities = database.mediaDao().episodesForShow(show.id)
@@ -3372,6 +3387,7 @@ class CineTrackRepository(
                 put("seasonPicker", state.seasonPicker)
                 put("posterAccent", state.posterAccent)
                 put("posterFormat", state.posterFormat)
+                put("castPhotoShape", preferences.castPhotoShape.first())
                 put("posterSize", state.posterSize)
                 put("cardDensity", state.cardDensity)
                 put("hiddenDiscovery", state.hiddenDiscovery.sorted().joinToString("|"))
@@ -3534,6 +3550,7 @@ class CineTrackRepository(
             saved["seasonPicker"]?.jsonPrimitive?.contentOrNull?.let { preferences.setSeasonPicker(it) }
             saved["posterAccent"]?.jsonPrimitive?.booleanOrNull?.let { preferences.setPosterAccent(it) }
             saved["posterFormat"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterFormat(it) }
+            saved["castPhotoShape"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCastPhotoShape(it) }
             saved["posterSize"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterSize(it) }
             saved["cardDensity"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCardDensity(it) }
             saved["hiddenDiscovery"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()

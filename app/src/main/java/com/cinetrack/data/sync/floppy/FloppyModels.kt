@@ -26,6 +26,7 @@ data class FloppyApiExtensions(
     @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
     @SerialName("cinetrack_episode_translate_v1") val cinetrackEpisodeTranslateV1: Boolean = false,
     @SerialName("cinetrack_crash_reports_v1") val cinetrackCrashReportsV1: Boolean = false,
+    @SerialName("cinetrack_characters_v1") val cinetrackCharactersV1: Boolean = false,
     /** App sign-in (OAuth 2.0 + PKCE) for the `cinetrack` client. */
     @SerialName("oauth_v1") val oauthV1: Boolean = false,
 )
@@ -258,6 +259,8 @@ data class FloppyCapabilities(
     val canTranslateEpisodes: Boolean = false,
     /** Fork capability: accepts CineTrack crash/ANR reports. */
     val canCrashReports: Boolean = false,
+    /** Fork capability: TVDB character pictures for the cast row. */
+    val canCharacterImages: Boolean = false,
 )
 
 /** One play of a synced item, at its exact instant. */
@@ -382,6 +385,22 @@ data class FloppyEpisodeEnsureResult(
 
 @Serializable
 data class FloppyEpisodeEnsureResponse(val results: List<FloppyEpisodeEnsureResult> = emptyList())
+
+/** One on-screen character from TVDB, read through Floppy; either picture may be missing. */
+@Serializable
+data class FloppyCharacterDto(
+    val name: String = "",
+    @SerialName("person_name") val personName: String = "",
+    @SerialName("character_image") val characterImage: String? = null,
+    @SerialName("person_image") val personImage: String? = null,
+)
+
+@Serializable
+data class FloppyCharactersResponse(
+    @SerialName("tvdb_id") val tvdbId: String? = null,
+    val reason: String? = null,
+    val characters: List<FloppyCharacterDto> = emptyList(),
+)
 
 @Serializable
 data class FloppyEpisodeTranslateCoord(val season: Int, val episode: Int)
