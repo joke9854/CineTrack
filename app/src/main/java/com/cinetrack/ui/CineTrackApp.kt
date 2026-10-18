@@ -178,7 +178,11 @@ fun CineTrackApp(
     val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
     val mosaicCanLoadMore by viewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
     val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
-    val appUpdateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
+    val settingsViewModel: com.cinetrack.ui.settings.SettingsViewModel = viewModel(
+        factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.repository.preferences),
+    )
+    val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
+    LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -543,6 +547,7 @@ fun CineTrackApp(
                     page = entry.arguments?.getString("page").orEmpty(),
                     state = state,
                     viewModel = viewModel,
+                    settingsViewModel = settingsViewModel,
                     onBack = { navController.popBackStack() },
                     onPage = { navController.navigate("settings-detail/$it") },
                 )
@@ -594,7 +599,7 @@ fun CineTrackApp(
         // Once per launch, after the start-up animation: offer a newer release.
         var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
         LaunchedEffect(minimumLaunchElapsed) {
-            if (minimumLaunchElapsed && appUpdateState is com.cinetrack.data.update.AppUpdateState.Idle) viewModel.checkForAppUpdate()
+            if (minimumLaunchElapsed && appUpdateState is com.cinetrack.data.update.AppUpdateState.Idle) settingsViewModel.checkForAppUpdate()
         }
         val offeredUpdate = when (val current = appUpdateState) {
             is com.cinetrack.data.update.AppUpdateState.Available -> current.update
@@ -617,7 +622,7 @@ fun CineTrackApp(
                     tone = if (downloading != null) com.cinetrack.ui.components.PillTone.RUNNING else com.cinetrack.ui.components.PillTone.INFO,
                     fraction = downloading?.progress,
                     actionLabel = if (downloading == null) stringResource(com.cinetrack.R.string.update_install) else null,
-                    onAction = { viewModel.openAppUpdate(context) },
+                    onAction = { settingsViewModel.openAppUpdate(context) },
                     onDismiss = { updateDismissed = update.version },
                 )
             }

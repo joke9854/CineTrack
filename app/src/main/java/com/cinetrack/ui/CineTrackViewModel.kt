@@ -23,9 +23,6 @@ import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.work.LibraryArtworkRefreshManager
 import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
-import com.cinetrack.data.update.AppUpdateState
-import com.cinetrack.data.update.AppChangelogState
-import com.cinetrack.data.update.GitHubAppUpdater
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.FloppyConnectionError
 import com.cinetrack.domain.FloppyConnectionStage
@@ -137,8 +134,6 @@ class CineTrackViewModel(
     private val _floppyUnplaced = MutableStateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>>(emptyList())
     /** Episodes Floppy could not place; the settings screen links each to Floppy. */
     val floppyUnplaced: StateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>> = _floppyUnplaced.asStateFlow()
-    private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
-    val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
     private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
@@ -280,12 +275,6 @@ class CineTrackViewModel(
         }
     }
 
-    private val _appUpdateState = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle)
-    val appUpdateState: StateFlow<AppUpdateState> = _appUpdateState.asStateFlow()
-    private val _appChangelogState = MutableStateFlow<AppChangelogState>(AppChangelogState.Idle)
-    val appChangelogState: StateFlow<AppChangelogState> = _appChangelogState.asStateFlow()
-    private var downloadedUpdateFile: File? = null
-
     @OptIn(FlowPreview::class)
     private fun observeSearch() {
         viewModelScope.launch {
@@ -372,7 +361,6 @@ class CineTrackViewModel(
             }
         }
         viewModelScope.launch {
-            _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
             _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
             _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             state
@@ -381,7 +369,6 @@ class CineTrackViewModel(
                 .distinctUntilChanged()
                 .collect { message: String ->
                     val line = "${java.time.Instant.now()}  $message"
-                    _errorLogs.value = (_errorLogs.value + line).takeLast(500)
                     withContext(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
                 }
         }
@@ -1501,22 +1488,8 @@ class CineTrackViewModel(
         viewModelScope.launch(Dispatchers.IO) { repository.preferences.dismissFloppyUnplaced(item.dismissKey) }
     }
 
-    fun clearErrorLogs() {
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { repository.preferences.clearErrorLog() }
-            _errorLogs.value = emptyList()
-        }
-    }
-
-    fun refreshErrorLogs() {
-        viewModelScope.launch {
-            _errorLogs.value = withContext(Dispatchers.IO) { repository.preferences.readErrorLogs() }
-        }
-    }
-
     private fun appendFloppyDiagnostic(message: String) {
         val line = "${java.time.Instant.now()}  $message"
-        _errorLogs.update { (it + line).takeLast(500) }
         viewModelScope.launch(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
     }
 
@@ -1661,7 +1634,6 @@ class CineTrackViewModel(
         _state.value = _state.value.copy(wifiOnly = enabled)
         viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
     }
-    fun setLanguage(value: String) = viewModelScope.launch { repository.preferences.setLanguage(value) }
     fun setNotification(kind: String, enabled: Boolean) {
         _state.value = when (kind) {
             "episodes" -> _state.value.copy(notificationEpisodes = enabled)
@@ -1828,6 +1800,11 @@ class CineTrackViewModel(
         }
     }
 
+    /** Shows a failure from another screen's ViewModel in the app's error banner. */
+    fun showError(message: String) {
+        _state.value = _state.value.copy(error = message)
+    }
+
     fun dismissError() {
         _state.value = _state.value.copy(error = null)
     }
@@ -1864,80 +1841,6 @@ class CineTrackViewModel(
             }.onFailure {
                 backupFinished(restore = false, failed = true)
                 _state.value = _state.value.copy(error = it.message)
-            }
-        }
-    }
-
-    fun exportLogs(context: Context) {
-        viewModelScope.launch {
-            runCatching {
-                val file = withContext(Dispatchers.IO) {
-                    val directory = File(context.cacheDir, "exports").apply { mkdirs() }
-                    File(directory, "cinetrack-logs.txt").apply {
-                        writeText(_errorLogs.value.joinToString(separator = "\n", postfix = "\n"))
-                    }
-                }
-                val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)
-                val share = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(share, context.getString(com.cinetrack.R.string.export_logs)))
-            }.onFailure { _state.value = _state.value.copy(error = it.message) }
-        }
-    }
-
-    fun checkForAppUpdate() {
-        if (_appUpdateState.value is AppUpdateState.Checking || _appUpdateState.value is AppUpdateState.Downloading) return
-        viewModelScope.launch {
-            _appUpdateState.value = AppUpdateState.Checking
-            GitHubAppUpdater.check()
-                .onSuccess { update ->
-                    _appUpdateState.value = update?.let(AppUpdateState::Available) ?: AppUpdateState.UpToDate
-                }
-                .onFailure { failure ->
-                    _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update check failed")
-                }
-        }
-    }
-
-    fun loadAppChangelog() {
-        if (_appChangelogState.value is AppChangelogState.Loading) return
-        viewModelScope.launch {
-            _appChangelogState.value = AppChangelogState.Loading
-            GitHubAppUpdater.latestRelease()
-                .onSuccess { release ->
-                    _appChangelogState.value = release?.let(AppChangelogState::Available)
-                        ?: AppChangelogState.Empty
-                }
-                .onFailure { failure ->
-                    _appChangelogState.value = AppChangelogState.Error(
-                        failure.message ?: "Could not load the changelog",
-                    )
-                }
-        }
-    }
-
-    fun openAppUpdate(context: Context) {
-        val update = (_appUpdateState.value as? AppUpdateState.Available)?.update ?: return
-        viewModelScope.launch {
-            val cached = downloadedUpdateFile?.takeIf(File::exists)
-            if (cached != null) {
-                runCatching { GitHubAppUpdater.launchInstaller(context, cached) }
-                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
-                return@launch
-            }
-            _appUpdateState.value = AppUpdateState.Downloading(update, 0f)
-            GitHubAppUpdater.download(context, update) { progress ->
-                _appUpdateState.value = AppUpdateState.Downloading(update, progress)
-            }.onSuccess { apk ->
-                downloadedUpdateFile = apk
-                _appUpdateState.value = AppUpdateState.Available(update)
-                runCatching { GitHubAppUpdater.launchInstaller(context, apk) }
-                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
-            }.onFailure { failure ->
-                _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update download failed")
             }
         }
     }

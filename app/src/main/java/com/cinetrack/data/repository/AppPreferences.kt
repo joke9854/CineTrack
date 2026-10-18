@@ -31,7 +31,12 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
 import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
+import com.cinetrack.ui.settings.SettingsPreferences
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import retrofit2.HttpException
@@ -50,7 +55,7 @@ private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_prefer
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
 private const val ERROR_LOG_LINES = 500
 
-class AppPreferences(private val context: Context) {
+class AppPreferences(private val context: Context) : SettingsPreferences {
     fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
     private val errorLogFile: File get() = File(context.filesDir, "cinetrack-error-log.txt")
     private val credentialStore by lazy { SecureCredentialStore(context) }
@@ -654,7 +659,7 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.wifiOnly] = enabled }
         TrackingWorkScheduler.update(context, enabled = backgroundSync.first(), wifiOnly = enabled)
     }
-    suspend fun setLanguage(value: String) {
+    override suspend fun setLanguage(value: String) {
         context.cineTrackDataStore.edit { it[Keys.language] = value }
         AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(value))
     }
@@ -850,7 +855,11 @@ class AppPreferences(private val context: Context) {
         context.cineTrackDataStore.edit { it[Keys.introductionCompleted] = value }
     }
 
-    fun readErrorLogs(): List<String> = runCatching {
+    private val errorLogVersion = MutableStateFlow(0L)
+    /** Bumped on every append or clear, so an open Logs page re-reads the file. */
+    override val errorLogChanges: StateFlow<Long> = errorLogVersion.asStateFlow()
+
+    override fun readErrorLogs(): List<String> = runCatching {
         if (errorLogFile.exists()) errorLogFile.readLines().filter(String::isNotBlank).takeLast(ERROR_LOG_LINES) else emptyList()
     }.getOrDefault(emptyList())
 
@@ -862,11 +871,13 @@ class AppPreferences(private val context: Context) {
             val lines = (readErrorLogs() + line).takeLast(ERROR_LOG_LINES)
             errorLogFile.writeText(lines.joinToString(separator = "\n", postfix = "\n"))
         }
+        errorLogVersion.update { it + 1 }
     }
 
     @Synchronized
-    fun clearErrorLog() {
+    override fun clearErrorLog() {
         runCatching { errorLogFile.delete() }
+        errorLogVersion.update { it + 1 }
     }
 
     fun saveAutomaticBackup(files: Map<String, String>) {

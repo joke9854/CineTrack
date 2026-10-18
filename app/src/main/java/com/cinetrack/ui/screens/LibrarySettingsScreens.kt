@@ -192,6 +192,7 @@ import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.SyncDeliveryCard
 import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
+import com.cinetrack.ui.settings.SettingsViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.BrandMark
@@ -890,6 +891,7 @@ fun SettingsDetailScreen(
     page: String,
     state: AppUiState,
     viewModel: CineTrackViewModel,
+    settingsViewModel: SettingsViewModel,
     onBack: () -> Unit,
     onPage: (String) -> Unit,
 ) {
@@ -961,11 +963,11 @@ fun SettingsDetailScreen(
                         }
                     }
                     SettingsPages.Notifications -> NotificationSettings(state, viewModel)
-                    SettingsPages.Language -> LanguageSettings(viewModel)
+                    SettingsPages.Language -> LanguageSettings(settingsViewModel)
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
-                    SettingsPages.Logs -> LogsSettings(viewModel)
-                    else -> AboutSettings(viewModel)
+                    SettingsPages.Logs -> LogsSettings(settingsViewModel)
+                    else -> AboutSettings(settingsViewModel)
                 }
             }
         }
@@ -2199,7 +2201,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
 }
 
 @Composable
-private fun LanguageSettings(viewModel: CineTrackViewModel) {
+private fun LanguageSettings(viewModel: SettingsViewModel) {
     val currentLanguage = AppCompatDelegate.getApplicationLocales().toLanguageTags()
         .substringBefore(',')
         .takeIf(String::isNotBlank)
@@ -2294,7 +2296,7 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
 }
 
 @Composable
-private fun LogsSettings(viewModel: CineTrackViewModel) {
+private fun LogsSettings(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val logs by viewModel.errorLogs.collectAsStateWithLifecycle()
     // Background workers append to the log file directly; re-read it on open.
@@ -2423,7 +2425,7 @@ private fun ExportSettings(viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun AboutSettings(viewModel: CineTrackViewModel) {
+private fun AboutSettings(viewModel: SettingsViewModel) {
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
     val updateState by viewModel.appUpdateState.collectAsStateWithLifecycle()
