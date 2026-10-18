@@ -1,0 +1,42 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "baseBranchPatterns": ["beta-testing"],
+  "enabledManagers": ["gradle", "gradle-wrapper", "github-actions"],
+  "commitMessageSuffix": "[skip release]",
+  "prConcurrentLimit": 5,
+  "schedule": ["before 6am on monday"],
+  "packageRules": [
+    {
+      "description": "The Compose BOM follows PrismalAGSL: bump it by hand to the BOM in PrismalAGSL's POM.",
+      "matchPackageNames": ["androidx.compose:compose-bom"],
+      "enabled": false
+    },
+    {
+      "description": "A PrismalAGSL update may need a Compose BOM bump in the same PR.",
+      "matchPackageNames": ["com.github.styropyr0:PrismalAGSL"],
+      "groupName": "PrismalAGSL and Compose BOM",
+      "prBodyNotes": ["Check the Compose BOM in the new PrismalAGSL POM and set `compose-bom` in gradle/libs.versions.toml to match."]
+    },
+    {
+      "description": "KSP and the Kotlin compiler plugins must move together.",
+      "matchPackageNames": ["org.jetbrains.kotlin.plugin.**", "com.google.devtools.ksp**"],
+      "groupName": "Kotlin and KSP"
+    },
+    {
+      "description": "Both AGP plugin ids share one version.",
+      "matchPackageNames": ["com.android.application**", "com.android.test**", "com.android.tools.build:gradle"],
+      "matchManagers": ["gradle"],
+      "groupName": "Android Gradle Plugin"
+    },
+    {
+      "matchPackageNames": ["androidx.room:**"],
+      "groupName": "Room"
+    },
+    {
+      "description": "Major updates wait for a person to look.",
+      "matchUpdateTypes": ["major"],
+      "dependencyDashboardApproval": true
+    }
+  ]
+}

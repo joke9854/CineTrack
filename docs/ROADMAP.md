@@ -17,12 +17,10 @@ Board Estimate is in points: XS=1, S=2, M=3, L=5, XL=8.
 | 0.99.64 | Q6 Material 3 `PullToRefreshBox`, drop `androidx.compose.material` (Material 2 `pullrefresh`) | UI | Feature | P3 | S | Pull-to-refresh on every list |
 | 0.99.64 | H6 Confirm the preflight fix on the S23 (`cinetrack/connection`), remove the unused `user/preferences` declaration, update CLAUDE.md's open issue and reference-doc path | Sync | Bug | P2 | XS | Floppy connect and first sync |
 | 0.99.65 | F2 Widget: mark-watched action (reuse the notification receiver), more sizes, remove the legacy `up_next_widget.xml` | UI | Feature | P1 | M | Home-screen widget |
-| 0.99.66 | F3 Stats screen: time watched, genres, year review (move `StatisticsSection` out of Progress) | UI | Feature | P2 | M | New screen |
-| 0.99.67 | Character pictures in the cast row. **Check first** whether Simkl's API returns character images (TMDB has names only, and they are already shown). Floppy comes later | UI | Feature | P3 | M | Cast row on detail pages |
-| 0.99.68 | Q5 Version catalog (`gradle/libs.versions.toml`) plus Renovate, with the Compose BOM grouped and pinned to PrismalAGSL | Release | Feature | P3 | M | App starts and syncs as before |
-| 0.99.69+ | Q1 Split `CineTrackViewModel` / `AppUiState` **one screen per release**, starting with Settings | UI | Feature | P2 | L | Only that screen |
-| 0.99.69+ | Q2 Retire the `CineTrackRepository` façade alongside Q1 (docs/metadata-sync-migration.md) | Data | Feature | P2 | L | Only that screen |
-| 0.99.69+ | Q3 Tests for each split screen's ViewModel, plus a backup→restore round trip and ICS export | Tests | Test | P2 | M | CI |
+| 0.99.66 | Q5 Version catalog (`gradle/libs.versions.toml`) plus Renovate, with the Compose BOM grouped and pinned to PrismalAGSL | Release | Feature | P3 | M | App starts and syncs as before |
+| 0.99.67+ | Q1 Split `CineTrackViewModel` / `AppUiState` **one screen per release**, starting with Settings | UI | Feature | P2 | L | Only that screen |
+| 0.99.67+ | Q2 Retire the `CineTrackRepository` façade alongside Q1 (docs/metadata-sync-migration.md) | Data | Feature | P2 | L | Only that screen |
+| 0.99.67+ | Q3 Tests for each split screen's ViewModel, plus a backup→restore round trip and ICS export | Tests | Test | P2 | M | CI |
 | Later | F7 Sync conflicts screen using Floppy `sync/conflicts` (both repos) | Sync | Feature | P3 | M | Make a conflict on purpose |
 | Anytime | Q8 Commit a baseline profile (the user generates it) and add a Roborazzi verify step in CI | Tests | Test | P3 | S | CI |
 | Anytime | Q9 Refresh the README (it still says 0.70) and add a Floppy `docs/integrations/cinetrack.md` | Release | Feature | P3 | S | none |
@@ -54,6 +52,10 @@ Board Estimate is in points: XS=1, S=2, M=3, L=5, XL=8.
   - Q4 accessibility, Q7 removing the old Simkl worker.
   - F1 ratings, F4 lists, F5 TMDB proxy, F6 imports, F8 now playing, F9 push, F10 tablets.
   - S2 Litestream backup, S6 upstream sync round 2, S7 Jellyfin/Emby importers.
+
+## Decided 2026-10-18
+- F3 Stats screen: dropped. The user likes the statistics where and how they are in Progress.
+- Character pictures: dropped. Simkl's API (OpenAPI spec at api.simkl.org) has no cast or character data, and TMDB has actor photos only.
 
 ## State in one screen (audit summary)
 **CineTrack:**

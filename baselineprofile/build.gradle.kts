@@ -1,6 +1,6 @@
 plugins {
-    id("com.android.test")
-    id("androidx.baselineprofile")
+    alias(libs.plugins.android.test)
+    alias(libs.plugins.androidx.baselineprofile)
 }
 
 android {
@@ -21,7 +21,7 @@ android {
 baselineProfile { useConnectedDevices = true }
 
 dependencies {
-    implementation("androidx.test.ext:junit:1.3.0")
-    implementation("androidx.test.uiautomator:uiautomator:2.3.0")
-    implementation("androidx.benchmark:benchmark-macro-junit4:1.4.1")
+    implementation(libs.androidx.test.ext.junit)
+    implementation(libs.androidx.test.uiautomator)
+    implementation(libs.androidx.benchmark.macro.junit4)
 }
