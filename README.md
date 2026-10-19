@@ -5,7 +5,7 @@ for the catalogue, MDBList for ratings and an offline-first Room cache, and it c
 with [Simkl](https://simkl.com) and with a self-hosted [Floppy](https://github.com/joke9854/Floppy)
 server (`CineTrack-API` branch).
 
-The app is in public beta (0.99.x). Releases are published as GitHub prereleases, and
+The app is in public beta (0.99.x). Releases are published on GitHub (tagged `v<version>-testing`), and
 the in-app updater installs them. See [CHANGELOG.md](CHANGELOG.md) for what changed in
 each release and [docs/ROADMAP.md](docs/ROADMAP.md) for what's next.
 
@@ -85,7 +85,7 @@ device; see [baselineprofile/README.md](baselineprofile/README.md).
 CI runs on every push to `beta-testing`. A commit whose message contains `[release]`
 (after the version bump in `app/build.gradle.kts` and the `CHANGELOG.md` entry) is
 validated first. Only then does `release.yml` build, sign and publish the
-`v<version>-testing` prerelease with its APK and SHA-256 file. `[skip release]` validates
+`v<version>-testing` release with its APK and SHA-256 file. `[skip release]` validates
 without publishing. `[skip migration]` skips the Room migration job when no schema
 changed.
 
