@@ -63,6 +63,21 @@ class CharacterImagesTest {
     }
 
     @Test
+    fun matchesOnTheCharacterNameNotTheCrewJob() {
+        val cast = listOf(
+            actor(1, "Tom Hardy", "Harry Da Souza · Executive Producer").copy(character = "Harry Da Souza"),
+            actor(2, "Someone Else", "Conrad Harrigan").copy(character = "Conrad Harrigan"),
+        )
+        val result = cast.withCharacterImages(listOf(
+            CharacterImage("Harry Da Souza", "T. Hardy", "tvdb/harry.jpg"),
+            CharacterImage("Conrad Harrigan", "Pierce Brosnan", "tvdb/conrad.jpg"),
+        ))
+
+        assertEquals("tvdb/harry.jpg", result[0].characterImageUrl)
+        assertEquals("tvdb/conrad.jpg", result[1].characterImageUrl)
+    }
+
+    @Test
     fun noPicturesKeepsTheTmdbCastUnchanged() {
         val cast = listOf(actor(1, "Aaron Paul", "Jesse Pinkman"))
 

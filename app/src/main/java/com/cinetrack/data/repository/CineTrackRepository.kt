@@ -2452,6 +2452,8 @@ class CineTrackRepository(
                     listOfNotNull(credit.character, credit.job) +
                         (credit.roles + credit.jobs).mapNotNull { it.character ?: it.job }
                 }.filter { it.isNotBlank() }.distinct().joinToString(" · "),
+                character = roles.flatMap { credit -> listOfNotNull(credit.character) + credit.roles.mapNotNull { it.character } }
+                    .filter { it.isNotBlank() }.distinct().joinToString(" · "),
                 profileUrl = person.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
             )
         }
@@ -3026,6 +3028,9 @@ class CineTrackRepository(
                     name = it.name,
                     role = it.character ?: it.job.orEmpty(),
                     profileUrl = it.profilePath?.let { path -> "https://image.tmdb.org/t/p/w500$path" },
+                    // Cast and guest stars carry a character; crew only a job.
+                    isCastMember = it.character != null,
+                    character = it.character.orEmpty(),
                 )
             }
         }.getOrDefault(emptyList())

@@ -133,6 +133,8 @@ data class PersonCard(
     val movieCredits: List<MediaCard> = emptyList(),
     val isCastMember: Boolean = false,
     val isDirector: Boolean = false,
+    /** Character names only (no crew jobs), for the Characters view. */
+    val character: String = "",
     /** TVDB picture of the character this person plays, when Floppy has one. */
     val characterImageUrl: String? = null,
 ) {

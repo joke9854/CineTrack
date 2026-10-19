@@ -21,7 +21,7 @@ fun List<PersonCard>.withCharacterImages(characters: List<CharacterImage>): List
         .mapValues { it.value.single() }
     return map { person ->
         if (!person.isCastMember) return@map person
-        val roles = person.role.split(" · ").map { nameKey(it.replace(Regex("\\(.*?\\)"), "")) }.filter(String::isNotEmpty)
+        val roles = person.character.ifBlank { person.role }.split(" · ").map { nameKey(it.replace(Regex("\\(.*?\\)"), "")) }.filter(String::isNotEmpty)
         val sameActor = byActor[nameKey(person.name)].orEmpty()
         val match = sameActor.firstOrNull { nameKey(it.character) in roles }
             ?: sameActor.firstOrNull()

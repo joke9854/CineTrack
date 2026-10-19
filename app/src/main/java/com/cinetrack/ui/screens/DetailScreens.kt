@@ -1726,7 +1726,9 @@ private fun CastAvatar(person: PersonCard, onPerson: (PersonCard) -> Unit, showC
         }
         Spacer(Modifier.height(8.dp))
         // Characters mode leads with the character, then the actor.
-        val (primary, secondary) = if (showCharacter && person.role.isNotBlank()) person.role to person.name else person.name to person.role
+        // Character names only, never a crew job such as Executive Producer.
+        val characterName = person.character.ifBlank { person.role }
+        val (primary, secondary) = if (showCharacter && characterName.isNotBlank()) characterName to person.name else person.name to person.role
         // One line each keeps every name and role aligned across the row.
         Text(primary, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
             fontWeight = FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
