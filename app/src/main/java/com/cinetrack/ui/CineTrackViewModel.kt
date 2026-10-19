@@ -29,7 +29,6 @@ import com.cinetrack.domain.FloppyConnectionError
 import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.FloppyConnectionUiState
 import com.cinetrack.domain.MainTrackerSwapUiState
-import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -212,22 +211,6 @@ class CineTrackViewModel(
         }
     }
 
-    private val _discoverFilterResults = MutableStateFlow<List<MediaCard>>(emptyList())
-    val discoverFilterResults: StateFlow<List<MediaCard>> = _discoverFilterResults.asStateFlow()
-    private val _discoverFiltersLoading = MutableStateFlow(false)
-    val discoverFiltersLoading: StateFlow<Boolean> = _discoverFiltersLoading.asStateFlow()
-    /** Results for the Mosaic layout's type / window / genre chips; kept apart from the filter page. */
-    private val _mosaicResults = MutableStateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?>(null)
-    val mosaicResults: StateFlow<Pair<DiscoverMovieFilters, List<MediaCard>>?> = _mosaicResults.asStateFlow()
-    private val mosaicCache = mutableMapOf<DiscoverMovieFilters, List<MediaCard>>()
-    // Next batch to load for each mosaic view; absent once TMDB has no more.
-    private val mosaicNextBatch = mutableMapOf<DiscoverMovieFilters, Int>()
-    private var mosaicMoreJob: Job? = null
-    private val _mosaicCanLoadMore = MutableStateFlow(false)
-    val mosaicCanLoadMore: StateFlow<Boolean> = _mosaicCanLoadMore.asStateFlow()
-    private var mosaicJob: kotlinx.coroutines.Job? = null
-    private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
-    val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
     private val _settingsProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val settingsProviders = _settingsProviders.asStateFlow()
     private val _settingsProvidersLoading = MutableStateFlow(false)
@@ -465,72 +448,6 @@ class CineTrackViewModel(
         _state.update { it.copy(libraryArtworkProgressVisible = false) }
     }
 
-    fun applyDiscoverFilters(filters: DiscoverMovieFilters) {
-        viewModelScope.launch {
-            _discoverFiltersLoading.value = true
-            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discover(filters) } }
-                .onSuccess { _discoverFilterResults.value = it }
-                .onFailure { _state.value = _state.value.copy(error = it.message) }
-            _discoverFiltersLoading.value = false
-        }
-    }
-
-    fun loadMosaic(filters: DiscoverMovieFilters) {
-        mosaicCache[filters]?.let {
-            _mosaicResults.value = filters to it
-            _mosaicCanLoadMore.value = filters in mosaicNextBatch
-            return
-        }
-        mosaicJob?.cancel()
-        mosaicMoreJob?.cancel()
-        _mosaicCanLoadMore.value = false
-        mosaicJob = viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, 1) } }
-                .onSuccess { page ->
-                    if (mosaicCache.size > 24) {
-                        mosaicCache.clear()
-                        mosaicNextBatch.clear()
-                    }
-                    mosaicCache[filters] = page.items
-                    if (page.hasMore) mosaicNextBatch[filters] = 2 else mosaicNextBatch.remove(filters)
-                    _mosaicResults.value = filters to page.items
-                    _mosaicCanLoadMore.value = page.hasMore
-                }
-                .onFailure { if (it !is kotlinx.coroutines.CancellationException) _state.value = _state.value.copy(error = it.message) }
-        }
-    }
-
-    /** Appends the next batch to the mosaic on screen; called as its end scrolls into view. */
-    fun loadMoreMosaic() {
-        val filters = _mosaicResults.value?.first ?: return
-        val batch = mosaicNextBatch[filters] ?: return
-        if (mosaicMoreJob?.isActive == true) return
-        mosaicMoreJob = viewModelScope.launch {
-            runCatching { withContext(Dispatchers.IO) { discoveryRepository.discoverBatch(filters, batch) } }
-                .onSuccess { page ->
-                    val merged = (mosaicCache[filters].orEmpty() + page.items).distinctBy(MediaCard::stableKey)
-                    mosaicCache[filters] = merged
-                    // A batch that added nothing new (all duplicates or hidden) still moves on.
-                    if (page.hasMore) mosaicNextBatch[filters] = batch + 1 else mosaicNextBatch.remove(filters)
-                    if (_mosaicResults.value?.first == filters) {
-                        _mosaicResults.value = filters to merged
-                        _mosaicCanLoadMore.value = page.hasMore
-                    }
-                }
-        }
-    }
-
-    fun loadStreamingProviders(mediaType: MediaType) {
-        viewModelScope.launch {
-            _streamingProviders.value = withContext(Dispatchers.IO) {
-                watchProviderRepository.getWatchProviders(mediaType).let { providers ->
-                    val preferred = _state.value.preferredProviders
-                    if (preferred.isEmpty()) providers else providers.filter { it.name in preferred }
-                }
-            }
-        }
-    }
-
     private var settingsProvidersJob: Job? = null
     private val providerPreferenceMutex = kotlinx.coroutines.sync.Mutex()
 
@@ -684,9 +601,6 @@ class CineTrackViewModel(
             hiddenDiscovery = hidden,
             rails = _state.value.rails.mapValues { (_, items) -> items.filterNot { it.stableKey == media.stableKey } },
         )
-        _discoverFilterResults.value = _discoverFilterResults.value.filterNot { it.stableKey == media.stableKey }
-        _mosaicResults.value = _mosaicResults.value?.let { (key, items) -> key to items.filterNot { it.stableKey == media.stableKey } }
-        mosaicCache.replaceAll { _, items -> items.filterNot { it.stableKey == media.stableKey } }
         viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
     }
 

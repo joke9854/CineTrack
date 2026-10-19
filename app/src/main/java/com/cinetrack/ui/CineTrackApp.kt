@@ -181,13 +181,24 @@ fun CineTrackApp(
     val personSearchResults by searchViewModel.personSearchResults.collectAsStateWithLifecycle()
     val personSearchLoading by searchViewModel.personSearchLoading.collectAsStateWithLifecycle()
     val searchHistory by searchViewModel.searchHistory.collectAsStateWithLifecycle()
-    val hideDiscoveryItem: (com.cinetrack.domain.MediaCard) -> Unit = remember(viewModel, searchViewModel) {
-        { media -> viewModel.hideDiscoveryItem(media); searchViewModel.hideResult(media) }
+    val discoverViewModel: com.cinetrack.ui.discover.DiscoverViewModel = viewModel(
+        factory = com.cinetrack.ui.discover.DiscoverViewModel.Factory(
+            application.container.discoveryRepository,
+            application.container.watchProviderRepository,
+        ),
+    )
+    LaunchedEffect(discoverViewModel) { discoverViewModel.errors.collect(viewModel::showError) }
+    val hideDiscoveryItem: (com.cinetrack.domain.MediaCard) -> Unit = remember(viewModel, searchViewModel, discoverViewModel) {
+        { media ->
+            viewModel.hideDiscoveryItem(media)
+            searchViewModel.hideResult(media)
+            discoverViewModel.hideResult(media)
+        }
     }
-    val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
-    val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
-    val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
-    val mosaicCanLoadMore by viewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
+    val discoverFilterResults by discoverViewModel.discoverFilterResults.collectAsStateWithLifecycle()
+    val discoverFiltersLoading by discoverViewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
+    val mosaicResults by discoverViewModel.mosaicResults.collectAsStateWithLifecycle()
+    val mosaicCanLoadMore by discoverViewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
     val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
     val settingsViewModel: com.cinetrack.ui.settings.SettingsViewModel = viewModel(
         factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.repository.preferences),
@@ -196,7 +207,7 @@ fun CineTrackApp(
     LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
-    val streamingProviders by viewModel.streamingProviders.collectAsStateWithLifecycle()
+    val streamingProviders by discoverViewModel.streamingProviders.collectAsStateWithLifecycle()
     val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
@@ -360,9 +371,9 @@ fun CineTrackApp(
                     onOpenTmdbSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceTmdb}") },
                     onCompactNav = { compactNav = it },
                     mosaicResults = mosaicResults,
-                    onMosaicQuery = viewModel::loadMosaic,
+                    onMosaicQuery = discoverViewModel::loadMosaic,
                     mosaicCanLoadMore = mosaicCanLoadMore,
-                    onMosaicMore = viewModel::loadMoreMosaic,
+                    onMosaicMore = discoverViewModel::loadMoreMosaic,
                 )
             }
             screen(Routes.Progress) {
@@ -462,8 +473,8 @@ fun CineTrackApp(
                     loading = discoverFiltersLoading,
                     providers = streamingProviders,
                     regionKey = "${state.providerRegion}:${state.metadataRegion}:${state.contentRegions.sorted().joinToString(",")}:${state.preferredProviders.sorted().joinToString(",")}",
-                    onApply = viewModel::applyDiscoverFilters,
-                    onLoadProviders = viewModel::loadStreamingProviders,
+                    onApply = discoverViewModel::applyDiscoverFilters,
+                    onLoadProviders = { discoverViewModel.loadStreamingProviders(it, state.preferredProviders) },
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
