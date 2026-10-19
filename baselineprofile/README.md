@@ -16,6 +16,25 @@ Generate with a cached show's TMDB id and title:
 ```
 
 Review and commit `app/src/release/generated/baselineProfiles/` after generation.
+
+On a Samsung phone with Secure Folder (a second Android user), the Gradle task
+runs no tests ("Invalid userId -2") and then uninstalls `com.cinetrack`, which
+deletes its data. Run the journeys with adb instead:
+
+```sh
+./gradlew :app:assembleNonMinifiedRelease :baselineprofile:assembleNonMinifiedRelease
+adb install -r --user 0 app/build/outputs/apk/nonMinifiedRelease/app-nonMinifiedRelease.apk
+adb install -r -t --user 0 baselineprofile/build/outputs/apk/nonMinifiedRelease/baselineprofile-nonMinifiedRelease.apk
+# set the app up on the phone, then run each journey on its own:
+adb shell "am instrument -w --user 0 -e class com.cinetrack.baselineprofile.BaselineProfileGenerator#progressAndDetail -e androidx.benchmark.enabledRules BaselineProfile -e mediaId 123 -e mediaType TV -e mediaTitle 'Your cached show' com.cinetrack.baselineprofile/androidx.test.runner.AndroidJUnitRunner"
+adb pull /storage/emulated/0/Android/media/com.cinetrack.baselineprofile/BaselineProfileGenerator_progressAndDetail-baseline-prof.txt progress.txt
+```
+
+Each run empties the output folder, so pull a journey's file before running the
+next one (`#startup` writes `BaselineProfileGenerator_startup-startup-prof.txt`).
+`baseline-prof.txt` is the sorted union of both files; `startup-prof.txt` is the
+startup file. Pass the whole `am instrument` command as one quoted string, so
+the device shell keeps the title's spaces.
 Then assemble release and inspect the APK for `assets/dexopt/baseline.prof`
 (compiled binary, not the text source). Library-provided profiles alone do not
 prove that the app-specific journeys were recorded. Measure cold startup and
