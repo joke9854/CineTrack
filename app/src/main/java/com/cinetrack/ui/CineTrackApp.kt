@@ -169,11 +169,21 @@ fun CineTrackApp(
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
     val castPhotoShape by viewModel.castPhotoShape.collectAsStateWithLifecycle()
-    val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
-    val searchLoading by viewModel.searchLoading.collectAsStateWithLifecycle()
-    val personSearchResults by viewModel.personSearchResults.collectAsStateWithLifecycle()
-    val personSearchLoading by viewModel.personSearchLoading.collectAsStateWithLifecycle()
-    val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
+    val searchViewModel: com.cinetrack.ui.search.SearchViewModel = viewModel(
+        factory = com.cinetrack.ui.search.SearchViewModel.Factory(
+            application.container.discoveryRepository,
+            application.container.peopleRepository,
+            application.container.repository.preferences,
+        ),
+    )
+    val searchResults by searchViewModel.searchResults.collectAsStateWithLifecycle()
+    val searchLoading by searchViewModel.searchLoading.collectAsStateWithLifecycle()
+    val personSearchResults by searchViewModel.personSearchResults.collectAsStateWithLifecycle()
+    val personSearchLoading by searchViewModel.personSearchLoading.collectAsStateWithLifecycle()
+    val searchHistory by searchViewModel.searchHistory.collectAsStateWithLifecycle()
+    val hideDiscoveryItem: (com.cinetrack.domain.MediaCard) -> Unit = remember(viewModel, searchViewModel) {
+        { media -> viewModel.hideDiscoveryItem(media); searchViewModel.hideResult(media) }
+    }
     val discoverFilterResults by viewModel.discoverFilterResults.collectAsStateWithLifecycle()
     val discoverFiltersLoading by viewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
     val mosaicResults by viewModel.mosaicResults.collectAsStateWithLifecycle()
@@ -346,7 +356,7 @@ fun CineTrackApp(
                     onSeeAll = { navController.navigate("discover-list/$it") },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
-                    onNotInterested = viewModel::hideDiscoveryItem,
+                    onNotInterested = hideDiscoveryItem,
                     onOpenTmdbSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceTmdb}") },
                     onCompactNav = { compactNav = it },
                     mosaicResults = mosaicResults,
@@ -410,12 +420,12 @@ fun CineTrackApp(
                     sourceItems = scopedItems,
                     remoteSearch = scope == "discover",
                     history = searchHistory,
-                    onQuery = viewModel::search,
-                    onPeopleQuery = viewModel::searchPeople,
-                    onSubmitQuery = viewModel::rememberSearchQuery,
-                    onRemoveHistory = viewModel::removeSearchHistory,
-                    onClearHistory = viewModel::clearSearchHistory,
-                    onLeave = viewModel::clearSearch,
+                    onQuery = searchViewModel::search,
+                    onPeopleQuery = searchViewModel::searchPeople,
+                    onSubmitQuery = searchViewModel::rememberSearchQuery,
+                    onRemoveHistory = searchViewModel::removeSearchHistory,
+                    onClearHistory = searchViewModel::clearSearchHistory,
+                    onLeave = searchViewModel::clearSearch,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onPerson = { selectedSearchPerson = it },
@@ -443,7 +453,7 @@ fun CineTrackApp(
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
-                    onNotInterested = viewModel::hideDiscoveryItem,
+                    onNotInterested = hideDiscoveryItem,
                 )
             }
             screen(Routes.DiscoverFilters) {
@@ -457,7 +467,7 @@ fun CineTrackApp(
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
-                    onNotInterested = viewModel::hideDiscoveryItem,
+                    onNotInterested = hideDiscoveryItem,
                 )
             }
             screen(

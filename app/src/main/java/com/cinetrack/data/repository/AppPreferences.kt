@@ -31,6 +31,7 @@ import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
 import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
+import com.cinetrack.ui.search.SearchHistoryStore
 import com.cinetrack.ui.settings.SettingsPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,7 +56,7 @@ private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_prefer
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
 private const val ERROR_LOG_LINES = 500
 
-class AppPreferences(private val context: Context) : SettingsPreferences {
+class AppPreferences(private val context: Context) : SettingsPreferences, SearchHistoryStore {
     fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
     private val errorLogFile: File get() = File(context.filesDir, "cinetrack-error-log.txt")
     private val credentialStore by lazy { SecureCredentialStore(context) }
@@ -243,7 +244,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
     val hiddenDiscovery: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenDiscovery].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
-    val searchHistory: Flow<List<String>> = context.cineTrackDataStore.data.map { prefs ->
+    override val searchHistory: Flow<List<String>> = context.cineTrackDataStore.data.map { prefs ->
         prefs[Keys.searchHistory].orEmpty().split(SEARCH_HISTORY_SEPARATOR).filter(String::isNotBlank)
     }
     val introductionCompleted: Flow<Boolean> = context.cineTrackDataStore.data.map {
@@ -829,7 +830,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
         }
     }
 
-    suspend fun addSearchHistory(query: String) {
+    override suspend fun addSearchHistory(query: String) {
         val normalized = query.trim().replace(SEARCH_HISTORY_SEPARATOR, " ").replace(Regex("\\s+"), " ")
         if (normalized.isBlank()) return
         context.cineTrackDataStore.edit { prefs ->
@@ -839,11 +840,11 @@ class AppPreferences(private val context: Context) : SettingsPreferences {
         }
     }
 
-    suspend fun clearSearchHistory() {
+    override suspend fun clearSearchHistory() {
         context.cineTrackDataStore.edit { prefs -> prefs.remove(Keys.searchHistory) }
     }
 
-    suspend fun removeSearchHistory(query: String) {
+    override suspend fun removeSearchHistory(query: String) {
         context.cineTrackDataStore.edit { prefs ->
             val updated = prefs[Keys.searchHistory].orEmpty().split(SEARCH_HISTORY_SEPARATOR)
                 .filter { it.isNotBlank() && !it.equals(query, ignoreCase = true) }
