@@ -1,3 +1,9 @@
+# CineTrack 0.99.69 beta
+
+**Changes**
+- The app now includes a startup profile recorded on a real phone, so Android can prepare the app's code at install time instead of on first use. Opening the app and the Progress and detail pages should feel quicker on first launch after installing an update.
+- Behind the scenes: Search and Discover's filter page and Mosaic now run on their own, separate from the rest of the app. Searching titles and people, recent searches, filters, providers, Mosaic paging and Not interested work as before.
+
 # CineTrack 0.99.68 beta
 
 **Fixes**
