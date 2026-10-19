@@ -261,6 +261,21 @@ class CineTrackViewModel(
                 .distinctUntilChanged()
                 .collect { pending -> _state.update { it.copy(simklFirstSyncPending = pending) } }
         }
+        viewModelScope.launch {
+            // SettingsViewModel writes these; reminders and the backup still read them here.
+            repository.preferences.notificationSettings.collect { settings ->
+                _state.update {
+                    it.copy(
+                        notificationEpisodes = settings.episodes,
+                        notificationMovies = settings.movies,
+                        notificationSync = settings.sync,
+                        quietHoursEnabled = settings.quietHoursEnabled,
+                        quietHoursStart = settings.quietHoursStart,
+                        quietHoursEnd = settings.quietHoursEnd,
+                    )
+                }
+            }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         viewModelScope.launch {
             libraryArtworkRefreshManager.progress.collectLatest { progress ->
@@ -1473,24 +1488,6 @@ class CineTrackViewModel(
         _state.value = _state.value.copy(wifiOnly = enabled)
         viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
     }
-    fun setNotification(kind: String, enabled: Boolean) {
-        _state.value = when (kind) {
-            "episodes" -> _state.value.copy(notificationEpisodes = enabled)
-            "movies" -> _state.value.copy(notificationMovies = enabled)
-            else -> _state.value.copy(notificationSync = enabled)
-        }
-        viewModelScope.launch { repository.preferences.setNotification(kind, enabled) }
-    }
-
-    fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
-        _state.value = _state.value.copy(
-            quietHoursEnabled = enabled,
-            quietHoursStart = startHour ?: _state.value.quietHoursStart,
-            quietHoursEnd = endHour ?: _state.value.quietHoursEnd,
-        )
-        viewModelScope.launch { repository.preferences.setQuietHours(enabled, startHour, endHour) }
-    }
-
     fun setHideAdultTitles(enabled: Boolean) {
         _state.value = _state.value.copy(hideAdultTitles = enabled)
         com.cinetrack.data.remote.TmdbContentFilter.hideAdult = enabled
@@ -1781,32 +1778,7 @@ class CineTrackViewModel(
                 val file = withContext(Dispatchers.IO) {
                     val directory = File(context.cacheDir, "exports").apply { mkdirs() }
                     File(directory, "cinetrack-calendar.ics").apply {
-                        writeText(buildString {
-                            appendLine("BEGIN:VCALENDAR")
-                            appendLine("VERSION:2.0")
-                            appendLine("PRODID:-//CineTrack//Upcoming//EN")
-                            _state.value.calendar.forEach { item ->
-                                val day = item.timestamp.take(10).replace("-", "")
-                                val uid = "${item.media.stableKey}-${item.season ?: 0}-${item.episodeNumber ?: 0}-$day@cinetrack"
-                                val summary = (item.media.title + item.episodeLabel?.let { " · $it" }.orEmpty())
-                                    .replace("\\", "\\\\").replace(",", "\\,").replace(";", "\\;")
-                                appendLine("BEGIN:VEVENT")
-                                appendLine("UID:$uid")
-                                val releaseAt = releaseDateTime(item.timestamp, releaseZone)
-                                if (releaseAt != null && hasExplicitReleaseTime(item.timestamp)) {
-                                    val utcTimestamp = java.time.format.DateTimeFormatter
-                                        .ofPattern("yyyyMMdd'T'HHmmss'Z'")
-                                        .withZone(java.time.ZoneOffset.UTC)
-                                        .format(releaseAt.toInstant())
-                                    appendLine("DTSTART:$utcTimestamp")
-                                } else {
-                                    appendLine("DTSTART;VALUE=DATE:$day")
-                                }
-                                appendLine("SUMMARY:$summary")
-                                appendLine("END:VEVENT")
-                            }
-                            appendLine("END:VCALENDAR")
-                        })
+                        writeText(com.cinetrack.domain.upcomingCalendarIcs(_state.value.calendar, releaseZone))
                     }
                 }
                 val uri = FileProvider.getUriForFile(context, "${context.packageName}.files", file)

@@ -962,7 +962,7 @@ fun SettingsDetailScreen(
                             KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.trakt_adds_calendar), stringResource(R.string.trakt_adds_calendar_sub))
                         }
                     }
-                    SettingsPages.Notifications -> NotificationSettings(state, viewModel)
+                    SettingsPages.Notifications -> NotificationSettings(state, viewModel, settingsViewModel)
                     SettingsPages.Language -> LanguageSettings(settingsViewModel)
                     SettingsPages.Ratings -> RatingSettings(state, viewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
@@ -2128,7 +2128,8 @@ private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel, settingsViewModel: SettingsViewModel) {
+    val notifications by settingsViewModel.notificationSettings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val hiddenEpisodes = remember(state.episodes, state.hiddenUpcoming) {
         state.episodes.filter { it.scheduleKey in state.hiddenUpcoming }
@@ -2153,19 +2154,19 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
         ) { permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
     }
     SettingsSection(stringResource(R.string.notifications)) {
-        KitToggleRow(Icons.Filled.Tv, stringResource(R.string.new_episodes), stringResource(R.string.notif_episodes_sub), state.notificationEpisodes) { viewModel.setNotification("episodes", it) }
-        KitToggleRow(Icons.Filled.Movie, stringResource(R.string.movie_releases), stringResource(R.string.notif_movies_sub), state.notificationMovies) { viewModel.setNotification("movies", it) }
-        KitToggleRow(Icons.Filled.SyncProblem, stringResource(R.string.sync_problems), stringResource(R.string.notif_sync_sub), state.notificationSync) { viewModel.setNotification("sync", it) }
-        KitToggleRow(Icons.Filled.Bedtime, stringResource(R.string.quiet_hours), stringResource(R.string.quiet_hours_sub), state.quietHoursEnabled) { viewModel.setQuietHours(it) }
+        KitToggleRow(Icons.Filled.Tv, stringResource(R.string.new_episodes), stringResource(R.string.notif_episodes_sub), notifications.episodes) { settingsViewModel.setNotification("episodes", it) }
+        KitToggleRow(Icons.Filled.Movie, stringResource(R.string.movie_releases), stringResource(R.string.notif_movies_sub), notifications.movies) { settingsViewModel.setNotification("movies", it) }
+        KitToggleRow(Icons.Filled.SyncProblem, stringResource(R.string.sync_problems), stringResource(R.string.notif_sync_sub), notifications.sync) { settingsViewModel.setNotification("sync", it) }
+        KitToggleRow(Icons.Filled.Bedtime, stringResource(R.string.quiet_hours), stringResource(R.string.quiet_hours_sub), notifications.quietHoursEnabled) { settingsViewModel.setQuietHours(it) }
     }
-    if (state.quietHoursEnabled) {
+    if (notifications.quietHoursEnabled) {
         val quietHourOptions = listOf(22 to 7, 23 to 8, 0 to 8)
         SettingsSection(stringResource(R.string.quiet_hours_schedule)) {
             quietHourOptions.forEach { (start, end) ->
                 ChoiceRow(
                     "%02d:00–%02d:00".format(start, end),
-                    state.quietHoursStart == start && state.quietHoursEnd == end,
-                ) { viewModel.setQuietHours(true, start, end) }
+                    notifications.quietHoursStart == start && notifications.quietHoursEnd == end,
+                ) { settingsViewModel.setQuietHours(true, start, end) }
             }
         }
     }

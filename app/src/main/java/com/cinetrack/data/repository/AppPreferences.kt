@@ -32,6 +32,7 @@ import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
 import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
 import com.cinetrack.ui.search.SearchHistoryStore
+import com.cinetrack.ui.settings.NotificationSettings
 import com.cinetrack.ui.settings.SettingsPreferences
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -39,6 +40,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
 import retrofit2.HttpException
 import java.security.MessageDigest
@@ -238,6 +240,16 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     val quietHoursEnabled: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnabled] ?: true }
     val quietHoursStart: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursStart] ?: 23 }
     val quietHoursEnd: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnd] ?: 8 }
+    override val notificationSettings: Flow<NotificationSettings> = context.cineTrackDataStore.data.map {
+        NotificationSettings(
+            episodes = it[Keys.notifyEpisodes] ?: true,
+            movies = it[Keys.notifyMovies] ?: true,
+            sync = it[Keys.notifySync] ?: true,
+            quietHoursEnabled = it[Keys.quietHoursEnabled] ?: true,
+            quietHoursStart = it[Keys.quietHoursStart] ?: 23,
+            quietHoursEnd = it[Keys.quietHoursEnd] ?: 8,
+        )
+    }.distinctUntilChanged()
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenUpcoming].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
@@ -669,7 +681,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(value))
     }
 
-    suspend fun setNotification(kind: String, enabled: Boolean) {
+    override suspend fun setNotification(kind: String, enabled: Boolean) {
         val key = when (kind) {
             "episodes" -> Keys.notifyEpisodes
             "movies" -> Keys.notifyMovies
@@ -678,7 +690,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         context.cineTrackDataStore.edit { it[key] = enabled }
     }
 
-    suspend fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
+    override suspend fun setQuietHours(enabled: Boolean, startHour: Int?, endHour: Int?) {
         context.cineTrackDataStore.edit { preferences ->
             preferences[Keys.quietHoursEnabled] = enabled
             startHour?.let { preferences[Keys.quietHoursStart] = it.coerceIn(0, 23) }

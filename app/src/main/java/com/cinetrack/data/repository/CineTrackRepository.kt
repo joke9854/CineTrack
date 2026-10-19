@@ -3483,11 +3483,15 @@ class CineTrackRepository(
             )
         }
         val history = mutableListOf<WatchHistoryEntity>()
+        val historyMedia = mutableListOf<MediaEntity>()
         files["data/history.jsonl"].orEmpty().lineSequence().filter(String::isNotBlank).forEach { line ->
             val item = Json.parseToJsonElement(line).jsonObject
             val id = item["tmdbId"]?.jsonPrimitive?.contentOrNull?.toIntOrNull() ?: error("Invalid history id")
             val type = item["type"]?.jsonPrimitive?.contentOrNull?.uppercase()?.let(MediaType::valueOf) ?: error("Invalid media type")
             val watchedAt = item["watchedAt"]?.jsonPrimitive?.contentOrNull ?: error("Invalid watch timestamp")
+            item["title"]?.jsonPrimitive?.contentOrNull?.takeIf(String::isNotBlank)?.let { title ->
+                historyMedia += MediaEntity(type.name, id, title, "", null, null, null, null, null, "", "", null)
+            }
             history += WatchHistoryEntity(
                 mediaType = type.name,
                 mediaId = id,
@@ -3514,6 +3518,13 @@ class CineTrackRepository(
         onStage("write")
         database.withTransaction {
             if (media.isNotEmpty()) database.mediaDao().upsertMedia(media.distinctBy { "${it.mediaType}:${it.tmdbId}" })
+            // A title removed from the library keeps its history; without a media row the
+            // history is hidden and the next backup drops it. Never overwrite a cached row.
+            if (historyMedia.isNotEmpty()) {
+                val known = database.mediaDao().mediaSnapshot().mapTo(mutableSetOf()) { "${it.mediaType}:${it.tmdbId}" }
+                val missing = historyMedia.distinctBy { "${it.mediaType}:${it.tmdbId}" }.filter { known.add("${it.mediaType}:${it.tmdbId}") }
+                if (missing.isNotEmpty()) database.mediaDao().upsertMedia(missing)
+            }
             if (states.isNotEmpty()) database.stateDao().upsertAll(states.distinctBy { "${it.mediaType}:${it.mediaId}" })
             if (historyToInsert.isNotEmpty()) database.timelineDao().insertHistoryItems(historyToInsert)
             if (files.containsKey("data/progress.jsonl")) {

@@ -40,6 +40,22 @@ class SettingsViewModelTest {
         override fun readErrorLogs() = lines
         override fun clearErrorLog() { lines = emptyList(); changes.value++ }
         override suspend fun setLanguage(value: String) { language = value }
+        val notifications = MutableStateFlow(NotificationSettings())
+        override val notificationSettings: StateFlow<NotificationSettings> = notifications
+        override suspend fun setNotification(kind: String, enabled: Boolean) {
+            notifications.value = when (kind) {
+                "episodes" -> notifications.value.copy(episodes = enabled)
+                "movies" -> notifications.value.copy(movies = enabled)
+                else -> notifications.value.copy(sync = enabled)
+            }
+        }
+        override suspend fun setQuietHours(enabled: Boolean, startHour: Int?, endHour: Int?) {
+            notifications.value = notifications.value.copy(
+                quietHoursEnabled = enabled,
+                quietHoursStart = startHour ?: notifications.value.quietHoursStart,
+                quietHoursEnd = endHour ?: notifications.value.quietHoursEnd,
+            )
+        }
         fun append(line: String) { lines = lines + line; changes.value++ }
     }
 
@@ -66,6 +82,25 @@ class SettingsViewModelTest {
 
     private fun viewModel(preferences: SettingsPreferences = FakePreferences(), updater: AppUpdater = FakeUpdater()) =
         SettingsViewModel(preferences, updater, dispatcher)
+
+    @Test fun notificationSwitchesWriteAndFollowPreferences() {
+        val preferences = FakePreferences()
+        val model = viewModel(preferences)
+        model.setNotification("movies", false)
+        model.setNotification("sync", false)
+        assertEquals(NotificationSettings(movies = false, sync = false), model.notificationSettings.value)
+        // A restored backup writes preferences directly; the page follows.
+        preferences.notifications.value = NotificationSettings(episodes = false)
+        assertEquals(NotificationSettings(episodes = false), model.notificationSettings.value)
+    }
+
+    @Test fun quietHoursKeepTheWindowWhenOnlyToggled() {
+        val preferences = FakePreferences()
+        val model = viewModel(preferences)
+        model.setQuietHours(true, 22, 7)
+        model.setQuietHours(false)
+        assertEquals(NotificationSettings(quietHoursEnabled = false, quietHoursStart = 22, quietHoursEnd = 7), model.notificationSettings.value)
+    }
 
     @Test fun logsFollowTheFileAndClear() {
         val preferences = FakePreferences(listOf("a"))

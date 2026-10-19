@@ -12,15 +12,28 @@ import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.GitHubAppUpdater
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+
+/** The Notifications page's switches and quiet-hours window. */
+data class NotificationSettings(
+    val episodes: Boolean = true,
+    val movies: Boolean = true,
+    val sync: Boolean = true,
+    val quietHoursEnabled: Boolean = true,
+    val quietHoursStart: Int = 23,
+    val quietHoursEnd: Int = 8,
+)
 
 /** The preferences the Settings pages owned by [SettingsViewModel] read and write. */
 interface SettingsPreferences {
@@ -29,6 +42,11 @@ interface SettingsPreferences {
     fun readErrorLogs(): List<String>
     fun clearErrorLog()
     suspend fun setLanguage(value: String)
+    val notificationSettings: Flow<NotificationSettings>
+    /** [kind] is "episodes", "movies" or "sync". */
+    suspend fun setNotification(kind: String, enabled: Boolean)
+    /** A null hour keeps the saved one. */
+    suspend fun setQuietHours(enabled: Boolean, startHour: Int?, endHour: Int?)
 }
 
 /** The in-app updater, behind an interface so tests don't reach GitHub. */
@@ -49,7 +67,7 @@ object GitHubUpdater : AppUpdater {
 
 /**
  * Settings pages that don't touch the library or sync state: About (app update and
- * changelog), Logs and Language. Activity-scoped, because the update pill on every
+ * changelog), Logs, Language and the Notifications switches. Activity-scoped, because the update pill on every
  * screen shares [appUpdateState] with the About page.
  */
 class SettingsViewModel(
@@ -65,6 +83,10 @@ class SettingsViewModel(
 
     private val _errorLogs = MutableStateFlow<List<String>>(emptyList())
     val errorLogs: StateFlow<List<String>> = _errorLogs.asStateFlow()
+
+    /** Read straight from preferences; the main ViewModel follows the same flow. */
+    val notificationSettings: StateFlow<NotificationSettings> = preferences.notificationSettings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, NotificationSettings())
 
     /** Failures to show in the app's error banner. */
     private val _errors = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -116,6 +138,14 @@ class SettingsViewModel(
 
     fun setLanguage(value: String) {
         viewModelScope.launch { preferences.setLanguage(value) }
+    }
+
+    fun setNotification(kind: String, enabled: Boolean) {
+        viewModelScope.launch { preferences.setNotification(kind, enabled) }
+    }
+
+    fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
+        viewModelScope.launch { preferences.setQuietHours(enabled, startHour, endHour) }
     }
 
     fun checkForAppUpdate() {
