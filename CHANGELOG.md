@@ -1,3 +1,10 @@
+# CineTrack 0.99.68 beta
+
+**Fixes**
+- Episode pages now show the Characters / Cast switch with character pictures.
+- Characters shows only character names. Crew jobs such as Executive Producer appear only under Cast.
+- Character pictures for titles opened from Collection or More like this load much faster with Floppy 03481e21 or newer.
+
 # CineTrack 0.99.67 beta
 
 **New**
