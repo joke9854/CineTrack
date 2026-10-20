@@ -1,3 +1,13 @@
+# CineTrack 0.99.70 beta
+
+**Changes**
+- Behind the scenes: Settings, Library, Progress, the title and episode pages and Discover's See all lists each run on their own, separate from the rest of the app. Everything works as before; the split makes later fixes on one screen safer for the others.
+- Settings: every page (Notifications, Appearance, TMDB, Ratings, Streaming, the TMDB/MDBList/Trakt keys, Export and restore, Sync, Sync operations, Simkl and Floppy) now has its own logic. Rating sources now save R.Tomatoes correctly.
+- Library: the artwork refresh pill no longer disappears when the library reloads in the middle of a refresh.
+- Progress: release reminder bells (Calendar, title and episode pages) and the Statistics people moved with the Progress screen.
+- Title and episode pages: details, cast, ratings, episodes, collection, recommendations, trailers and character pictures load and cache as before; watched ticks still show the moment you tap.
+- Discover: See all lists page, retry and follow status changes as before; pull to refresh starts them over.
+
 # CineTrack 0.99.69 beta
 
 **Changes**
