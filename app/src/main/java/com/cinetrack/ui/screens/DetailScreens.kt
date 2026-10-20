@@ -188,6 +188,7 @@ fun DetailScreen(
     history: List<TimelineCard>,
     recommended: List<MediaCard>,
     viewModel: CineTrackViewModel,
+    progressViewModel: com.cinetrack.ui.progress.ProgressViewModel,
     onBack: () -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -330,7 +331,7 @@ fun DetailScreen(
                         val releaseRaw = if (detail.type == MediaType.MOVIE) detail.releaseDate?.takeIf { daysUntil(it)?.let { days -> days >= 0 } == true }
                         else upcomingEpisode?.airDate
                         if (releaseRaw != null) {
-                            ReleaseCountdown(detail, releaseRaw, upcomingEpisode, viewModel)
+                            ReleaseCountdown(detail, releaseRaw, upcomingEpisode, viewModel, progressViewModel)
                         }
                         if (started) SeriesProgressCard(
                             detail,
@@ -1343,11 +1344,14 @@ private fun daysUntil(raw: String?): Int? {
 
 /** "Esce tra 5 giorni" for an upcoming film or episode, with a bell that reminds you on the day. */
 @Composable
-private fun ReleaseCountdown(media: MediaCard, release: String, episode: EpisodeCard?, viewModel: CineTrackViewModel) {
+private fun ReleaseCountdown(media: MediaCard, release: String, episode: EpisodeCard?, viewModel: CineTrackViewModel, progressViewModel: com.cinetrack.ui.progress.ProgressViewModel) {
     val days = daysUntil(release) ?: return
     val context = LocalContext.current
-    val reminders by viewModel.releaseReminders.collectAsState()
-    val reminderOn = viewModel.isReleaseReminderOn(reminders, media, release, episode?.season, episode?.number)
+    val reminders by progressViewModel.releaseReminders.collectAsState()
+    val reminderOn = progressViewModel.isReleaseReminderOn(
+        reminders, media, release, episode?.season, episode?.number,
+        com.cinetrack.ui.progress.notifiesByDefault(viewModel.state.value, media, episode?.season, episode?.number),
+    )
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val whenText = when (days) {
         0 -> stringResource(R.string.release_today)
@@ -1370,7 +1374,7 @@ private fun ReleaseCountdown(media: MediaCard, release: String, episode: Episode
                 if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
                     androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                viewModel.setReleaseReminder(context, media, release, episode?.season, episode?.number, episode?.title, enable)
+                progressViewModel.setReleaseReminder(media, release, episode?.season, episode?.number, episode?.title, enable, com.cinetrack.ui.progress.notifiesByDefault(viewModel.state.value, media, episode?.season, episode?.number))
             },
             contentAlignment = Alignment.Center,
         ) {
@@ -2215,6 +2219,7 @@ fun EpisodeDetailScreen(
     allEpisodes: List<EpisodeCard>,
     people: List<PersonCard>,
     viewModel: CineTrackViewModel,
+    progressViewModel: com.cinetrack.ui.progress.ProgressViewModel,
     onBack: () -> Unit,
     onSeries: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -2430,7 +2435,7 @@ fun EpisodeDetailScreen(
                             }?.let { WatchSummaryLine(it) }
                         }
                         if (show != null && !watched && daysUntil(displayedEpisode.airDate)?.let { it >= 0 } == true) {
-                            ReleaseCountdown(show, displayedEpisode.airDate!!, displayedEpisode, viewModel)
+                            ReleaseCountdown(show, displayedEpisode.airDate!!, displayedEpisode, viewModel, progressViewModel)
                         }
                         }
                         val episodeKey = displayedEpisode.season to displayedEpisode.number

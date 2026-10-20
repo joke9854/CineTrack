@@ -109,8 +109,6 @@ class CineTrackViewModel(
         .map { progress: SyncProgress -> progress.running }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
-    val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
     /** WorkManager-owned progress is kept outside Room-derived AppUiState so
      * delivery invalidations cannot erase an active Floppy bootstrap. */
     private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
@@ -376,40 +374,6 @@ class CineTrackViewModel(
         }
     }
 
-    val releaseReminders: StateFlow<Set<String>> = repository.preferences.releaseReminders
-        .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
-
-    /** Whether this release already notifies on its own: it is in the Calendar and its kind of notification is on. */
-    private fun notifiesByDefault(media: MediaCard, season: Int?, episode: Int?): Boolean {
-        val state = _state.value
-        val kindOn = if (media.type == com.cinetrack.domain.MediaType.TV) state.notificationEpisodes else state.notificationMovies
-        return kindOn && state.calendar.any { it.media.stableKey == media.stableKey && it.season == season && it.episodeNumber == episode }
-    }
-
-    /** The bell's state: a reminder the user set, or a default release notification they haven't silenced. */
-    fun isReleaseReminderOn(reminders: Set<String>, media: MediaCard, release: String, season: Int?, episode: Int?): Boolean {
-        val notifier = com.cinetrack.data.sync.ReleaseNotifier
-        if (notifier.reminderKey(media.stableKey, season, episode, release) in reminders) return true
-        return notifiesByDefault(media, season, episode) && notifier.muteKey(media.stableKey, season, episode, release) !in reminders
-    }
-
-    /**
-     * Turns the bell on or off. A release that notifies by default is silenced (or un-silenced)
-     * instead of getting a second, explicit reminder.
-     */
-    fun setReleaseReminder(context: android.content.Context, media: MediaCard, release: String, season: Int?, episode: Int?, episodeTitle: String?, enabled: Boolean) {
-        val byDefault = notifiesByDefault(media, season, episode)
-        viewModelScope.launch {
-            val notifier = com.cinetrack.data.sync.ReleaseNotifier
-            if (byDefault) {
-                repository.preferences.setReleaseReminder(notifier.muteKey(media.stableKey, season, episode, release), !enabled)
-                if (!enabled) notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, false)
-            } else {
-                notifier.setReminder(context.applicationContext, repository.preferences, media, release, season, episode, episodeTitle, enabled)
-            }
-        }
-    }
-
     fun setSeasonPicker(value: String) {
         val normalized = if (value == "posters") "posters" else "text"
         _state.value = _state.value.copy(seasonPicker = normalized)
@@ -445,18 +409,6 @@ class CineTrackViewModel(
                 val cached = readCachedState()
                 _state.value = cached.copy(sync = _syncProgress.value)
             } else _state.value = _state.value.copy(error = error.message)
-        }
-    }
-
-    fun loadViewingInsights() {
-        if (_viewingInsights.value.loading || _viewingInsights.value.actors.isNotEmpty() || _viewingInsights.value.directors.isNotEmpty()) return
-        viewModelScope.launch {
-            _viewingInsights.value = ViewingPeopleInsights(loading = true)
-            val result = withContext(Dispatchers.IO) { runCatching { peopleRepository.viewingPeople(_state.value.history) } }
-            _viewingInsights.value = result.fold(
-                onSuccess = { (actors, directors) -> ViewingPeopleInsights(actors, directors) },
-                onFailure = { ViewingPeopleInsights() },
-            )
         }
     }
 

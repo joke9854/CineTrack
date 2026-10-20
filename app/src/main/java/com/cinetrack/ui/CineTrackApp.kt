@@ -209,6 +209,13 @@ fun CineTrackApp(
         ),
     )
     LaunchedEffect(contentSettingsViewModel) { contentSettingsViewModel.changes.collect(viewModel::onContentChanged) }
+    val progressViewModel: com.cinetrack.ui.progress.ProgressViewModel = viewModel(
+        factory = com.cinetrack.ui.progress.ProgressViewModel.Factory(
+            com.cinetrack.data.repository.RepositoryProgressStore(context, application.container.repository.preferences, application.container.peopleRepository),
+        ),
+    )
+    val releaseReminders by progressViewModel.releaseReminders.collectAsStateWithLifecycle()
+    val viewingInsights by progressViewModel.viewingInsights.collectAsStateWithLifecycle()
     val libraryViewModel: com.cinetrack.ui.library.LibraryViewModel = viewModel(
         factory = com.cinetrack.ui.library.LibraryViewModel.Factory(
             com.cinetrack.data.repository.RepositoryLibraryArtwork(application.container.libraryArtworkRefreshManager, application.container.repository.preferences),
@@ -226,10 +233,8 @@ fun CineTrackApp(
         factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.repository)),
     )
     LaunchedEffect(syncSettingsViewModel) { syncSettingsViewModel.changes.collect(viewModel::onSyncSettingsChanged) }
-    val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by discoverViewModel.streamingProviders.collectAsStateWithLifecycle()
-    val viewingInsights by viewModel.viewingInsights.collectAsStateWithLifecycle()
     val navController = rememberNavController()
     val backStack by navController.currentBackStackEntryAsState()
     val route = backStack?.destination?.route.orEmpty()
@@ -411,15 +416,15 @@ fun CineTrackApp(
                     onEpisode = { episode -> navController.navigate("episode/${episode.showId}/${episode.season}/${episode.number}") },
                     onHideUpcoming = viewModel::hideUpcomingEpisode,
                     viewingInsights = viewingInsights,
-                    onLoadViewingInsights = viewModel::loadViewingInsights,
+                    onLoadViewingInsights = { progressViewModel.loadViewingInsights(state.history) },
                     onCompactNav = { compactNav = it },
                     releaseReminders = releaseReminders,
-                    isReminderOn = { item -> viewModel.isReleaseReminderOn(releaseReminders, item.media, item.timestamp, item.season, item.episodeNumber) },
+                    isReminderOn = { item -> progressViewModel.isReleaseReminderOn(releaseReminders, item.media, item.timestamp, item.season, item.episodeNumber, com.cinetrack.ui.progress.notifiesByDefault(state, item.media, item.season, item.episodeNumber)) },
                     onReminder = { item, enable ->
                         if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
                             androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                         ) notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        viewModel.setReleaseReminder(context, item.media, item.timestamp, item.season, item.episodeNumber, item.episodeTitle, enable)
+                        progressViewModel.setReleaseReminder(item.media, item.timestamp, item.season, item.episodeNumber, item.episodeTitle, enable, com.cinetrack.ui.progress.notifiesByDefault(state, item.media, item.season, item.episodeNumber))
                     },
                 )
             }
@@ -539,6 +544,7 @@ fun CineTrackApp(
                             state.rails[if (type == MediaType.TV) com.cinetrack.domain.RailIds.TRENDING_TV else com.cinetrack.domain.RailIds.TRENDING_MOVIES].orEmpty()
                         ).distinctBy(com.cinetrack.domain.MediaCard::stableKey),
                     viewModel = viewModel,
+                    progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onStatus = viewModel::setStatus,
                     onMedia = openMedia,
@@ -576,6 +582,7 @@ fun CineTrackApp(
                     allEpisodes = state.episodes.filter { it.showId == showId },
                     people = state.people,
                     viewModel = viewModel,
+                    progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onSeries = { navController.navigate("detail/${MediaType.TV.name}/$showId") },
                     onMedia = openMedia,
