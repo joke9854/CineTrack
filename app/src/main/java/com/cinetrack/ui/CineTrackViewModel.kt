@@ -826,13 +826,6 @@ class CineTrackViewModel(
         viewModelScope.launch { repository.preferences.setIntroductionCompleted(true) }
     }
 
-    fun setTmdbApiKey(value: String?) {
-        viewModelScope.launch {
-            repository.setTmdbApiKey(value)
-            _state.value = _state.value.copy(tmdbApiConfigured = repository.preferences.tmdbApiKeyNow().isNotBlank())
-        }
-    }
-
     /** Shows a failure from another screen's ViewModel in the app's error banner. */
     /** A backup restore finished: the library, history and settings all come from the database again. */
     fun onBackupRestored() {

@@ -23,6 +23,7 @@ import com.cinetrack.data.people.PeopleRepository
 import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.MetadataSettingsRepository
 import com.cinetrack.data.repository.LegacyMediaDataSource
 import com.cinetrack.data.repository.SettingsRepository
 import com.cinetrack.data.schedule.DefaultReleaseScheduleRepository
@@ -175,6 +176,20 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     lateinit var libraryArtworkRefreshManager: LibraryArtworkRefreshManager
     lateinit var floppyBootstrapWorkManager: FloppyBootstrapWorkManager
     val crashReportUploader: CrashReportUploader
+    /** Metadata settings and API keys; updates the live values the network clients read. */
+    val metadataSettings by lazy {
+        MetadataSettingsRepository(
+            database = database,
+            services = services,
+            preferences = preferences,
+            onTmdbApiKeyChanged = tmdbApiKey::set,
+            onMdbListApiKeyChanged = mdbListApiKey::set,
+            onMetadataLanguageChanged = metadataLanguage::set,
+            onMetadataRegionChanged = metadataRegion::set,
+            onMetadataTimezoneChanged = metadataTimezone::set,
+            clearLanguageCaches = { repository.clearLanguageCaches() },
+        )
+    }
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
     val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
     val repository: CineTrackRepository
@@ -318,13 +333,9 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 token.set(value)
             },
             currentToken = token::get,
-            onTmdbApiKeyChanged = tmdbApiKey::set,
             tmdbApiKey = tmdbApiKey::get,
-            onMdbListApiKeyChanged = mdbListApiKey::set,
             mdbListApiKey = mdbListApiKey::get,
-            onMetadataLanguageChanged = metadataLanguage::set,
-            onMetadataRegionChanged = metadataRegion::set,
-            onMetadataTimezoneChanged = metadataTimezone::set,
+            metadataSettingsProvider = { metadataSettings },
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,

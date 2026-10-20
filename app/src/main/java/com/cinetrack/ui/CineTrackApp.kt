@@ -217,7 +217,7 @@ fun CineTrackApp(
     )
     val contentSettingsViewModel: com.cinetrack.ui.settings.ContentSettingsViewModel = viewModel(
         factory = com.cinetrack.ui.settings.ContentSettingsViewModel.Factory(
-            com.cinetrack.data.repository.RepositoryContentSettings(application.container.repository, application.container.watchProviderRepository),
+            com.cinetrack.data.repository.RepositoryContentSettings(application.container.repository.preferences, application.container.metadataSettings, application.container.watchProviderRepository),
         ),
     )
     LaunchedEffect(contentSettingsViewModel) {

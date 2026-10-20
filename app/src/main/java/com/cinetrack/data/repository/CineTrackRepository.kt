@@ -16,7 +16,6 @@ import com.cinetrack.data.local.WatchHistoryEntity
 import com.cinetrack.data.local.toDomain
 import com.cinetrack.data.local.toEntity
 import com.cinetrack.data.remote.ApiServices
-import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.remote.MdbListRatingRequest
 import com.cinetrack.data.remote.SimklIds
 import com.cinetrack.data.remote.SimklLibraryItem
@@ -207,13 +206,8 @@ class CineTrackRepository(
     private val awaitStartupReady: suspend () -> Unit = {},
     private val onTokenChanged: (String?) -> Unit = {},
     private val currentToken: () -> String? = { null },
-    private val onTmdbApiKeyChanged: (String) -> Unit = {},
     override val tmdbApiKey: () -> String = { BuildConfig.TMDB_API_TOKEN },
-    private val onMdbListApiKeyChanged: (String) -> Unit = {},
     private val mdbListApiKey: () -> String = { BuildConfig.MDBLIST_API_KEY },
-    private val onMetadataLanguageChanged: (String) -> Unit = {},
-    private val onMetadataRegionChanged: (String) -> Unit = {},
-    private val onMetadataTimezoneChanged: (String) -> Unit = {},
     override val syncOperationRepository: SyncOperationRepository,
     private val durableOperationWriter: DurableSyncOperationWriter,
     private val syncCoordinator: SyncCoordinator,
@@ -231,7 +225,13 @@ class CineTrackRepository(
     override val animeNumberingRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? = null,
     /** TVDB character pictures through Floppy; null (or a failure) keeps the TMDB-only cast. */
     private val characterImages: (suspend (MediaType, Int) -> List<com.cinetrack.domain.CharacterImage>?)? = null,
+    /** The app's MetadataSettingsRepository, which also updates the live network values; restore uses it. */
+    private val metadataSettingsProvider: (() -> MetadataSettingsRepository)? = null,
 ) : SimklSyncHost {
+    private val metadataSettings by lazy {
+        metadataSettingsProvider?.invoke()
+            ?: MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = ::clearLanguageCaches)
+    }
     /** Shows whose local episode numbers were rewritten, so screens can drop cached episode lists. */
     val renumberedShows = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 64)
 
@@ -3193,69 +3193,11 @@ class CineTrackRepository(
         onTokenChanged(null)
     }
 
-    suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit> = cancellableResult {
-        val candidate = value.trim()
-        require(candidate.isNotBlank()) { "TMDB API credential cannot be empty" }
-        NetworkFactory.create(
-            token = { null },
-            tmdbApiKey = { candidate },
-            metadataLanguage = { "en-US" },
-            metadataRegion = { "US" },
-            metadataTimezone = { "UTC" },
-        ).tmdb.trendingMovies()
-        preferences.setTmdbApiKey(candidate)
-        onTmdbApiKeyChanged(candidate)
-    }
-
-    suspend fun verifyAndSetMdbListApiKey(value: String): Result<Unit> = cancellableResult {
-        val candidate = value.trim()
-        require(candidate.isNotBlank()) { "MDBList API credential cannot be empty" }
-        services.mdbList.mediaInfo(mediaType = "movie", id = 550, apiKey = candidate)
-        preferences.setMdbListApiKey(candidate)
-        onMdbListApiKeyChanged(candidate)
-    }
-
-    /** Checks the client ID against Trakt's public calendar before saving it. */
-    suspend fun verifyAndSetTraktClientId(value: String): Result<Unit> = cancellableResult {
-        val candidate = value.trim()
-        require(candidate.isNotBlank()) { "Trakt client ID cannot be empty" }
-        val service = checkNotNull(services.traktCalendar) { "Trakt is unavailable" }
-        service.shows(candidate, java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString(), 1)
-        preferences.setTraktClientId(candidate)
-    }
-
-    suspend fun setTmdbApiKey(value: String?) {
-        preferences.setTmdbApiKey(value)
-        onTmdbApiKeyChanged(preferences.tmdbApiKeyNow())
-    }
-
-    suspend fun setMdbListApiKey(value: String?) {
-        preferences.setMdbListApiKey(value)
-        onMdbListApiKeyChanged(preferences.mdbListApiKeyNow())
-    }
-
-    suspend fun setMetadataLanguage(value: String) {
-        preferences.setMetadataLanguage(value)
-        onMetadataLanguageChanged(value)
+    /** The metadata language changed (MetadataSettingsRepository): drop what was cached in the old one. */
+    fun clearLanguageCaches() {
         castCache.clear()
         episodeTitleCache.clear()
         recommendationCandidatesCache.clear()
-    }
-
-    suspend fun setMetadataRegion(value: String) {
-        preferences.setMetadataRegion(value)
-        onMetadataRegionChanged(value)
-    }
-
-    /** Switches the shown air dates to [value]'s, from the dates already kept per provider. */
-    suspend fun setAirDateSource(value: String) {
-        preferences.setAirDateSource(value)
-        com.cinetrack.data.schedule.reapplyAirDates(database, value)
-    }
-
-    suspend fun setMetadataTimezone(value: String) {
-        preferences.setMetadataTimezone(value)
-        onMetadataTimezoneChanged(value)
     }
 
     suspend fun exportJson(): String {
@@ -3533,9 +3475,9 @@ class CineTrackRepository(
         }
         settings?.let { saved ->
             saved["uiAccent"]?.jsonPrimitive?.contentOrNull?.let { preferences.setUiAccent(it) }
-            saved["metadataLanguage"]?.jsonPrimitive?.contentOrNull?.let { setMetadataLanguage(it) }
-            saved["metadataRegion"]?.jsonPrimitive?.contentOrNull?.let { setMetadataRegion(it) }
-            saved["metadataTimezone"]?.jsonPrimitive?.contentOrNull?.let { setMetadataTimezone(it) }
+            saved["metadataLanguage"]?.jsonPrimitive?.contentOrNull?.let { metadataSettings.setMetadataLanguage(it) }
+            saved["metadataRegion"]?.jsonPrimitive?.contentOrNull?.let { metadataSettings.setMetadataRegion(it) }
+            saved["metadataTimezone"]?.jsonPrimitive?.contentOrNull?.let { metadataSettings.setMetadataTimezone(it) }
             saved["backgroundSync"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setBackgroundSync(it) }
             saved["wifiOnly"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setWifiOnly(it) }
             saved["notificationEpisodes"]?.jsonPrimitive?.contentOrNull?.toBooleanStrictOrNull()?.let { preferences.setNotification("episodes", it) }
