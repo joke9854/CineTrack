@@ -949,16 +949,16 @@ fun SettingsDetailScreen(
                     SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.ServiceFloppy -> FloppySettingsHost(state, viewModel)
                     SettingsPages.ServiceTmdb -> Column {
-                        CredentialBlock("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
+                        CredentialBlock("TMDB", state.tmdbApiConfigured, contentViewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(contentViewModel)
                         ContentRegionSettings(state, viewModel, contentViewModel, onPage)
                     }
                     SettingsPages.ServiceMdblist -> Column {
-                        CredentialBlock("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
+                        CredentialBlock("MDBList", state.mdbListApiConfigured, contentViewModel::verifyAndSetMdbListApiKey)
                         RatingSettings(contentViewModel)
                     }
                     SettingsPages.ServiceTrakt -> Column {
-                        CredentialBlock("Trakt", state.traktConfigured, viewModel::verifyAndSetTraktClientId)
+                        CredentialBlock("Trakt", state.traktConfigured, contentViewModel::verifyAndSetTraktClientId)
                         SettingsSection(stringResource(R.string.section_what_it_adds)) {
                             KitRow(Icons.Filled.Schedule, stringResource(R.string.trakt_adds_times), stringResource(R.string.trakt_adds_times_sub))
                             KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.trakt_adds_calendar), stringResource(R.string.trakt_adds_calendar_sub))

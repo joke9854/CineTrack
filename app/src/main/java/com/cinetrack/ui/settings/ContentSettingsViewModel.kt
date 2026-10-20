@@ -43,7 +43,7 @@ data class ContentSettings(
  * A finished content-setting write that CineTrackViewModel still has to act on: its detail
  * caches, the progress cache and Discover are built from these settings.
  */
-enum class ContentChange { Providers, Ratings, Language, Region, AirDates, Timezone, ContentRegions }
+enum class ContentChange { Providers, Ratings, Language, Region, AirDates, Timezone, ContentRegions, TmdbKey, MdbListKey, TraktClientId }
 
 /** The writes behind the content pages. The metadata ones do more than save a preference. */
 interface ContentSettingsStore {
@@ -59,9 +59,13 @@ interface ContentSettingsStore {
     suspend fun setMetadataTimezone(value: String)
     suspend fun setAirDateSource(value: String)
     suspend fun availableProviders(region: String): List<StreamingProvider>
+    /** Each checks the credential against its service and saves it only when it works. */
+    suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit>
+    suspend fun verifyAndSetMdbListApiKey(value: String): Result<Unit>
+    suspend fun verifyAndSetTraktClientId(value: String): Result<Unit>
 }
 
-/** TMDB metadata, content regions, rating sources and streaming providers. Activity-scoped. */
+/** TMDB metadata, content regions, rating sources, streaming providers and the TMDB, MDBList and Trakt credentials. Activity-scoped. */
 class ContentSettingsViewModel(
     private val store: ContentSettingsStore,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -138,6 +142,21 @@ class ContentSettingsViewModel(
     fun setMetadataRegion(value: String) = write(ContentChange.Region) { store.setMetadataRegion(value) }
     fun setMetadataTimezone(value: String) = write(ContentChange.Timezone) { store.setMetadataTimezone(value) }
     fun setAirDateSource(value: String) = write(ContentChange.AirDates) { withContext(io) { store.setAirDateSource(value) } }
+
+    fun verifyAndSetTmdbApiKey(value: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.TmdbKey, onResult) { store.verifyAndSetTmdbApiKey(value) }
+    fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.MdbListKey, onResult) { store.verifyAndSetMdbListApiKey(value) }
+    fun verifyAndSetTraktClientId(value: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.TraktClientId, onResult) { store.verifyAndSetTraktClientId(value) }
+
+    private fun verify(change: ContentChange, onResult: (Result<Unit>) -> Unit, check: suspend () -> Result<Unit>) {
+        viewModelScope.launch {
+            val result = withContext(io) { check() }
+            if (result.isSuccess) _changes.emit(change)
+            onResult(result)
+        }
+    }
 
     private fun providerWrite(block: suspend () -> Unit) = write(ContentChange.Providers) { providerMutex.withLock { block() } }
 

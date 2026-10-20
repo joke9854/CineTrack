@@ -21,4 +21,7 @@ class RepositoryContentSettings(
     override suspend fun setMetadataTimezone(value: String) = repository.setMetadataTimezone(value)
     override suspend fun setAirDateSource(value: String) = repository.setAirDateSource(value)
     override suspend fun availableProviders(region: String) = watchProviders.getAvailableProviders(region)
+    override suspend fun verifyAndSetTmdbApiKey(value: String) = repository.verifyAndSetTmdbApiKey(value)
+    override suspend fun verifyAndSetMdbListApiKey(value: String) = repository.verifyAndSetMdbListApiKey(value)
+    override suspend fun verifyAndSetTraktClientId(value: String) = repository.verifyAndSetTraktClientId(value)
 }

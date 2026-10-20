@@ -54,6 +54,10 @@ class ContentSettingsViewModelTest {
             settings.value = settings.value.copy(airDateSource = value)
         }
         override suspend fun availableProviders(region: String) = providers
+        var tmdbResult: Result<Unit> = Result.success(Unit)
+        override suspend fun verifyAndSetTmdbApiKey(value: String) = tmdbResult
+        override suspend fun verifyAndSetMdbListApiKey(value: String) = Result.failure<Unit>(IllegalStateException("bad key"))
+        override suspend fun verifyAndSetTraktClientId(value: String) = Result.success(Unit)
     }
 
     private fun collectChanges(model: ContentSettingsViewModel, into: MutableList<ContentChange>) =
@@ -142,6 +146,21 @@ class ContentSettingsViewModelTest {
         assertFalse(TmdbContentFilter.hideAdult)
         assertFalse(model.content.value.hideAdultTitles)
         assertTrue(changes.isEmpty())
+        job.cancel()
+    }
+
+    @Test fun onlyAWorkingCredentialIsAnnounced() {
+        val store = FakeStore()
+        val model = ContentSettingsViewModel(store, dispatcher)
+        val changes = mutableListOf<ContentChange>()
+        val job = collectChanges(model, changes)
+        val results = mutableListOf<Result<Unit>>()
+        model.verifyAndSetTmdbApiKey("good") { results += it }
+        model.verifyAndSetMdbListApiKey("bad") { results += it }
+        model.verifyAndSetTraktClientId("id") { results += it }
+        assertEquals(listOf(true, false, true), results.map { it.isSuccess })
+        assertEquals("bad key", results[1].exceptionOrNull()?.message)
+        assertEquals(listOf(ContentChange.TmdbKey, ContentChange.TraktClientId), changes)
         job.cancel()
     }
 

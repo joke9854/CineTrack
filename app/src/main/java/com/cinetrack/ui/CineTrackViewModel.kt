@@ -1434,51 +1434,6 @@ class CineTrackViewModel(
         viewModelScope.launch { repository.preferences.setIntroductionCompleted(true) }
     }
 
-    fun verifyAndSetTmdbApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTmdbApiKey(value) }
-            if (result.isSuccess) {
-                _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)
-                onResult(Result.success(Unit))
-                val refreshError = withContext(Dispatchers.IO) {
-                runCatching { discoveryRepository.refresh() }.exceptionOrNull()
-                }
-                if (refreshError == null) {
-                    val current = _state.value
-                    _state.value = readCachedState().copy(
-                        sync = _syncProgress.value,
-                        people = current.people,
-                    )
-                } else {
-                    _state.value = _state.value.copy(error = refreshError.message)
-                }
-            } else onResult(result)
-        }
-    }
-
-    fun verifyAndSetTraktClientId(value: String, onResult: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { repository.verifyAndSetTraktClientId(value) }
-            if (result.isSuccess) {
-                _state.value = _state.value.copy(traktConfigured = true, error = null)
-                // Pull exact air times now rather than at the next schedule refresh.
-                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true))
-            }
-            onResult(result)
-        }
-    }
-
-    fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) {
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { repository.verifyAndSetMdbListApiKey(value) }
-            if (result.isSuccess) {
-                detailRatingsCache.clear()
-                _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
-            }
-            onResult(result)
-        }
-    }
-
     fun setTmdbApiKey(value: String?) {
         viewModelScope.launch {
             repository.setTmdbApiKey(value)
@@ -1511,6 +1466,27 @@ class CineTrackViewModel(
             // Release days and what counts as out follow the new dates and timezone.
             com.cinetrack.ui.settings.ContentChange.AirDates,
             com.cinetrack.ui.settings.ContentChange.Timezone -> scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+            com.cinetrack.ui.settings.ContentChange.MdbListKey -> {
+                detailRatingsCache.clear()
+                _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
+            }
+            com.cinetrack.ui.settings.ContentChange.TraktClientId -> {
+                _state.value = _state.value.copy(traktConfigured = true, error = null)
+                // Pull exact air times now rather than at the next schedule refresh.
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true))
+            }
+            com.cinetrack.ui.settings.ContentChange.TmdbKey -> viewModelScope.launch {
+                _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)
+                val refreshError = withContext(Dispatchers.IO) {
+                    runCatching { discoveryRepository.refresh() }.exceptionOrNull()
+                }
+                if (refreshError == null) {
+                    val current = _state.value
+                    _state.value = readCachedState().copy(sync = _syncProgress.value, people = current.people)
+                } else {
+                    _state.value = _state.value.copy(error = refreshError.message)
+                }
+            }
             com.cinetrack.ui.settings.ContentChange.ContentRegions -> viewModelScope.launch {
                 val refreshError = withContext(Dispatchers.IO) {
                     runCatching { discoveryRepository.refresh() }.exceptionOrNull()
