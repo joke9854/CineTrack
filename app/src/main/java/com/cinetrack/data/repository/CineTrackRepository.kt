@@ -3193,10 +3193,6 @@ class CineTrackRepository(
         onTokenChanged(null)
     }
 
-    suspend fun setUiAccent(value: String) = preferences.setUiAccent(value)
-
-    suspend fun setIntroductionCompleted(value: Boolean) = preferences.setIntroductionCompleted(value)
-
     suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit> = cancellableResult {
         val candidate = value.trim()
         require(candidate.isNotBlank()) { "TMDB API credential cannot be empty" }
@@ -3536,7 +3532,7 @@ class CineTrackRepository(
             rebuildLibraryRailInTransaction()
         }
         settings?.let { saved ->
-            saved["uiAccent"]?.jsonPrimitive?.contentOrNull?.let { setUiAccent(it) }
+            saved["uiAccent"]?.jsonPrimitive?.contentOrNull?.let { preferences.setUiAccent(it) }
             saved["metadataLanguage"]?.jsonPrimitive?.contentOrNull?.let { setMetadataLanguage(it) }
             saved["metadataRegion"]?.jsonPrimitive?.contentOrNull?.let { setMetadataRegion(it) }
             saved["metadataTimezone"]?.jsonPrimitive?.contentOrNull?.let { setMetadataTimezone(it) }

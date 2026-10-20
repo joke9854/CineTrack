@@ -32,6 +32,7 @@ import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
 import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
 import com.cinetrack.ui.search.SearchHistoryStore
+import com.cinetrack.ui.settings.AppearanceSettings
 import com.cinetrack.ui.settings.NotificationSettings
 import com.cinetrack.ui.settings.SettingsPreferences
 import kotlinx.coroutines.flow.Flow
@@ -212,7 +213,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     /** Detail pages take their accent from the poster; on unless turned off in Aspetto. */
     val posterAccent: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.posterAccent] ?: true }
 
-    suspend fun setPosterAccent(enabled: Boolean) {
+    override suspend fun setPosterAccent(enabled: Boolean) {
         context.cineTrackDataStore.edit { it[Keys.posterAccent] = enabled }
     }
     val visibleProviderTypes: Flow<Set<String>> = context.cineTrackDataStore.data.map { prefs ->
@@ -248,6 +249,18 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             quietHoursEnabled = it[Keys.quietHoursEnabled] ?: true,
             quietHoursStart = it[Keys.quietHoursStart] ?: 23,
             quietHoursEnd = it[Keys.quietHoursEnd] ?: 8,
+        )
+    }.distinctUntilChanged()
+    override val appearanceSettings: Flow<AppearanceSettings> = context.cineTrackDataStore.data.map {
+        AppearanceSettings(
+            uiAccent = it[Keys.uiAccent] ?: "watching",
+            posterAccent = it[Keys.posterAccent] ?: true,
+            discoverLayout = if (it[Keys.discoverLayout] == "b") "b" else "a",
+            heroLayout = com.cinetrack.domain.CardAppearance.normalizeHero(it[Keys.heroLayout] ?: "standard"),
+            posterFormat = com.cinetrack.domain.CardAppearance.normalizeFormat(it[Keys.posterFormat] ?: "classic"),
+            posterSize = com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard"),
+            cardDensity = it[Keys.cardDensity] ?: "standard",
+            castPhotoShape = com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle"),
         )
     }.distinctUntilChanged()
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
@@ -716,7 +729,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         }
     }
 
-    suspend fun setUiAccent(value: String) {
+    override suspend fun setUiAccent(value: String) {
         context.cineTrackDataStore.edit { it[Keys.uiAccent] = value }
     }
 
@@ -794,27 +807,27 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         context.cineTrackDataStore.edit { it[Keys.seasonPicker] = if (value == "posters") "posters" else "text" }
     }
 
-    suspend fun setDiscoverLayout(value: String) {
+    override suspend fun setDiscoverLayout(value: String) {
         context.cineTrackDataStore.edit { it[Keys.discoverLayout] = if (value == "b") "b" else "a" }
     }
 
-    suspend fun setHeroLayout(value: String) {
+    override suspend fun setHeroLayout(value: String) {
         context.cineTrackDataStore.edit { it[Keys.heroLayout] = com.cinetrack.domain.CardAppearance.normalizeHero(value) }
     }
 
-    suspend fun setPosterFormat(value: String) {
+    override suspend fun setPosterFormat(value: String) {
         context.cineTrackDataStore.edit { it[Keys.posterFormat] = com.cinetrack.domain.CardAppearance.normalizeFormat(value) }
     }
 
-    suspend fun setCastPhotoShape(value: String) {
+    override suspend fun setCastPhotoShape(value: String) {
         context.cineTrackDataStore.edit { it[Keys.castPhotoShape] = com.cinetrack.domain.CardAppearance.normalizeCastShape(value) }
     }
 
-    suspend fun setPosterSize(value: String) {
+    override suspend fun setPosterSize(value: String) {
         context.cineTrackDataStore.edit { it[Keys.posterSize] = com.cinetrack.domain.CardAppearance.normalizeSize(value) }
     }
 
-    suspend fun setCardDensity(value: String) {
+    override suspend fun setCardDensity(value: String) {
         context.cineTrackDataStore.edit { it[Keys.cardDensity] = value }
     }
 

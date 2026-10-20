@@ -168,7 +168,6 @@ fun CineTrackApp(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val castPhotoShape by viewModel.castPhotoShape.collectAsStateWithLifecycle()
     val searchViewModel: com.cinetrack.ui.search.SearchViewModel = viewModel(
         factory = com.cinetrack.ui.search.SearchViewModel.Factory(
             application.container.discoveryRepository,
@@ -204,6 +203,7 @@ fun CineTrackApp(
         factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.repository.preferences),
     )
     val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
+    val castPhotoShape = settingsViewModel.appearance.collectAsStateWithLifecycle().value.castPhotoShape
     LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }

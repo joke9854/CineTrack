@@ -48,7 +48,8 @@ import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.CardAppearance
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
-import com.cinetrack.ui.CineTrackViewModel
+import com.cinetrack.ui.settings.AppearanceSettings
+import com.cinetrack.ui.settings.SettingsViewModel
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.MediaPoster
 import com.cinetrack.ui.components.PageTitle
@@ -65,10 +66,10 @@ private val MiniatureHeight = 560.dp
  * title, and every choice below it updates the preview straight away.
  */
 @Composable
-internal fun AppearancePage(title: String, state: AppUiState, viewModel: CineTrackViewModel, onBack: () -> Unit) {
+internal fun AppearancePage(title: String, state: AppUiState, settingsViewModel: SettingsViewModel, onBack: () -> Unit) {
     var posterMode by rememberSaveable { mutableStateOf("rows") }
-    val castPhotoShape by viewModel.castPhotoShape.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape)) {
+    val appearance by settingsViewModel.appearance.collectAsStateWithLifecycle()
+    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(appearance.heroLayout, appearance.posterFormat, appearance.posterSize, appearance.castPhotoShape)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
@@ -93,14 +94,14 @@ internal fun AppearancePage(title: String, state: AppUiState, viewModel: CineTra
                     .padding(top = Spacing.sm, bottom = 40.dp)
                     .navigationBarsPadding(),
             ) {
-                AppearanceChoices(state, viewModel, posterMode) { posterMode = it }
+                AppearanceChoices(appearance, settingsViewModel, posterMode) { posterMode = it }
             }
         }
     }
 }
 
 @Composable
-private fun AppearanceChoices(state: AppUiState, viewModel: CineTrackViewModel, posterMode: String, onPosterMode: (String) -> Unit) {
+private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsViewModel, posterMode: String, onPosterMode: (String) -> Unit) {
     AppearanceLabel(stringResource(R.string.appearance_color_short))
     val choices = listOf(
         Triple("green", stringResource(R.string.color_green), AccentPalette.Green),
@@ -187,7 +188,7 @@ private fun AppearanceChoices(state: AppUiState, viewModel: CineTrackViewModel, 
     AppearanceLabel(stringResource(R.string.appearance_cast_photos_short))
     SegmentedChoice(
         listOf("circle" to stringResource(R.string.cast_photo_circle), "poster" to stringResource(R.string.cast_photo_poster)),
-        viewModel.castPhotoShape.collectAsStateWithLifecycle().value, onSelected = viewModel::setCastPhotoShape,
+        state.castPhotoShape, onSelected = viewModel::setCastPhotoShape,
     )
 }
 

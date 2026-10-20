@@ -276,6 +276,22 @@ class CineTrackViewModel(
                 }
             }
         }
+        viewModelScope.launch {
+            // SettingsViewModel writes these on the Appearance page; the other screens read them here.
+            repository.preferences.appearanceSettings.collect { settings ->
+                _state.update {
+                    it.copy(
+                        uiAccent = settings.uiAccent,
+                        posterAccent = settings.posterAccent,
+                        discoverLayout = settings.discoverLayout,
+                        heroLayout = settings.heroLayout,
+                        posterFormat = settings.posterFormat,
+                        posterSize = settings.posterSize,
+                        cardDensity = settings.cardDensity,
+                    )
+                }
+            }
+        }
         ProcessLifecycleOwner.get().lifecycle.addObserver(foregroundObserver)
         viewModelScope.launch {
             libraryArtworkRefreshManager.progress.collectLatest { progress ->
@@ -551,52 +567,10 @@ class CineTrackViewModel(
         }
     }
 
-    fun setPosterAccent(enabled: Boolean) {
-        _state.value = _state.value.copy(posterAccent = enabled)
-        viewModelScope.launch { repository.preferences.setPosterAccent(enabled) }
-    }
-
     fun setSeasonPicker(value: String) {
         val normalized = if (value == "posters") "posters" else "text"
         _state.value = _state.value.copy(seasonPicker = normalized)
         viewModelScope.launch { repository.preferences.setSeasonPicker(normalized) }
-    }
-
-    fun setDiscoverLayout(value: String) {
-        val normalized = if (value == "b") "b" else "a"
-        _state.value = _state.value.copy(discoverLayout = normalized)
-        viewModelScope.launch { repository.preferences.setDiscoverLayout(normalized) }
-    }
-
-    fun setHeroLayout(value: String) {
-        val normalized = com.cinetrack.domain.CardAppearance.normalizeHero(value)
-        _state.value = _state.value.copy(heroLayout = normalized)
-        viewModelScope.launch { repository.preferences.setHeroLayout(normalized) }
-    }
-
-    fun setPosterFormat(value: String) {
-        val normalized = com.cinetrack.domain.CardAppearance.normalizeFormat(value)
-        _state.value = _state.value.copy(posterFormat = normalized)
-        viewModelScope.launch { repository.preferences.setPosterFormat(normalized) }
-    }
-
-    /** Kept out of AppUiState: loadCachedState is at the JVM method-size limit. */
-    val castPhotoShape: StateFlow<String> = repository.preferences.castPhotoShape
-        .stateIn(viewModelScope, SharingStarted.Eagerly, "circle")
-
-    fun setCastPhotoShape(value: String) {
-        viewModelScope.launch { repository.preferences.setCastPhotoShape(value) }
-    }
-
-    fun setPosterSize(value: String) {
-        val normalized = com.cinetrack.domain.CardAppearance.normalizeSize(value)
-        _state.value = _state.value.copy(posterSize = normalized)
-        viewModelScope.launch { repository.preferences.setPosterSize(normalized) }
-    }
-
-    fun setCardDensity(value: String) {
-        _state.value = _state.value.copy(cardDensity = value)
-        viewModelScope.launch { repository.preferences.setCardDensity(value) }
     }
 
     fun hideUpcomingEpisode(episode: EpisodeCard) {
@@ -1530,14 +1504,9 @@ class CineTrackViewModel(
         }
     }
 
-    fun setUiAccent(value: String) {
-        _state.value = _state.value.copy(uiAccent = value)
-        viewModelScope.launch { repository.setUiAccent(value) }
-    }
-
     fun completeIntroduction() {
         _state.value = _state.value.copy(introductionCompleted = true)
-        viewModelScope.launch { repository.setIntroductionCompleted(true) }
+        viewModelScope.launch { repository.preferences.setIntroductionCompleted(true) }
     }
 
     fun verifyAndSetTmdbApiKey(value: String, onResult: (Result<Unit>) -> Unit) {

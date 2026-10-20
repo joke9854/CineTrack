@@ -35,6 +35,18 @@ data class NotificationSettings(
     val quietHoursEnd: Int = 8,
 )
 
+/** The Appearance page's choices, already normalized as AppPreferences stores them. */
+data class AppearanceSettings(
+    val uiAccent: String = "watching",
+    val posterAccent: Boolean = true,
+    val discoverLayout: String = "a",
+    val heroLayout: String = "standard",
+    val posterFormat: String = "classic",
+    val posterSize: String = "standard",
+    val cardDensity: String = "standard",
+    val castPhotoShape: String = "circle",
+)
+
 /** The preferences the Settings pages owned by [SettingsViewModel] read and write. */
 interface SettingsPreferences {
     /** Changes whenever the error log file is appended to or cleared. */
@@ -47,6 +59,15 @@ interface SettingsPreferences {
     suspend fun setNotification(kind: String, enabled: Boolean)
     /** A null hour keeps the saved one. */
     suspend fun setQuietHours(enabled: Boolean, startHour: Int?, endHour: Int?)
+    val appearanceSettings: Flow<AppearanceSettings>
+    suspend fun setUiAccent(value: String)
+    suspend fun setPosterAccent(enabled: Boolean)
+    suspend fun setDiscoverLayout(value: String)
+    suspend fun setHeroLayout(value: String)
+    suspend fun setPosterFormat(value: String)
+    suspend fun setPosterSize(value: String)
+    suspend fun setCardDensity(value: String)
+    suspend fun setCastPhotoShape(value: String)
 }
 
 /** The in-app updater, behind an interface so tests don't reach GitHub. */
@@ -67,7 +88,7 @@ object GitHubUpdater : AppUpdater {
 
 /**
  * Settings pages that don't touch the library or sync state: About (app update and
- * changelog), Logs, Language and the Notifications switches. Activity-scoped, because the update pill on every
+ * changelog), Logs, Language, the Notifications switches and Appearance. Activity-scoped, because the update pill on every
  * screen shares [appUpdateState] with the About page.
  */
 class SettingsViewModel(
@@ -146,6 +167,23 @@ class SettingsViewModel(
 
     fun setQuietHours(enabled: Boolean, startHour: Int? = null, endHour: Int? = null) {
         viewModelScope.launch { preferences.setQuietHours(enabled, startHour, endHour) }
+    }
+
+    /** The rest of the app reads these through CineTrackViewModel's AppUiState, which follows the same flow. */
+    val appearance: StateFlow<AppearanceSettings> = preferences.appearanceSettings
+        .stateIn(viewModelScope, SharingStarted.Eagerly, AppearanceSettings())
+
+    fun setUiAccent(value: String) = save { preferences.setUiAccent(value) }
+    fun setPosterAccent(enabled: Boolean) = save { preferences.setPosterAccent(enabled) }
+    fun setDiscoverLayout(value: String) = save { preferences.setDiscoverLayout(value) }
+    fun setHeroLayout(value: String) = save { preferences.setHeroLayout(value) }
+    fun setPosterFormat(value: String) = save { preferences.setPosterFormat(value) }
+    fun setPosterSize(value: String) = save { preferences.setPosterSize(value) }
+    fun setCardDensity(value: String) = save { preferences.setCardDensity(value) }
+    fun setCastPhotoShape(value: String) = save { preferences.setCastPhotoShape(value) }
+
+    private fun save(write: suspend () -> Unit) {
+        viewModelScope.launch { write() }
     }
 
     fun checkForAppUpdate() {

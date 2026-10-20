@@ -921,7 +921,7 @@ fun SettingsDetailScreen(
     val brand = serviceBrand(page)
     if (page == SettingsPages.Appearance) {
         // Aspetto keeps its preview fixed under the title while the choices scroll.
-        AdaptiveBackground { AppearancePage(title, state, viewModel, onBack) }
+        AdaptiveBackground { AppearancePage(title, state, settingsViewModel, onBack) }
         return
     }
     AdaptiveBackground {

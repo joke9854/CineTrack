@@ -56,6 +56,17 @@ class SettingsViewModelTest {
                 quietHoursEnd = endHour ?: notifications.value.quietHoursEnd,
             )
         }
+        val appearanceFlow = MutableStateFlow(AppearanceSettings())
+        override val appearanceSettings: StateFlow<AppearanceSettings> = appearanceFlow
+        private fun edit(change: AppearanceSettings.() -> AppearanceSettings) { appearanceFlow.value = appearanceFlow.value.change() }
+        override suspend fun setUiAccent(value: String) = edit { copy(uiAccent = value) }
+        override suspend fun setPosterAccent(enabled: Boolean) = edit { copy(posterAccent = enabled) }
+        override suspend fun setDiscoverLayout(value: String) = edit { copy(discoverLayout = value) }
+        override suspend fun setHeroLayout(value: String) = edit { copy(heroLayout = value) }
+        override suspend fun setPosterFormat(value: String) = edit { copy(posterFormat = value) }
+        override suspend fun setPosterSize(value: String) = edit { copy(posterSize = value) }
+        override suspend fun setCardDensity(value: String) = edit { copy(cardDensity = value) }
+        override suspend fun setCastPhotoShape(value: String) = edit { copy(castPhotoShape = value) }
         fun append(line: String) { lines = lines + line; changes.value++ }
     }
 
@@ -100,6 +111,26 @@ class SettingsViewModelTest {
         model.setQuietHours(true, 22, 7)
         model.setQuietHours(false)
         assertEquals(NotificationSettings(quietHoursEnabled = false, quietHoursStart = 22, quietHoursEnd = 7), model.notificationSettings.value)
+    }
+
+    @Test fun appearanceChoicesWriteAndFollowPreferences() {
+        val preferences = FakePreferences()
+        val model = viewModel(preferences)
+        model.setUiAccent("blue")
+        model.setPosterAccent(false)
+        model.setDiscoverLayout("b")
+        model.setHeroLayout("landscape")
+        model.setPosterFormat("tall")
+        model.setPosterSize("large")
+        model.setCardDensity("compact")
+        model.setCastPhotoShape("poster")
+        assertEquals(
+            AppearanceSettings("blue", false, "b", "landscape", "tall", "large", "compact", "poster"),
+            model.appearance.value,
+        )
+        // A restored backup writes preferences directly; the page follows.
+        preferences.appearanceFlow.value = AppearanceSettings(uiAccent = "silver")
+        assertEquals(AppearanceSettings(uiAccent = "silver"), model.appearance.value)
     }
 
     @Test fun logsFollowTheFileAndClear() {
