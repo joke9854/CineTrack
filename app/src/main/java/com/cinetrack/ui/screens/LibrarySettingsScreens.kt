@@ -193,6 +193,7 @@ import com.cinetrack.domain.SyncDeliveryCard
 import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.settings.SettingsViewModel
+import com.cinetrack.ui.settings.BackupViewModel
 import com.cinetrack.ui.settings.ContentSettingsViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -894,6 +895,7 @@ fun SettingsDetailScreen(
     viewModel: CineTrackViewModel,
     settingsViewModel: SettingsViewModel,
     contentViewModel: ContentSettingsViewModel,
+    backupViewModel: BackupViewModel,
     onBack: () -> Unit,
     onPage: (String) -> Unit,
 ) {
@@ -967,7 +969,7 @@ fun SettingsDetailScreen(
                     SettingsPages.Notifications -> NotificationSettings(state, viewModel, settingsViewModel)
                     SettingsPages.Language -> LanguageSettings(settingsViewModel)
                     SettingsPages.Ratings -> RatingSettings(contentViewModel)
-                    SettingsPages.Export -> ExportSettings(viewModel)
+                    SettingsPages.Export -> ExportSettings(backupViewModel)
                     SettingsPages.Logs -> LogsSettings(settingsViewModel)
                     else -> AboutSettings(settingsViewModel)
                 }
@@ -2403,7 +2405,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
 }
 
 @Composable
-private fun ExportSettings(viewModel: CineTrackViewModel) {
+private fun ExportSettings(viewModel: BackupViewModel) {
     val context = LocalContext.current
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri?.let { viewModel.restoreData(context, it) }

@@ -198,7 +198,6 @@ fun CineTrackApp(
     val discoverFiltersLoading by discoverViewModel.discoverFiltersLoading.collectAsStateWithLifecycle()
     val mosaicResults by discoverViewModel.mosaicResults.collectAsStateWithLifecycle()
     val mosaicCanLoadMore by discoverViewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
-    val backupProgress by viewModel.backupProgress.collectAsStateWithLifecycle()
     val settingsViewModel: com.cinetrack.ui.settings.SettingsViewModel = viewModel(
         factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.repository.preferences),
     )
@@ -211,6 +210,12 @@ fun CineTrackApp(
         ),
     )
     LaunchedEffect(contentSettingsViewModel) { contentSettingsViewModel.changes.collect(viewModel::onContentChanged) }
+    val backupViewModel: com.cinetrack.ui.settings.BackupViewModel = viewModel(
+        factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.repository)),
+    )
+    LaunchedEffect(backupViewModel) { backupViewModel.errors.collect(viewModel::showError) }
+    LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }
+    val backupProgress by backupViewModel.backupProgress.collectAsStateWithLifecycle()
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by discoverViewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -577,6 +582,7 @@ fun CineTrackApp(
                     viewModel = viewModel,
                     settingsViewModel = settingsViewModel,
                     contentViewModel = contentSettingsViewModel,
+                    backupViewModel = backupViewModel,
                     onBack = { navController.popBackStack() },
                     onPage = { navController.navigate("settings-detail/$it") },
                 )
