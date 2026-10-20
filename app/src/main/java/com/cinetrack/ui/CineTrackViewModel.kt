@@ -71,6 +71,7 @@ class CineTrackViewModel(
     private val watchProviderRepository: WatchProviderRepository,
     private val syncCoordinator: SyncCoordinator,
     private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
+    private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -90,15 +91,6 @@ class CineTrackViewModel(
         }
     }
     private val pendingEpisodeEdits = PendingEpisodeEdits()
-    private val detailCastCache = BoundedLruCache<String, List<PersonCard>>(32)
-    private val detailMediaCache = BoundedLruCache<String, MediaCard>(64)
-    // Rows of a detail page, kept so going back to it shows the same page at once.
-    private val detailCollectionCache = BoundedLruCache<String, List<MediaCard>>(32)
-    private val detailRecommendationsCache = BoundedLruCache<String, List<MediaCard>>(32)
-    // Titles opened from rows that are not in the library, so their page can draw at once.
-    private val openedMediaCache = BoundedLruCache<String, MediaCard>(32)
-    private val detailRatingsCache = BoundedLruCache<String, List<RatingScore>>(64)
-    private val detailEpisodeCache = BoundedLruCache<Int, List<EpisodeCard>>(32)
     private val _state = MutableStateFlow(
         AppUiState(loading = true, simklConnected = repository.simklConnectedNow()),
     )
@@ -161,10 +153,6 @@ class CineTrackViewModel(
     /** Backup creation or restore in progress, shown as a pill over the app; null when idle. */
 
     init {
-        viewModelScope.launch {
-            // The one-time anime renumbering rewrote this show's episode numbers.
-            repository.renumberedShows.collect { showId -> detailEpisodeCache.remove(showId) }
-        }
         viewModelScope.launch {
             combine(repository.preferences.simklConnected, repository.preferences.simklReconnectReason, ::Pair)
                 .distinctUntilChanged()
@@ -567,29 +555,17 @@ class CineTrackViewModel(
 
     fun setSeasonWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val numbers = episodes.map { it.season to it.number }.toSet()
-        episodes.firstOrNull()?.showId?.let { showId ->
-            detailEpisodeCache[showId] = detailEpisodeCache[showId].orEmpty().map { cached ->
-                if ((cached.season to cached.number) in numbers) cached.copy(watched = watched) else cached
-            }
-        }
+        episodes.firstOrNull()?.showId?.let { showId -> detailEpisodeCache.markWatched(showId, numbers, watched) }
         viewModelScope.launch {
             libraryRepository.setEpisodesWatched(episodes, watched)
             refreshCachedState(refreshProgress = true, promoteShowId = episodes.firstOrNull()?.showId.takeIf { watched })
         }
     }
 
-    /** Clears the watched marks of a show's cached episodes (its history was removed). */
-    fun forgetWatchedEpisodes(showId: Int) {
-        detailEpisodeCache[showId]?.let { cached -> detailEpisodeCache[showId] = cached.map { it.copy(watched = false) } }
-    }
-
     fun setEpisodesWatched(episodes: List<EpisodeCard>, watched: Boolean) {
         val changed = episodes.distinctBy { Triple(it.showId, it.season, it.number) }
         changed.groupBy(EpisodeCard::showId).forEach { (showId, showEpisodes) ->
-            val numbers = showEpisodes.map { it.season to it.number }.toSet()
-            detailEpisodeCache[showId] = detailEpisodeCache[showId].orEmpty().map { cached ->
-                if ((cached.season to cached.number) in numbers) cached.copy(watched = watched) else cached
-            }
+            detailEpisodeCache.markWatched(showId, showEpisodes.map { it.season to it.number }.toSet(), watched)
         }
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -635,9 +611,7 @@ class CineTrackViewModel(
 
     private fun updateCachedEpisode(episode: EpisodeCard, watched: Boolean) {
         pendingEpisodeEdits.record(Triple(episode.showId, episode.season, episode.number), watched)
-        detailEpisodeCache[episode.showId] = detailEpisodeCache[episode.showId].orEmpty().map { cached ->
-            if (cached.season == episode.season && cached.number == episode.number) cached.copy(watched = watched) else cached
-        }
+        detailEpisodeCache.markWatched(episode.showId, setOf(episode.season to episode.number), watched)
     }
 
     private suspend fun refreshCachedState(refreshProgress: Boolean = false, promoteShowId: Int? = null) {
@@ -877,73 +851,8 @@ class CineTrackViewModel(
         }
     }
 
-    fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
-
-    /** Drops what this session cached for [media] and fetches it again (for a TV show, every season). */
-    suspend fun refreshTitle(media: MediaCard) {
-        detailMediaCache.remove(media.stableKey)
-        detailRatingsCache.remove(media.stableKey)
-        detailCastCache.remove(media.stableKey)
-        detailCollectionCache.remove(media.stableKey)
-        detailRecommendationsCache.remove(media.stableKey)
-        if (media.type == MediaType.TV) detailEpisodeCache.remove(media.id)
-        val fresh = loadDetails(media)
-        if (media.type == MediaType.TV) {
-            withContext(Dispatchers.IO) {
-                fresh.seasons.map(com.cinetrack.domain.SeasonCard::number).distinct().forEach { season -> mediaRepository.loadEpisodes(fresh, season) }
-            }
-            loadAllEpisodes(fresh)
-            refreshCachedState(refreshProgress = true)
-        }
-    }
-    fun cachedRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey].orEmpty()
-    fun cachedEpisodes(showId: Int): List<EpisodeCard> = detailEpisodeCache[showId].orEmpty()
-
-    suspend fun loadTagline(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTagline(media) }
-    suspend fun loadSeasonDetails(show: MediaCard, number: Int): Result<com.cinetrack.domain.SeasonDetails> =
-        withContext(Dispatchers.IO) { mediaRepository.loadSeasonDetails(show, number) }
-    suspend fun loadDetails(media: MediaCard): MediaCard = detailMediaCache[media.stableKey]
-        ?: withContext(Dispatchers.IO) { mediaRepository.loadDetails(media) }.also { detailMediaCache[media.stableKey] = it }
-    suspend fun loadMedia(type: MediaType, id: Int): MediaCard? = withContext(Dispatchers.IO) { mediaRepository.loadMedia(type, id) }
-    suspend fun loadPerson(person: PersonCard): PersonCard = withContext(Dispatchers.IO) { peopleRepository.getPerson(person) }
-    suspend fun loadRatings(media: MediaCard): List<RatingScore> = detailRatingsCache[media.stableKey]
-        ?.takeIf { it.isNotEmpty() }
-        ?: withContext(Dispatchers.IO) { mediaRepository.loadRatings(media) }.also { if (it.isNotEmpty()) detailRatingsCache[media.stableKey] = it }
-    fun cachedCast(media: MediaCard): List<PersonCard> = detailCastCache[media.stableKey].orEmpty()
-    suspend fun loadCast(media: MediaCard): List<PersonCard> = detailCastCache[media.stableKey]
-        ?: withContext(Dispatchers.IO) { mediaRepository.loadCast(media) }.also {
-            if (it.isNotEmpty()) detailCastCache[media.stableKey] = it
-        }
-    /**
-     * Adds TVDB character pictures to an already shown cast; the cast is returned unchanged
-     * without them. [remember] keeps the result as the title's cast (episode casts don't).
-     */
-    suspend fun withCharacterPictures(media: MediaCard, cast: List<PersonCard>, remember: Boolean = true): List<PersonCard> {
-        if (cast.isEmpty() || cast.any { it.characterImageUrl != null }) return cast
-        val pictures = withContext(Dispatchers.IO) { mediaRepository.loadCharacterPictures(media) }
-        return cast.withCharacterImages(pictures).also { if (remember && it !== cast) detailCastCache[media.stableKey] = it }
-    }
-    suspend fun loadEpisodes(show: MediaCard, season: Int = 1): List<EpisodeCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodes(show, season) }
-    suspend fun loadAllEpisodes(show: MediaCard): List<EpisodeCard> = detailEpisodeCache[show.id]
-        ?.takeIf { it.isNotEmpty() }
-        ?: withContext(Dispatchers.IO) { mediaRepository.loadAllEpisodes(show) }.also { if (it.isNotEmpty()) detailEpisodeCache[show.id] = it }
-    suspend fun loadEpisode(show: MediaCard, season: Int, number: Int): EpisodeCard? = withContext(Dispatchers.IO) { mediaRepository.loadEpisode(show, season, number) }
-    suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int): List<PersonCard> = withContext(Dispatchers.IO) { mediaRepository.loadEpisodeCast(show, season, number) }
-    fun cachedCollection(media: MediaCard): List<MediaCard> = detailCollectionCache[media.stableKey].orEmpty()
-    fun cachedRecommendations(media: MediaCard): List<MediaCard> = detailRecommendationsCache[media.stableKey].orEmpty()
-    suspend fun loadCollection(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadCollection(media) }
-        .also { if (it.isNotEmpty()) detailCollectionCache[media.stableKey] = it }
-    suspend fun loadRecommendations(media: MediaCard): List<MediaCard> = withContext(Dispatchers.IO) { mediaRepository.loadRecommendations(media) }
-        .also { if (it.isNotEmpty()) detailRecommendationsCache[media.stableKey] = it }
-
-    /** Remembers a title being opened, so its page can draw before it is loaded. */
-    fun rememberOpened(media: MediaCard) {
-        openedMediaCache[media.stableKey] = media
-    }
-
-    fun openedMedia(type: MediaType, id: Int): MediaCard? =
-        openedMediaCache["${type.name}:$id"] ?: detailMediaCache["${type.name}:$id"]
-    suspend fun loadTrailerKey(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTrailerKey(media) }
+    /** A show's metadata was fetched again on its Detail page (DetailViewModel.refreshTitle): rebuild Progress. */
+    suspend fun onTitleRefreshed() = refreshCachedState(refreshProgress = true)
 
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
@@ -961,14 +870,6 @@ class CineTrackViewModel(
         viewModelScope.launch {
             repository.setTmdbApiKey(value)
             _state.value = _state.value.copy(tmdbApiConfigured = repository.preferences.tmdbApiKeyNow().isNotBlank())
-        }
-    }
-
-    fun setMdbListApiKey(value: String?) {
-        viewModelScope.launch {
-            repository.setMdbListApiKey(value)
-            detailRatingsCache.clear()
-            _state.value = _state.value.copy(mdbListApiConfigured = repository.preferences.mdbListApiKeyNow().isNotBlank())
         }
     }
 
@@ -1003,21 +904,16 @@ class CineTrackViewModel(
     /** Called once a content-setting write has finished; see ContentSettingsViewModel.changes. */
     fun onContentChanged(change: com.cinetrack.ui.settings.ContentChange) {
         when (change) {
-            com.cinetrack.ui.settings.ContentChange.Providers -> detailMediaCache.clear()
-            com.cinetrack.ui.settings.ContentChange.Ratings -> detailRatingsCache.clear()
-            com.cinetrack.ui.settings.ContentChange.Region -> detailMediaCache.clear()
-            com.cinetrack.ui.settings.ContentChange.Language -> {
-                detailMediaCache.clear()
-                detailCastCache.clear()
-                detailEpisodeCache.clear()
-                // Cached episode titles are in the previous language.
-                scheduleProgressCacheRefresh()
-            }
+            // DetailViewModel.onContentChanged drops its own caches.
+            com.cinetrack.ui.settings.ContentChange.Providers,
+            com.cinetrack.ui.settings.ContentChange.Ratings,
+            com.cinetrack.ui.settings.ContentChange.Region -> Unit
+            // Cached episode titles are in the previous language.
+            com.cinetrack.ui.settings.ContentChange.Language -> scheduleProgressCacheRefresh()
             // Release days and what counts as out follow the new dates and timezone.
             com.cinetrack.ui.settings.ContentChange.AirDates,
             com.cinetrack.ui.settings.ContentChange.Timezone -> scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
             com.cinetrack.ui.settings.ContentChange.MdbListKey -> {
-                detailRatingsCache.clear()
                 _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
             }
             com.cinetrack.ui.settings.ContentChange.TraktClientId -> {
@@ -1096,6 +992,7 @@ class CineTrackViewModel(
         private val watchProviderRepository: WatchProviderRepository,
         private val syncCoordinator: SyncCoordinator,
             private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
+        private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -1108,6 +1005,7 @@ class CineTrackViewModel(
                 watchProviderRepository,
                 syncCoordinator,
                 floppyBootstrapWorkManager,
+                detailEpisodeCache,
             ) as T
     }
 }

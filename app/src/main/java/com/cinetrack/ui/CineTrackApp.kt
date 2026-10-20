@@ -164,6 +164,7 @@ fun CineTrackApp(
             application.container.watchProviderRepository,
             application.container.syncCoordinator,
             application.container.floppyBootstrapWorkManager,
+            application.container.detailEpisodeCache,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -203,12 +204,27 @@ fun CineTrackApp(
     val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
     val castPhotoShape = settingsViewModel.appearance.collectAsStateWithLifecycle().value.castPhotoShape
     LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
+    val detailViewModel: com.cinetrack.ui.detail.DetailViewModel = viewModel(
+        factory = com.cinetrack.ui.detail.DetailViewModel.Factory(
+            com.cinetrack.data.repository.RepositoryDetailStore(
+                application.container.mediaRepository,
+                application.container.peopleRepository,
+                application.container.repository.renumberedShows,
+            ),
+            application.container.detailEpisodeCache,
+        ),
+    )
     val contentSettingsViewModel: com.cinetrack.ui.settings.ContentSettingsViewModel = viewModel(
         factory = com.cinetrack.ui.settings.ContentSettingsViewModel.Factory(
             com.cinetrack.data.repository.RepositoryContentSettings(application.container.repository, application.container.watchProviderRepository),
         ),
     )
-    LaunchedEffect(contentSettingsViewModel) { contentSettingsViewModel.changes.collect(viewModel::onContentChanged) }
+    LaunchedEffect(contentSettingsViewModel) {
+        contentSettingsViewModel.changes.collect { change ->
+            detailViewModel.onContentChanged(change)
+            viewModel.onContentChanged(change)
+        }
+    }
     val progressViewModel: com.cinetrack.ui.progress.ProgressViewModel = viewModel(
         factory = com.cinetrack.ui.progress.ProgressViewModel.Factory(
             com.cinetrack.data.repository.RepositoryProgressStore(context, application.container.repository.preferences, application.container.peopleRepository),
@@ -315,7 +331,7 @@ fun CineTrackApp(
         value = showBottomNav
     }
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media ->
-        viewModel.rememberOpened(media)
+        detailViewModel.rememberOpened(media)
         navController.navigate("detail/${media.type.name}/${media.id}")
     }
 
@@ -387,7 +403,7 @@ fun CineTrackApp(
                 DiscoverScreen(
                     state = state,
                     onRefresh = viewModel::refresh,
-                    loadTagline = viewModel::loadTagline,
+                    loadTagline = detailViewModel::loadTagline,
                     onSearch = { navController.navigate("search/discover") },
                     onFilters = { navController.navigate(Routes.DiscoverFilters) },
                     onSeeAll = { navController.navigate("discover-list/$it") },
@@ -470,7 +486,7 @@ fun CineTrackApp(
                 selectedSearchPerson?.let { person ->
                     ActorSheet(
                         person = person,
-                        viewModel = viewModel,
+                        detailViewModel = detailViewModel,
                         onDismiss = { selectedSearchPerson = null },
                         onMedia = { media ->
                             selectedSearchPerson = null
@@ -521,7 +537,7 @@ fun CineTrackApp(
                     ?: searchResults.firstOrNull { it.type == type && it.id == id }
                     ?: discoverFilterResults.firstOrNull { it.type == type && it.id == id }
                     ?: mosaicResults?.second?.firstOrNull { it.type == type && it.id == id }
-                    ?: viewModel.openedMedia(type, id)
+                    ?: detailViewModel.openedMedia(type, id)
                 var resolvedMedia by remember(type, id) { mutableStateOf(cachedMedia) }
                 val selectedSeason by entry.savedStateHandle
                     .getStateFlow("selectedSeason", -1)
@@ -530,7 +546,7 @@ fun CineTrackApp(
                     .getStateFlow("selectedEpisode", -1)
                     .collectAsStateWithLifecycle()
                 LaunchedEffect(type, id, cachedMedia?.status, cachedMedia?.watched, cachedMedia?.libraryUpdatedAt) {
-                    resolvedMedia = cachedMedia ?: viewModel.loadMedia(type, id) ?: resolvedMedia
+                    resolvedMedia = cachedMedia ?: detailViewModel.loadMedia(type, id) ?: resolvedMedia
                 }
                 DetailScreen(
                     media = resolvedMedia,
@@ -544,6 +560,7 @@ fun CineTrackApp(
                             state.rails[if (type == MediaType.TV) com.cinetrack.domain.RailIds.TRENDING_TV else com.cinetrack.domain.RailIds.TRENDING_MOVIES].orEmpty()
                         ).distinctBy(com.cinetrack.domain.MediaCard::stableKey),
                     viewModel = viewModel,
+                    detailViewModel = detailViewModel,
                     progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onStatus = viewModel::setStatus,
@@ -572,7 +589,7 @@ fun CineTrackApp(
                 val cachedShow = state.findMedia(MediaType.TV, showId)
                 var resolvedShow by remember(showId) { mutableStateOf(cachedShow) }
                 LaunchedEffect(showId, cachedShow?.stableKey) {
-                    resolvedShow = cachedShow ?: viewModel.loadMedia(MediaType.TV, showId) ?: resolvedShow
+                    resolvedShow = cachedShow ?: detailViewModel.loadMedia(MediaType.TV, showId) ?: resolvedShow
                 }
                 EpisodeDetailScreen(
                     show = resolvedShow ?: com.cinetrack.domain.MediaCard(id = showId, type = MediaType.TV, title = ""),
@@ -582,6 +599,7 @@ fun CineTrackApp(
                     allEpisodes = state.episodes.filter { it.showId == showId },
                     people = state.people,
                     viewModel = viewModel,
+                    detailViewModel = detailViewModel,
                     progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
                     onSeries = { navController.navigate("detail/${MediaType.TV.name}/$showId") },

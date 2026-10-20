@@ -175,6 +175,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     lateinit var libraryArtworkRefreshManager: LibraryArtworkRefreshManager
     lateinit var floppyBootstrapWorkManager: FloppyBootstrapWorkManager
     val crashReportUploader: CrashReportUploader
+    /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
+    val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
     val repository: CineTrackRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository

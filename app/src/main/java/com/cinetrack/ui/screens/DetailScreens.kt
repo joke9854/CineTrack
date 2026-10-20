@@ -188,6 +188,7 @@ fun DetailScreen(
     history: List<TimelineCard>,
     recommended: List<MediaCard>,
     viewModel: CineTrackViewModel,
+    detailViewModel: com.cinetrack.ui.detail.DetailViewModel,
     progressViewModel: com.cinetrack.ui.progress.ProgressViewModel,
     onBack: () -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
@@ -200,8 +201,8 @@ fun DetailScreen(
         AdaptiveBackground { LoadingPane(); GlassBackButton(onClick = onBack, modifier = Modifier.statusBarsPadding().padding(com.cinetrack.ui.theme.Spacing.md)) }
         return
     }
-    val cachedDetail = viewModel.cachedDetails(media)
-    val cachedEpisodes = viewModel.cachedEpisodes(media.id)
+    val cachedDetail = detailViewModel.cachedDetails(media)
+    val cachedEpisodes = detailViewModel.cachedEpisodes(media.id)
     var detail by remember(media.stableKey) {
         mutableStateOf(
             (cachedDetail ?: media).copy(
@@ -211,18 +212,18 @@ fun DetailScreen(
             ),
         )
     }
-    var ratings by remember(media.stableKey) { mutableStateOf(viewModel.cachedRatings(media)) }
+    var ratings by remember(media.stableKey) { mutableStateOf(detailViewModel.cachedRatings(media)) }
     // Until these are known the page keeps their place, so nothing shifts as data arrives.
     var detailLoaded by remember(media.stableKey) { mutableStateOf(cachedDetail != null) }
     var ratingsLoaded by remember(media.stableKey) { mutableStateOf(ratings.isNotEmpty()) }
     val ratingsExpected = remember { viewModel.state.value.mdbListApiConfigured }
-    var detailPeople by remember(media.stableKey) { mutableStateOf(viewModel.cachedCast(media).ifEmpty { people }) }
-    var castLoaded by remember(media.stableKey) { mutableStateOf(viewModel.cachedCast(media).isNotEmpty()) }
+    var detailPeople by remember(media.stableKey) { mutableStateOf(detailViewModel.cachedCast(media).ifEmpty { people }) }
+    var castLoaded by remember(media.stableKey) { mutableStateOf(detailViewModel.cachedCast(media).isNotEmpty()) }
     var detailEpisodes by remember(media.stableKey) {
         mutableStateOf(mergeWatchedEpisodes(cachedEpisodes.ifEmpty { episodes }, episodes, history))
     }
-    var collectionItems by remember(media.stableKey) { mutableStateOf(viewModel.cachedCollection(media)) }
-    var moreLikeThis by remember(media.stableKey) { mutableStateOf(viewModel.cachedRecommendations(media).ifEmpty { recommended }) }
+    var collectionItems by remember(media.stableKey) { mutableStateOf(detailViewModel.cachedCollection(media)) }
+    var moreLikeThis by remember(media.stableKey) { mutableStateOf(detailViewModel.cachedRecommendations(media).ifEmpty { recommended }) }
     var librarySheet by remember { mutableStateOf(false) }
     var trailerSheet by remember(media.stableKey) { mutableStateOf(false) }
     var trailerKey by remember(media.stableKey) { mutableStateOf<String?>(null) }
@@ -254,7 +255,7 @@ fun DetailScreen(
     var refreshing by remember(media.stableKey) { mutableStateOf(false) }
     val refreshScope = rememberCoroutineScope()
     LaunchedEffect(media.stableKey, refreshNonce) {
-        val loadedDetail = viewModel.loadDetails(media)
+        val loadedDetail = detailViewModel.loadDetails(media)
         detail = loadedDetail.copy(
             status = media.status,
             watched = media.watched,
@@ -263,28 +264,28 @@ fun DetailScreen(
         detailLoaded = true
         coroutineScope {
             launch {
-                ratings = viewModel.loadRatings(loadedDetail).ifEmpty { ratings }
+                ratings = detailViewModel.loadRatings(loadedDetail).ifEmpty { ratings }
                 ratingsLoaded = true
             }
             launch {
-                detailPeople = viewModel.loadCast(loadedDetail).ifEmpty { detailPeople }
+                detailPeople = detailViewModel.loadCast(loadedDetail).ifEmpty { detailPeople }
                 castLoaded = true
                 // Character pictures arrive later through Floppy; the TMDB cast is already on screen.
-                detailPeople = viewModel.withCharacterPictures(loadedDetail, detailPeople)
+                detailPeople = detailViewModel.withCharacterPictures(loadedDetail, detailPeople)
             }
             launch {
                 if (loadedDetail.type == MediaType.TV) {
-                    detailEpisodes = mergeWatchedEpisodes(viewModel.loadAllEpisodes(loadedDetail), episodes, history)
+                    detailEpisodes = mergeWatchedEpisodes(detailViewModel.loadAllEpisodes(loadedDetail), episodes, history)
                 }
             }
-            launch { collectionItems = viewModel.loadCollection(loadedDetail) }
-            launch { moreLikeThis = viewModel.loadRecommendations(loadedDetail).ifEmpty { recommended } }
+            launch { collectionItems = detailViewModel.loadCollection(loadedDetail) }
+            launch { moreLikeThis = detailViewModel.loadRecommendations(loadedDetail).ifEmpty { recommended } }
         }
     }
     LaunchedEffect(episodes, history) {
         if (detail.type == MediaType.TV) {
             detailEpisodes = mergeWatchedEpisodes(
-                viewModel.cachedEpisodes(detail.id).ifEmpty { detailEpisodes },
+                detailViewModel.cachedEpisodes(detail.id).ifEmpty { detailEpisodes },
                 episodes,
                 history,
             )
@@ -514,7 +515,10 @@ fun DetailScreen(
                 refreshScope.launch {
                     refreshing = true
                     // Fetches this title (and its seasons) again, then reloads the page from it.
-                    runCatching { viewModel.refreshTitle(detail) }
+                    runCatching {
+                        detailViewModel.refreshTitle(detail)
+                        if (detail.type == MediaType.TV) viewModel.onTitleRefreshed()
+                    }
                     refreshNonce++
                     refreshing = false
                 }
@@ -540,14 +544,14 @@ fun DetailScreen(
             if (detail.type == MediaType.TV && status == LibraryStatus.NONE) {
                 // Removing the show removes its episode history too.
                 detailEpisodes = detailEpisodes.map { it.copy(watched = false) }
-                viewModel.forgetWatchedEpisodes(detail.id)
+                detailViewModel.forgetWatchedEpisodes(detail.id)
             }
         }
     }
     if (trailerSheet) {
         LaunchedEffect(detail.stableKey, trailerAttempt) {
             trailerLoading = true
-            trailerKey = viewModel.loadTrailerKey(detail)
+            trailerKey = detailViewModel.loadTrailerKey(detail)
             trailerLoading = false
         }
         TrailerPlayerSheet(
@@ -559,7 +563,7 @@ fun DetailScreen(
         )
     }
     selectedSeason?.let { number ->
-        SeasonInfoSheet(detail, number, viewModel, onDismiss = { selectedSeason = null }) { person ->
+        SeasonInfoSheet(detail, number, detailViewModel, onDismiss = { selectedSeason = null }) { person ->
             returnToSeason = number
             selectedSeason = null
             selectedPerson = person
@@ -568,7 +572,7 @@ fun DetailScreen(
     selectedPerson?.let { person ->
         ActorSheet(
             person,
-            viewModel,
+            detailViewModel,
             onDismiss = {
                 selectedPerson = null
                 selectedSeason = returnToSeason
@@ -596,7 +600,7 @@ fun DetailScreen(
                 // Removing from every list clears the series' episode history here and on Simkl.
                 detailEpisodes = detailEpisodes.map { it.copy(watched = false) }
                 // Without this the cached episodes put the watched marks back on the next refresh.
-                viewModel.forgetWatchedEpisodes(detail.id)
+                detailViewModel.forgetWatchedEpisodes(detail.id)
                 detail = detail.copy(status = LibraryStatus.NONE, watched = false)
                 onStatus(detail, LibraryStatus.NONE)
                 confirmUnmarkShow = false
@@ -1812,7 +1816,7 @@ private fun CastModeHeadline(text: String, selected: Boolean, onClick: () -> Uni
 private fun SeasonInfoSheet(
     show: MediaCard,
     number: Int,
-    viewModel: CineTrackViewModel,
+    detailViewModel: com.cinetrack.ui.detail.DetailViewModel,
     onDismiss: () -> Unit,
     onPerson: (PersonCard) -> Unit,
 ) {
@@ -1823,7 +1827,7 @@ private fun SeasonInfoSheet(
     LaunchedEffect(show.stableKey, number, attempt) {
         loading = true
         failed = false
-        viewModel.loadSeasonDetails(show, number).fold(
+        detailViewModel.loadSeasonDetails(show, number).fold(
             onSuccess = { details = it },
             onFailure = { failed = true },
         )
@@ -2141,11 +2145,11 @@ private fun formatUsd(amount: Long?): String {
 }
 
 @Composable
-internal fun ActorSheet(person: PersonCard, viewModel: CineTrackViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit) {
+internal fun ActorSheet(person: PersonCard, detailViewModel: com.cinetrack.ui.detail.DetailViewModel, onDismiss: () -> Unit, onMedia: (MediaCard) -> Unit) {
     var details by remember(person.id) { mutableStateOf(person) }
     var biographyExpanded by remember(person.id) { mutableStateOf(false) }
     var biographyOverflowing by remember(person.id) { mutableStateOf(false) }
-    LaunchedEffect(person.id) { details = viewModel.loadPerson(person) }
+    LaunchedEffect(person.id) { details = detailViewModel.loadPerson(person) }
     SharedGlassSheet(onDismiss) {
         Column(
             Modifier.fillMaxWidth().fillMaxHeight(.72f).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)
@@ -2219,6 +2223,7 @@ fun EpisodeDetailScreen(
     allEpisodes: List<EpisodeCard>,
     people: List<PersonCard>,
     viewModel: CineTrackViewModel,
+    detailViewModel: com.cinetrack.ui.detail.DetailViewModel,
     progressViewModel: com.cinetrack.ui.progress.ProgressViewModel,
     onBack: () -> Unit,
     onSeries: () -> Unit,
@@ -2243,7 +2248,7 @@ fun EpisodeDetailScreen(
     }
     LaunchedEffect(show?.stableKey, requestedSeason, requestedNumber) {
         show?.let {
-            loadedEpisode = (viewModel.loadEpisode(it, requestedSeason, requestedNumber)
+            loadedEpisode = (detailViewModel.loadEpisode(it, requestedSeason, requestedNumber)
                 ?: loadedEpisode)
                 .also { overviewFor = requestedSeason to requestedNumber }
                 ?: EpisodeCard(
@@ -2255,7 +2260,7 @@ fun EpisodeDetailScreen(
                     overview = "",
                     airDate = null,
                 )
-            val seasonEpisodes = viewModel.loadEpisodes(it, requestedSeason)
+            val seasonEpisodes = detailViewModel.loadEpisodes(it, requestedSeason)
             loadedEpisodes = (loadedEpisodes + seasonEpisodes + listOfNotNull(loadedEpisode))
                 .distinctBy { candidate -> candidate.season to candidate.number }
                 .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
@@ -2286,13 +2291,13 @@ fun EpisodeDetailScreen(
         listOfNotNull(currentEpisode, pages.getOrNull(index + 1), pages.getOrNull(index - 1)).forEach { target ->
             val key = target.season to target.number
             if (key !in castByEpisode) {
-                castByEpisode[key] = runCatching { viewModel.loadEpisodeCast(series, target.season, target.number) }.getOrDefault(emptyList()).ifEmpty { showCast }
+                castByEpisode[key] = runCatching { detailViewModel.loadEpisodeCast(series, target.season, target.number) }.getOrDefault(emptyList()).ifEmpty { showCast }
             }
         }
         // The show's TVDB character pictures fill in after the TMDB cast is on screen.
         listOfNotNull(currentEpisode, pages.getOrNull(index + 1), pages.getOrNull(index - 1)).forEach { target ->
             val key = target.season to target.number
-            castByEpisode[key]?.let { cast -> castByEpisode[key] = viewModel.withCharacterPictures(series, cast, remember = false) }
+            castByEpisode[key]?.let { cast -> castByEpisode[key] = detailViewModel.withCharacterPictures(series, cast, remember = false) }
         }
     }
     // Episodes arriving (the season loading) move the current one to another index.
@@ -2507,7 +2512,7 @@ fun EpisodeDetailScreen(
         }
     }
     selectedPerson?.let { person ->
-        ActorSheet(person, viewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
+        ActorSheet(person, detailViewModel, onDismiss = { selectedPerson = null }, onMedia = onMedia)
     }
     if (showFullCast) {
         FullCastSheet(loadedPeople, showCharacters, onDismiss = { showFullCast = false }) { person ->
