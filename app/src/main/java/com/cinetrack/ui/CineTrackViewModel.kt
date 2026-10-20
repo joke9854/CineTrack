@@ -18,16 +18,11 @@ import com.cinetrack.data.repository.BoundedLruCache
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.sync.SyncCoordinator
 import com.cinetrack.data.sync.SyncCoordinatorOutcome
-import com.cinetrack.data.sync.ConnectionResult
-import com.cinetrack.data.sync.TrackingSyncError
 import com.cinetrack.data.watchprovider.WatchProviderRepository
 import com.cinetrack.data.work.LibraryArtworkRefreshManager
 import com.cinetrack.data.sync.floppy.FloppyBootstrapWorkManager
 import com.cinetrack.domain.withCharacterImages
 import com.cinetrack.domain.AppUiState
-import com.cinetrack.domain.FloppyConnectionError
-import com.cinetrack.domain.FloppyConnectionStage
-import com.cinetrack.domain.FloppyConnectionUiState
 import com.cinetrack.domain.MainTrackerSwapUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
@@ -41,8 +36,6 @@ import com.cinetrack.domain.LibraryArtworkRefreshStage
 import com.cinetrack.domain.LibraryArtworkRefreshProgress
 import com.cinetrack.domain.FloppyBootstrapStage
 import com.cinetrack.domain.SyncProgress
-import com.cinetrack.domain.SyncConflictChoice
-import com.cinetrack.domain.SyncOperationCard
 import com.cinetrack.domain.ViewingPeopleInsights
 import com.cinetrack.domain.hasExplicitReleaseTime
 import com.cinetrack.domain.releaseDateTime
@@ -86,7 +79,6 @@ class CineTrackViewModel(
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
     private val libraryArtworkRefreshMutex = Mutex()
-    private val floppyConnectionMutex = Mutex()
     private var progressRefreshJob: Job? = null
     private var progressRefreshRequested = false
     private var pendingProgressRefresh = ProgressRefreshRequest()
@@ -122,43 +114,12 @@ class CineTrackViewModel(
         .map { progress: SyncProgress -> progress.running }
         .distinctUntilChanged()
         .stateIn(viewModelScope, SharingStarted.Eagerly, false)
-    private val _floppyUnplaced = MutableStateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>>(emptyList())
-    /** Episodes Floppy could not place; the settings screen links each to Floppy. */
-    val floppyUnplaced: StateFlow<List<com.cinetrack.domain.FloppyUnplacedItem>> = _floppyUnplaced.asStateFlow()
     private val _viewingInsights = MutableStateFlow(ViewingPeopleInsights())
     val viewingInsights: StateFlow<ViewingPeopleInsights> = _viewingInsights.asStateFlow()
-    private val _syncOperations = MutableStateFlow<List<SyncOperationCard>>(emptyList())
-    val syncOperations: StateFlow<List<SyncOperationCard>> = _syncOperations.asStateFlow()
-    private val _managedBootstrapSummary = MutableStateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?>(null)
-    val managedBootstrapSummary: StateFlow<com.cinetrack.data.sync.ManagedBootstrapSummary?> = _managedBootstrapSummary.asStateFlow()
     /** WorkManager-owned progress is kept outside Room-derived AppUiState so
      * delivery invalidations cannot erase an active Floppy bootstrap. */
     private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
     val floppyBootstrapProgress: StateFlow<com.cinetrack.domain.FloppyBootstrapProgress?> = _floppyBootstrapProgress.asStateFlow()
-    private val _floppyConnectionUiState = MutableStateFlow(FloppyConnectionUiState())
-    val floppyConnectionUiState: StateFlow<FloppyConnectionUiState> = _floppyConnectionUiState.asStateFlow()
-
-    /** A connect waiting for "is this the same Floppy at a new address?"; never shown in logs. */
-    data class FloppyAddressMove(val baseUrl: String, val credential: String, val allowInsecureLocalHttp: Boolean)
-    private val _floppyAddressMove = MutableStateFlow<FloppyAddressMove?>(null)
-    val floppyAddressMove: StateFlow<FloppyAddressMove?> = _floppyAddressMove.asStateFlow()
-
-    /** The user's answer: [same] keeps the connection and its finished initial sync. */
-    fun answerFloppyAddressMove(same: Boolean) {
-        val pending = _floppyAddressMove.value ?: return
-        _floppyAddressMove.value = null
-        appendFloppyDiagnostic("Floppy connect: new address confirmed as ${if (same) "the same server" else "a new server"}")
-        connectFloppy(pending.baseUrl, pending.credential, pending.allowInsecureLocalHttp, sameServerAtNewAddress = same)
-    }
-
-    /** Dismissed: nothing changes and the fresh sign-in is ended. */
-    fun cancelFloppyAddressMove() {
-        val pending = _floppyAddressMove.value ?: return
-        _floppyAddressMove.value = null
-        _floppyConnectionUiState.value = FloppyConnectionUiState()
-        viewModelScope.launch(Dispatchers.IO) { repository.discardFloppyCredential(pending.baseUrl, pending.credential) }
-    }
-
     private val _discoverBrowse = MutableStateFlow<Map<String, com.cinetrack.domain.DiscoverBrowseState>>(emptyMap())
     val discoverBrowse = _discoverBrowse.asStateFlow()
     private var browseGeneration = 0
@@ -304,8 +265,6 @@ class CineTrackViewModel(
             }
         }
         viewModelScope.launch {
-            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
-            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             state
                 .map { uiState: AppUiState -> uiState.error }
                 .filterNotNull()
@@ -338,7 +297,6 @@ class CineTrackViewModel(
                     people = current.people,
                     sync = latestSync,
                 )
-                _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
             }
         }
         viewModelScope.launch {
@@ -877,7 +835,6 @@ class CineTrackViewModel(
             else -> completedSync
         }
         _syncProgress.value = completedSync
-        _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
             // The repository does not finish the visible sync until both the
@@ -899,36 +856,6 @@ class CineTrackViewModel(
         result
     }
 
-    fun refreshSyncOperations() {
-        viewModelScope.launch {
-            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
-            _managedBootstrapSummary.value = withContext(Dispatchers.IO) { repository.loadManagedBootstrapSummary() }
-        }
-    }
-
-    fun retrySyncOperation(operationId: String) {
-        if (operationId.startsWith("bootstrap:")) {
-            retryFloppyInitialSync()
-            return
-        }
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { repository.retrySyncOperation(operationId) }
-            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
-            result.exceptionOrNull()?.let { error -> _state.value = _state.value.copy(error = error.message) }
-        }
-    }
-
-    fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice) {
-        viewModelScope.launch {
-            val result = withContext(Dispatchers.IO) { repository.resolveSyncConflict(operationId, choice) }
-            _syncOperations.value = withContext(Dispatchers.IO) { repository.loadSyncOperations() }
-            if (result.isSuccess) {
-                _state.value = readCachedState().copy(sync = _syncProgress.value)
-            } else {
-                _state.value = _state.value.copy(error = result.exceptionOrNull()?.message)
-            }
-        }
-    }
 
     /**
      * Refreshes derived Progress metadata without extending the visible Simkl
@@ -968,15 +895,6 @@ class CineTrackViewModel(
         }
     }
 
-    fun beginSimklLogin(context: Context) {
-        viewModelScope.launch {
-            _state.value = _state.value.copy(error = null)
-            repository.preferences.beginSimklLogin(context).onFailure {
-                _state.value = _state.value.copy(error = it.message)
-            }
-        }
-    }
-
     fun completeSimklLogin(code: String?, state: String?, callbackError: String?, issuer: String?) {
         viewModelScope.launch {
             if (!callbackError.isNullOrBlank()) {
@@ -1006,110 +924,12 @@ class CineTrackViewModel(
         }
     }
 
-    fun disconnectSimkl() {
-        viewModelScope.launch {
-            repository.disconnectSimkl()
-            _state.value = _state.value.copy(simklConnected = false, simklUsername = null)
-        }
-    }
-
-    /** Fills in the Simkl account name shown in Settings, once per connection. */
-    fun loadSimklUsername() {
+    /** Fills in the Simkl account name right after sign-in; Settings uses SyncSettingsViewModel. */
+    private fun loadSimklUsername() {
         if (!_state.value.simklConnected) return
         viewModelScope.launch {
             withContext(Dispatchers.IO) { repository.refreshSimklUsername() }?.let { name ->
                 _state.value = _state.value.copy(simklUsername = name)
-            }
-        }
-    }
-
-    /** Fills in the Floppy account name shown in Settings, once per connection. */
-    fun loadFloppyUsername() {
-        if (!_state.value.floppyConnected) return
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { repository.refreshFloppyUsername() }?.let { name ->
-                _state.value = _state.value.copy(floppyUsername = name)
-            }
-        }
-    }
-
-    fun connectFloppy(
-        baseUrl: String,
-        apiKey: String,
-        allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
-        sameServerAtNewAddress: Boolean? = null,
-    ) {
-        val normalizedUrl = baseUrl.trim()
-        val normalizedApiKey = apiKey.trim()
-        if (normalizedUrl.isBlank()) {
-            publishFloppyFailure(FloppyConnectionError.INVALID_REQUEST)
-            return
-        }
-        if (!floppyConnectionMutex.tryLock()) return
-        // This acknowledgement is intentionally synchronous. It must be
-        // published before launching work or reading DataStore so the next
-        // Compose frame proves that the tap reached the ViewModel.
-        _floppyConnectionUiState.value = FloppyConnectionUiState(
-            stage = FloppyConnectionStage.CHECKING_SERVER,
-            serverVersion = _state.value.floppyServerVersion,
-        )
-        appendFloppyDiagnostic("Floppy connect: UI event received")
-        appendFloppyDiagnostic("Floppy connect: checking server")
-        viewModelScope.launch(Dispatchers.IO) {
-            var cancelled = false
-            try {
-                val result = repository.connectFloppy(
-                    normalizedUrl,
-                    normalizedApiKey,
-                    allowInsecureLocalHttp,
-                    onStage = { stage, version -> publishFloppyStage(stage, version) },
-                    sameServerAtNewAddress = sameServerAtNewAddress,
-                )
-                when (result) {
-                    ConnectionResult.AddressMoveNeedsConfirmation -> {
-                        appendFloppyDiagnostic("Floppy connect: same account at a new address, asking")
-                        withContext(Dispatchers.Main) {
-                            _floppyConnectionUiState.value = FloppyConnectionUiState()
-                            _floppyAddressMove.value = FloppyAddressMove(normalizedUrl, normalizedApiKey, allowInsecureLocalHttp)
-                        }
-                    }
-                    ConnectionResult.Connected -> {
-                        withContext(Dispatchers.Main) {
-                            val cached = readCachedState()
-                            _state.value = cached.copy(error = null)
-                            publishFloppyStage(FloppyConnectionStage.COMPLETE, cached.floppyServerVersion)
-                        }
-                    }
-                    ConnectionResult.AuthenticationRequired -> {
-                        withContext(Dispatchers.Main) {
-                            _state.value = readCachedState().copy(error = null)
-                            publishFloppyFailure(FloppyConnectionError.AUTHENTICATION)
-                        }
-                    }
-                    is ConnectionResult.Failed -> {
-                        withContext(Dispatchers.Main) {
-                            // Validation can commit the provider before a
-                            // bootstrap/delivery failure. Always refresh the
-                            // persistent projection, but never overwrite the
-                            // dedicated action flow with that publication.
-                            _state.value = readCachedState().copy(error = null)
-                            publishFloppyFailure(result.error.toFloppyConnectionError(), result.error.userMessage())
-                        }
-                    }
-                }
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                cancelled = true
-                throw error
-            } catch (error: Throwable) {
-                withContext(Dispatchers.Main) {
-                    _state.value = readCachedState().copy(error = null)
-                    publishFloppyFailure(error.toFloppyConnectionError())
-                }
-            } finally {
-                if (!cancelled && _floppyConnectionUiState.value.running) {
-                    publishFloppyFailure(FloppyConnectionError.UNKNOWN)
-                }
-                floppyConnectionMutex.unlock()
             }
         }
     }
@@ -1119,34 +939,6 @@ class CineTrackViewModel(
             repository.preferences.setFloppyAllowInsecureLocalHttp(enabled)
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(floppyAllowInsecureLocalHttp = enabled)
-            }
-        }
-    }
-
-    fun retryFloppyInitialSync() {
-        if (!floppyConnectionMutex.tryLock()) return
-        _floppyConnectionUiState.value = FloppyConnectionUiState(
-            stage = FloppyConnectionStage.INITIAL_SYNC,
-            serverVersion = _state.value.floppyServerVersion,
-        )
-        appendFloppyDiagnostic("Floppy connect: retrying initial sync")
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                repository.retryFloppyBootstrap()
-                withContext(Dispatchers.Main) {
-                    val cached = readCachedState()
-                    _state.value = cached.copy(error = null)
-                    publishFloppyStage(FloppyConnectionStage.COMPLETE, cached.floppyServerVersion)
-                }
-            } catch (error: kotlinx.coroutines.CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                withContext(Dispatchers.Main) {
-                    _state.value = readCachedState().copy(error = null)
-                    publishFloppyFailure(FloppyConnectionError.BOOTSTRAP)
-                }
-            } finally {
-                floppyConnectionMutex.unlock()
             }
         }
     }
@@ -1176,140 +968,6 @@ class CineTrackViewModel(
             _state.value = readCachedState().copy(sync = _syncProgress.value, error = null)
             _mainTrackerSwap.value = MainTrackerSwapUiState(running = false, error = error?.message)
         }
-    }
-
-    fun disconnectFloppy() {
-        _floppyConnectionUiState.value = FloppyConnectionUiState()
-        viewModelScope.launch(Dispatchers.IO) {
-            repository.disconnectFloppy()
-            withContext(Dispatchers.Main) { _state.value = readCachedState().copy(error = null) }
-        }
-    }
-
-    private fun publishFloppyStage(stage: FloppyConnectionStage, serverVersion: String?) {
-        val current = _floppyConnectionUiState.value
-        _floppyConnectionUiState.value = current.copy(
-            stage = stage,
-            error = null,
-            message = null,
-            serverVersion = serverVersion ?: current.serverVersion,
-        )
-        val message = when (stage) {
-            FloppyConnectionStage.CHECKING_SERVER -> "Floppy connect: checking server"
-            FloppyConnectionStage.AUTHENTICATING -> "Floppy connect: authenticating"
-            FloppyConnectionStage.ACTIVATING -> "Floppy connect: activating provider"
-            FloppyConnectionStage.INITIAL_SYNC -> "Floppy connect: starting bootstrap"
-            FloppyConnectionStage.COMPLETE -> "Floppy connect: complete"
-            else -> null
-        }
-        message?.let(::appendFloppyDiagnostic)
-        if (stage == FloppyConnectionStage.AUTHENTICATING) {
-            appendFloppyDiagnostic("Floppy connect: server info OK, version=${serverVersion ?: current.serverVersion ?: "unknown"}")
-        }
-    }
-
-    private fun publishFloppyFailure(error: FloppyConnectionError, message: String? = null) {
-        _floppyConnectionUiState.value = _floppyConnectionUiState.value.copy(
-            stage = FloppyConnectionStage.FAILED,
-            error = error,
-            message = message,
-        )
-        appendFloppyDiagnostic("Floppy connect: ${error.diagnosticName}")
-    }
-
-    fun refreshFloppyUnplaced() {
-        viewModelScope.launch {
-            _floppyUnplaced.value = withContext(Dispatchers.IO) {
-                runCatching {
-                    val dismissed = repository.preferences.floppyUnplacedDismissedNow()
-                    repository.floppyUnplacedItems().filterNot { it.dismissKey in dismissed }
-                }.getOrDefault(emptyList())
-            }
-        }
-    }
-
-    /** Hides an entry the user handled (or chose to ignore); it stays hidden. */
-    fun dismissFloppyUnplaced(item: com.cinetrack.domain.FloppyUnplacedItem) {
-        _floppyUnplaced.update { items -> items.filterNot { it.dismissKey == item.dismissKey } }
-        viewModelScope.launch(Dispatchers.IO) { repository.preferences.dismissFloppyUnplaced(item.dismissKey) }
-    }
-
-    private fun appendFloppyDiagnostic(message: String) {
-        val line = "${java.time.Instant.now()}  $message"
-        viewModelScope.launch(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
-    }
-
-    private val FloppyConnectionError.diagnosticName: String
-        get() = name.lowercase()
-
-    /** Errors whose own text tells the user what to do; others use the generic text. */
-    private fun Throwable.userMessage(): String? = when (this) {
-        is TrackingSyncError.Validation, is TrackingSyncError.TokenScope -> message
-        is TrackingSyncError.BootstrapFailure -> (cause as? TrackingSyncError.Validation)?.message
-        else -> null
-    }
-
-    /** Opens Floppy's sign-in page once the server confirms it offers sign-in. */
-    fun beginFloppySignIn(
-        context: Context,
-        baseUrl: String,
-        allowInsecureLocalHttp: Boolean = _state.value.floppyAllowInsecureLocalHttp,
-    ) {
-        if (baseUrl.isBlank()) {
-            publishFloppyFailure(FloppyConnectionError.INVALID_REQUEST)
-            return
-        }
-        if (floppyConnectionMutex.isLocked) return
-        _floppyConnectionUiState.value = FloppyConnectionUiState(
-            stage = FloppyConnectionStage.CHECKING_SERVER,
-            serverVersion = _state.value.floppyServerVersion,
-        )
-        appendFloppyDiagnostic("Floppy sign-in: checking server")
-        viewModelScope.launch {
-            val server = withContext(Dispatchers.IO) { repository.floppySignInServer(baseUrl.trim(), allowInsecureLocalHttp) }
-            server.onSuccess { url ->
-                repository.preferences.beginFloppyLogin(context, url, allowInsecureLocalHttp)
-                    .onSuccess {
-                        appendFloppyDiagnostic("Floppy sign-in: browser opened")
-                        _floppyConnectionUiState.value = FloppyConnectionUiState(serverVersion = _state.value.floppyServerVersion)
-                    }
-                    .onFailure { publishFloppyFailure(FloppyConnectionError.UNKNOWN, it.message) }
-            }.onFailure { error ->
-                publishFloppyFailure(error.toFloppyConnectionError(), error.userMessage())
-            }
-        }
-    }
-
-    /** Finishes a sign-in returned by the browser, then connects exactly like an API key. */
-    fun completeFloppySignIn(code: String?, state: String?, callbackError: String?, issuer: String?) {
-        if (floppyConnectionMutex.isLocked) return
-        _floppyConnectionUiState.value = FloppyConnectionUiState(
-            stage = FloppyConnectionStage.AUTHENTICATING,
-            serverVersion = _state.value.floppyServerVersion,
-        )
-        viewModelScope.launch {
-            val signIn = withContext(Dispatchers.IO) { repository.completeFloppySignIn(code, state, callbackError, issuer) }
-            signIn.onSuccess {
-                appendFloppyDiagnostic("Floppy sign-in: tokens received")
-                connectFloppy(it.baseUrl, it.credential, it.allowInsecureLocalHttp)
-            }.onFailure { error ->
-                appendFloppyDiagnostic("Floppy sign-in: refused")
-                publishFloppyFailure(FloppyConnectionError.AUTHENTICATION, error.message)
-            }
-        }
-    }
-
-    private fun Throwable.toFloppyConnectionError(): FloppyConnectionError = when (this) {
-        is TrackingSyncError.AuthenticationRequired -> FloppyConnectionError.AUTHENTICATION
-        is TrackingSyncError.DnsFailure -> FloppyConnectionError.DNS
-        is TrackingSyncError.Timeout -> FloppyConnectionError.TIMEOUT
-        is TrackingSyncError.TlsFailure -> FloppyConnectionError.TLS
-        is TrackingSyncError.NetworkUnavailable -> FloppyConnectionError.NETWORK
-        is TrackingSyncError.WrongApi -> FloppyConnectionError.WRONG_API
-        is TrackingSyncError.InvalidRemoteData -> FloppyConnectionError.INVALID_RESPONSE
-        is TrackingSyncError.InvalidUrl -> FloppyConnectionError.INVALID_REQUEST
-        is TrackingSyncError.BootstrapFailure -> FloppyConnectionError.BOOTSTRAP
-        else -> FloppyConnectionError.UNKNOWN
     }
 
     fun cachedDetails(media: MediaCard): MediaCard? = detailMediaCache[media.stableKey]
@@ -1380,15 +1038,6 @@ class CineTrackViewModel(
         openedMediaCache["${type.name}:$id"] ?: detailMediaCache["${type.name}:$id"]
     suspend fun loadTrailerKey(media: MediaCard): String? = withContext(Dispatchers.IO) { mediaRepository.loadTrailerKey(media) }
 
-    fun setBackgroundSync(enabled: Boolean) {
-        _state.value = _state.value.copy(backgroundSync = enabled)
-        viewModelScope.launch { repository.preferences.setBackgroundSync(enabled) }
-    }
-
-    fun setWifiOnly(enabled: Boolean) {
-        _state.value = _state.value.copy(wifiOnly = enabled)
-        viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
-    }
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
         viewModelScope.launch {
@@ -1422,6 +1071,25 @@ class CineTrackViewModel(
         viewModelScope.launch {
             val cached = readCachedState()
             _state.value = cached.copy(sync = _syncProgress.value, error = null)
+        }
+    }
+
+    /** Called once a write on the Sync, Simkl or Floppy pages has finished; see SyncSettingsViewModel.changes. */
+    fun onSyncSettingsChanged(change: com.cinetrack.ui.settings.SyncSettingsChange) {
+        when (change) {
+            com.cinetrack.ui.settings.SyncSettingsChange.ProviderChanged -> viewModelScope.launch {
+                _state.value = readCachedState().copy(error = null)
+            }
+            com.cinetrack.ui.settings.SyncSettingsChange.ConflictResolved -> viewModelScope.launch {
+                _state.value = readCachedState().copy(sync = _syncProgress.value)
+            }
+            is com.cinetrack.ui.settings.SyncSettingsChange.Error -> _state.update { it.copy(error = change.message) }
+            com.cinetrack.ui.settings.SyncSettingsChange.SimklDisconnected ->
+                _state.update { it.copy(simklConnected = false, simklUsername = null) }
+            is com.cinetrack.ui.settings.SyncSettingsChange.SimklUsername -> _state.update { it.copy(simklUsername = change.name) }
+            is com.cinetrack.ui.settings.SyncSettingsChange.FloppyUsername -> _state.update { it.copy(floppyUsername = change.name) }
+            is com.cinetrack.ui.settings.SyncSettingsChange.BackgroundSync -> _state.update { it.copy(backgroundSync = change.enabled) }
+            is com.cinetrack.ui.settings.SyncSettingsChange.WifiOnly -> _state.update { it.copy(wifiOnly = change.enabled) }
         }
     }
 

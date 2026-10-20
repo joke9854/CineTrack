@@ -216,6 +216,10 @@ fun CineTrackApp(
     LaunchedEffect(backupViewModel) { backupViewModel.errors.collect(viewModel::showError) }
     LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }
     val backupProgress by backupViewModel.backupProgress.collectAsStateWithLifecycle()
+    val syncSettingsViewModel: com.cinetrack.ui.settings.SyncSettingsViewModel = viewModel(
+        factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.repository)),
+    )
+    LaunchedEffect(syncSettingsViewModel) { syncSettingsViewModel.changes.collect(viewModel::onSyncSettingsChanged) }
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by discoverViewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -248,7 +252,7 @@ fun CineTrackApp(
 
     LaunchedEffect(callback) {
         callback?.let {
-            if (it.floppy) viewModel.completeFloppySignIn(it.code, it.state, it.error, it.issuer)
+            if (it.floppy) syncSettingsViewModel.completeFloppySignIn(it.code, it.state, it.error, it.issuer)
             else viewModel.completeSimklLogin(it.code, it.state, it.error, it.issuer)
             authCallback.value = null
         }
@@ -257,7 +261,7 @@ fun CineTrackApp(
         com.cinetrack.ui.screens.SimklFirstSyncDialog(
             onMerge = { viewModel.chooseSimklFirstSync(merge = true) },
             onReplace = { viewModel.chooseSimklFirstSync(merge = false) },
-            onDisconnect = viewModel::disconnectSimkl,
+            onDisconnect = syncSettingsViewModel::disconnectSimkl,
         )
     }
     LaunchedEffect(requestedRoute) {
@@ -583,6 +587,7 @@ fun CineTrackApp(
                     settingsViewModel = settingsViewModel,
                     contentViewModel = contentSettingsViewModel,
                     backupViewModel = backupViewModel,
+                    syncViewModel = syncSettingsViewModel,
                     onBack = { navController.popBackStack() },
                     onPage = { navController.navigate("settings-detail/$it") },
                 )
@@ -629,7 +634,7 @@ fun CineTrackApp(
             shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
         }
         // Library artwork refresh and an available update report in the same pill spot.
-        com.cinetrack.ui.screens.FloppyAddressMoveDialog(viewModel)
+        com.cinetrack.ui.screens.FloppyAddressMoveDialog(syncSettingsViewModel)
         LibraryArtworkPill(state, onDismiss = viewModel::dismissLibraryArtworkProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
         // Once per launch, after the start-up animation: offer a newer release.
         var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }

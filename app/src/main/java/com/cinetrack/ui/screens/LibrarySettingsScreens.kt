@@ -194,6 +194,8 @@ import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.settings.SettingsViewModel
 import com.cinetrack.ui.settings.BackupViewModel
+import com.cinetrack.ui.settings.SyncSettingsViewModel
+import com.cinetrack.ui.settings.TrackingSyncControls
 import com.cinetrack.ui.settings.ContentSettingsViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
@@ -896,6 +898,7 @@ fun SettingsDetailScreen(
     settingsViewModel: SettingsViewModel,
     contentViewModel: ContentSettingsViewModel,
     backupViewModel: BackupViewModel,
+    syncViewModel: SyncSettingsViewModel,
     onBack: () -> Unit,
     onPage: (String) -> Unit,
 ) {
@@ -904,6 +907,9 @@ fun SettingsDetailScreen(
         return
     }
     val context = LocalContext.current
+    val syncControls = remember(viewModel) {
+        TrackingSyncControls(viewModel.syncProgress, viewModel::sync, viewModel.mainTrackerSwap, viewModel::swapMainTracker, viewModel.floppyBootstrapProgress)
+    }
     val title = when (page) {
         SettingsPages.Streaming -> stringResource(R.string.streaming_services)
         SettingsPages.Sync -> stringResource(R.string.synchronization)
@@ -945,11 +951,11 @@ fun SettingsDetailScreen(
             item {
                 when (page) {
                     SettingsPages.Streaming -> StreamingSettings(contentViewModel, onPage)
-                    SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
-                    SettingsPages.SyncOperations -> SyncOperationsScreen(viewModel)
+                    SettingsPages.Sync -> TrackingSettingsScreen(state, syncViewModel, syncControls, { syncViewModel.beginSimklLogin(context) })
+                    SettingsPages.SyncOperations -> SyncOperationsScreen(syncViewModel, syncControls)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
-                    SettingsPages.ServiceSimkl -> SyncSettingsHost(state, viewModel, { viewModel.beginSimklLogin(context) })
-                    SettingsPages.ServiceFloppy -> FloppySettingsHost(state, viewModel)
+                    SettingsPages.ServiceSimkl -> SyncSettingsHost(state, syncViewModel, syncControls, { syncViewModel.beginSimklLogin(context) })
+                    SettingsPages.ServiceFloppy -> FloppySettingsHost(state, syncViewModel, syncControls)
                     SettingsPages.ServiceTmdb -> Column {
                         CredentialBlock("TMDB", state.tmdbApiConfigured, contentViewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(contentViewModel)
@@ -979,16 +985,17 @@ fun SettingsDetailScreen(
 }
 
 @Composable
-internal fun SyncSettingsHost(state: AppUiState, viewModel: CineTrackViewModel, onConnect: () -> Unit) {
-    val sync by viewModel.syncProgress.collectAsStateWithLifecycle()
-    SyncSettings(state, sync, viewModel, onConnect)
+internal fun SyncSettingsHost(state: AppUiState, viewModel: SyncSettingsViewModel, controls: TrackingSyncControls, onConnect: () -> Unit) {
+    val sync by controls.syncProgress.collectAsStateWithLifecycle()
+    SyncSettings(state, sync, viewModel, controls.onSync, onConnect)
 }
 
 @Composable
 private fun SyncSettings(
     state: AppUiState,
     sync: SyncProgress,
-    viewModel: CineTrackViewModel,
+    viewModel: SyncSettingsViewModel,
+    onSync: () -> Unit,
     onConnect: () -> Unit,
 ) {
     LaunchedEffect(state.simklConnected, state.simklUsername) {
@@ -1017,7 +1024,7 @@ private fun SyncSettings(
         },
         icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
         color = Color(0xFF3B8F5A),
-        onClick = if (state.simklConnected) viewModel::sync else onConnect,
+        onClick = if (state.simklConnected) onSync else onConnect,
     )
     SettingsSection(stringResource(R.string.synchronization)) {
         KitToggleRow(Icons.Filled.Refresh, stringResource(R.string.background_sync), stringResource(R.string.background_sync_sub), state.backgroundSync, viewModel::setBackgroundSync)
@@ -1050,11 +1057,13 @@ private fun SyncSettings(
 }
 
 @Composable
-internal fun SyncOperationsSettings(viewModel: CineTrackViewModel) {
+internal fun SyncOperationsSettings(viewModel: SyncSettingsViewModel, controls: TrackingSyncControls) {
     val operations by viewModel.syncOperations.collectAsStateWithLifecycle()
     val bootstrap by viewModel.managedBootstrapSummary.collectAsStateWithLifecycle()
-    val bootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
-    LaunchedEffect(Unit) { viewModel.refreshSyncOperations() }
+    val bootstrapProgress by controls.floppyBootstrapProgress.collectAsStateWithLifecycle()
+    val syncRunning = controls.syncProgress.collectAsStateWithLifecycle().value.running
+    // On open, and whenever a sync or the initial sync moves on, since either changes the list.
+    LaunchedEffect(syncRunning, bootstrapProgress?.stage) { viewModel.refreshSyncOperations() }
     val conflicts = operations.filter { it.status == SyncOperationStatus.CONFLICT }
     val failed = operations.filter { it.status in setOf(SyncOperationStatus.FAILED, SyncOperationStatus.PARTIAL) }
     val pending = operations.filter { it.status == SyncOperationStatus.PENDING }
@@ -1210,7 +1219,7 @@ private fun ManagedFloppyBootstrapCard(
 private fun SyncOperationSection(
     title: String,
     operations: List<SyncOperationCard>,
-    viewModel: CineTrackViewModel,
+    viewModel: SyncSettingsViewModel,
 ) {
     SettingsSection(title) {
         operations.forEachIndexed { index, operation ->
@@ -1220,7 +1229,7 @@ private fun SyncOperationSection(
 }
 
 @Composable
-private fun SyncOperationRow(operation: SyncOperationCard, viewModel: CineTrackViewModel) {
+private fun SyncOperationRow(operation: SyncOperationCard, viewModel: SyncSettingsViewModel) {
     val terminalCancelled = operation.deliveries.isNotEmpty() && operation.deliveries
         .filter { it.required }
         .all { it.status in setOf("CANCELLED_PROVIDER_INSTANCE_CHANGED", "CANCELLED_PROVIDER_REMOVED", "SUPERSEDED", "SKIPPED_UNSUPPORTED", "ACKNOWLEDGED") }
@@ -1385,12 +1394,12 @@ private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {
 }
 
 @Composable
-private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewModel, controls: TrackingSyncControls) {
     val connectionUiState by viewModel.floppyConnectionUiState.collectAsStateWithLifecycle()
     LaunchedEffect(state.floppyConnected, state.floppyUsername) {
         if (state.floppyConnected && state.floppyUsername == null) viewModel.loadFloppyUsername()
     }
-    val observedBootstrapProgress by viewModel.floppyBootstrapProgress.collectAsStateWithLifecycle()
+    val observedBootstrapProgress by controls.floppyBootstrapProgress.collectAsStateWithLifecycle()
     // The header already says "not connected"; the status details matter once connected.
     if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
         // Whether it's connected; the role and the initial sync have their own rows.
@@ -1454,7 +1463,7 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
             }
         }
     }
-    MainTrackerSection(state, viewModel)
+    MainTrackerSection(state, controls)
     val unplaced by viewModel.floppyUnplaced.collectAsStateWithLifecycle()
     LaunchedEffect(state.floppyUiState, observedBootstrapProgress?.stage) { viewModel.refreshFloppyUnplaced() }
     val floppyBaseUrl = state.floppyBaseUrl
@@ -1473,14 +1482,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
         }
     }
     val signInContext = LocalContext.current
-    val sync by viewModel.syncProgress.collectAsStateWithLifecycle()
+    val sync by controls.syncProgress.collectAsStateWithLifecycle()
     FloppyConnectionSettingsForm(
         state,
         connectionUiState,
-        viewModel::connectFloppy,
+        { url, key, allowHttp -> viewModel.connectFloppy(url, key, allowHttp) },
         onSignInRequested = { url, allowHttp -> viewModel.beginFloppySignIn(signInContext, url, allowHttp) },
         syncing = sync.running,
-        onSyncRequested = viewModel::sync,
+        onSyncRequested = controls.onSync,
     )
     if (state.floppyConnected) {
         val crashContext = LocalContext.current
@@ -1513,9 +1522,9 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: CineTrackViewModel)
  * CineTrack's changes only). Offered once both are connected and the
  * candidate finished its initial sync. */
 @Composable
-private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls) {
     if (!state.floppyConnected || !state.simklConnected) return
-    val swap by viewModel.mainTrackerSwap.collectAsStateWithLifecycle()
+    val swap by controls.mainTrackerSwap.collectAsStateWithLifecycle()
     var asking by rememberSaveable { mutableStateOf(false) }
     val floppyReady = state.floppyUiState == FloppyUiState.READY
     val canSwap = state.floppyIsMain || (floppyReady && state.floppyCanBeMain)
@@ -1586,7 +1595,7 @@ private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel)
                 )
             },
             confirmButton = {
-                TextButton(onClick = { asking = false; viewModel.swapMainTracker() }) {
+                TextButton(onClick = { asking = false; controls.onSwapMainTracker() }) {
                     Text(stringResource(R.string.main_tracker_switch), fontWeight = FontWeight.Bold)
                 }
             },
@@ -1601,7 +1610,7 @@ private fun MainTrackerSection(state: AppUiState, viewModel: CineTrackViewModel)
  * sync; a new one starts over with a full initial sync. Tapping outside cancels.
  */
 @Composable
-internal fun FloppyAddressMoveDialog(viewModel: CineTrackViewModel) {
+internal fun FloppyAddressMoveDialog(viewModel: SyncSettingsViewModel) {
     val pending by viewModel.floppyAddressMove.collectAsStateWithLifecycle()
     val move = pending ?: return
     val host = remember(move.baseUrl) { runCatching { java.net.URI(move.baseUrl).host }.getOrNull() ?: move.baseUrl }
