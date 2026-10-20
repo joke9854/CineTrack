@@ -384,9 +384,6 @@ data class FloppyUnplacedItem(
 data class AppUiState(
     val loading: Boolean = true,
     val refreshing: Boolean = false,
-    val libraryArtworkRefreshing: Boolean = false,
-    val libraryArtworkProgress: LibraryArtworkRefreshProgress? = null,
-    val libraryArtworkProgressVisible: Boolean = false,
     val error: String? = null,
     val rails: Map<String, List<MediaCard>> = emptyMap(),
     val playbackTv: List<PlaybackCard> = emptyList(),

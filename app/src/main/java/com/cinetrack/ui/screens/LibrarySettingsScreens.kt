@@ -251,11 +251,11 @@ private enum class LibraryOrder { TITLE, RATING, YEAR, RECENTLY_WATCHED, RECENTL
 @Composable
 fun LibraryScreen(
     state: AppUiState,
+    artwork: com.cinetrack.ui.library.LibraryArtworkState,
     onSearch: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
     onRefreshArtwork: () -> Unit,
-    onDismissArtworkProgress: () -> Unit = {},
     onCompactNav: (Boolean) -> Unit,
 ) {
     var type by rememberSaveable { mutableStateOf(MediaType.TV) }
@@ -303,7 +303,7 @@ fun LibraryScreen(
     val backgroundMedia = state.rails[RailIds.LIBRARY].orEmpty().minByOrNull { it.stableKey }
     AdaptiveBackground(artworkUrl = backgroundMedia?.posterUrl) {
         LongPullRefreshContainer(
-            refreshing = state.libraryArtworkRefreshing,
+            refreshing = artwork.refreshing,
             onRefresh = onRefreshArtwork,
             enabled = state.tmdbApiConfigured,
         ) {
@@ -443,7 +443,7 @@ fun LibraryScreen(
                 IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
                     Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(19.dp))
                 }
-                if (state.libraryArtworkProgress != null && !state.libraryArtworkProgressVisible) {
+                if (artwork.progress != null && !artwork.progressVisible) {
                     IconButton(onClick = rememberUiAction(onRefreshArtwork), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
                         Icon(Icons.Filled.Refresh, stringResource(R.string.refresh), tint = AccentLight, modifier = Modifier.size(19.dp))
                     }

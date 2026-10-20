@@ -163,7 +163,6 @@ fun CineTrackApp(
             application.container.peopleRepository,
             application.container.watchProviderRepository,
             application.container.syncCoordinator,
-            application.container.libraryArtworkRefreshManager,
             application.container.floppyBootstrapWorkManager,
         ),
     )
@@ -210,6 +209,13 @@ fun CineTrackApp(
         ),
     )
     LaunchedEffect(contentSettingsViewModel) { contentSettingsViewModel.changes.collect(viewModel::onContentChanged) }
+    val libraryViewModel: com.cinetrack.ui.library.LibraryViewModel = viewModel(
+        factory = com.cinetrack.ui.library.LibraryViewModel.Factory(
+            com.cinetrack.data.repository.RepositoryLibraryArtwork(application.container.libraryArtworkRefreshManager, application.container.repository.preferences),
+        ),
+    )
+    val libraryArtwork by libraryViewModel.artwork.collectAsStateWithLifecycle()
+    LaunchedEffect(libraryViewModel) { libraryViewModel.errors.collect(viewModel::showError) }
     val backupViewModel: com.cinetrack.ui.settings.BackupViewModel = viewModel(
         factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.repository)),
     )
@@ -418,7 +424,7 @@ fun CineTrackApp(
                 )
             }
             screen(Routes.Library) {
-                LibraryScreen(state = state, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = viewModel::refreshLibraryArtwork, onDismissArtworkProgress = viewModel::dismissLibraryArtworkProgress, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state, artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
             }
             screen(Routes.Settings) {
                 SettingsScreen(
@@ -635,7 +641,7 @@ fun CineTrackApp(
         }
         // Library artwork refresh and an available update report in the same pill spot.
         com.cinetrack.ui.screens.FloppyAddressMoveDialog(syncSettingsViewModel)
-        LibraryArtworkPill(state, onDismiss = viewModel::dismissLibraryArtworkProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
+        LibraryArtworkPill(libraryArtwork, onDismiss = libraryViewModel::dismissProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
         // Once per launch, after the start-up animation: offer a newer release.
         var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
         LaunchedEffect(minimumLaunchElapsed) {
@@ -649,7 +655,7 @@ fun CineTrackApp(
         var shownUpdate by remember { mutableStateOf<com.cinetrack.data.update.AppUpdateInfo?>(null) }
         if (offeredUpdate != null) shownUpdate = offeredUpdate
         AnimatedVisibility(
-            visible = offeredUpdate != null && offeredUpdate.version != updateDismissed && backupProgress == null && !state.libraryArtworkProgressVisible,
+            visible = offeredUpdate != null && offeredUpdate.version != updateDismissed && backupProgress == null && !libraryArtwork.progressVisible,
             enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
             exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm),
@@ -721,9 +727,9 @@ fun CineTrackApp(
 
 /** The library artwork refresh as a pill; it closes itself a few seconds after finishing. */
 @Composable
-private fun LibraryArtworkPill(state: com.cinetrack.domain.AppUiState, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
-    val progress = state.libraryArtworkProgress
-    val visible = state.libraryArtworkProgressVisible && progress != null
+private fun LibraryArtworkPill(artwork: com.cinetrack.ui.library.LibraryArtworkState, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    val progress = artwork.progress
+    val visible = artwork.progressVisible && progress != null
     var shown by remember { mutableStateOf(progress) }
     if (progress != null) shown = progress
     val finished = progress?.stage in setOf(
