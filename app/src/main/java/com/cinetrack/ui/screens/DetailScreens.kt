@@ -1352,10 +1352,10 @@ private fun ReleaseCountdown(media: MediaCard, release: String, episode: Episode
     val days = daysUntil(release) ?: return
     val context = LocalContext.current
     val reminders by progressViewModel.releaseReminders.collectAsState()
-    val reminderOn = progressViewModel.isReleaseReminderOn(
-        reminders, media, release, episode?.season, episode?.number,
-        com.cinetrack.ui.progress.notifiesByDefault(viewModel.state.value, media, episode?.season, episode?.number),
-    )
+    val byDefault by remember(viewModel, media.stableKey, episode?.season, episode?.number) {
+        viewModel.state.map { com.cinetrack.ui.progress.notifiesByDefault(it, media, episode?.season, episode?.number) }.distinctUntilChanged()
+    }.collectAsState(initial = false)
+    val reminderOn = progressViewModel.isReleaseReminderOn(reminders, media, release, episode?.season, episode?.number, byDefault)
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val whenText = when (days) {
         0 -> stringResource(R.string.release_today)
@@ -1378,7 +1378,7 @@ private fun ReleaseCountdown(media: MediaCard, release: String, episode: Episode
                 if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
                     androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                progressViewModel.setReleaseReminder(media, release, episode?.season, episode?.number, episode?.title, enable, com.cinetrack.ui.progress.notifiesByDefault(viewModel.state.value, media, episode?.season, episode?.number))
+                progressViewModel.setReleaseReminder(media, release, episode?.season, episode?.number, episode?.title, enable, byDefault)
             },
             contentAlignment = Alignment.Center,
         ) {
