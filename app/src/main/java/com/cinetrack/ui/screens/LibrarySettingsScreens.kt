@@ -193,6 +193,7 @@ import com.cinetrack.domain.SyncDeliveryCard
 import com.cinetrack.domain.SyncOperationStatus
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.settings.SettingsViewModel
+import com.cinetrack.ui.settings.ContentSettingsViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.BrandMark
@@ -892,11 +893,12 @@ fun SettingsDetailScreen(
     state: AppUiState,
     viewModel: CineTrackViewModel,
     settingsViewModel: SettingsViewModel,
+    contentViewModel: ContentSettingsViewModel,
     onBack: () -> Unit,
     onPage: (String) -> Unit,
 ) {
     if (page == SettingsPages.Providers) {
-        StreamingProvidersScreen(state, viewModel, onBack)
+        StreamingProvidersScreen(state, contentViewModel, onBack)
         return
     }
     val context = LocalContext.current
@@ -940,7 +942,7 @@ fun SettingsDetailScreen(
             }
             item {
                 when (page) {
-                    SettingsPages.Streaming -> StreamingSettings(state, viewModel, onPage)
+                    SettingsPages.Streaming -> StreamingSettings(contentViewModel, onPage)
                     SettingsPages.Sync -> TrackingSettingsScreen(state, viewModel, { viewModel.beginSimklLogin(context) })
                     SettingsPages.SyncOperations -> SyncOperationsScreen(viewModel)
                     SettingsPages.Integrations -> IntegrationsSettings(state, onPage)
@@ -948,12 +950,12 @@ fun SettingsDetailScreen(
                     SettingsPages.ServiceFloppy -> FloppySettingsHost(state, viewModel)
                     SettingsPages.ServiceTmdb -> Column {
                         CredentialBlock("TMDB", state.tmdbApiConfigured, viewModel::verifyAndSetTmdbApiKey)
-                        MetadataSettings(state, viewModel)
-                        ContentRegionSettings(state, viewModel, onPage)
+                        MetadataSettings(contentViewModel)
+                        ContentRegionSettings(state, viewModel, contentViewModel, onPage)
                     }
                     SettingsPages.ServiceMdblist -> Column {
                         CredentialBlock("MDBList", state.mdbListApiConfigured, viewModel::verifyAndSetMdbListApiKey)
-                        RatingSettings(state, viewModel)
+                        RatingSettings(contentViewModel)
                     }
                     SettingsPages.ServiceTrakt -> Column {
                         CredentialBlock("Trakt", state.traktConfigured, viewModel::verifyAndSetTraktClientId)
@@ -964,7 +966,7 @@ fun SettingsDetailScreen(
                     }
                     SettingsPages.Notifications -> NotificationSettings(state, viewModel, settingsViewModel)
                     SettingsPages.Language -> LanguageSettings(settingsViewModel)
-                    SettingsPages.Ratings -> RatingSettings(state, viewModel)
+                    SettingsPages.Ratings -> RatingSettings(contentViewModel)
                     SettingsPages.Export -> ExportSettings(viewModel)
                     SettingsPages.Logs -> LogsSettings(settingsViewModel)
                     else -> AboutSettings(settingsViewModel)
@@ -2082,7 +2084,8 @@ private fun ApiCredentialSettings(
 }
 
 @Composable
-private fun MetadataSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun MetadataSettings(viewModel: ContentSettingsViewModel) {
+    val state by viewModel.content.collectAsStateWithLifecycle()
     var activeChoice by rememberSaveable { mutableStateOf<String?>(null) }
     val locale = com.cinetrack.ui.currentLocale()
     val defaultChoice = "system" to stringResource(R.string.system_default)
@@ -2224,7 +2227,8 @@ private fun LanguageSettings(viewModel: SettingsViewModel) {
 }
 
 @Composable
-private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
+private fun RatingSettings(viewModel: ContentSettingsViewModel) {
+    val state by viewModel.content.collectAsStateWithLifecycle()
     val labels = listOf("IMDb", "TMDB", "Metacritic", "Rotten Tomatoes")
     fun sourceKey(label: String) = when (label) {
         "Rotten Tomatoes" -> "tomatoes"
@@ -2273,7 +2277,8 @@ private fun RatingSettings(state: AppUiState, viewModel: CineTrackViewModel) {
 }
 
 @Composable
-private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewModel, onPage: (String) -> Unit = {}) {
+private fun ContentRegionSettings(appState: AppUiState, viewModel: CineTrackViewModel, contentViewModel: ContentSettingsViewModel, onPage: (String) -> Unit = {}) {
+    val state by contentViewModel.content.collectAsStateWithLifecycle()
     var showRegions by remember { mutableStateOf(false) }
     val locale = com.cinetrack.ui.currentLocale()
     val summary = if (state.contentRegions.isEmpty()) stringResource(R.string.all_regions) else
@@ -2281,17 +2286,17 @@ private fun ContentRegionSettings(state: AppUiState, viewModel: CineTrackViewMod
     SettingsSection(stringResource(R.string.section_discover_streaming)) {
         KitRow(Icons.Filled.Public, stringResource(R.string.content_regions), summary, onClick = { showRegions = true })
         KitRow(Icons.Filled.Tv, stringResource(R.string.preferred_providers), stringResource(R.string.providers_selected_count, state.preferredProviders.size), onClick = { onPage(SettingsPages.Streaming) })
-        if (state.hiddenDiscovery.isNotEmpty()) {
+        if (appState.hiddenDiscovery.isNotEmpty()) {
             KitRow(
                 Icons.Filled.Visibility,
-                pluralStringResource(R.plurals.restore_hidden_recommendations, state.hiddenDiscovery.size, state.hiddenDiscovery.size),
+                pluralStringResource(R.plurals.restore_hidden_recommendations, appState.hiddenDiscovery.size, appState.hiddenDiscovery.size),
                 onClick = viewModel::restoreHiddenDiscovery,
             )
         }
     }
     KitFootnote(stringResource(R.string.content_regions_scope))
     if (showRegions) ContentRegionsSheet(state.contentRegions, { showRegions = false }) {
-        viewModel.setContentRegions(it)
+        contentViewModel.setContentRegions(it)
         showRegions = false
     }
 }

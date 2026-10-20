@@ -35,17 +35,19 @@ import coil3.compose.AsyncImage
 import com.cinetrack.R
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.StreamingProvider
-import com.cinetrack.ui.CineTrackViewModel
+import com.cinetrack.ui.settings.ContentSettings
+import com.cinetrack.ui.settings.ContentSettingsViewModel
 import com.cinetrack.ui.components.*
 import com.cinetrack.ui.theme.*
 import java.util.Locale
 
-internal fun providerRegion(state: AppUiState): String = com.cinetrack.domain.resolveProviderRegion(
-    state.providerRegion, state.contentRegions, state.metadataRegion, Locale.getDefault().country,
+internal fun providerRegion(content: ContentSettings): String = com.cinetrack.domain.resolveProviderRegion(
+    content.providerRegion, content.contentRegions, content.metadataRegion, Locale.getDefault().country,
 )
 
 @Composable
-internal fun StreamingSettings(state: AppUiState, viewModel: CineTrackViewModel, onPage: (String) -> Unit) {
+internal fun StreamingSettings(viewModel: ContentSettingsViewModel, onPage: (String) -> Unit) {
+    val state by viewModel.content.collectAsStateWithLifecycle()
     SettingsSection(stringResource(R.string.preferred_providers)) {
         Row(Modifier.fillMaxWidth().clickable { onPage(SettingsPages.Providers) }.padding(Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.Tv, null, tint = AccentLight, modifier = Modifier.size(24.dp))
@@ -68,7 +70,7 @@ internal fun StreamingSettings(state: AppUiState, viewModel: CineTrackViewModel,
                     row.forEach { (key, label) ->
                         val selected = key in state.visibleProviderTypes
                         FilterChip(selected = selected, onClick = {
-                            viewModel.setVisibleProviderTypes(if (selected) state.visibleProviderTypes - key else state.visibleProviderTypes + key)
+                            viewModel.toggleVisibleProviderType(key)
                         }, label = { Text(stringResource(label)) }, modifier = Modifier.weight(1f),
                             leadingIcon = if (selected) ({ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }) else null,
                             colors = FilterChipDefaults.filterChipColors(labelColor = TextSecondary, selectedLabelColor = TextPrimary,
@@ -82,14 +84,16 @@ internal fun StreamingSettings(state: AppUiState, viewModel: CineTrackViewModel,
 }
 
 @Composable
-internal fun StreamingProvidersScreen(state: AppUiState, viewModel: CineTrackViewModel, onBack: () -> Unit) {
-    val providers by viewModel.settingsProviders.collectAsStateWithLifecycle()
-    val loading by viewModel.settingsProvidersLoading.collectAsStateWithLifecycle()
-    val failed by viewModel.settingsProvidersError.collectAsStateWithLifecycle()
+internal fun StreamingProvidersScreen(appState: AppUiState, viewModel: ContentSettingsViewModel, onBack: () -> Unit) {
+    val state by viewModel.content.collectAsStateWithLifecycle()
+    val tmdbApiConfigured = appState.tmdbApiConfigured
+    val providers by viewModel.providers.collectAsStateWithLifecycle()
+    val loading by viewModel.providersLoading.collectAsStateWithLifecycle()
+    val failed by viewModel.providersError.collectAsStateWithLifecycle()
     var query by rememberSaveable { mutableStateOf("") }
     var showCountries by rememberSaveable { mutableStateOf(false) }
     val region = providerRegion(state)
-    LaunchedEffect(region, state.tmdbApiConfigured) { viewModel.loadSettingsStreamingProviders(region) }
+    LaunchedEffect(region, tmdbApiConfigured) { viewModel.loadStreamingProviders(region) }
     val filtered = remember(providers, query) { providers.filter { it.name.contains(query.trim(), ignoreCase = true) } }
     val unavailable = remember(providers, state.preferredProviders) { state.preferredProviders - providers.map { it.name }.toSet() }
     AdaptiveBackground {
@@ -125,17 +129,17 @@ internal fun StreamingProvidersScreen(state: AppUiState, viewModel: CineTrackVie
                         actionLabel = if (state.preferredProviders.isNotEmpty()) stringResource(R.string.clear_selection) else null,
                         onAction = { viewModel.setPreferredProviders(emptySet()) })
                 }
-                if (!state.tmdbApiConfigured || loading || failed || filtered.isEmpty()) {
+                if (!tmdbApiConfigured || loading || failed || filtered.isEmpty()) {
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(Spacing.lg)) {
                             Text(stringResource(when {
-                                !state.tmdbApiConfigured -> R.string.providers_require_tmdb
+                                !tmdbApiConfigured -> R.string.providers_require_tmdb
                                 loading -> R.string.loading
                                 failed -> R.string.providers_load_failed
                                 providers.isEmpty() -> R.string.no_providers_in_country
                                 else -> R.string.no_provider_matches
                             }), color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
-                            if (failed && !loading) TextButton(onClick = { viewModel.loadSettingsStreamingProviders(region) }) { Text(stringResource(R.string.retry)) }
+                            if (failed && !loading) TextButton(onClick = { viewModel.loadStreamingProviders(region) }) { Text(stringResource(R.string.retry)) }
                         }
                     }
                 }

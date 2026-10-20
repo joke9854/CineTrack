@@ -205,6 +205,12 @@ fun CineTrackApp(
     val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
     val castPhotoShape = settingsViewModel.appearance.collectAsStateWithLifecycle().value.castPhotoShape
     LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
+    val contentSettingsViewModel: com.cinetrack.ui.settings.ContentSettingsViewModel = viewModel(
+        factory = com.cinetrack.ui.settings.ContentSettingsViewModel.Factory(
+            com.cinetrack.data.repository.RepositoryContentSettings(application.container.repository, application.container.watchProviderRepository),
+        ),
+    )
+    LaunchedEffect(contentSettingsViewModel) { contentSettingsViewModel.changes.collect(viewModel::onContentChanged) }
     val releaseReminders by viewModel.releaseReminders.collectAsStateWithLifecycle()
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val streamingProviders by discoverViewModel.streamingProviders.collectAsStateWithLifecycle()
@@ -570,6 +576,7 @@ fun CineTrackApp(
                     state = state,
                     viewModel = viewModel,
                     settingsViewModel = settingsViewModel,
+                    contentViewModel = contentSettingsViewModel,
                     onBack = { navController.popBackStack() },
                     onPage = { navController.navigate("settings-detail/$it") },
                 )

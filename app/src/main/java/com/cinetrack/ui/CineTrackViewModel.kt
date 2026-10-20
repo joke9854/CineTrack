@@ -211,12 +211,6 @@ class CineTrackViewModel(
         }
     }
 
-    private val _settingsProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
-    val settingsProviders = _settingsProviders.asStateFlow()
-    private val _settingsProvidersLoading = MutableStateFlow(false)
-    val settingsProvidersLoading = _settingsProvidersLoading.asStateFlow()
-    private val _settingsProvidersError = MutableStateFlow(false)
-    val settingsProvidersError = _settingsProvidersError.asStateFlow()
     /** Backup creation or restore in progress, shown as a pill over the app; null when idle. */
     private val _backupProgress = MutableStateFlow<com.cinetrack.domain.BackupProgress?>(null)
     val backupProgress: StateFlow<com.cinetrack.domain.BackupProgress?> = _backupProgress.asStateFlow()
@@ -272,6 +266,25 @@ class CineTrackViewModel(
                         quietHoursEnabled = settings.quietHoursEnabled,
                         quietHoursStart = settings.quietHoursStart,
                         quietHoursEnd = settings.quietHoursEnd,
+                    )
+                }
+            }
+        }
+        viewModelScope.launch {
+            // ContentSettingsViewModel writes these; detail pages, Discover and progress read them here.
+            repository.preferences.contentSettings.collect { settings ->
+                _state.update {
+                    it.copy(
+                        metadataLanguage = settings.metadataLanguage,
+                        metadataRegion = settings.metadataRegion,
+                        metadataTimezone = settings.metadataTimezone,
+                        airDateSource = settings.airDateSource,
+                        hideAdultTitles = settings.hideAdultTitles,
+                        ratingSources = settings.ratingSources,
+                        contentRegions = settings.contentRegions,
+                        providerRegion = settings.providerRegion,
+                        preferredProviders = settings.preferredProviders,
+                        visibleProviderTypes = settings.visibleProviderTypes,
                     )
                 }
             }
@@ -479,59 +492,6 @@ class CineTrackViewModel(
         _state.update { it.copy(libraryArtworkProgressVisible = false) }
     }
 
-    private var settingsProvidersJob: Job? = null
-    private val providerPreferenceMutex = kotlinx.coroutines.sync.Mutex()
-
-    fun loadSettingsStreamingProviders(region: String) {
-        settingsProvidersJob?.cancel()
-        _settingsProvidersLoading.value = true
-        _settingsProvidersError.value = false
-        _settingsProviders.value = emptyList()
-        settingsProvidersJob = viewModelScope.launch {
-            try {
-                _settingsProviders.value = withContext(Dispatchers.IO) {
-                    kotlinx.coroutines.withTimeout(30_000) { watchProviderRepository.getAvailableProviders(region) }
-                }
-            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
-                _settingsProvidersError.value = true
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                _settingsProvidersError.value = true
-            } finally {
-                if (kotlinx.coroutines.currentCoroutineContext().isActive) _settingsProvidersLoading.value = false
-            }
-        }
-    }
-
-    fun setPreferredProviders(values: Set<String>) {
-        _state.value = _state.value.copy(preferredProviders = values)
-        detailMediaCache.clear()
-        viewModelScope.launch {
-            providerPreferenceMutex.withLock { repository.preferences.setPreferredProviders(values) }
-        }
-    }
-
-    fun togglePreferredProvider(name: String) {
-        val selected = _state.value.preferredProviders
-        setPreferredProviders(if (name in selected) selected - name else selected + name)
-    }
-
-    fun setProviderRegion(value: String) {
-        _state.value = _state.value.copy(providerRegion = value)
-        detailMediaCache.clear()
-        viewModelScope.launch {
-            providerPreferenceMutex.withLock { repository.preferences.setProviderRegion(value) }
-        }
-    }
-
-    fun setVisibleProviderTypes(values: Set<String>) {
-        _state.value = _state.value.copy(visibleProviderTypes = values)
-        detailMediaCache.clear()
-        viewModelScope.launch {
-            providerPreferenceMutex.withLock { repository.preferences.setVisibleProviderTypes(values) }
-        }
-    }
 
     val releaseReminders: StateFlow<Set<String>> = repository.preferences.releaseReminders
         .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
@@ -1462,12 +1422,6 @@ class CineTrackViewModel(
         _state.value = _state.value.copy(wifiOnly = enabled)
         viewModelScope.launch { repository.preferences.setWifiOnly(enabled) }
     }
-    fun setHideAdultTitles(enabled: Boolean) {
-        _state.value = _state.value.copy(hideAdultTitles = enabled)
-        com.cinetrack.data.remote.TmdbContentFilter.hideAdult = enabled
-        viewModelScope.launch { repository.preferences.setHideAdultTitles(enabled) }
-    }
-
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
         viewModelScope.launch {
@@ -1475,35 +1429,6 @@ class CineTrackViewModel(
             scheduleProgressCacheRefresh()
         }
     }
-    fun setRatingSource(source: String, enabled: Boolean) {
-        val key = when (source.lowercase()) {
-            "rotten tomatoes", "r.tomatoes", "tomatoes" -> "tomatoes"
-            else -> source.lowercase()
-        }
-        _state.value = _state.value.copy(
-            ratingSources = if (enabled) _state.value.ratingSources + key else _state.value.ratingSources - key,
-        )
-        detailRatingsCache.clear()
-        viewModelScope.launch { repository.preferences.setRatingSource(source, enabled) }
-    }
-
-    fun setContentRegions(regions: Set<String>) {
-        _state.value = _state.value.copy(contentRegions = regions)
-        viewModelScope.launch {
-            repository.preferences.setContentRegions(regions)
-            val refreshError = withContext(Dispatchers.IO) {
-                runCatching { discoveryRepository.refresh() }.exceptionOrNull()
-            }
-            if (refreshError == null) {
-                val cached = readCachedState()
-                val current = _state.value
-                _state.value = cached.copy(sync = _syncProgress.value, people = current.people, error = current.error)
-            } else {
-                _state.value = _state.value.copy(error = refreshError.message)
-            }
-        }
-    }
-
     fun completeIntroduction() {
         _state.value = _state.value.copy(introductionCompleted = true)
         viewModelScope.launch { repository.preferences.setIntroductionCompleted(true) }
@@ -1569,43 +1494,38 @@ class CineTrackViewModel(
         }
     }
 
-    fun setMetadataLanguage(value: String) {
-        _state.value = _state.value.copy(metadataLanguage = value)
-        detailMediaCache.clear()
-        detailCastCache.clear()
-        detailEpisodeCache.clear()
-        viewModelScope.launch {
-            repository.setMetadataLanguage(value)
-            // Cached episode titles are in the previous language.
-            scheduleProgressCacheRefresh()
-        }
-    }
-
-    fun setMetadataRegion(value: String) {
-        _state.value = _state.value.copy(metadataRegion = value)
-        detailMediaCache.clear()
-        viewModelScope.launch { repository.setMetadataRegion(value) }
-    }
-
-    fun setAirDateSource(value: String) {
-        _state.value = _state.value.copy(airDateSource = value)
-        viewModelScope.launch {
-            withContext(Dispatchers.IO) { repository.setAirDateSource(value) }
-            // Release days and what counts as out follow the new dates.
-            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
-        }
-    }
-
-    fun setMetadataTimezone(value: String) {
-        _state.value = _state.value.copy(metadataTimezone = value)
-        viewModelScope.launch {
-            repository.setMetadataTimezone(value)
-            // Which episodes count as released depends on the timezone.
-            scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
-        }
-    }
-
     /** Shows a failure from another screen's ViewModel in the app's error banner. */
+    /** Called once a content-setting write has finished; see ContentSettingsViewModel.changes. */
+    fun onContentChanged(change: com.cinetrack.ui.settings.ContentChange) {
+        when (change) {
+            com.cinetrack.ui.settings.ContentChange.Providers -> detailMediaCache.clear()
+            com.cinetrack.ui.settings.ContentChange.Ratings -> detailRatingsCache.clear()
+            com.cinetrack.ui.settings.ContentChange.Region -> detailMediaCache.clear()
+            com.cinetrack.ui.settings.ContentChange.Language -> {
+                detailMediaCache.clear()
+                detailCastCache.clear()
+                detailEpisodeCache.clear()
+                // Cached episode titles are in the previous language.
+                scheduleProgressCacheRefresh()
+            }
+            // Release days and what counts as out follow the new dates and timezone.
+            com.cinetrack.ui.settings.ContentChange.AirDates,
+            com.cinetrack.ui.settings.ContentChange.Timezone -> scheduleProgressCacheRefresh(ProgressRefreshRequest(), republish = true)
+            com.cinetrack.ui.settings.ContentChange.ContentRegions -> viewModelScope.launch {
+                val refreshError = withContext(Dispatchers.IO) {
+                    runCatching { discoveryRepository.refresh() }.exceptionOrNull()
+                }
+                if (refreshError == null) {
+                    val cached = readCachedState()
+                    val current = _state.value
+                    _state.value = cached.copy(sync = _syncProgress.value, people = current.people, error = current.error)
+                } else {
+                    _state.value = _state.value.copy(error = refreshError.message)
+                }
+            }
+        }
+    }
+
     fun showError(message: String) {
         _state.value = _state.value.copy(error = message)
     }

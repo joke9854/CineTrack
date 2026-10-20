@@ -33,6 +33,7 @@ import com.cinetrack.domain.SimklAuthRules
 import com.cinetrack.domain.SyncReport
 import com.cinetrack.ui.search.SearchHistoryStore
 import com.cinetrack.ui.settings.AppearanceSettings
+import com.cinetrack.ui.settings.ContentSettings
 import com.cinetrack.ui.settings.NotificationSettings
 import com.cinetrack.ui.settings.SettingsPreferences
 import kotlinx.coroutines.flow.Flow
@@ -249,6 +250,26 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             quietHoursEnabled = it[Keys.quietHoursEnabled] ?: true,
             quietHoursStart = it[Keys.quietHoursStart] ?: 23,
             quietHoursEnd = it[Keys.quietHoursEnd] ?: 8,
+        )
+    }.distinctUntilChanged()
+    val contentSettings: Flow<ContentSettings> = context.cineTrackDataStore.data.map { prefs ->
+        ContentSettings(
+            metadataLanguage = prefs[Keys.metadataLanguage] ?: "system",
+            metadataRegion = prefs[Keys.metadataRegion] ?: "system",
+            metadataTimezone = prefs[Keys.metadataTimezone] ?: "system",
+            airDateSource = prefs[Keys.airDateSource] ?: com.cinetrack.data.schedule.AirDateSource.DEFAULT,
+            hideAdultTitles = prefs[Keys.hideAdultTitles] ?: true,
+            ratingSources = buildSet {
+                if (prefs[Keys.imdb] ?: true) add("imdb")
+                if (prefs[Keys.tmdb] ?: true) add("tmdb")
+                if (prefs[Keys.metacritic] ?: true) add("metacritic")
+                if (prefs[Keys.rottenTomatoes] ?: true) add("tomatoes")
+            },
+            contentRegions = prefs[Keys.contentRegions].orEmpty().split(',').map(String::trim).filter(String::isNotBlank).toSet(),
+            providerRegion = prefs[Keys.providerRegion] ?: "system",
+            preferredProviders = prefs[Keys.preferredProviders].orEmpty().split('|').filter(String::isNotBlank).toSet(),
+            visibleProviderTypes = prefs[Keys.visibleProviderTypes]?.split('|')?.filter(String::isNotBlank)?.toSet()
+                ?: setOf("flatrate", "rent", "buy", "free", "ads"),
         )
     }.distinctUntilChanged()
     override val appearanceSettings: Flow<AppearanceSettings> = context.cineTrackDataStore.data.map {
