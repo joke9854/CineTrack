@@ -187,6 +187,7 @@ fun CineTrackApp(
         ),
     )
     LaunchedEffect(discoverViewModel) { discoverViewModel.errors.collect(viewModel::showError) }
+    LaunchedEffect(discoverViewModel) { viewModel.libraryStatusChanges.collect { (media, status) -> discoverViewModel.applyStatus(media, status) } }
     val hideDiscoveryItem: (com.cinetrack.domain.MediaCard) -> Unit = remember(viewModel, searchViewModel, discoverViewModel) {
         { media ->
             viewModel.hideDiscoveryItem(media)
@@ -402,7 +403,7 @@ fun CineTrackApp(
             screen(Routes.Discover) {
                 DiscoverScreen(
                     state = state,
-                    onRefresh = viewModel::refresh,
+                    onRefresh = { if (viewModel.refresh()) discoverViewModel.resetBrowse() },
                     loadTagline = detailViewModel::loadTagline,
                     onSearch = { navController.navigate("search/discover") },
                     onFilters = { navController.navigate(Routes.DiscoverFilters) },
@@ -501,7 +502,7 @@ fun CineTrackApp(
             ) { entry ->
                 DiscoverListScreen(
                     railId = entry.arguments?.getString("railId").orEmpty(),
-                    viewModel = viewModel,
+                    viewModel = discoverViewModel,
                     state = state,
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,

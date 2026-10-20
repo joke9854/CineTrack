@@ -2,7 +2,11 @@ package com.cinetrack.ui.discover
 
 import com.cinetrack.data.discovery.DiscoveryRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
+import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverMovieFilters
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.RailIds
+import com.cinetrack.domain.discoverBrowseKey
 import com.cinetrack.domain.DiscoverPage
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -34,10 +38,11 @@ class DiscoverViewModelTest {
         val batches: Map<Int, DiscoverPage> = emptyMap(),
         val filterResults: List<MediaCard> = emptyList(),
         val failure: Throwable? = null,
+        val pages: Map<Int, DiscoverPage> = emptyMap(),
     ) : DiscoveryRepository {
         val batchCalls = mutableListOf<Int>()
         override suspend fun refresh() = Unit
-        override suspend fun page(railId: String, page: Int) = DiscoverPage(emptyList(), false)
+        override suspend fun page(railId: String, page: Int) = pages[page] ?: DiscoverPage(emptyList(), false)
         override suspend fun discover(filters: DiscoverMovieFilters): List<MediaCard> {
             failure?.let { throw it }
             return filterResults
@@ -123,5 +128,31 @@ class DiscoverViewModelTest {
         assertEquals(listOf("Netflix"), vm.streamingProviders.value.map(StreamingProvider::name))
         vm.loadStreamingProviders(MediaType.MOVIE, emptySet())
         assertEquals(all, vm.streamingProviders.value)
+    }
+
+    @Test fun seeAllPagesStartFromTheRailAndFollowStatusWrites() = runTest(dispatcher) {
+        val discovery = FakeDiscovery(
+            pages = mapOf(
+                1 to DiscoverPage(listOf(movie(1), movie(2)), hasMore = true),
+                2 to DiscoverPage(listOf(movie(3)), hasMore = false),
+            ),
+        )
+        val vm = viewModel(discovery)
+        val state = AppUiState(rails = mapOf(RailIds.POPULAR_MOVIES to listOf(movie(1))))
+        val key = discoverBrowseKey(RailIds.POPULAR_MOVIES, state)
+
+        vm.loadDiscoverMore(RailIds.POPULAR_MOVIES, state)
+        val browse = vm.discoverBrowse.value.getValue(key)
+        assertEquals(listOf(1, 2, 3), browse.items.map(MediaCard::id))
+        assertFalse(browse.hasMore)
+        assertFalse(browse.loading)
+
+        vm.applyStatus(movie(2), LibraryStatus.COMPLETED)
+        val updated = vm.discoverBrowse.value.getValue(key).items.single { it.id == 2 }
+        assertEquals(LibraryStatus.COMPLETED, updated.status)
+        assertTrue(updated.watched)
+
+        vm.resetBrowse()
+        assertTrue(vm.discoverBrowse.value.isEmpty())
     }
 }

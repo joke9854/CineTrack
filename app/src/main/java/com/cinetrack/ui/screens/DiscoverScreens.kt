@@ -858,7 +858,7 @@ internal fun HeroCard(
 @Composable
 fun DiscoverListScreen(
     railId: String,
-    viewModel: com.cinetrack.ui.CineTrackViewModel,
+    viewModel: com.cinetrack.ui.discover.DiscoverViewModel,
     state: AppUiState,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -880,7 +880,7 @@ fun DiscoverListScreen(
         .filterNot { it.stableKey in state.hiddenDiscovery }
         .map { media -> localMedia[media.stableKey]?.let { media.copy(status = it.status, watched = it.watched) } ?: media }
     val gridState = rememberLazyGridState()
-    LaunchedEffect(browseKey) { if (browseStates[browseKey] == null) viewModel.loadDiscoverMore(railId) }
+    LaunchedEffect(browseKey) { if (browseStates[browseKey] == null) viewModel.loadDiscoverMore(railId, state) }
     val backgroundItem = items.firstOrNull()
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
@@ -913,9 +913,9 @@ fun DiscoverListScreen(
                             browse == null || browse.loading -> CircularProgressIndicator(color = com.cinetrack.ui.theme.Accent, modifier = Modifier.size(28.dp))
                             browse.failed -> {
                                 Text(stringResource(R.string.discover_more_failed), color = TextSecondary)
-                                androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.retry)) }
+                                androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId, state) }) { Text(stringResource(R.string.retry)) }
                             }
-                            browse.hasMore -> androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId) }) { Text(stringResource(R.string.discover_load_more)) }
+                            browse.hasMore -> androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId, state) }) { Text(stringResource(R.string.discover_load_more)) }
                             else -> Text(stringResource(if (items.isEmpty()) R.string.choice_no_results else R.string.discover_list_end), color = TextSecondary)
                         }
                     }

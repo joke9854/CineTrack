@@ -5,14 +5,21 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.discovery.DiscoveryRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
+import com.cinetrack.domain.AppUiState
+import com.cinetrack.domain.DiscoverBrowseState
 import com.cinetrack.domain.DiscoverMovieFilters
+import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.StreamingProvider
+import com.cinetrack.domain.appendPage
+import com.cinetrack.domain.discoverBrowseKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -21,11 +28,12 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
 
 /**
  * The Discover filter page, the Mosaic layout's chip results and the streaming
- * providers the filter page offers. The rails and their "see all" pages stay in
- * CineTrackViewModel, because they are built from the library state. Activity-scoped,
+ * providers the filter page offers, and the rails' "see all" pages. The rails themselves stay
+ * in AppUiState (built from the library); a page load takes that state. Activity-scoped,
  * because the details route looks up a title opened from these results.
  */
 class DiscoverViewModel(
@@ -52,6 +60,66 @@ class DiscoverViewModel(
     private var mosaicJob: Job? = null
     private val _streamingProviders = MutableStateFlow<List<StreamingProvider>>(emptyList())
     val streamingProviders: StateFlow<List<StreamingProvider>> = _streamingProviders.asStateFlow()
+
+    private val _discoverBrowse = MutableStateFlow<Map<String, DiscoverBrowseState>>(emptyMap())
+    /** The "see all" pages of the Discover rails, keyed by discoverBrowseKey (rail, region, language). */
+    val discoverBrowse: StateFlow<Map<String, DiscoverBrowseState>> = _discoverBrowse.asStateFlow()
+    private var browseGeneration = 0
+
+    /** Loads the next pages of [railId]; [state] gives its key and first items (the rail itself). */
+    fun loadDiscoverMore(railId: String, state: AppUiState) {
+        val key = discoverBrowseKey(railId, state)
+        val existing = _discoverBrowse.value[key] ?: DiscoverBrowseState(items = state.rails[railId].orEmpty())
+        if (existing.loading || !existing.hasMore) return
+        val generation = browseGeneration
+        fun publish(value: DiscoverBrowseState) {
+            if (generation != browseGeneration) return
+            // Retain navigation state, with a small bound across countries/languages.
+            val latest = _discoverBrowse.value[key]?.items.orEmpty().associateBy(MediaCard::stableKey)
+            val reconciled = value.copy(items = value.items.map { item ->
+                latest[item.stableKey]?.let { item.copy(status = it.status, watched = it.watched) } ?: item
+            })
+            _discoverBrowse.value = (_discoverBrowse.value - key + (key to reconciled)).entries.toList().takeLast(8).associate { it.toPair() }
+        }
+        publish(existing.copy(loading = true, failed = false))
+        viewModelScope.launch {
+            var current = existing.copy(loading = true, failed = false)
+            try {
+                withTimeout(30_000) {
+                    var scanned = 0
+                    val targetCount = existing.items.size + 20
+                    // Skip cached duplicates and sparse filtered pages, but bound each user action.
+                    while (current.hasMore && current.items.size < targetCount && scanned < 6) {
+                        val page = withContext(io) { discoveryRepository.page(railId, current.nextPage) }
+                        current = current.appendPage(page, railId == RailIds.UPCOMING)
+                        publish(current)
+                        scanned++
+                    }
+                }
+            } catch (timeout: TimeoutCancellationException) {
+                current = current.copy(failed = true)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                current = current.copy(failed = true)
+            } finally {
+                publish(current.copy(loading = false))
+            }
+        }
+    }
+
+    /** A Discover refresh started: drop the paged rails, and ignore pages still arriving for them. */
+    fun resetBrowse() {
+        browseGeneration++
+        _discoverBrowse.value = emptyMap()
+    }
+
+    /** A status write committed (CineTrackViewModel.libraryStatusChanges). */
+    fun applyStatus(media: MediaCard, status: LibraryStatus) {
+        _discoverBrowse.value = _discoverBrowse.value.mapValues { (_, browse) ->
+            browse.copy(items = browse.items.map { if (it.stableKey == media.stableKey) it.copy(status = status, watched = status == LibraryStatus.COMPLETED) else it })
+        }
+    }
 
     private fun report(failure: Throwable) {
         failure.message?.let(_errors::tryEmit)

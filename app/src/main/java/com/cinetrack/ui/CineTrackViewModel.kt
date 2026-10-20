@@ -37,7 +37,10 @@ import com.cinetrack.domain.ViewingPeopleInsights
 import com.cinetrack.domain.hasExplicitReleaseTime
 import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.domain.appendPage
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.asStateFlow
@@ -105,50 +108,9 @@ class CineTrackViewModel(
      * delivery invalidations cannot erase an active Floppy bootstrap. */
     private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
     val floppyBootstrapProgress: StateFlow<com.cinetrack.domain.FloppyBootstrapProgress?> = _floppyBootstrapProgress.asStateFlow()
-    private val _discoverBrowse = MutableStateFlow<Map<String, com.cinetrack.domain.DiscoverBrowseState>>(emptyMap())
-    val discoverBrowse = _discoverBrowse.asStateFlow()
-    private var browseGeneration = 0
-
-    fun loadDiscoverMore(railId: String) {
-        val key = com.cinetrack.domain.discoverBrowseKey(railId, _state.value)
-        val existing = _discoverBrowse.value[key] ?: com.cinetrack.domain.DiscoverBrowseState(items = _state.value.rails[railId].orEmpty())
-        if (existing.loading || !existing.hasMore) return
-        val generation = browseGeneration
-        fun publish(value: com.cinetrack.domain.DiscoverBrowseState) {
-            if (generation != browseGeneration) return
-            // Retain navigation state, with a small bound across countries/languages.
-            val latest = _discoverBrowse.value[key]?.items.orEmpty().associateBy(MediaCard::stableKey)
-            val reconciled = value.copy(items = value.items.map { item ->
-                latest[item.stableKey]?.let { item.copy(status = it.status, watched = it.watched) } ?: item
-            })
-            _discoverBrowse.value = (_discoverBrowse.value - key + (key to reconciled)).entries.toList().takeLast(8).associate { it.toPair() }
-        }
-        publish(existing.copy(loading = true, failed = false))
-        viewModelScope.launch {
-            var current = existing.copy(loading = true, failed = false)
-            try {
-                kotlinx.coroutines.withTimeout(30_000) {
-                    var scanned = 0
-                    val targetCount = existing.items.size + 20
-                    // Skip cached duplicates and sparse filtered pages, but bound each user action.
-                    while (current.hasMore && current.items.size < targetCount && scanned < 6) {
-                        val page = withContext(Dispatchers.IO) { discoveryRepository.page(railId, current.nextPage) }
-                        current = current.appendPage(page, railId == com.cinetrack.domain.RailIds.UPCOMING)
-                        publish(current)
-                        scanned++
-                    }
-                }
-            } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
-                current = current.copy(failed = true)
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (error: Exception) {
-                current = current.copy(failed = true)
-            } finally {
-                publish(current.copy(loading = false))
-            }
-        }
-    }
+    private val _libraryStatusChanges = MutableSharedFlow<Pair<MediaCard, LibraryStatus>>(extraBufferCapacity = 16)
+    /** A status write committed; DiscoverViewModel updates its paged rail lists from it. */
+    val libraryStatusChanges: SharedFlow<Pair<MediaCard, LibraryStatus>> = _libraryStatusChanges.asSharedFlow()
 
     /** Backup creation or restore in progress, shown as a pill over the app; null when idle. */
 
@@ -336,10 +298,9 @@ class CineTrackViewModel(
         }
     }
 
-    fun refresh() {
-        if (!_state.value.tmdbApiConfigured || !refreshMutex.tryLock()) return
-        browseGeneration++
-        _discoverBrowse.value = emptyMap()
+    /** Pull to refresh on Discover; returns whether a refresh started (the caller then drops its paged rails). */
+    fun refresh(): Boolean {
+        if (!_state.value.tmdbApiConfigured || !refreshMutex.tryLock()) return false
         // Acquire before launching: repeated pulls never queue another refresh.
         _state.value = _state.value.copy(refreshing = true, error = null)
         viewModelScope.launch {
@@ -360,6 +321,7 @@ class CineTrackViewModel(
                 refreshMutex.unlock()
             }
         }
+        return true
     }
 
     fun setSeasonPicker(value: String) {
@@ -425,9 +387,7 @@ class CineTrackViewModel(
             withContext(Dispatchers.IO) { libraryRepository.setLibraryStatus(media, status) }
             val refreshed = readCachedState().copy(sync = syncState)
             _state.value = refreshed
-            _discoverBrowse.value = _discoverBrowse.value.mapValues { (_, browse) ->
-                browse.copy(items = browse.items.map { if (it.stableKey == media.stableKey) it.copy(status = status, watched = status == LibraryStatus.COMPLETED) else it })
-            }
+            _libraryStatusChanges.tryEmit(media to status)
             // The Simkl request starts immediately after the local commit. TMDB
             // metadata enrichment is independent and must never delay that push.
             scheduleProgressCacheRefresh(
