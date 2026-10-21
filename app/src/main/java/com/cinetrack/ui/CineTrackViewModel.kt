@@ -78,6 +78,8 @@ class CineTrackViewModel(
     private val backupRepository: com.cinetrack.data.repository.BackupRepository,
     private val appState: com.cinetrack.data.repository.AppStateRepository,
     private val accounts: com.cinetrack.data.repository.AccountRepository,
+    private val progressCache: com.cinetrack.data.repository.ProgressCacheRepository,
+    private val preferences: com.cinetrack.data.repository.AppPreferences,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -119,19 +121,19 @@ class CineTrackViewModel(
 
     init {
         viewModelScope.launch {
-            combine(repository.preferences.simklConnected, repository.preferences.simklReconnectReason, ::Pair)
+            combine(preferences.simklConnected, preferences.simklReconnectReason, ::Pair)
                 .distinctUntilChanged()
                 .collect { (connected, reconnect) -> _state.update { it.copy(simklConnected = connected, simklReconnectReason = reconnect) } }
         }
         viewModelScope.launch {
-            repository.preferences.simklFirstSyncMode
+            preferences.simklFirstSyncMode
                 .map { it == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK }
                 .distinctUntilChanged()
                 .collect { pending -> _state.update { it.copy(simklFirstSyncPending = pending) } }
         }
         viewModelScope.launch {
             // SettingsViewModel writes these; reminders and the backup still read them here.
-            repository.preferences.notificationSettings.collect { settings ->
+            preferences.notificationSettings.collect { settings ->
                 _state.update {
                     it.copy(
                         notificationEpisodes = settings.episodes,
@@ -146,7 +148,7 @@ class CineTrackViewModel(
         }
         viewModelScope.launch {
             // ContentSettingsViewModel writes these; detail pages, Discover and progress read them here.
-            repository.preferences.contentSettings.collect { settings ->
+            preferences.contentSettings.collect { settings ->
                 _state.update {
                     it.copy(
                         metadataLanguage = settings.metadataLanguage,
@@ -165,7 +167,7 @@ class CineTrackViewModel(
         }
         viewModelScope.launch {
             // SettingsViewModel writes these on the Appearance page; the other screens read them here.
-            repository.preferences.appearanceSettings.collect { settings ->
+            preferences.appearanceSettings.collect { settings ->
                 _state.update {
                     it.copy(
                         uiAccent = settings.uiAccent,
@@ -212,7 +214,7 @@ class CineTrackViewModel(
                 .distinctUntilChanged()
                 .collect { message: String ->
                     val line = "${java.time.Instant.now()}  $message"
-                    withContext(Dispatchers.IO) { repository.preferences.appendErrorLog(line) }
+                    withContext(Dispatchers.IO) { preferences.appendErrorLog(line) }
                 }
         }
         viewModelScope.launch {
@@ -224,7 +226,7 @@ class CineTrackViewModel(
                 // Wait for the burst to settle and never publish a raw snapshot
                 // while the coordinated sync is still rebuilding derived rows.
                 delay(280)
-                if (syncMutex.isLocked || refreshMutex.isLocked || repository.progressCacheRefreshing || startupStateBuilding) return@collectLatest
+                if (syncMutex.isLocked || refreshMutex.isLocked || progressCache.progressCacheRefreshing || startupStateBuilding) return@collectLatest
                 val current = _state.value
                 val cached = readCachedState()
                 val latestSync = if (_syncProgress.value.running) _syncProgress.value else cached.sync
@@ -314,7 +316,7 @@ class CineTrackViewModel(
                 }
                 _state.value = refreshed.copy(refreshing = false, sync = _syncProgress.value)
             } catch (timeout: kotlinx.coroutines.TimeoutCancellationException) {
-                _state.value = _state.value.copy(error = repository.preferences.discoverTimeoutMessage())
+                _state.value = _state.value.copy(error = preferences.discoverTimeoutMessage())
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
@@ -330,7 +332,7 @@ class CineTrackViewModel(
     fun setSeasonPicker(value: String) {
         val normalized = if (value == "posters") "posters" else "text"
         _state.value = _state.value.copy(seasonPicker = normalized)
-        viewModelScope.launch { repository.preferences.setSeasonPicker(normalized) }
+        viewModelScope.launch { preferences.setSeasonPicker(normalized) }
     }
 
     fun hideUpcomingEpisode(episode: EpisodeCard) {
@@ -341,7 +343,7 @@ class CineTrackViewModel(
                 it.media.id == episode.showId && it.season == episode.season && it.episodeNumber == episode.number
             },
         )
-        viewModelScope.launch { repository.preferences.setHiddenUpcoming(hidden) }
+        viewModelScope.launch { preferences.setHiddenUpcoming(hidden) }
     }
 
     fun hideDiscoveryItem(media: MediaCard) {
@@ -350,13 +352,13 @@ class CineTrackViewModel(
             hiddenDiscovery = hidden,
             rails = _state.value.rails.mapValues { (_, items) -> items.filterNot { it.stableKey == media.stableKey } },
         )
-        viewModelScope.launch { repository.preferences.setHiddenDiscovery(hidden) }
+        viewModelScope.launch { preferences.setHiddenDiscovery(hidden) }
     }
 
     fun restoreHiddenDiscovery() {
         _state.value = _state.value.copy(hiddenDiscovery = emptySet())
         viewModelScope.launch {
-            repository.preferences.setHiddenDiscovery(emptySet())
+            preferences.setHiddenDiscovery(emptySet())
             val error = withContext(Dispatchers.IO) { runCatching { discoveryRepository.refresh() }.exceptionOrNull() }
             if (error == null) {
                 val cached = readCachedState()
@@ -368,7 +370,7 @@ class CineTrackViewModel(
     fun restoreHiddenUpcoming() {
         _state.value = _state.value.copy(hiddenUpcoming = emptySet())
         viewModelScope.launch {
-            repository.preferences.setHiddenUpcoming(emptySet())
+            preferences.setHiddenUpcoming(emptySet())
             val cached = readCachedState()
             _state.value = cached.copy(sync = _syncProgress.value)
         }
@@ -378,7 +380,7 @@ class CineTrackViewModel(
         val hidden = _state.value.hiddenUpcoming - episode.scheduleKey
         _state.value = _state.value.copy(hiddenUpcoming = hidden)
         viewModelScope.launch {
-            repository.preferences.setHiddenUpcoming(hidden)
+            preferences.setHiddenUpcoming(hidden)
             val cached = readCachedState()
             _state.value = cached.copy(sync = _syncProgress.value)
         }
@@ -548,10 +550,10 @@ class CineTrackViewModel(
             cached = withContext(Dispatchers.IO) {
                 // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
                 appState.loadCachedState().copy(
-                    simklReconnectReason = repository.preferences.simklReconnectReason.first(),
-                    simklFirstSyncPending = repository.preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
-                    floppyUsername = repository.preferences.floppyUsername.first(),
-                    hideAdultTitles = repository.preferences.hideAdultTitles.first(),
+                    simklReconnectReason = preferences.simklReconnectReason.first(),
+                    simklFirstSyncPending = preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
+                    floppyUsername = preferences.floppyUsername.first(),
+                    hideAdultTitles = preferences.hideAdultTitles.first(),
                 )
             }
         } while (version != pendingEpisodeEdits.version)
@@ -584,7 +586,7 @@ class CineTrackViewModel(
             // refresh (which may fetch an uncached next season) completes.
             publishCachedState(promoteShowId)
             withContext(Dispatchers.IO) {
-                repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true))
+                progressCache.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null)
             }
         }
         publishCachedState(promoteShowId)
@@ -723,7 +725,7 @@ class CineTrackViewModel(
                 val republish = pendingProgressRepublish
                 pendingProgressRepublish = false
                 val refreshResult = withContext(Dispatchers.IO) {
-                    runCatching { repository.refreshProgressCache(refreshRequest) }
+                    runCatching { progressCache.refreshProgressCache(refreshRequest, null) }
                 }
                 if (refreshResult.getOrDefault(false) || republish) {
                     val cached = readCachedState()
@@ -760,7 +762,7 @@ class CineTrackViewModel(
     /** Merge keeps everything on this device and uploads what Simkl lacks; otherwise the account replaces it. */
     fun chooseSimklFirstSync(merge: Boolean) {
         viewModelScope.launch {
-            repository.preferences.setSimklFirstSyncMode(
+            preferences.setSimklFirstSyncMode(
                 if (merge) com.cinetrack.data.sync.simkl.SimklFirstSyncMode.MERGE else com.cinetrack.data.sync.simkl.SimklFirstSyncMode.REPLACE,
             )
             _state.update { it.copy(simklFirstSyncPending = false) }
@@ -780,7 +782,7 @@ class CineTrackViewModel(
 
     fun setFloppyAllowInsecureLocalHttp(enabled: Boolean) {
         viewModelScope.launch(Dispatchers.IO) {
-            repository.preferences.setFloppyAllowInsecureLocalHttp(enabled)
+            preferences.setFloppyAllowInsecureLocalHttp(enabled)
             withContext(Dispatchers.Main) {
                 _state.value = _state.value.copy(floppyAllowInsecureLocalHttp = enabled)
             }
@@ -820,13 +822,13 @@ class CineTrackViewModel(
     fun setExcludeSpecials(enabled: Boolean) {
         _state.value = _state.value.copy(excludeSpecials = enabled)
         viewModelScope.launch {
-            repository.preferences.setExcludeSpecials(enabled)
+            preferences.setExcludeSpecials(enabled)
             scheduleProgressCacheRefresh()
         }
     }
     fun completeIntroduction() {
         _state.value = _state.value.copy(introductionCompleted = true)
-        viewModelScope.launch { repository.preferences.setIntroductionCompleted(true) }
+        viewModelScope.launch { preferences.setIntroductionCompleted(true) }
     }
 
     /** Shows a failure from another screen's ViewModel in the app's error banner. */
@@ -952,6 +954,8 @@ class CineTrackViewModel(
         private val backupRepository: com.cinetrack.data.repository.BackupRepository,
         private val appState: com.cinetrack.data.repository.AppStateRepository,
         private val accounts: com.cinetrack.data.repository.AccountRepository,
+        private val progressCache: com.cinetrack.data.repository.ProgressCacheRepository,
+        private val preferences: com.cinetrack.data.repository.AppPreferences,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -968,6 +972,8 @@ class CineTrackViewModel(
                 backupRepository,
                 appState,
                 accounts,
+                progressCache,
+                preferences,
             ) as T
     }
 }

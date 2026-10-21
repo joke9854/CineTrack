@@ -126,7 +126,7 @@ class BackupRoundTripTest {
         val backup = BackupRepository(
             database = database,
             preferences = preferences,
-            metadataSettings = { MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = repository::clearLanguageCaches) },
+            metadataSettings = { MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = {}) },
             loadState = appState::loadCachedState,
             rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
         )

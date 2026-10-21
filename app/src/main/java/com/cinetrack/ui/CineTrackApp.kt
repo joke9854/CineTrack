@@ -168,6 +168,8 @@ fun CineTrackApp(
             application.container.backupRepository,
             application.container.appState,
             application.container.accounts,
+            application.container.progressCache,
+            application.container.preferences,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -175,7 +177,7 @@ fun CineTrackApp(
         factory = com.cinetrack.ui.search.SearchViewModel.Factory(
             application.container.discoveryRepository,
             application.container.peopleRepository,
-            application.container.repository.preferences,
+            application.container.preferences,
         ),
     )
     val searchResults by searchViewModel.searchResults.collectAsStateWithLifecycle()
@@ -203,7 +205,7 @@ fun CineTrackApp(
     val mosaicResults by discoverViewModel.mosaicResults.collectAsStateWithLifecycle()
     val mosaicCanLoadMore by discoverViewModel.mosaicCanLoadMore.collectAsStateWithLifecycle()
     val settingsViewModel: com.cinetrack.ui.settings.SettingsViewModel = viewModel(
-        factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.repository.preferences),
+        factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.preferences),
     )
     val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
     val castPhotoShape = settingsViewModel.appearance.collectAsStateWithLifecycle().value.castPhotoShape
@@ -220,7 +222,7 @@ fun CineTrackApp(
     )
     val contentSettingsViewModel: com.cinetrack.ui.settings.ContentSettingsViewModel = viewModel(
         factory = com.cinetrack.ui.settings.ContentSettingsViewModel.Factory(
-            com.cinetrack.data.repository.RepositoryContentSettings(application.container.repository.preferences, application.container.metadataSettings, application.container.watchProviderRepository),
+            com.cinetrack.data.repository.RepositoryContentSettings(application.container.preferences, application.container.metadataSettings, application.container.watchProviderRepository),
         ),
     )
     LaunchedEffect(contentSettingsViewModel) {
@@ -231,26 +233,26 @@ fun CineTrackApp(
     }
     val progressViewModel: com.cinetrack.ui.progress.ProgressViewModel = viewModel(
         factory = com.cinetrack.ui.progress.ProgressViewModel.Factory(
-            com.cinetrack.data.repository.RepositoryProgressStore(context, application.container.repository.preferences, application.container.peopleRepository),
+            com.cinetrack.data.repository.RepositoryProgressStore(context, application.container.preferences, application.container.peopleRepository),
         ),
     )
     val releaseReminders by progressViewModel.releaseReminders.collectAsStateWithLifecycle()
     val viewingInsights by progressViewModel.viewingInsights.collectAsStateWithLifecycle()
     val libraryViewModel: com.cinetrack.ui.library.LibraryViewModel = viewModel(
         factory = com.cinetrack.ui.library.LibraryViewModel.Factory(
-            com.cinetrack.data.repository.RepositoryLibraryArtwork(application.container.libraryArtworkRefreshManager, application.container.repository.preferences),
+            com.cinetrack.data.repository.RepositoryLibraryArtwork(application.container.libraryArtworkRefreshManager, application.container.preferences),
         ),
     )
     val libraryArtwork by libraryViewModel.artwork.collectAsStateWithLifecycle()
     LaunchedEffect(libraryViewModel) { libraryViewModel.errors.collect(viewModel::showError) }
     val backupViewModel: com.cinetrack.ui.settings.BackupViewModel = viewModel(
-        factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.backupRepository, application.container.repository)),
+        factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.backupRepository, application.container.progressCache)),
     )
     LaunchedEffect(backupViewModel) { backupViewModel.errors.collect(viewModel::showError) }
     LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }
     val backupProgress by backupViewModel.backupProgress.collectAsStateWithLifecycle()
     val syncSettingsViewModel: com.cinetrack.ui.settings.SyncSettingsViewModel = viewModel(
-        factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.repository, application.container.accounts, application.container.syncConflicts)),
+        factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.preferences, application.container.accounts, application.container.syncConflicts, application.container.syncOperationRepository, application.container.syncCoordinator)),
     )
     LaunchedEffect(syncSettingsViewModel) { syncSettingsViewModel.changes.collect(viewModel::onSyncSettingsChanged) }
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }

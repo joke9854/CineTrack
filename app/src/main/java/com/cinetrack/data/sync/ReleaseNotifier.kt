@@ -438,7 +438,7 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
         }
         ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.progressCache)
         // The released episode should be in Progress without opening the show.
-        runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
+        runCatching { application.container.progressCache.refreshProgressCache(ProgressRefreshRequest(), null) }
         com.cinetrack.UpNextWidgetProvider.refresh(applicationContext)
         return Result.success()
     }
@@ -458,9 +458,10 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
 /** After a play marked from a notification or the widget: fetches the following episode, then redraws the widget. */
 class WatchedProgressRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
-        val repository = (applicationContext as CineTrackApplication).container.repository
+        val container = (applicationContext as CineTrackApplication).container
+        val repository = container.repository
         repository.awaitStartup()
-        runCatching { repository.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
+        runCatching { container.progressCache.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
         com.cinetrack.UpNextWidgetProvider.refreshNow(applicationContext)
         return Result.success()
     }

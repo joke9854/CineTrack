@@ -19,7 +19,7 @@ class MetadataSettingsRepository(
     private val onMetadataLanguageChanged: (String) -> Unit = {},
     private val onMetadataRegionChanged: (String) -> Unit = {},
     private val onMetadataTimezoneChanged: (String) -> Unit = {},
-    /** Drops metadata cached in the previous language (CineTrackRepository.clearLanguageCaches). */
+    /** Drops metadata cached in the previous language (ProgressCacheRepository.clearEpisodeTitleCache). */
     private val clearLanguageCaches: () -> Unit = {},
 ) {
     private suspend fun <T> cancellableResult(block: suspend () -> T): Result<T> = try {

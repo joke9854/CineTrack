@@ -169,7 +169,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataRegion = metadataRegion::get,
         metadataTimezone = metadataTimezone::get,
     )
-    private val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
+    val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
     val trackingRoutingMutex = TrackingRoutingMutex()
     val trackingConfigurationService = TrackingConfigurationService(preferences, syncOperationRepository, trackingRoutingMutex)
     val trackingProviderRegistry: TrackingProviderRegistry
@@ -191,7 +191,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             onMetadataRegionChanged = metadataRegion::set,
             onMetadataTimezoneChanged = metadataTimezone::set,
             clearLanguageCaches = {
-                repository.clearLanguageCaches()
+                progressCache.clearEpisodeTitleCache()
                 mediaMetadata.clearLanguageCaches()
             },
         )
@@ -252,7 +252,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 database = database,
                 preferences = preferences,
                 fetchAnime = { services.simklSync.allItems("anime").anime },
-                refreshProgress = { request -> repository.refreshProgressCache(request) },
+                refreshProgress = { request -> progressCache.refreshProgressCache(request, null) },
                 onInvalidate = { showId -> repository.renumberedShows.tryEmit(showId) },
                 logLine = numberingLog,
             ),

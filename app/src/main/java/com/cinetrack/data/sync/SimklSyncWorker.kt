@@ -85,7 +85,7 @@ open class TrackingSyncWorker(
         if (!application.container.syncCoordinator.isMainProviderConnected() ||
             !application.container.repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))
         ) {
-            runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
+            runCatching { application.container.progressCache.refreshProgressCache(ProgressRefreshRequest(), null) }
             return Result.success()
         }
         return application.container.syncCoordinator.sync { }.fold(

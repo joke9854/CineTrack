@@ -1,17 +1,19 @@
 package com.cinetrack.data.repository
 
 import android.content.Context
+import com.cinetrack.data.sync.SyncCoordinator
+import com.cinetrack.data.sync.SyncOperationRepository
 import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.ui.settings.SyncSettingsStore
 
 class RepositorySyncSettings(
-    private val repository: CineTrackRepository,
+    private val preferences: AppPreferences,
     private val accounts: AccountRepository,
     private val conflicts: SyncConflictResolver,
+    private val syncOperationRepository: SyncOperationRepository,
+    private val syncCoordinator: SyncCoordinator,
 ) : SyncSettingsStore {
-    private val preferences get() = repository.preferences
-
     override suspend fun floppyServerVersion() = preferences.floppySettingsNow()?.serverVersion
     override suspend fun connectFloppy(
         baseUrl: String,
@@ -34,9 +36,9 @@ class RepositorySyncSettings(
         return accounts.floppyUnplacedItems().filterNot { it.dismissKey in dismissed }
     }
     override suspend fun dismissFloppyUnplaced(key: String) = preferences.dismissFloppyUnplaced(key)
-    override suspend fun loadSyncOperations() = repository.loadSyncOperations()
-    override suspend fun loadManagedBootstrapSummary() = repository.loadManagedBootstrapSummary()
-    override suspend fun retrySyncOperation(operationId: String) = repository.retrySyncOperation(operationId)
+    override suspend fun loadSyncOperations() = syncOperationRepository.cards()
+    override suspend fun loadManagedBootstrapSummary() = syncOperationRepository.managedBootstrapSummary()
+    override suspend fun retrySyncOperation(operationId: String) = syncCoordinator.retry(operationId)
     override suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice) = conflicts.resolveSyncConflict(operationId, choice)
     override suspend fun beginSimklLogin(context: Context) = preferences.beginSimklLogin(context)
     override suspend fun disconnectSimkl() = accounts.disconnectSimkl()

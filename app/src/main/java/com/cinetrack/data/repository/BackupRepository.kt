@@ -40,7 +40,7 @@ class BackupRepository(
     private val preferences: AppPreferences,
     /** Restored metadata settings go through it so the network clients use them at once. */
     private val metadataSettings: () -> MetadataSettingsRepository,
-    /** The library, progress, history and settings as the app shows them (CineTrackRepository.loadCachedState). */
+    /** The library, progress, history and settings as the app shows them (AppStateRepository.loadCachedState). */
     private val loadState: suspend () -> AppUiState,
     /** Rebuilds the Library rail from the restored rows; runs inside the restore transaction. */
     private val rebuildLibraryRail: suspend () -> Unit,

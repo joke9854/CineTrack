@@ -856,3 +856,80 @@ private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(
 private const val SEASON_TITLE_FETCH_MIN = 3
 
 private fun Result<*>.isTmdbNotFound(): Boolean = (exceptionOrNull() as? retrofit2.HttpException)?.code() == 404
+
+data class ProgressRefreshRequest(
+    val tvLibraryChanged: Boolean = false,
+    val episodeHistoryChanged: Boolean = false,
+    val tvPlaybackChanged: Boolean = false,
+    val force: Boolean = false,
+) {
+    fun requiresUpNext(scheduleDue: Boolean, cacheMissing: Boolean): Boolean =
+        force || scheduleDue || cacheMissing || tvLibraryChanged || episodeHistoryChanged || tvPlaybackChanged
+
+    fun mergedWith(other: ProgressRefreshRequest) = ProgressRefreshRequest(
+        tvLibraryChanged = tvLibraryChanged || other.tvLibraryChanged,
+        episodeHistoryChanged = episodeHistoryChanged || other.episodeHistoryChanged,
+        tvPlaybackChanged = tvPlaybackChanged || other.tvPlaybackChanged,
+        force = force || other.force,
+    )
+}
+
+/** Canonical activity ordering for a progress card. Air dates are schedule
+ * metadata and intentionally never contribute to viewing recency. */
+internal fun playbackActivityRecency(item: PlaybackCard): Long = maxOf(
+    item.media.libraryUpdatedAt ?: 0L,
+    item.progressUpdatedAtMillis,
+)
+
+/**
+ * The digital release (TMDB release type 4) for [region], as (yyyy-MM-dd, country). Falls back to
+ * the US date, which TMDB covers best, when the region has none. The earliest digital date wins.
+ */
+internal fun digitalReleaseFor(releaseDates: com.cinetrack.data.remote.TmdbReleaseDatesDto?, region: String): Pair<String, String>? {
+    fun earliest(country: String) = releaseDates?.results
+        ?.firstOrNull { it.country.equals(country, ignoreCase = true) }
+        ?.dates?.filter { it.type == 4 && it.date.length >= 10 }
+        ?.minOfOrNull { it.date.take(10) }
+    return earliest(region)?.let { it to region.uppercase() }
+        ?: earliest("US")?.let { it to "US" }
+}
+
+internal fun compareProgressAttention(
+    left: PlaybackCard,
+    right: PlaybackCard,
+    latestWatchedAtByShow: Map<Int, Long>,
+    nowMillis: Long,
+    zone: ZoneId = ZoneId.systemDefault(),
+): Int {
+    fun key(item: PlaybackCard): Triple<Long, Boolean, Long> {
+        val activity = maxOf(latestWatchedAtByShow[item.media.id] ?: 0L, playbackActivityRecency(item))
+        val air = if (item.media.type == MediaType.TV) {
+            releaseDateTime(item.episodeAirDate, zone)?.toInstant()?.toEpochMilli()
+        } else null
+        val attentionWindow = UPCOMING_PROGRESS_ATTENTION_DAYS * 86_400_000L
+        val upcoming = air?.takeIf { it > nowMillis && it - nowMillis <= attentionWindow }
+        // A newly aired selected episode is still meaningful attention for a
+        // short window. Once it is older than that window, ordinary viewing
+        // activity regains priority. This lets an episode airing now surface
+        // without allowing schedule metadata to permanently dominate.
+        val recentAir = air?.takeIf { it <= nowMillis && nowMillis - it <= attentionWindow }
+        // Viewing newer than the air date wins: a show the user just advanced
+        // by hand must not drop below one whose episode merely aired recently.
+        val event = upcoming ?: maxOf(recentAir ?: 0L, activity)
+        return Triple(kotlin.math.abs(event - nowMillis), upcoming != null, event)
+    }
+    val a = key(left)
+    val b = key(right)
+    val distanceDelta = a.first - b.first
+    // A near tie between a past viewing event and an imminent future episode
+    // favors the upcoming attention signal, without allowing distant air dates
+    // to dominate real viewing activity.
+    if (kotlin.math.abs(distanceDelta) <= 5 * 60_000L && a.second != b.second) {
+        return if (a.second) -1 else 1
+    }
+    if (distanceDelta != 0L) return distanceDelta.compareTo(0L)
+    if (a.second != b.second) return if (a.second) -1 else 1
+    val eventDelta = b.third - a.third
+    if (eventDelta != 0L) return eventDelta.compareTo(0L)
+    return left.media.title.lowercase().compareTo(right.media.title.lowercase())
+}
