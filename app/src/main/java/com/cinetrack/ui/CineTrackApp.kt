@@ -165,6 +165,7 @@ fun CineTrackApp(
             application.container.syncCoordinator,
             application.container.floppyBootstrapWorkManager,
             application.container.detailEpisodeCache,
+            application.container.backupRepository,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -241,7 +242,7 @@ fun CineTrackApp(
     val libraryArtwork by libraryViewModel.artwork.collectAsStateWithLifecycle()
     LaunchedEffect(libraryViewModel) { libraryViewModel.errors.collect(viewModel::showError) }
     val backupViewModel: com.cinetrack.ui.settings.BackupViewModel = viewModel(
-        factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.repository)),
+        factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.backupRepository, application.container.repository)),
     )
     LaunchedEffect(backupViewModel) { backupViewModel.errors.collect(viewModel::showError) }
     LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }

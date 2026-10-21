@@ -525,9 +525,9 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                 val number = intent.getIntExtra("episode", 0)
                 android.util.Log.i("CineTrackWidget", "mark: $showId:S${season}E$number")
                 if (showId > 0 && season >= 0 && number > 0) {
-                    val repository = (context.applicationContext as CineTrackApplication).container.repository
-                    repository.awaitStartup()
-                    repository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
+                    val container = (context.applicationContext as CineTrackApplication).container
+                    container.repository.awaitStartup()
+                    container.libraryRepository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
                     // Redraw at once from the local up-next. Fetching the following episode can take
                     // longer than a broadcast may run (about 10s for a widget tap), so it goes to work.
                     com.cinetrack.UpNextWidgetProvider.refreshNow(context)

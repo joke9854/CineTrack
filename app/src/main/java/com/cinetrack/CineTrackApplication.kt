@@ -22,6 +22,7 @@ import com.cinetrack.data.people.DefaultPeopleRepository
 import com.cinetrack.data.people.PeopleRepository
 import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
+import com.cinetrack.data.repository.BackupRepository
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.MetadataSettingsRepository
 import com.cinetrack.data.repository.LegacyMediaDataSource
@@ -190,6 +191,16 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             clearLanguageCaches = { repository.clearLanguageCaches() },
         )
     }
+    /** Export, restore and the automatic backup after library changes. */
+    val backupRepository by lazy {
+        BackupRepository(
+            database = database,
+            preferences = preferences,
+            metadataSettings = { metadataSettings },
+            loadState = repository::loadCachedState,
+            rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
+        )
+    }
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
     val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
     val repository: CineTrackRepository
@@ -318,7 +329,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             database,
             preferences,
             syncCoordinator,
-            { repository.scheduleAutomaticBackup() },
+            { backupRepository.scheduleAutomaticBackup() },
             trackingProviderRegistry,
             trackingRoutingMutex,
         )
@@ -335,7 +346,6 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             currentToken = token::get,
             tmdbApiKey = tmdbApiKey::get,
             mdbListApiKey = mdbListApiKey::get,
-            metadataSettingsProvider = { metadataSettings },
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,

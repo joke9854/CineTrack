@@ -75,6 +75,7 @@ class CineTrackViewModel(
     private val syncCoordinator: SyncCoordinator,
     private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
     private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
+    private val backupRepository: com.cinetrack.data.repository.BackupRepository,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -682,7 +683,7 @@ class CineTrackViewModel(
             // remote transaction and correctness-critical Progress data are complete.
             _state.value = readCachedState()
                 .copy(sync = completedSync)
-            viewModelScope.launch(Dispatchers.IO) { repository.createAutomaticBackup() }
+            viewModelScope.launch(Dispatchers.IO) { backupRepository.createAutomaticBackup() }
         } else if (outcome != null && exposeProgress) {
             // Complete the synchronization indicator without replacing any page
             // collections when Simkl reported an unchanged activity generation.
@@ -946,6 +947,7 @@ class CineTrackViewModel(
         private val syncCoordinator: SyncCoordinator,
             private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
         private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
+        private val backupRepository: com.cinetrack.data.repository.BackupRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -959,6 +961,7 @@ class CineTrackViewModel(
                 syncCoordinator,
                 floppyBootstrapWorkManager,
                 detailEpisodeCache,
+                backupRepository,
             ) as T
     }
 }

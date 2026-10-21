@@ -99,7 +99,7 @@ class BackupRoundTripTest {
         }
     } as T
 
-    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val repository: CineTrackRepository)
+    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val repository: CineTrackRepository, val backup: BackupRepository)
 
     private fun store(): Store {
         val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
@@ -121,7 +121,14 @@ class BackupRoundTripTest {
             trackingProviderRegistry = NoProviders,
             trackingRoutingMutex = mutex,
         )
-        return Store(database, operations, repository)
+        val backup = BackupRepository(
+            database = database,
+            preferences = preferences,
+            metadataSettings = { MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = repository::clearLanguageCaches) },
+            loadState = repository::loadCachedState,
+            rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
+        )
+        return Store(database, operations, repository, backup)
     }
 
     private fun media(type: MediaType, id: Int, title: String) =
@@ -178,7 +185,7 @@ class BackupRoundTripTest {
     @Test fun reinstallRestoresEveryEventWithItsExactTimestamp() = runBlocking {
         val source = store()
         seed(source)
-        val backup = source.repository.exportBackupFiles(emptySet())
+        val backup = source.backup.exportBackupFiles(emptySet())
 
         // Settings changed after the backup, then the app is reinstalled.
         preferences.setNotification("movies", true)
@@ -186,7 +193,7 @@ class BackupRoundTripTest {
         preferences.setContentRegions(emptySet())
         preferences.setExcludeSpecials(false)
         val restored = store()
-        val count = restored.repository.restoreBackupFiles(backup)
+        val count = restored.backup.restoreBackupFiles(backup)
 
         assertEquals(
             seededHistory.map { it.event() }.sortedBy(Any::toString),
@@ -209,7 +216,7 @@ class BackupRoundTripTest {
         assertTrue(restored.operations.pending().isEmpty())
 
         // The restored install exports the same history, so a second round trip loses nothing.
-        val again = restored.repository.exportBackupFiles(setOf("history"))
+        val again = restored.backup.exportBackupFiles(setOf("history"))
         assertEquals(backup["data/history.jsonl"]!!.lines().toSet(), again["data/history.jsonl"]!!.lines().toSet())
     }
 
@@ -218,9 +225,9 @@ class BackupRoundTripTest {
         source.database.mediaDao().upsertMedia(listOf(media(MediaType.MOVIE, 50, "Removed Movie")))
         source.database.stateDao().upsertAll(listOf(UserMediaStateEntity(movie, 50, LibraryStatus.NONE.name, watched = true)))
         source.database.timelineDao().insertHistoryItems(listOf(WatchHistoryEntity(mediaType = movie, mediaId = 50, watchedAt = "2026-02-02T02:02:02Z")))
-        val backup = source.repository.exportBackupFiles(setOf("library", "history"))
+        val backup = source.backup.exportBackupFiles(setOf("library", "history"))
         val restored = store()
-        restored.repository.restoreBackupFiles(backup)
+        restored.backup.restoreBackupFiles(backup)
         // The row is back, and the restored install shows and exports it again.
         assertEquals(1, restored.database.timelineDao().historySnapshot().size)
         assertEquals(1, restored.repository.loadCachedState().history.size)
@@ -229,10 +236,10 @@ class BackupRoundTripTest {
     @Test fun restoringTheSameBackupTwiceAddsNothing() = runBlocking {
         val source = store()
         seed(source)
-        val backup = source.repository.exportBackupFiles(setOf("library", "history"))
+        val backup = source.backup.exportBackupFiles(setOf("library", "history"))
         val restored = store()
-        restored.repository.restoreBackupFiles(backup)
-        val second = restored.repository.restoreBackupFiles(backup)
+        restored.backup.restoreBackupFiles(backup)
+        val second = restored.backup.restoreBackupFiles(backup)
         assertEquals(4, second) // the library states are upserted again; no history is added
         assertEquals(seededHistory.size, restored.database.timelineDao().historySnapshot().size)
     }
