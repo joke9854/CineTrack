@@ -214,6 +214,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     /** The AppUiState snapshot built from Room and the provider states. */
     val appState: com.cinetrack.data.repository.AppStateRepository
     val progressCache: com.cinetrack.data.repository.ProgressCacheRepository
+    /** Floppy and Simkl sign-in, connection and account names. */
+    val accounts: com.cinetrack.data.repository.AccountRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
     val discoveryRepository: DiscoveryRepository
@@ -374,16 +376,33 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             mediaMetadata = mediaMetadata,
             loadCachedState = { appState.loadCachedState() },
         )
-        repository = CineTrackRepository(
+        accounts = com.cinetrack.data.repository.AccountRepository(
             database = database,
             services = services,
             preferences = preferences,
-            awaitStartupReady = startupReady::await,
             onTokenChanged = { value ->
                 if (value == null) simklTokens.onSignedOut()
                 else applicationScope.launch(Dispatchers.IO) { simklTokens.onSignedIn() }
                 token.set(value)
             },
+            currentToken = token::get,
+            trackingProviderRegistry = trackingProviderRegistry,
+            floppySecondaryService = floppySecondaryService,
+            floppyOAuth = floppyOAuth,
+            floppyRetryBootstrap = {
+                preferences.floppySettingsNow()?.connectionId?.let { instance ->
+                    FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())
+                }
+            },
+            floppyUnplacedEpisodes = {
+                if (::floppyBootstrapCoordinator.isInitialized) floppyBootstrapCoordinator.unplacedEpisodes() else emptyList()
+            },
+        )
+        repository = CineTrackRepository(
+            database = database,
+            services = services,
+            preferences = preferences,
+            awaitStartupReady = startupReady::await,
             currentToken = token::get,
             tmdbApiKey = tmdbApiKey::get,
             mdbListApiKey = mdbListApiKey::get,
@@ -397,17 +416,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
-            floppySecondaryService = floppySecondaryService,
             trackingConfigurationService = trackingConfigurationService,
-            floppyOAuth = floppyOAuth,
-            floppyRetryBootstrap = {
-                preferences.floppySettingsNow()?.connectionId?.let { instance ->
-                    FloppyBootstrapWorkScheduler.retryNow(application, instance, preferences.wifiOnly.first())
-                }
-            },
-            floppyUnplacedEpisodes = {
-                if (::floppyBootstrapCoordinator.isInitialized) floppyBootstrapCoordinator.unplacedEpisodes() else emptyList()
-            },
             episodeNumbering = episodeNumbering,
             animeNumberingRepair = animeRepair,
             mediaMetadata = mediaMetadata,

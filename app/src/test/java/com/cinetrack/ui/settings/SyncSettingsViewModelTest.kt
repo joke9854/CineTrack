@@ -1,7 +1,7 @@
 package com.cinetrack.ui.settings
 
 import android.content.Context
-import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.AccountRepository
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.ManagedBootstrapSummary
 import com.cinetrack.data.sync.TrackingSyncError
@@ -66,7 +66,7 @@ class SyncSettingsViewModelTest {
         override suspend fun floppySignInServer(baseUrl: String, allowInsecureLocalHttp: Boolean) = Result.success(baseUrl)
         override suspend fun beginFloppyLogin(context: Context, baseUrl: String, allowInsecureLocalHttp: Boolean) = Result.success(Unit)
         override suspend fun completeFloppySignIn(code: String?, state: String?, error: String?, issuer: String?) =
-            Result.failure<CineTrackRepository.FloppySignIn>(IllegalStateException("refused"))
+            Result.failure<AccountRepository.FloppySignIn>(IllegalStateException("refused"))
         override suspend fun retryFloppyBootstrap() { bootstrapRetries++ }
         override suspend fun disconnectFloppy() = Unit
         override suspend fun refreshFloppyUsername() = "giuseppe"

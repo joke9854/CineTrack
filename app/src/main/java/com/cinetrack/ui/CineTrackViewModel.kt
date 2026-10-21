@@ -77,6 +77,7 @@ class CineTrackViewModel(
     private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
     private val backupRepository: com.cinetrack.data.repository.BackupRepository,
     private val appState: com.cinetrack.data.repository.AppStateRepository,
+    private val accounts: com.cinetrack.data.repository.AccountRepository,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -748,7 +749,7 @@ class CineTrackViewModel(
                 _state.value = _state.value.copy(error = "Simkl did not return an authorization code. Please connect again")
                 return@launch
             }
-            repository.completeLogin(code, state, issuer).onSuccess {
+            accounts.completeLogin(code, state, issuer).onSuccess {
                 // The first sync waits for chooseSimklFirstSync.
                 _state.value = _state.value.copy(simklConnected = true, simklFirstSyncPending = true, error = null)
                 loadSimklUsername()
@@ -771,7 +772,7 @@ class CineTrackViewModel(
     private fun loadSimklUsername() {
         if (!_state.value.simklConnected) return
         viewModelScope.launch {
-            withContext(Dispatchers.IO) { repository.refreshSimklUsername() }?.let { name ->
+            withContext(Dispatchers.IO) { accounts.refreshSimklUsername() }?.let { name ->
                 _state.value = _state.value.copy(simklUsername = name)
             }
         }
@@ -950,6 +951,7 @@ class CineTrackViewModel(
         private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
         private val backupRepository: com.cinetrack.data.repository.BackupRepository,
         private val appState: com.cinetrack.data.repository.AppStateRepository,
+        private val accounts: com.cinetrack.data.repository.AccountRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -965,6 +967,7 @@ class CineTrackViewModel(
                 detailEpisodeCache,
                 backupRepository,
                 appState,
+                accounts,
             ) as T
     }
 }

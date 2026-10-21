@@ -4,7 +4,7 @@ import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.AccountRepository
 import com.cinetrack.data.sync.ConnectionResult
 import com.cinetrack.data.sync.ManagedBootstrapSummary
 import com.cinetrack.data.sync.TrackingSyncError
@@ -43,7 +43,7 @@ interface SyncSettingsStore {
     suspend fun discardFloppyCredential(baseUrl: String, credential: String)
     suspend fun floppySignInServer(baseUrl: String, allowInsecureLocalHttp: Boolean): Result<String>
     suspend fun beginFloppyLogin(context: Context, baseUrl: String, allowInsecureLocalHttp: Boolean): Result<Unit>
-    suspend fun completeFloppySignIn(code: String?, state: String?, error: String?, issuer: String?): Result<CineTrackRepository.FloppySignIn>
+    suspend fun completeFloppySignIn(code: String?, state: String?, error: String?, issuer: String?): Result<AccountRepository.FloppySignIn>
     suspend fun retryFloppyBootstrap()
     suspend fun disconnectFloppy()
     suspend fun refreshFloppyUsername(): String?
