@@ -118,6 +118,7 @@ class BackupRoundTripTest {
             syncCoordinator = coordinator,
             releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
             libraryRepository = RoomLibraryRepository(database, preferences, coordinator, {}, NoProviders, mutex),
+            mediaMetadata = MediaMetadataRepository(database, services, preferences, DefaultReleaseScheduleRepository(database, services), tmdbApiKey = { "" }, mdbListApiKey = { "" }),
             trackingProviderRegistry = NoProviders,
             trackingRoutingMutex = mutex,
         )

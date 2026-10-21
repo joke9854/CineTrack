@@ -26,6 +26,7 @@ import com.cinetrack.data.repository.BackupRepository
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.MetadataSettingsRepository
 import com.cinetrack.data.repository.LegacyMediaDataSource
+import com.cinetrack.data.repository.MediaMetadataRepository
 import com.cinetrack.data.repository.SettingsRepository
 import com.cinetrack.data.schedule.DefaultReleaseScheduleRepository
 import com.cinetrack.data.sync.DefaultTrackingProviderRegistry
@@ -188,7 +189,10 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             onMetadataLanguageChanged = metadataLanguage::set,
             onMetadataRegionChanged = metadataRegion::set,
             onMetadataTimezoneChanged = metadataTimezone::set,
-            clearLanguageCaches = { repository.clearLanguageCaches() },
+            clearLanguageCaches = {
+                repository.clearLanguageCaches()
+                mediaMetadata.clearLanguageCaches()
+            },
         )
     }
     /** Export, restore and the automatic backup after library changes. */
@@ -204,6 +208,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
     val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
     val repository: CineTrackRepository
+    /** Detail-page metadata loads (details, episodes, cast, ratings...). */
+    val mediaMetadata: MediaMetadataRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
     val discoveryRepository: DiscoveryRepository
@@ -333,6 +339,19 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingProviderRegistry,
             trackingRoutingMutex,
         )
+        val releaseSchedule = DefaultReleaseScheduleRepository(database, services, traktClientId = { preferences.traktClientIdNow() }, airDateSource = { preferences.airDateSource.first() })
+        mediaMetadata = MediaMetadataRepository(
+            database = database,
+            services = services,
+            preferences = preferences,
+            releaseSchedule = releaseSchedule,
+            tmdbApiKey = tmdbApiKey::get,
+            mdbListApiKey = mdbListApiKey::get,
+            characterImages = { type, tmdbId ->
+                floppy.characterImages(if (type == com.cinetrack.domain.MediaType.MOVIE) "movie" else "tv", tmdbId)
+                    ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
+            },
+        )
         repository = CineTrackRepository(
             database = database,
             services = services,
@@ -349,7 +368,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,
-            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services, traktClientId = { preferences.traktClientIdNow() }, airDateSource = { preferences.airDateSource.first() }),
+            releaseScheduleRepository = releaseSchedule,
             libraryRepository = localLibrary,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
@@ -367,13 +386,10 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             },
             episodeNumbering = episodeNumbering,
             animeNumberingRepair = animeRepair,
-            characterImages = { type, tmdbId ->
-                floppy.characterImages(if (type == com.cinetrack.domain.MediaType.MOVIE) "movie" else "tv", tmdbId)
-                    ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
-            },
+            mediaMetadata = mediaMetadata,
         )
         libraryRepository = localLibrary
-        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository))
+        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository, mediaMetadata))
         discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
         peopleRepository = DefaultPeopleRepository(mediaRepository)
         watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)

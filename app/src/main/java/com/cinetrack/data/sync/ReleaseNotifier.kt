@@ -29,6 +29,7 @@ import com.cinetrack.MainActivity
 import com.cinetrack.R
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.repository.MediaMetadataRepository
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
@@ -291,7 +292,7 @@ object ReleaseNotifier {
         context: Context,
         state: AppUiState,
         preferences: AppPreferences,
-        repository: CineTrackRepository? = null,
+        mediaMetadata: MediaMetadataRepository? = null,
     ) {
         if (!canNotify(context, preferences)) return
         val configuredTimezone = preferences.metadataTimezone.first()
@@ -341,7 +342,7 @@ object ReleaseNotifier {
             manager.notify(key.hashCode(), builder.build())
         }
         val preferredProviders = preferences.preferredProviders.first()
-        if (repository != null && preferredProviders.isNotEmpty()) {
+        if (mediaMetadata != null && preferredProviders.isNotEmpty()) {
             val candidates = state.rails[RailIds.LIBRARY].orEmpty()
                 .filter { it.status in setOf(LibraryStatus.PLAN_TO_WATCH, LibraryStatus.WATCHING, LibraryStatus.PAUSED) }
                 .distinctBy { it.stableKey }
@@ -350,7 +351,7 @@ object ReleaseNotifier {
                 val requests = Semaphore(4)
                 candidates.map { media -> async {
                     requests.withPermit {
-                        val detailed = runCatching { repository.loadDetails(media) }.getOrNull()
+                        val detailed = runCatching { mediaMetadata.loadDetails(media) }.getOrNull()
                             ?: return@withPermit emptyList<Pair<com.cinetrack.domain.MediaCard, String>>()
                         detailed.subscriptionProviders.filter(preferredProviders::contains).map { provider -> detailed to provider }
                     }

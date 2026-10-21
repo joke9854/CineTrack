@@ -99,7 +99,7 @@ open class TrackingSyncWorker(
                         applicationContext,
                         state,
                         application.container.preferences,
-                        application.container.repository,
+                        application.container.mediaMetadata,
                     )
                     ReleaseNotifier.scheduleUpcoming(applicationContext, state, application.container.preferences)
                 } catch (cancelled: CancellationException) {

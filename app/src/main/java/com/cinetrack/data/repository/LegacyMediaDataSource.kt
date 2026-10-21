@@ -12,7 +12,10 @@ import com.cinetrack.domain.TimelineCard
  * CineTrackRepository. Keeping this bridge in the repository package prevents
  * the focused media layer from depending on the legacy façade type.
  */
-class LegacyMediaDataSource(private val facade: CineTrackRepository) : MediaDataSource {
+class LegacyMediaDataSource(
+    private val facade: CineTrackRepository,
+    private val metadata: MediaMetadataRepository,
+) : MediaDataSource {
     override suspend fun refreshDiscover() = facade.refreshDiscover()
     override suspend fun loadDiscoverPage(railId: String, page: Int) = facade.loadDiscoverPage(railId, page)
     override suspend fun discoverMovies(filters: DiscoverMovieFilters) = facade.discoverMovies(filters)
@@ -21,21 +24,21 @@ class LegacyMediaDataSource(private val facade: CineTrackRepository) : MediaData
     override suspend fun searchPeople(query: String) = facade.searchPeople(query)
     override suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String?, failOnError: Boolean) = facade.loadStreamingProviders(mediaType, selectedRegion, failOnError)
     override suspend fun loadSettingsStreamingProviders(region: String) = facade.loadSettingsStreamingProviders(region)
-    override suspend fun loadTagline(media: MediaCard) = facade.loadTagline(media)
-    override suspend fun loadSeasonDetails(show: MediaCard, number: Int) = facade.loadSeasonDetails(show, number)
-    override suspend fun loadDetails(media: MediaCard) = facade.loadDetails(media)
-    override suspend fun loadMedia(type: MediaType, id: Int) = facade.loadMedia(type, id)
-    override suspend fun loadPerson(person: PersonCard) = facade.loadPerson(person)
-    override suspend fun loadRatings(media: MediaCard) = facade.loadRatings(media)
-    override suspend fun loadCast(media: MediaCard) = facade.loadCast(media)
-    override suspend fun loadCharacterPictures(media: MediaCard) = facade.loadCharacterPictures(media)
-    override suspend fun loadEpisodes(show: MediaCard, season: Int) = facade.loadEpisodes(show, season)
-    override suspend fun loadAllEpisodes(show: MediaCard) = facade.loadAllEpisodes(show)
-    override suspend fun loadEpisode(show: MediaCard, season: Int, number: Int) = facade.loadEpisode(show, season, number)
-    override suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int) = facade.loadEpisodeCast(show, season, number)
-    override suspend fun loadCollection(media: MediaCard) = facade.loadCollection(media)
-    override suspend fun loadRecommendations(media: MediaCard) = facade.loadRecommendations(media)
-    override suspend fun loadTrailerKey(media: MediaCard) = facade.loadTrailerKey(media)
-    override suspend fun loadViewingPeople(history: List<TimelineCard>) = facade.loadViewingPeople(history)
+    override suspend fun loadTagline(media: MediaCard) = metadata.loadTagline(media)
+    override suspend fun loadSeasonDetails(show: MediaCard, number: Int) = metadata.loadSeasonDetails(show, number)
+    override suspend fun loadDetails(media: MediaCard) = metadata.loadDetails(media)
+    override suspend fun loadMedia(type: MediaType, id: Int) = metadata.loadMedia(type, id)
+    override suspend fun loadPerson(person: PersonCard) = metadata.loadPerson(person)
+    override suspend fun loadRatings(media: MediaCard) = metadata.loadRatings(media)
+    override suspend fun loadCast(media: MediaCard) = metadata.loadCast(media)
+    override suspend fun loadCharacterPictures(media: MediaCard) = metadata.loadCharacterPictures(media)
+    override suspend fun loadEpisodes(show: MediaCard, season: Int) = metadata.loadEpisodes(show, season)
+    override suspend fun loadAllEpisodes(show: MediaCard) = metadata.loadAllEpisodes(show)
+    override suspend fun loadEpisode(show: MediaCard, season: Int, number: Int) = metadata.loadEpisode(show, season, number)
+    override suspend fun loadEpisodeCast(show: MediaCard, season: Int, number: Int) = metadata.loadEpisodeCast(show, season, number)
+    override suspend fun loadCollection(media: MediaCard) = metadata.loadCollection(media)
+    override suspend fun loadRecommendations(media: MediaCard) = metadata.loadRecommendations(media)
+    override suspend fun loadTrailerKey(media: MediaCard) = metadata.loadTrailerKey(media)
+    override suspend fun loadViewingPeople(history: List<TimelineCard>) = metadata.loadViewingPeople(history)
 }
 
