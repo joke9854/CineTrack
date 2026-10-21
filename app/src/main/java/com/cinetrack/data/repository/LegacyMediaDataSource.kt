@@ -8,22 +8,21 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.TimelineCard
 
 /**
- * Temporary bridge while the proven TMDB/Room implementation is moved out of
- * CineTrackRepository. Keeping this bridge in the repository package prevents
- * the focused media layer from depending on the legacy façade type.
+ * Bridges [MediaDataSource] to [CatalogRepository] and [MediaMetadataRepository],
+ * keeping the focused media layer independent of the legacy façade type.
  */
 class LegacyMediaDataSource(
-    private val facade: CineTrackRepository,
+    private val catalog: CatalogRepository,
     private val metadata: MediaMetadataRepository,
 ) : MediaDataSource {
-    override suspend fun refreshDiscover() = facade.refreshDiscover()
-    override suspend fun loadDiscoverPage(railId: String, page: Int) = facade.loadDiscoverPage(railId, page)
-    override suspend fun discoverMovies(filters: DiscoverMovieFilters) = facade.discoverMovies(filters)
-    override suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int) = facade.discoverBatch(filters, batch)
-    override suspend fun search(query: String) = facade.search(query)
-    override suspend fun searchPeople(query: String) = facade.searchPeople(query)
-    override suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String?, failOnError: Boolean) = facade.loadStreamingProviders(mediaType, selectedRegion, failOnError)
-    override suspend fun loadSettingsStreamingProviders(region: String) = facade.loadSettingsStreamingProviders(region)
+    override suspend fun refreshDiscover() = catalog.refreshDiscover()
+    override suspend fun loadDiscoverPage(railId: String, page: Int) = catalog.loadDiscoverPage(railId, page)
+    override suspend fun discoverMovies(filters: DiscoverMovieFilters) = catalog.discoverMovies(filters)
+    override suspend fun discoverBatch(filters: DiscoverMovieFilters, batch: Int) = catalog.discoverBatch(filters, batch)
+    override suspend fun search(query: String) = catalog.search(query)
+    override suspend fun searchPeople(query: String) = catalog.searchPeople(query)
+    override suspend fun loadStreamingProviders(mediaType: MediaType, selectedRegion: String?, failOnError: Boolean) = catalog.loadStreamingProviders(mediaType, selectedRegion, failOnError)
+    override suspend fun loadSettingsStreamingProviders(region: String) = catalog.loadSettingsStreamingProviders(region)
     override suspend fun loadTagline(media: MediaCard) = metadata.loadTagline(media)
     override suspend fun loadSeasonDetails(show: MediaCard, number: Int) = metadata.loadSeasonDetails(show, number)
     override suspend fun loadDetails(media: MediaCard) = metadata.loadDetails(media)

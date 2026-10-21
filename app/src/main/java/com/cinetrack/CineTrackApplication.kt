@@ -23,6 +23,7 @@ import com.cinetrack.data.people.PeopleRepository
 import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.BackupRepository
+import com.cinetrack.data.repository.CatalogRepository
 import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.MetadataSettingsRepository
 import com.cinetrack.data.repository.LegacyMediaDataSource
@@ -402,7 +403,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             mediaMetadata = mediaMetadata,
         )
         libraryRepository = localLibrary
-        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(repository, mediaMetadata))
+        val catalog = CatalogRepository(database, services, preferences, tmdbApiKey::get)
+        mediaRepository = DefaultMediaRepository(LegacyMediaDataSource(catalog, mediaMetadata))
         discoveryRepository = DefaultDiscoveryRepository(mediaRepository)
         peopleRepository = DefaultPeopleRepository(mediaRepository)
         watchProviderRepository = DefaultWatchProviderRepository(mediaRepository)
