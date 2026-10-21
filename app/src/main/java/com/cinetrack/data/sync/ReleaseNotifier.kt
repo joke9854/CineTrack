@@ -28,7 +28,6 @@ import com.cinetrack.CineTrackApplication
 import com.cinetrack.MainActivity
 import com.cinetrack.R
 import com.cinetrack.data.repository.AppPreferences
-import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.MediaMetadataRepository
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.domain.AppUiState
@@ -202,7 +201,7 @@ object ReleaseNotifier {
         context: Context,
         preferences: AppPreferences,
         data: androidx.work.Data,
-        repository: CineTrackRepository? = null,
+        progressCache: com.cinetrack.data.repository.ProgressCacheRepository? = null,
     ) {
         val type = data.getString("mediaType")?.let { runCatching { MediaType.valueOf(it) }.getOrNull() } ?: return
         // A reminder the user set on a title is sent even when the general release toggles are off.
@@ -219,7 +218,7 @@ object ReleaseNotifier {
         val episode = data.getInt("episode", -1)
         val rawTitle = data.getString("episodeTitle")?.takeIf(String::isNotBlank)
             ?: extractEpisodeTitle(data.getString("episodeLabel"))
-            ?: repository?.let {
+            ?: progressCache?.let {
                 if (type == MediaType.TV && season >= 0 && episode > 0) it.cachedEpisodeTitle(data.getInt("mediaId", 0), season, episode) else null
             }
         val text = releaseNotificationText(
@@ -437,7 +436,7 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
             QuietHoursEndReceiver.schedule(applicationContext, key, inputData, wait)
             return Result.success()
         }
-        ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.repository)
+        ReleaseNotifier.notifyScheduledRelease(applicationContext, application.container.preferences, inputData, application.container.progressCache)
         // The released episode should be in Progress without opening the show.
         runCatching { application.container.repository.refreshProgressCache(ProgressRefreshRequest(), null) }
         com.cinetrack.UpNextWidgetProvider.refresh(applicationContext)

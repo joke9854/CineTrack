@@ -1,5 +1,31 @@
 package com.cinetrack.data.repository
 
+import androidx.room.withTransaction
+import com.cinetrack.data.local.MediaEntity
+import com.cinetrack.data.local.SyncStateEntity
+import com.cinetrack.data.local.UpNextEntity
+import com.cinetrack.data.local.toDomain
+import com.cinetrack.data.local.toEntity
+import com.cinetrack.data.remote.ApiServices
+import com.cinetrack.data.schedule.ReleaseScheduleRepository
+import com.cinetrack.domain.AppUiState
+import com.cinetrack.domain.LibraryArtworkRefreshProgress
+import com.cinetrack.domain.LibraryArtworkRefreshStage
+import com.cinetrack.domain.LibraryStatus
+import com.cinetrack.domain.MediaType
+import com.cinetrack.domain.RailIds
+import com.cinetrack.domain.TimelineCard
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.io.IOException
+import java.time.Instant
+import java.time.LocalDate
 import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.EpisodeEntity
 import com.cinetrack.domain.EpisodeCard
@@ -159,12 +185,573 @@ internal fun selectProgressCard(
  * Network writes and the surrounding Room transaction remain coordinated by the
  * CineTrackRepository facade, preserving the existing mutex boundaries.
  */
-internal class ProgressCacheRepository(
+class ProgressCacheRepository(
     private val database: AppDatabase,
     private val preferences: AppPreferences,
     private val tmdbApiKey: () -> String,
     private val loadEpisodes: suspend (MediaCard, Int) -> List<EpisodeCard>,
+    private val services: ApiServices,
+    private val releaseScheduleRepository: ReleaseScheduleRepository,
+    private val mediaMetadata: MediaMetadataRepository,
+    private val loadCachedState: suspend () -> AppUiState,
 ) {
+    private val episodeTitleCache = BoundedLruCache<String, String>(750)
+    /** Episodes TMDB answered without a title (or not at all), not asked again this process. */
+    private val episodeTitleMisses = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    private val progressCacheMutex = Mutex()
+    private val progressEnrichmentScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private var progressEnrichmentJob: Job? = null
+    @Volatile private var progressEnrichmentRequested = false
+    val progressCacheRefreshing: Boolean get() = progressCacheMutex.isLocked
+
+    fun clearEpisodeTitleCache() = episodeTitleCache.clear()
+
+    /**
+     * Advances one show's durable next-episode row using Room only. This runs
+     * immediately after a watched-state change, so neither Compose nor the
+     * database invalidation observer has to wait for Simkl or a full cache pass.
+     */
+    private suspend fun refreshLocalUpNext(showId: Int) {
+        val releaseZone = localZone()
+        val releaseNow = Instant.now()
+        val excludeSpecials = preferences.excludeSpecials.first()
+        val watched = mediaMetadata.watchedEpisodeNumbers(showId)
+        val candidates = database.mediaDao().episodesForShow(showId).asSequence()
+            .map { it.toDomain() }
+            .filter { !excludeSpecials || it.season > 0 }
+            .filter { episode ->
+                releaseDateTime(episode.airDate, releaseZone)?.toInstant()?.let { !it.isAfter(releaseNow) } == true
+            }
+            .filterNot { (it.season to it.number) in watched }
+            .sortedWith(compareBy(EpisodeCard::season, EpisodeCard::number))
+            .toList()
+        val next = nextAfterLastWatched(candidates, watched)
+        database.withTransaction {
+            database.upNextDao().delete(showId)
+            if (next != null) {
+                database.upNextDao().upsertAll(
+                    listOf(
+                        UpNextEntity(
+                            showId = showId,
+                            episodeId = next.id.takeIf { it > 0 },
+                            season = next.season,
+                            episodeNumber = next.number,
+                            episodeTitle = next.title,
+                            episodeAirDate = next.airDate,
+                            durationMinutes = next.runtimeMinutes,
+                            refreshedAt = System.currentTimeMillis(),
+                        ),
+                    ),
+                )
+            }
+        }
+    }
+
+    suspend fun enrichHistoryLabels(items: List<TimelineCard>): List<TimelineCard> {
+        // Keep this call's results until its output is built. The process-wide
+        // LRU may evict early titles when an import contains more than 750 rows.
+        val resolvedTitles = mutableMapOf<String, String>()
+        val missing = items.filter {
+            it.media.type == MediaType.TV && it.season != null && it.episodeNumber != null &&
+                (it.episodeLabel.isNullOrBlank() || !it.episodeLabel.contains(" · "))
+        }.distinctBy { "${it.media.id}:${it.season}:${it.episodeNumber}" }
+            .filterNot { "${it.media.id}:${it.season}:${it.episodeNumber}" in episodeTitleMisses }
+        // Plays whose season was read as a whole: a number that season does not
+        // list (an absolutely numbered anime play) has no single page either.
+        val seasonRead = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+        missing.forEach { item ->
+            val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+            if (episodeTitleCache[key].isNullOrBlank()) {
+                database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
+                    ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
+            }
+        }
+        // A season with several untitled plays (a fresh import of a long show)
+        // is read in one request instead of one request per episode.
+        if (tmdbApiKey().isNotBlank()) {
+            val untitledSeasons = missing
+                .filter { episodeTitleCache["${it.media.id}:${it.season}:${it.episodeNumber}"].isNullOrBlank() }
+                .groupBy { it.media.id to it.season!! }
+                .filterValues { it.size >= SEASON_TITLE_FETCH_MIN }
+            for (batch in untitledSeasons.entries.chunked(4)) {
+                coroutineScope {
+                    batch.map { (showSeason, plays) ->
+                        async {
+                            val (showId, season) = showSeason
+                            val fetched = runCatching { services.tmdb.season(showId, season).episodes }
+                            val titles = fetched.getOrDefault(emptyList())
+                                .filter { it.name.isNotBlank() }
+                                .associate { it.number to it.name }
+                            plays.forEach { play ->
+                                val key = "$showId:$season:${play.episodeNumber}"
+                                seasonRead += key
+                                val title = titles[play.episodeNumber!!]
+                                if (title == null) {
+                                    if (fetched.isSuccess || fetched.isTmdbNotFound()) episodeTitleMisses += key
+                                    return@forEach
+                                }
+                                episodeTitleCache["$showId:$season:${play.episodeNumber}"] = title
+                                database.timelineDao().updateEpisodeTitle(MediaType.TV.name, showId, season, play.episodeNumber, title)
+                            }
+                        }
+                    }.awaitAll()
+                }
+            }
+        }
+        for (batch in missing.chunked(6)) {
+            coroutineScope {
+                batch.map { item ->
+                    async {
+                        val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+                        if (episodeTitleCache[key].isNullOrBlank()) {
+                            database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
+                                ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
+                        }
+                        if (episodeTitleCache[key].isNullOrBlank() && key !in seasonRead && tmdbApiKey().isNotBlank()) {
+                            val fetched = runCatching { services.tmdb.episode(item.media.id, item.season!!, item.episodeNumber!!).name }
+                            if (fetched.getOrNull().isNullOrBlank() && (fetched.isSuccess || fetched.isTmdbNotFound())) episodeTitleMisses += key
+                            fetched.getOrNull()?.takeIf(String::isNotBlank)?.let { title ->
+                                    episodeTitleCache[key] = title
+                                    database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, item.season!!, item.episodeNumber!!, title)
+                                }
+                        }
+                        key to episodeTitleCache[key]
+                    }
+                }.forEach { pending ->
+                    val (key, title) = pending.await()
+                    if (!title.isNullOrBlank()) resolvedTitles[key] = title
+                }
+            }
+        }
+        return items.map { item ->
+            if (item.media.type != MediaType.TV || item.season == null || item.episodeNumber == null) item
+            else {
+                val existingTitle = item.episodeLabel?.substringAfter(" · ", "")?.takeIf(String::isNotBlank)
+                val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+                val title = resolvedTitles[key] ?: episodeTitleCache[key] ?: existingTitle
+                val number = "S${item.season.toString().padStart(2, '0')} E${item.episodeNumber.toString().padStart(2, '0')}"
+                item.copy(episodeLabel = listOfNotNull(number, title?.takeIf(String::isNotBlank)).joinToString(" · "))
+            }
+        }
+    }
+
+    /**
+     * Refreshes only the durable inputs used by Progress. Remote responses are
+     * written to Room first; callers then publish a fresh database snapshot.
+     * Nothing returned by the network is exposed directly to Compose.
+     */
+    suspend fun refreshProgressCache(
+        request: ProgressRefreshRequest,
+        onProgress: ((Float) -> Unit)?,
+    ): Boolean = progressCacheMutex.withLock {
+        onProgress?.invoke(.82f)
+        val snapshot = database.progressSnapshotDao().snapshot()
+        val states = snapshot.states.associateBy { it.mediaId }
+        val libraryShows = snapshot.media.map { media -> media.toDomain(states[media.tmdbId]) }
+            .distinctBy(MediaCard::stableKey)
+        val progressShows = libraryShows.filter {
+            it.status in setOf(LibraryStatus.WATCHING, LibraryStatus.COMPLETED)
+        }
+        val watched = snapshot.history.mapNotNull { item ->
+            val season = item.season ?: return@mapNotNull null
+            val episode = item.episodeNumber ?: return@mapNotNull null
+            Triple(item.mediaId, season, episode)
+        }.toSet()
+        val now = System.currentTimeMillis()
+        val scheduleFreshness = 5L * 60L * 60L * 1_000L
+        val scheduleState = database.syncDao().get("simkl_calendar")
+        val scheduleDue = libraryShows.isNotEmpty() &&
+            (scheduleState == null || now - scheduleState.lastSuccessfulSync >= scheduleFreshness)
+        val cacheReady = database.syncDao().get("up_next_cache_v1") != null
+        val needsUpNext = request.requiresUpNext(scheduleDue, cacheMissing = !cacheReady)
+        if (!needsUpNext) {
+            onProgress?.invoke(.99f)
+            scheduleProgressEnrichment()
+            return@withLock false
+        }
+
+        val needsSchedule = request.force || request.tvLibraryChanged || scheduleDue
+        if (needsSchedule) {
+            // Upcoming metadata populates the episode cache first; up-next then
+            // reuses it instead of issuing duplicate recent-season requests.
+            loadUpcomingEpisodes(
+                libraryShows,
+                forceSchedule = request.force || request.tvLibraryChanged,
+            )
+        }
+        onProgress?.invoke(.88f)
+        val refreshedEpisodes = database.progressSnapshotDao().activeTvEpisodes().map { it.toDomain() }
+        val upNext = loadUpNextEpisodes(
+            shows = progressShows,
+            watched = watched,
+            cachedEpisodes = refreshedEpisodes,
+        ) { processed, total ->
+            val fraction = if (total == 0) 1f else processed.toFloat() / total.toFloat()
+            onProgress?.invoke(.88f + (.09f * fraction))
+        }
+
+        val refreshedAt = System.currentTimeMillis()
+        database.withTransaction {
+            // Network work used an earlier history snapshot. Rebase only the
+            // shows changed during that work, without delaying a local tap.
+            val latest = database.progressSnapshotDao().snapshot()
+            val latestWatched = latest.history.mapNotNull { row ->
+                val season = row.season ?: return@mapNotNull null
+                val number = row.episodeNumber ?: return@mapNotNull null
+                Triple(row.mediaId, season, number)
+            }.toSet()
+            val eligible = latest.states.filter {
+                it.status in setOf(LibraryStatus.WATCHING.name, LibraryStatus.COMPLETED.name)
+            }.map { it.mediaId }.toSet()
+            val changedShows = changedEpisodeShows(watched, latestWatched) +
+                (eligible - progressShows.map { it.id }.toSet())
+            database.upNextDao().clear()
+            val rows = upNext.values.filter { it.showId in eligible }.map { episode ->
+                UpNextEntity(
+                    showId = episode.showId,
+                    episodeId = episode.id.takeIf { it > 0 },
+                    season = episode.season,
+                    episodeNumber = episode.number,
+                    episodeTitle = episode.title,
+                    episodeAirDate = episode.airDate,
+                    durationMinutes = episode.runtimeMinutes,
+                    refreshedAt = refreshedAt,
+                )
+            }
+            if (rows.isNotEmpty()) database.upNextDao().upsertAll(rows)
+            changedShows.filter { it in eligible }.forEach { refreshLocalUpNext(it) }
+            database.syncDao().upsertAll(
+                listOf(
+                    SyncStateEntity("progress_cache", Instant.ofEpochMilli(refreshedAt).toString(), refreshedAt),
+                    SyncStateEntity("up_next_cache_v1", Instant.ofEpochMilli(refreshedAt).toString(), refreshedAt),
+                ),
+            )
+        }
+        onProgress?.invoke(.99f)
+        scheduleProgressEnrichment()
+        true
+    }
+
+    /**
+     * Artwork and missing history labels improve presentation but are not needed
+     * to make imported library/history/playback data correct. Run them after the
+     * visible sync has completed and coalesce requests that arrive while a repair
+     * pass is already active.
+     */
+    fun scheduleProgressEnrichment() {
+        progressEnrichmentRequested = true
+        if (progressEnrichmentJob?.isActive == true) return
+        progressEnrichmentJob = progressEnrichmentScope.launch {
+            do {
+                progressEnrichmentRequested = false
+                val state = loadCachedState()
+                coroutineScope {
+                    val activeLibrary = state.rails[RailIds.LIBRARY].orEmpty().filter {
+                        it.status != LibraryStatus.NONE && it.status != LibraryStatus.DROPPED
+                    }
+                    val artworkTargets = activeLibrary + state.playbackTv.map(PlaybackCard::media) +
+                        state.playbackMovies.map(PlaybackCard::media) + state.calendar.map(TimelineCard::media) +
+                        state.history.map(TimelineCard::media)
+                    val artworkRepair = async { refreshMissingArtwork(artworkTargets) }
+                    val historyRepair = async { enrichHistoryLabels(state.history) }
+                    artworkRepair.await()
+                    historyRepair.await()
+                }
+            } while (progressEnrichmentRequested)
+        }
+    }
+
+    /**
+     * Simkl's public calendar is regenerated every few hours and is more precise
+     * for currently airing shows. It supplies the canonical date while existing
+     * TMDB rows continue to provide localized titles, stills and runtimes.
+     */
+    private suspend fun refreshSimklSchedule(shows: List<MediaCard>, force: Boolean = false): Boolean =
+        releaseScheduleRepository.refresh(shows, force)
+
+    private suspend fun refreshMissingArtwork(library: List<MediaCard>) {
+        if (tmdbApiKey().isBlank()) return
+        val missing = library.distinctBy(MediaCard::stableKey).filter { media ->
+            media.posterUrl.isNullOrBlank() || media.backdropUrl.isNullOrBlank()
+        }
+        if (missing.isEmpty()) return
+        val requests = Semaphore(permits = 10)
+        val enriched = coroutineScope {
+            missing.map { media ->
+                async {
+                    requests.withPermit {
+                        runCatching {
+                            val current = database.mediaDao().get(media.type.name, media.id)
+                                ?: media.toEntity()
+                            val details = if (media.type == MediaType.TV) {
+                                services.tmdb.show(media.id, append = "")
+                            } else {
+                                services.tmdb.movie(media.id, append = "")
+                            }.toEntity(media.type)
+                            details.copy(
+                                title = details.title.ifBlank { current.title },
+                                overview = details.overview.ifBlank { current.overview },
+                                posterPath = details.posterPath ?: current.posterPath,
+                                backdropPath = details.backdropPath ?: current.backdropPath,
+                                releaseDate = details.releaseDate ?: current.releaseDate,
+                                score = details.score ?: current.score,
+                                runtimeMinutes = details.runtimeMinutes ?: current.runtimeMinutes,
+                                genres = details.genres.ifBlank { current.genres },
+                                providers = details.providers.ifBlank { current.providers },
+                                collectionId = details.collectionId ?: current.collectionId,
+                            )
+                        }.getOrNull()
+                    }
+                }
+            }.mapNotNull { it.await() }
+        }
+        if (enriched.isNotEmpty()) database.mediaDao().upsertMedia(enriched)
+    }
+
+    /**
+     * Explicit user-requested metadata refresh for every active library item.
+     * This deliberately touches only MediaEntity rows: tracking state,
+     * playback, history, sync generations and provider deliveries remain
+     * completely independent of artwork enrichment.
+     */
+    suspend fun refreshLibraryArtwork(
+        onProgress: suspend (LibraryArtworkRefreshProgress) -> Unit = {},
+    ): LibraryArtworkRefreshProgress {
+        check(tmdbApiKey().isNotBlank()) { "TMDB API credential is missing" }
+        val snapshot = database.snapshotDao().snapshot()
+        val states = snapshot.states.associateBy { it.mediaType to it.mediaId }
+        val libraryKeys = snapshot.rails.filter { it.railId == RailIds.LIBRARY }
+            .map { it.mediaType to it.mediaId }
+            .toSet()
+        val targets = snapshot.media
+            .filter { (it.mediaType to it.tmdbId) in libraryKeys }
+            .filter { states[it.mediaType to it.tmdbId]?.status !in setOf(LibraryStatus.NONE.name, LibraryStatus.DROPPED.name) }
+            .distinctBy { "${it.mediaType}:${it.tmdbId}" }
+        if (targets.isEmpty()) {
+            val empty = LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.COMPLETE)
+            onProgress(empty)
+            return empty
+        }
+        var processed = 0
+        var changed = 0
+        var unchanged = 0
+        var failed = 0
+        val requestSlots = Semaphore(permits = 5)
+        preferences.appendErrorLog("Artwork refresh started: ${targets.size} targets")
+        onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.PREPARING, total = targets.size))
+        targets.chunked(20).forEachIndexed { batchIndex, batch ->
+            val outcomes = coroutineScope {
+                batch.map { current ->
+                    async(Dispatchers.IO) {
+                        requestSlots.withPermit {
+                            try {
+                                kotlinx.coroutines.withTimeout(45_000L) {
+                                val type = MediaType.valueOf(current.mediaType)
+                                val details = if (type == MediaType.TV) services.tmdb.show(current.tmdbId, append = "")
+                                else services.tmdb.movie(current.tmdbId, append = "")
+                                val merged = details.toEntity(type).copy(
+                                    title = details.title?.ifBlank { current.title } ?: details.name?.ifBlank { current.title } ?: current.title,
+                                    overview = details.overview.ifBlank { current.overview },
+                                    posterPath = details.posterPath ?: current.posterPath,
+                                    backdropPath = details.backdropPath ?: current.backdropPath,
+                                    releaseDate = details.releaseDate ?: details.firstAirDate ?: current.releaseDate,
+                                    score = details.voteAverage ?: current.score,
+                                    runtimeMinutes = details.runtime ?: details.episodeRunTime.firstOrNull() ?: current.runtimeMinutes,
+                                    genres = details.genres.let { genres -> if (genres.isEmpty()) current.genres else genres.joinToString("|") { it.name } },
+                                    providers = details.watchProviders?.results?.get("IT")?.let { (it.flatrate + it.rent + it.buy).distinctBy { p -> p.id }.joinToString("|") { p -> p.name } }?.takeIf(String::isNotBlank) ?: current.providers,
+                                    collectionId = details.collection?.id ?: current.collectionId,
+                                )
+                                    ArtworkRefreshOutcome(current, merged, merged.presentationFingerprint() != current.presentationFingerprint(), null)
+                                }
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (error: retrofit2.HttpException) {
+                                if (error.code() == 401 || error.code() == 403) {
+                                    throw IllegalStateException("TMDB credential was rejected")
+                                }
+                                ArtworkRefreshOutcome(current, null, false, errorCategory(error))
+                            } catch (error: Throwable) {
+                                ArtworkRefreshOutcome(current, null, false, errorCategory(error))
+                            }
+                        }
+                    }
+                }.awaitAll()
+            }
+            if (outcomes.isNotEmpty() && outcomes.all { it.entity == null && it.errorType == "NETWORK" }) {
+                preferences.appendErrorLog("Artwork refresh paused: TMDB network unavailable at ${processed}/${targets.size}")
+                throw IOException("TMDB network unavailable")
+            }
+            val updates = outcomes.mapNotNull { it.entity.takeIf { _ -> it.changed } }
+            if (updates.isNotEmpty()) {
+                onProgress(LibraryArtworkRefreshProgress(LibraryArtworkRefreshStage.APPLYING, processed, targets.size, changed, unchanged, failed))
+                database.mediaDao().upsertMedia(updates)
+            }
+            outcomes.forEach { outcome ->
+                processed++
+                if (outcome.entity == null) {
+                    failed++
+                    preferences.appendErrorLog("Artwork refresh: ${outcome.current.mediaType}:${outcome.current.tmdbId} failed ${outcome.errorType ?: "UNKNOWN"}")
+                }
+                else if (outcome.changed) changed++ else unchanged++
+                onProgress(
+                    LibraryArtworkRefreshProgress(
+                        stage = LibraryArtworkRefreshStage.REFRESHING,
+                        processed = processed,
+                        total = targets.size,
+                        changed = changed,
+                        unchanged = unchanged,
+                        failed = failed,
+                        currentTitle = outcome.current.title,
+                    ),
+                )
+            }
+            if ((batchIndex + 1) % 4 == 0 || processed == targets.size) {
+                preferences.appendErrorLog("Artwork refresh: batch ${batchIndex + 1}, processed $processed/${targets.size}")
+            }
+        }
+        val finalStage = if (failed == 0) LibraryArtworkRefreshStage.COMPLETE else LibraryArtworkRefreshStage.COMPLETE_WITH_ERRORS
+        return LibraryArtworkRefreshProgress(finalStage, processed, targets.size, changed, unchanged, failed).also {
+            preferences.appendErrorLog("Artwork refresh complete: changed=$changed unchanged=$unchanged failed=$failed")
+            onProgress(it)
+        }
+    }
+
+    private data class ArtworkRefreshOutcome(
+        val current: MediaEntity,
+        val entity: MediaEntity?,
+        val changed: Boolean,
+        val errorType: String?,
+    )
+
+    private fun MediaEntity.presentationFingerprint(): String = listOf(
+        title, overview, posterPath, backdropPath, releaseDate, score, runtimeMinutes, genres, providers, collectionId,
+    ).joinToString("|")
+
+    private fun errorCategory(error: Throwable): String = when (error) {
+        is kotlinx.coroutines.TimeoutCancellationException -> "TIMEOUT"
+        is retrofit2.HttpException -> "HTTP_${error.code()}"
+        is java.io.IOException -> "NETWORK"
+        else -> error::class.java.simpleName.take(48)
+    }
+
+    /** Resolve an episode title from the local Room cache without a network request. */
+    suspend fun cachedEpisodeTitle(showId: Int, season: Int, episode: Int): String? =
+        database.mediaDao().episode(showId, season, episode)?.title?.takeIf(String::isNotBlank)
+
+    suspend fun loadUpcomingEpisodes(
+        shows: List<MediaCard>,
+        forceSchedule: Boolean = false,
+    ): List<EpisodeCard> {
+        val today = LocalDate.now(localZone())
+        val excludeSpecials = preferences.excludeSpecials.first()
+        val distinctShows = shows.distinctBy(MediaCard::stableKey)
+        val trackedShowIds = distinctShows.map(MediaCard::id).toSet()
+        if (trackedShowIds.isEmpty()) return emptyList()
+        refreshSimklSchedule(distinctShows, force = forceSchedule)
+        val cached = database.mediaDao().episodeSnapshot().map { it.toDomain() }.filter { episode ->
+            episode.showId in trackedShowIds && (!excludeSpecials || episode.season > 0) && episode.airDate?.take(10)?.let { raw ->
+                runCatching { !LocalDate.parse(raw).isBefore(today) }.getOrDefault(false)
+            } == true
+        }
+        if (tmdbApiKey().isBlank()) return cached.sortedBy(EpisodeCard::airDate)
+        val now = System.currentTimeMillis()
+        val scheduleFreshnessMillis = 8L * 60L * 60L * 1_000L
+        val scheduleChecks = database.snapshotDao().syncStates().associateBy(SyncStateEntity::area)
+        val showsDueForSchedule = distinctShows.filter { show ->
+            val lastCheck = scheduleChecks["schedule:${show.id}"]?.lastSuccessfulSync
+            lastCheck == null || now - lastCheck >= scheduleFreshnessMillis
+        }
+        if (showsDueForSchedule.isEmpty()) return cached.sortedBy(EpisodeCard::airDate)
+        val requestSlots = Semaphore(permits = 5)
+        val remoteResults = coroutineScope {
+            showsDueForSchedule.map { show ->
+                async {
+                    val result = requestSlots.withPermit {
+                        runCatching<List<EpisodeCard>> {
+                            // The schedule only needs the base show payload. Avoid
+                            // downloading credits, recommendations and videos for
+                            // every tracked show during a Progress refresh.
+                            val showDetails = services.tmdb.show(show.id, append = "")
+                            val seasonNumbers = showDetails.seasons
+                                .asSequence()
+                                .map { it.number }
+                                .filter { !excludeSpecials || it > 0 }
+                                .sortedDescending()
+                                .take(2)
+                                .toList()
+                            val announcedNext = listOfNotNull(showDetails.nextEpisodeToAir).mapNotNull { episode ->
+                                val airDay = episode.airDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                                    ?: return@mapNotNull null
+                                if (airDay.isBefore(today)) return@mapNotNull null
+                                EpisodeCard(
+                                    id = episode.id,
+                                    showId = show.id,
+                                    season = episode.season,
+                                    number = episode.number,
+                                    title = episode.name,
+                                    overview = episode.overview,
+                                    airDate = episode.airDate,
+                                    stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                                    runtimeMinutes = episode.runtime,
+                                )
+                            }
+                            (announcedNext + seasonNumbers.flatMap { season ->
+                                services.tmdb.season(show.id, season).episodes.mapNotNull { episode ->
+                                    val airDay = episode.airDate?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+                                        ?: return@mapNotNull null
+                                    if (airDay.isBefore(today)) return@mapNotNull null
+                                    EpisodeCard(
+                                        id = episode.id,
+                                        showId = show.id,
+                                        season = episode.season,
+                                        number = episode.number,
+                                        title = episode.name,
+                                        overview = episode.overview,
+                                        airDate = episode.airDate,
+                                        stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                                        runtimeMinutes = episode.runtime,
+                                    )
+                                }
+                            }).distinctBy { episode -> episode.season to episode.number }.sortedBy { it.airDate }
+                        }
+                    }
+                    show.id to result
+                }
+            }.map { it.await() }
+        }
+        val cachedDates = cached.associate { episode ->
+            Triple(episode.showId, episode.season, episode.number) to episode.airDate
+        }
+        val fetched = remoteResults.flatMap { (_, result) -> result.getOrDefault(emptyList()) }
+        // TMDB fills the full episode model; the date shown is the chosen provider's.
+        val shownDates = com.cinetrack.data.schedule.recordAirDates(
+            database, com.cinetrack.data.schedule.AirDateSource.TMDB,
+            fetched.associate { Triple(it.showId, it.season, it.number) to it.airDate },
+            preferences.airDateSource.first(),
+            legacy = cachedDates,
+        )
+        val remote = fetched.map { episode ->
+            episode.copy(airDate = shownDates[Triple(episode.showId, episode.season, episode.number)] ?: episode.airDate)
+        }
+        val completedChecks = remoteResults.mapNotNull { (showId, result) ->
+            if (result.isSuccess) {
+                SyncStateEntity("schedule:$showId", remoteTimestamp = null, lastSuccessfulSync = now)
+            } else null
+        }
+        if (remote.isNotEmpty() || completedChecks.isNotEmpty()) {
+            database.withTransaction {
+                if (remote.isNotEmpty()) database.mediaDao().upsertEpisodes(remote.map { it.toEntity() })
+                if (completedChecks.isNotEmpty()) database.syncDao().upsertAll(completedChecks)
+            }
+        }
+        // A failed/partial season request must not erase the last valid schedule.
+        // Key by show/season/number because TMDB episode IDs can be absent in old
+        // imported cache rows.
+        return (cached + remote)
+            .distinctBy { "${it.showId}:${it.season}:${it.number}" }
+            .sortedBy(EpisodeCard::airDate)
+    }
+
     suspend fun loadUpNextEpisodes(
         shows: List<MediaCard>,
         watched: Set<Triple<Int, Int, Int>>,
@@ -265,3 +852,7 @@ private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(
     runtimeMinutes = runtimeMinutes,
 )
 
+/** Untitled plays in one season above which the whole season is fetched once. */
+private const val SEASON_TITLE_FETCH_MIN = 3
+
+private fun Result<*>.isTmdbNotFound(): Boolean = (exceptionOrNull() as? retrofit2.HttpException)?.code() == 404

@@ -68,7 +68,7 @@ class LibraryArtworkRefreshWorker(
         application.container.repository.awaitStartup()
         return try {
             val result = kotlinx.coroutines.withTimeoutOrNull(MAX_JOB_MILLIS) {
-                application.container.repository.refreshLibraryArtwork { progress ->
+                application.container.progressCache.refreshLibraryArtwork { progress ->
                     setProgress(progress.toData())
                     if (progress.total > 100 && progress.stage == LibraryArtworkRefreshStage.REFRESHING) {
                         setForeground(createForegroundInfo(progress))

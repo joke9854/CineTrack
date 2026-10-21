@@ -210,6 +210,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val repository: CineTrackRepository
     /** Detail-page metadata loads (details, episodes, cast, ratings...). */
     val mediaMetadata: MediaMetadataRepository
+    val progressCache: com.cinetrack.data.repository.ProgressCacheRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
     val discoveryRepository: DiscoveryRepository
@@ -352,6 +353,17 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
             },
         )
+        progressCache = com.cinetrack.data.repository.ProgressCacheRepository(
+            database = database,
+            preferences = preferences,
+            tmdbApiKey = tmdbApiKey::get,
+            loadEpisodes = mediaMetadata::loadEpisodes,
+            services = services,
+            releaseScheduleRepository = releaseSchedule,
+            mediaMetadata = mediaMetadata,
+            // Runs only long after `repository` is assigned below (on a refresh pass), never during construction.
+            loadCachedState = { repository.loadCachedState() },
+        )
         repository = CineTrackRepository(
             database = database,
             services = services,
@@ -370,6 +382,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             syncCoordinator = syncCoordinator,
             releaseScheduleRepository = releaseSchedule,
             libraryRepository = localLibrary,
+            progressCacheProvider = progressCache,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
