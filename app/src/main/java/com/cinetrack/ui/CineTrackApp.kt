@@ -250,7 +250,7 @@ fun CineTrackApp(
     LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }
     val backupProgress by backupViewModel.backupProgress.collectAsStateWithLifecycle()
     val syncSettingsViewModel: com.cinetrack.ui.settings.SyncSettingsViewModel = viewModel(
-        factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.repository, application.container.accounts)),
+        factory = com.cinetrack.ui.settings.SyncSettingsViewModel.Factory(com.cinetrack.data.repository.RepositorySyncSettings(application.container.repository, application.container.accounts, application.container.syncConflicts)),
     )
     LaunchedEffect(syncSettingsViewModel) { syncSettingsViewModel.changes.collect(viewModel::onSyncSettingsChanged) }
     val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }

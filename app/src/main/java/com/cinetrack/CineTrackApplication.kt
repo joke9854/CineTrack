@@ -209,6 +209,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
     val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
     val repository: CineTrackRepository
+    /** Sync-operation conflict resolution (keep local / use remote). */
+    val syncConflicts: com.cinetrack.data.repository.SyncConflictResolver
     /** Detail-page metadata loads (details, episodes, cast, ratings...). */
     val mediaMetadata: MediaMetadataRepository
     /** The AppUiState snapshot built from Room and the provider states. */
@@ -420,6 +422,15 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             episodeNumbering = episodeNumbering,
             animeNumberingRepair = animeRepair,
             mediaMetadata = mediaMetadata,
+        )
+        syncConflicts = com.cinetrack.data.repository.SyncConflictResolver(
+            database = database,
+            durableOperationWriter = durableOperationWriter,
+            syncCoordinator = syncCoordinator,
+            trackingRoutingMutex = trackingRoutingMutex,
+            stateOperationId = repository::stateOperationId,
+            rebuildLibraryRailInTransaction = repository::rebuildLibraryRailInTransaction,
+            enqueueSecondaryMirror = { repository.enqueueSecondaryMirror(it) },
         )
         libraryRepository = localLibrary
         val catalog = CatalogRepository(database, services, preferences, tmdbApiKey::get)

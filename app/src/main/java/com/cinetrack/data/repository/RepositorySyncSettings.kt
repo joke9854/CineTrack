@@ -5,7 +5,11 @@ import com.cinetrack.domain.FloppyConnectionStage
 import com.cinetrack.domain.SyncConflictChoice
 import com.cinetrack.ui.settings.SyncSettingsStore
 
-class RepositorySyncSettings(private val repository: CineTrackRepository, private val accounts: AccountRepository) : SyncSettingsStore {
+class RepositorySyncSettings(
+    private val repository: CineTrackRepository,
+    private val accounts: AccountRepository,
+    private val conflicts: SyncConflictResolver,
+) : SyncSettingsStore {
     private val preferences get() = repository.preferences
 
     override suspend fun floppyServerVersion() = preferences.floppySettingsNow()?.serverVersion
@@ -33,7 +37,7 @@ class RepositorySyncSettings(private val repository: CineTrackRepository, privat
     override suspend fun loadSyncOperations() = repository.loadSyncOperations()
     override suspend fun loadManagedBootstrapSummary() = repository.loadManagedBootstrapSummary()
     override suspend fun retrySyncOperation(operationId: String) = repository.retrySyncOperation(operationId)
-    override suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice) = repository.resolveSyncConflict(operationId, choice)
+    override suspend fun resolveSyncConflict(operationId: String, choice: SyncConflictChoice) = conflicts.resolveSyncConflict(operationId, choice)
     override suspend fun beginSimklLogin(context: Context) = preferences.beginSimklLogin(context)
     override suspend fun disconnectSimkl() = accounts.disconnectSimkl()
     override suspend fun refreshSimklUsername() = accounts.refreshSimklUsername()
