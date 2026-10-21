@@ -139,7 +139,7 @@ private class UpNextWidget : GlanceAppWidget() {
         val repository = (context.applicationContext as CineTrackApplication).container.repository
         repository.awaitStartup()
         val cards = try {
-            repository.loadCachedState().playbackTv.take(MAX_ROWS)
+            (context.applicationContext as CineTrackApplication).container.appState.loadCachedState().playbackTv.take(MAX_ROWS)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {
             // A newer refresh replaced this load; never draw an empty list for it.
             throw cancelled

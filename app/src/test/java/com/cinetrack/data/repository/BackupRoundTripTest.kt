@@ -99,7 +99,7 @@ class BackupRoundTripTest {
         }
     } as T
 
-    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val repository: CineTrackRepository, val backup: BackupRepository)
+    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val repository: CineTrackRepository, val backup: BackupRepository, val appState: AppStateRepository)
 
     private fun store(): Store {
         val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
@@ -122,14 +122,15 @@ class BackupRoundTripTest {
             trackingProviderRegistry = NoProviders,
             trackingRoutingMutex = mutex,
         )
+        val appState = AppStateRepository(database, preferences, { null }, NoProviders, { "" }, { "" })
         val backup = BackupRepository(
             database = database,
             preferences = preferences,
             metadataSettings = { MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = repository::clearLanguageCaches) },
-            loadState = repository::loadCachedState,
+            loadState = appState::loadCachedState,
             rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
         )
-        return Store(database, operations, repository, backup)
+        return Store(database, operations, repository, backup, appState)
     }
 
     private fun media(type: MediaType, id: Int, title: String) =
@@ -231,7 +232,7 @@ class BackupRoundTripTest {
         restored.backup.restoreBackupFiles(backup)
         // The row is back, and the restored install shows and exports it again.
         assertEquals(1, restored.database.timelineDao().historySnapshot().size)
-        assertEquals(1, restored.repository.loadCachedState().history.size)
+        assertEquals(1, restored.appState.loadCachedState().history.size)
     }
 
     @Test fun restoringTheSameBackupTwiceAddsNothing() = runBlocking {

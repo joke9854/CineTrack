@@ -76,6 +76,7 @@ class CineTrackViewModel(
     private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
     private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
     private val backupRepository: com.cinetrack.data.repository.BackupRepository,
+    private val appState: com.cinetrack.data.repository.AppStateRepository,
 ) : ViewModel() {
     private val syncMutex = Mutex()
     private val refreshMutex = Mutex()
@@ -96,7 +97,7 @@ class CineTrackViewModel(
     }
     private val pendingEpisodeEdits = PendingEpisodeEdits()
     private val _state = MutableStateFlow(
-        AppUiState(loading = true, simklConnected = repository.simklConnectedNow()),
+        AppUiState(loading = true, simklConnected = appState.simklConnectedNow()),
     )
     val state: StateFlow<AppUiState> = _state.asStateFlow()
     private val _syncProgress = MutableStateFlow(_state.value.sync)
@@ -545,7 +546,7 @@ class CineTrackViewModel(
             version = pendingEpisodeEdits.version
             cached = withContext(Dispatchers.IO) {
                 // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
-                repository.loadCachedState().copy(
+                appState.loadCachedState().copy(
                     simklReconnectReason = repository.preferences.simklReconnectReason.first(),
                     simklFirstSyncPending = repository.preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
                     floppyUsername = repository.preferences.floppyUsername.first(),
@@ -948,6 +949,7 @@ class CineTrackViewModel(
             private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
         private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
         private val backupRepository: com.cinetrack.data.repository.BackupRepository,
+        private val appState: com.cinetrack.data.repository.AppStateRepository,
     ) : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -962,6 +964,7 @@ class CineTrackViewModel(
                 floppyBootstrapWorkManager,
                 detailEpisodeCache,
                 backupRepository,
+                appState,
             ) as T
     }
 }

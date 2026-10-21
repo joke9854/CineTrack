@@ -94,7 +94,7 @@ open class TrackingSyncWorker(
                     application.container.preferences.markTrackingChecked(provider)
                 }
                 try {
-                    val state = application.container.repository.loadCachedState()
+                    val state = application.container.appState.loadCachedState()
                     ReleaseNotifier.notifyUpcoming(
                         applicationContext,
                         state,

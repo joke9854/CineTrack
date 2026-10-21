@@ -166,6 +166,7 @@ fun CineTrackApp(
             application.container.floppyBootstrapWorkManager,
             application.container.detailEpisodeCache,
             application.container.backupRepository,
+            application.container.appState,
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()

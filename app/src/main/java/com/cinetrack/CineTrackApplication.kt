@@ -202,7 +202,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             database = database,
             preferences = preferences,
             metadataSettings = { metadataSettings },
-            loadState = repository::loadCachedState,
+            loadState = appState::loadCachedState,
             rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
         )
     }
@@ -211,6 +211,8 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     val repository: CineTrackRepository
     /** Detail-page metadata loads (details, episodes, cast, ratings...). */
     val mediaMetadata: MediaMetadataRepository
+    /** The AppUiState snapshot built from Room and the provider states. */
+    val appState: com.cinetrack.data.repository.AppStateRepository
     val progressCache: com.cinetrack.data.repository.ProgressCacheRepository
     val libraryRepository: LibraryRepository
     val mediaRepository: MediaRepository
@@ -354,6 +356,14 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                     ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
             },
         )
+        appState = com.cinetrack.data.repository.AppStateRepository(
+            database = database,
+            preferences = preferences,
+            currentToken = token::get,
+            trackingProviderRegistry = trackingProviderRegistry,
+            tmdbApiKey = tmdbApiKey::get,
+            mdbListApiKey = mdbListApiKey::get,
+        )
         progressCache = com.cinetrack.data.repository.ProgressCacheRepository(
             database = database,
             preferences = preferences,
@@ -362,8 +372,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             services = services,
             releaseScheduleRepository = releaseSchedule,
             mediaMetadata = mediaMetadata,
-            // Runs only long after `repository` is assigned below (on a refresh pass), never during construction.
-            loadCachedState = { repository.loadCachedState() },
+            loadCachedState = { appState.loadCachedState() },
         )
         repository = CineTrackRepository(
             database = database,
@@ -384,6 +393,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             releaseScheduleRepository = releaseSchedule,
             libraryRepository = localLibrary,
             progressCacheProvider = progressCache,
+            appStateProvider = appState,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
