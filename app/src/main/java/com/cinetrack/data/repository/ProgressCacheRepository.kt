@@ -261,9 +261,11 @@ class ProgressCacheRepository(
         // list (an absolutely numbered anime play) has no single page either.
         val seasonRead = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
         missing.forEach { item ->
-            val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+            val season = item.season ?: return@forEach
+            val episode = item.episodeNumber ?: return@forEach
+            val key = "${item.media.id}:$season:$episode"
             if (episodeTitleCache[key].isNullOrBlank()) {
-                database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
+                database.mediaDao().episode(item.media.id, season, episode)
                     ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
             }
         }
@@ -272,13 +274,14 @@ class ProgressCacheRepository(
         if (tmdbApiKey().isNotBlank()) {
             val untitledSeasons = missing
                 .filter { episodeTitleCache["${it.media.id}:${it.season}:${it.episodeNumber}"].isNullOrBlank() }
-                .groupBy { it.media.id to it.season!! }
+                .groupBy { it.media.id to it.season }
                 .filterValues { it.size >= SEASON_TITLE_FETCH_MIN }
             for (batch in untitledSeasons.entries.chunked(4)) {
                 coroutineScope {
                     batch.map { (showSeason, plays) ->
                         async {
-                            val (showId, season) = showSeason
+                            val showId = showSeason.first
+                            val season = showSeason.second ?: return@async
                             val fetched = runCatching { services.tmdb.season(showId, season).episodes }
                             val titles = fetched.getOrDefault(emptyList())
                                 .filter { it.name.isNotBlank() }
@@ -286,7 +289,7 @@ class ProgressCacheRepository(
                             plays.forEach { play ->
                                 val key = "$showId:$season:${play.episodeNumber}"
                                 seasonRead += key
-                                val title = titles[play.episodeNumber!!]
+                                val title = titles[play.episodeNumber]
                                 if (title == null) {
                                     if (fetched.isSuccess || fetched.isTmdbNotFound()) episodeTitleMisses += key
                                     return@forEach
@@ -304,16 +307,19 @@ class ProgressCacheRepository(
                 batch.map { item ->
                     async {
                         val key = "${item.media.id}:${item.season}:${item.episodeNumber}"
+                        val season = item.season
+                        val episode = item.episodeNumber
+                        if (season == null || episode == null) return@async key to episodeTitleCache[key]
                         if (episodeTitleCache[key].isNullOrBlank()) {
-                            database.mediaDao().episode(item.media.id, item.season!!, item.episodeNumber!!)
+                            database.mediaDao().episode(item.media.id, season, episode)
                                 ?.title?.takeIf(String::isNotBlank)?.let { episodeTitleCache[key] = it }
                         }
                         if (episodeTitleCache[key].isNullOrBlank() && key !in seasonRead && tmdbApiKey().isNotBlank()) {
-                            val fetched = runCatching { services.tmdb.episode(item.media.id, item.season!!, item.episodeNumber!!).name }
+                            val fetched = runCatching { services.tmdb.episode(item.media.id, season, episode).name }
                             if (fetched.getOrNull().isNullOrBlank() && (fetched.isSuccess || fetched.isTmdbNotFound())) episodeTitleMisses += key
                             fetched.getOrNull()?.takeIf(String::isNotBlank)?.let { title ->
                                     episodeTitleCache[key] = title
-                                    database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, item.season!!, item.episodeNumber!!, title)
+                                    database.timelineDao().updateEpisodeTitle(MediaType.TV.name, item.media.id, season, episode, title)
                                 }
                         }
                         key to episodeTitleCache[key]

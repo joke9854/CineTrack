@@ -46,8 +46,8 @@ class AccountRepository(
         if (FloppyOAuthRules.isOAuthCredential(apiKey) && apiKey.trim() != active) {
             floppyOAuth?.revoke(baseUrl.trim(), apiKey.trim())
         }
-        if (FloppyOAuthRules.isOAuthCredential(previousCredential) && previousCredential != active && previousUrl != null) {
-            floppyOAuth?.revoke(previousUrl, previousCredential!!)
+        if (previousCredential != null && FloppyOAuthRules.isOAuthCredential(previousCredential) && previousCredential != active && previousUrl != null) {
+            floppyOAuth?.revoke(previousUrl, previousCredential)
         }
         return result
     }
@@ -83,8 +83,8 @@ class AccountRepository(
         preferences.setFloppyUsername(null)
         floppySecondaryService?.disconnect()
             ?: (trackingProviderRegistry?.getProvider(TrackingProviderId.FLOPPY) as? FloppyTrackingProvider)?.disconnect()
-        if (FloppyOAuthRules.isOAuthCredential(previousCredential) && previousUrl != null) {
-            floppyOAuth?.revoke(previousUrl, previousCredential!!)
+        if (previousCredential != null && FloppyOAuthRules.isOAuthCredential(previousCredential) && previousUrl != null) {
+            floppyOAuth?.revoke(previousUrl, previousCredential)
         }
     }
     suspend fun retryFloppyBootstrap() { floppyRetryBootstrap?.invoke() }

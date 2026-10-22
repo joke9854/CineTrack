@@ -415,7 +415,7 @@ internal fun historyEntries(history: List<TimelineCard>): List<HistoryEntry> {
         val last = sessions.lastOrNull()
         val joins = last != null && last.first == date && event.media.type == MediaType.TV &&
             last.second.first().media.type == MediaType.TV && last.second.first().media.stableKey == event.media.stableKey
-        if (joins) last!!.second += event else sessions += date to mutableListOf(event)
+        if (joins && last != null) last.second += event else sessions += date to mutableListOf(event)
     }
     val entries = mutableListOf<HistoryEntry>()
     sessions.groupBy({ it.first }, { it.second }).forEach { (date, daySessions) ->

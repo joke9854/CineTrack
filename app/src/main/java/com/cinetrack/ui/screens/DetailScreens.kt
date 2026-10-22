@@ -2431,8 +2431,9 @@ fun EpisodeDetailScreen(
                                 watchSummary(history, show.stableKey, displayedEpisode.season, displayedEpisode.number)
                             }?.let { WatchSummaryLine(it) }
                         }
-                        if (show != null && !watched && daysUntil(displayedEpisode.airDate)?.let { it >= 0 } == true) {
-                            ReleaseCountdown(show, displayedEpisode.airDate!!, displayedEpisode, viewModel, progressViewModel)
+                        val airDate = displayedEpisode.airDate
+                        if (show != null && !watched && airDate != null && daysUntil(airDate)?.let { it >= 0 } == true) {
+                            ReleaseCountdown(show, airDate, displayedEpisode, viewModel, progressViewModel)
                         }
                         }
                         val episodeKey = displayedEpisode.season to displayedEpisode.number

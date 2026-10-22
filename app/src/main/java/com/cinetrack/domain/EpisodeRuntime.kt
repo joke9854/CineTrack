@@ -7,6 +7,6 @@ fun averageEpisodeRuntime(showId: Int, episodes: List<EpisodeCard>, fallback: In
     val runtimes = episodes.asSequence()
         .filter { it.showId == showId && it.season > 0 && it.number > 0 && (it.runtimeMinutes ?: 0) > 0 }
         .distinctBy { it.scheduleKey }
-        .map { it.runtimeMinutes!! }.toList()
+        .mapNotNull { it.runtimeMinutes }.toList()
     return if (runtimes.isEmpty()) fallback?.takeIf { it > 0 } else runtimes.average().roundToInt()
 }

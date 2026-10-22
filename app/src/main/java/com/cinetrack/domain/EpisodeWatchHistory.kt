@@ -23,7 +23,7 @@ data class WatchSummary(val count: Int, val last: String)
 fun watchSummary(history: List<TimelineCard>, mediaKey: String, season: Int? = null, episode: Int? = null): WatchSummary? {
     val events = history.filter { it.media.stableKey == mediaKey && it.season == season && it.episodeNumber == episode }
     if (events.isEmpty()) return null
-    val last = events.maxByOrNull { releaseInstant(it.timestamp, ZoneOffset.UTC)?.toEpochMilli() ?: Long.MIN_VALUE }!!.timestamp
+    val last = events.maxBy { releaseInstant(it.timestamp, ZoneOffset.UTC)?.toEpochMilli() ?: Long.MIN_VALUE }.timestamp
     return WatchSummary(events.size, last)
 }
 
