@@ -687,7 +687,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
     if (hiddenEpisodes.isNotEmpty()) {
         SettingsSection(stringResource(R.string.hidden_upcoming)) {
             hiddenEpisodes.forEach { episode ->
-                val showTitle = state.allMedia.firstOrNull { it.type == MediaType.TV && it.id == episode.showId }?.title.orEmpty()
+                val showTitle = state.findMedia(MediaType.TV, episode.showId)?.title.orEmpty()
                 Row(
                     Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.sm, bottom = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,

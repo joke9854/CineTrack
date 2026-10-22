@@ -454,17 +454,22 @@ data class AppUiState(
     val floppyCanBeMain: Boolean
         get() = trackingProviders.any { it.providerId == "FLOPPY" && it.twoWayCapable }
 
-    val allMedia: List<MediaCard>
-        get() = (
+    /** Built once per state instance; the state is immutable, so the result never changes. */
+    val allMedia: List<MediaCard> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        (
             rails.values.flatten() +
                 playbackTv.map(PlaybackCard::media) +
                 playbackMovies.map(PlaybackCard::media) +
                 history.map(TimelineCard::media) +
                 calendar.map(TimelineCard::media)
             ).distinctBy(MediaCard::stableKey)
+    }
 
-    fun findMedia(type: MediaType, id: Int): MediaCard? =
-        allMedia.firstOrNull { it.type == type && it.id == id }
+    private val mediaByKey: Map<String, MediaCard> by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        allMedia.associateBy(MediaCard::stableKey)
+    }
+
+    fun findMedia(type: MediaType, id: Int): MediaCard? = mediaByKey["${type.name}:$id"]
 }
 
 @Immutable
