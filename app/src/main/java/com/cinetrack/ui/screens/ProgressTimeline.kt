@@ -100,7 +100,7 @@ internal fun relativeDayLabel(date: LocalDate, today: LocalDate): String {
         days == 0L -> stringResource(R.string.day_today)
         days == -1L -> stringResource(R.string.day_yesterday)
         days == 1L -> stringResource(R.string.day_tomorrow)
-        days in -6L..6L -> date.format(java.time.format.DateTimeFormatter.ofPattern("EEEE d", locale)).replaceFirstChar { it.titlecase(locale) }
+        days in -6L..6L -> date.format(com.cinetrack.ui.UiDateFormatters.of(locale).weekdayDay).replaceFirstChar { it.titlecase(locale) }
         else -> date.format(com.cinetrack.ui.UiDateFormatters.current.date)
     }
 }
@@ -230,7 +230,7 @@ private fun WeekStrip(today: LocalDate, withReleases: Set<LocalDate>, onPick: (L
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    date.format(java.time.format.DateTimeFormatter.ofPattern("EEE", locale)).uppercase(locale).take(3),
+                    date.format(com.cinetrack.ui.UiDateFormatters.of(locale).shortWeekday).uppercase(locale).take(3),
                     color = if (chosen) Color.White.copy(alpha = .85f) else TextMuted,
                     style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, maxLines = 1,
                 )

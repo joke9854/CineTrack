@@ -1040,7 +1040,7 @@ private fun SyncSettings(
             KitRow(Icons.Filled.ErrorOutline, stringResource(R.string.failed_operations), value = report.failedOperations.toString())
             KitRow(Icons.Filled.SyncProblem, stringResource(R.string.sync_conflicts), value = report.conflicts.toString())
             report.lastFullSync?.let {
-                KitRow(Icons.Filled.History, stringResource(R.string.last_full_sync), value = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT).format(java.util.Date(it)))
+                KitRow(Icons.Filled.History, stringResource(R.string.last_full_sync), value = com.cinetrack.ui.UiDateFormatters.shortDateTime(it))
             }
         }
     }
@@ -1257,8 +1257,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: SyncSettin
                 Text(actionLabel, color = statusColor, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
             }
             Text(
-                java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
-                    .format(java.util.Date(operation.updatedAt)),
+                com.cinetrack.ui.UiDateFormatters.shortDateTime(operation.updatedAt),
                 color = TextMuted,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
             )
@@ -3026,12 +3025,9 @@ private fun CredentialBlock(service: String, configured: Boolean, onSave: (Strin
 
 /** "2 min fa", "3 h fa", or a date for older syncs. */
 @Composable
-private fun relativeSyncTime(millis: Long): String {
-    val elapsed = ((System.currentTimeMillis() - millis) / 1000).coerceAtLeast(0)
-    return when {
-        elapsed < 60 -> stringResource(R.string.just_now_short)
-        elapsed < 3_600 -> stringResource(R.string.minutes_ago_short, elapsed / 60)
-        elapsed < 86_400 -> stringResource(R.string.hours_ago_short, elapsed / 3_600)
-        else -> java.text.DateFormat.getDateInstance(java.text.DateFormat.SHORT).format(java.util.Date(millis))
-    }
+private fun relativeSyncTime(millis: Long): String = when (val elapsed = com.cinetrack.ui.elapsedSince(millis)) {
+    com.cinetrack.ui.Elapsed.JustNow -> stringResource(R.string.just_now_short)
+    is com.cinetrack.ui.Elapsed.Minutes -> stringResource(R.string.minutes_ago_short, elapsed.count)
+    is com.cinetrack.ui.Elapsed.Hours -> stringResource(R.string.hours_ago_short, elapsed.count)
+    is com.cinetrack.ui.Elapsed.Days -> com.cinetrack.ui.UiDateFormatters.shortDate(millis)
 }

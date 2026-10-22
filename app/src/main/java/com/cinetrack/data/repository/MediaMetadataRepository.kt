@@ -31,6 +31,7 @@ import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 import java.time.LocalDate
 import java.util.Locale
+import com.cinetrack.data.remote.tmdbImageUrl
 
 /**
  * Detail-page metadata (details, seasons, episodes, people, cast, ratings,
@@ -78,7 +79,7 @@ class MediaMetadataRepository(
                 number = number,
                 title = dto.name,
                 overview = dto.overview,
-                posterUrl = dto.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                posterUrl = tmdbImageUrl(dto.posterPath, "w342"),
                 airDate = dto.airDate,
                 episodeCount = dto.episodes.size,
                 runtimeMinutes = dto.episodes.mapNotNull { it.runtime?.takeIf { minutes -> minutes > 0 } }
@@ -143,7 +144,7 @@ class MediaMetadataRepository(
                 originalLanguage = dto.originalLanguage?.takeIf(String::isNotBlank)?.uppercase(),
                 providers = providers.map { it.name },
                 providerLogos = providers.mapNotNull { provider ->
-                    provider.logoPath?.let { provider.name to "https://image.tmdb.org/t/p/w92$it" }
+                    tmdbImageUrl(provider.logoPath, "w92")?.let { provider.name to it }
                 }.toMap(),
                 subscriptionProviders = providerCountry?.flatrate.orEmpty().visibleProviders().map { it.name },
                 rentProviders = providerCountry?.rent.orEmpty().visibleProviders().map { it.name },
@@ -158,7 +159,7 @@ class MediaMetadataRepository(
                         number = season.number,
                         title = season.name,
                         episodeCount = season.episodeCount,
-                        posterUrl = season.posterPath?.let { "https://image.tmdb.org/t/p/w342$it" },
+                        posterUrl = tmdbImageUrl(season.posterPath, "w342"),
                     )
                 },
             )
@@ -226,7 +227,7 @@ class MediaMetadataRepository(
                         type = type,
                         title = title,
                         releaseDate = date,
-                        posterUrl = credit.posterPath?.let { path -> "https://image.tmdb.org/t/p/w500$path" },
+                        posterUrl = tmdbImageUrl(credit.posterPath, "w500"),
                         score = credit.voteAverage,
                     )
                 }
@@ -238,7 +239,7 @@ class MediaMetadataRepository(
                 id = details.id,
                 name = details.name,
                 role = person.role,
-                profileUrl = details.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
+                profileUrl = tmdbImageUrl(details.profilePath, "w500"),
                 biography = details.biography,
                 birthday = details.birthday,
                 deathday = details.deathday,
@@ -266,7 +267,7 @@ class MediaMetadataRepository(
                 }.filter { it.isNotBlank() }.distinct().joinToString(" · "),
                 character = roles.flatMap { credit -> listOfNotNull(credit.character) + credit.roles.mapNotNull { it.character } }
                     .filter { it.isNotBlank() }.distinct().joinToString(" · "),
-                profileUrl = person.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
+                profileUrl = tmdbImageUrl(person.profilePath, "w500"),
             )
         }
     }
@@ -330,7 +331,7 @@ class MediaMetadataRepository(
                     overview = episode.overview,
                     // The chosen provider's date (TMDB, Trakt or Simkl), with fallback.
                     airDate = shownDates[com.cinetrack.data.schedule.EpisodeKey(show.id, episode.season, episode.number)] ?: episode.airDate,
-                    stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                    stillUrl = tmdbImageUrl(episode.stillPath, "w780"),
                     runtimeMinutes = episode.runtime,
                     watched = (episode.season to episode.number) in watchedNumbers,
                 )
@@ -384,7 +385,7 @@ class MediaMetadataRepository(
                         preferences.airDateSource.first(),
                         legacy = mapOf(Triple(show.id, it.season, it.number) to cached?.airDate),
                     ).values.firstOrNull() ?: it.airDate,
-                    stillUrl = it.stillPath?.let { path -> "https://image.tmdb.org/t/p/w1280$path" },
+                    stillUrl = tmdbImageUrl(it.stillPath, "w1280"),
                     runtimeMinutes = it.runtime,
                     watched = watched,
                     score = it.voteAverage?.takeIf { score -> score > 0 },
@@ -422,7 +423,7 @@ class MediaMetadataRepository(
                     id = it.id,
                     name = it.name,
                     role = it.character ?: it.job.orEmpty(),
-                    profileUrl = it.profilePath?.let { path -> "https://image.tmdb.org/t/p/w500$path" },
+                    profileUrl = tmdbImageUrl(it.profilePath, "w500"),
                     // Cast and guest stars carry a character; crew only a job.
                     isCastMember = it.character != null,
                     character = it.character.orEmpty(),
@@ -640,7 +641,7 @@ internal fun EpisodeEntity.toDomain() = EpisodeCard(
     title = title,
     overview = overview,
     airDate = airDate,
-    stillUrl = stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
+    stillUrl = tmdbImageUrl(stillPath, "w780"),
     runtimeMinutes = runtimeMinutes,
 )
 

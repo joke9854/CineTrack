@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.withPermit
 import java.time.LocalDate
 import java.time.ZoneId
 import java.util.Locale
+import com.cinetrack.data.remote.tmdbImageUrl
 
 /**
  * TMDB catalog browsing moved out of the former sync-host repository: Discover
@@ -264,7 +265,7 @@ class CatalogRepository(
                     StreamingProvider(
                         id = provider.id,
                         name = provider.name,
-                        logoUrl = provider.logoPath?.let { "https://image.tmdb.org/t/p/w92$it" },
+                        logoUrl = tmdbImageUrl(provider.logoPath, "w92"),
                     )
                 }
         }
@@ -341,7 +342,7 @@ class CatalogRepository(
                         id = person.id,
                         name = person.name.orEmpty(),
                         role = person.knownForDepartment.orEmpty(),
-                        profileUrl = person.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
+                        profileUrl = tmdbImageUrl(person.profilePath, "w500"),
                     )
                 }
                 .distinctBy(PersonCard::id)

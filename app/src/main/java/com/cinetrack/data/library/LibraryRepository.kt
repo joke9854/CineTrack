@@ -35,6 +35,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
+import com.cinetrack.data.remote.tmdbImageUrl
 
 /** CineTrack's local-first user state boundary. */
 interface LibraryRepository {
@@ -544,7 +545,7 @@ class RoomLibraryRepository(
                     title = entity.title,
                     overview = entity.overview,
                     airDate = entity.airDate,
-                    stillUrl = entity.stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
+                    stillUrl = tmdbImageUrl(entity.stillPath, "w780"),
                     runtimeMinutes = entity.runtimeMinutes,
                 )
             }

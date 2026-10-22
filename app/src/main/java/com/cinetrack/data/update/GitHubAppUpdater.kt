@@ -16,7 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
+import com.cinetrack.data.remote.AppJson
 
 data class AppUpdateInfo(
     val version: String,
@@ -65,7 +65,7 @@ private data class GitHubAsset(
 )
 
 object GitHubAppUpdater {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = AppJson.tolerant
 
     suspend fun check(): Result<AppUpdateInfo?> = withContext(Dispatchers.IO) {
         runCatching {

@@ -1,6 +1,5 @@
 package com.cinetrack.crash
 
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -9,6 +8,7 @@ import java.time.OffsetDateTime
 import java.time.ZoneOffset
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+import com.cinetrack.data.remote.AppJson
 
 /** The ACRA report fields CineTrack collects, already read out of ACRA's JSON container. */
 data class AcraFields(
@@ -33,7 +33,7 @@ data class CrashBuildInfo(
 
 object CrashReportMapper {
     private val acraDate = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss.SSSZ")
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = AppJson.tolerant
     private val className = Regex("""^[A-Za-z_$][\w$.]*$""")
 
     /** Null when the report carries no stack trace (the contract requires one). */

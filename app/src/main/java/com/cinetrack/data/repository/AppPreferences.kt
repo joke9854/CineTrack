@@ -55,6 +55,7 @@ import java.io.ByteArrayOutputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.cinetrack.data.remote.AppJson
 
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
@@ -991,7 +992,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     /** Encrypted, durable storage for Floppy sign-in tokens (one entry per sign-in). */
     val floppyOAuthTokenStore: com.cinetrack.data.sync.floppy.network.FloppyOAuthTokenStore =
         object : com.cinetrack.data.sync.floppy.network.FloppyOAuthTokenStore {
-            private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+            private val json = AppJson.tolerant
 
             override fun load(grantId: String) = credentialStore.get("floppy_oauth:$grantId")?.let { raw ->
                 runCatching { json.decodeFromString<com.cinetrack.data.sync.floppy.network.FloppyOAuthTokens>(raw) }.getOrNull()

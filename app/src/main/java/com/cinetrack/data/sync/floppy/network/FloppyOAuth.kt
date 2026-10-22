@@ -6,10 +6,10 @@ import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import com.cinetrack.data.remote.AppJson
 
 /**
  * Floppy app sign-in (OAuth 2.0 authorization code + PKCE, like Simkl).
@@ -116,7 +116,7 @@ class FloppyOAuthClient(
         .readTimeout(30, TimeUnit.SECONDS)
         .build(),
 ) {
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = AppJson.tolerant
 
     /**
      * The access token to send, renewed first when it is about to expire or

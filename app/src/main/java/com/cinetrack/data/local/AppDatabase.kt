@@ -18,6 +18,7 @@ import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import kotlinx.coroutines.flow.Flow
+import com.cinetrack.data.remote.tmdbImageUrl
 
 @Entity(tableName = "media", primaryKeys = ["mediaType", "tmdbId"])
 data class MediaEntity(
@@ -905,8 +906,8 @@ fun MediaEntity.toDomain(state: UserMediaStateEntity? = null): MediaCard = Media
     type = MediaType.valueOf(mediaType),
     title = title,
     overview = overview,
-    posterUrl = posterPath?.let { "https://image.tmdb.org/t/p/w500$it" },
-    backdropUrl = backdropPath?.let { "https://image.tmdb.org/t/p/w1280$it" },
+    posterUrl = tmdbImageUrl(posterPath, "w500"),
+    backdropUrl = tmdbImageUrl(backdropPath, "w1280"),
     releaseDate = releaseDate,
     score = score,
     status = state?.status?.let { runCatching { LibraryStatus.valueOf(it) }.getOrDefault(LibraryStatus.NONE) }

@@ -7,13 +7,13 @@ import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import retrofit2.Retrofit
 import retrofit2.converter.kotlinx.serialization.asConverterFactory
-import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
 import java.net.URI
 import java.net.Inet6Address
 import java.net.InetAddress
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import com.cinetrack.data.remote.AppJson
 
 /** Normalized identity used for both Retrofit and credential scoping. */
 data class FloppyServerIdentity(val baseUrl: String, val origin: String)
@@ -78,7 +78,7 @@ class FloppyApiClientFactory(
     /** Signs requests for `oauth:` credentials; API keys never need it. */
     private val oauth: FloppyOAuthClient? = null,
 ) {
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
+    private val json = AppJson.network
     private val clients = mutableMapOf<String, FloppyApi>()
 
     @Synchronized

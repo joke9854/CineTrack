@@ -19,6 +19,7 @@ import java.time.Instant
 import java.time.LocalDate
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.first
+import com.cinetrack.data.remote.tmdbImageUrl
 
 data class ResolvedSimklItem(
     val item: SimklLibraryItem,
@@ -351,7 +352,7 @@ class SimklSyncEngine(
                                                         title = episode.name,
                                                         overview = episode.overview,
                                                         airDate = episode.airDate,
-                                                        stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                                                        stillUrl = tmdbImageUrl(episode.stillPath, "w780"),
                                                         runtimeMinutes = episode.runtime,
                                                         watched = true,
                                                     )
@@ -1291,7 +1292,7 @@ private fun EpisodeEntity.toDomain() = EpisodeCard(
     title = title,
     overview = overview,
     airDate = airDate,
-    stillUrl = stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
+    stillUrl = tmdbImageUrl(stillPath, "w780"),
     runtimeMinutes = runtimeMinutes,
 )
 

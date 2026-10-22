@@ -1388,12 +1388,11 @@ private fun shortAirDate(raw: String?): String = runCatching {
 @Composable
 private fun relativeSyncLabel(lastSync: Long?): String {
     if (lastSync == null) return stringResource(R.string.sync_connected_not_yet)
-    val elapsed = ((System.currentTimeMillis() - lastSync).coerceAtLeast(0L) / 1_000L)
-    return when {
-        elapsed < 60 -> stringResource(R.string.synced_just_now)
-        elapsed < 3_600 -> (elapsed / 60).toInt().let { pluralStringResource(R.plurals.synced_minutes_ago, it, it) }
-        elapsed < 86_400 -> (elapsed / 3_600).toInt().let { pluralStringResource(R.plurals.synced_hours_ago, it, it) }
-        else -> (elapsed / 86_400).toInt().let { pluralStringResource(R.plurals.synced_days_ago, it, it) }
+    return when (val elapsed = com.cinetrack.ui.elapsedSince(lastSync)) {
+        com.cinetrack.ui.Elapsed.JustNow -> stringResource(R.string.synced_just_now)
+        is com.cinetrack.ui.Elapsed.Minutes -> elapsed.count.toInt().let { pluralStringResource(R.plurals.synced_minutes_ago, it, it) }
+        is com.cinetrack.ui.Elapsed.Hours -> elapsed.count.toInt().let { pluralStringResource(R.plurals.synced_hours_ago, it, it) }
+        is com.cinetrack.ui.Elapsed.Days -> elapsed.count.toInt().let { pluralStringResource(R.plurals.synced_days_ago, it, it) }
     }
 }
 

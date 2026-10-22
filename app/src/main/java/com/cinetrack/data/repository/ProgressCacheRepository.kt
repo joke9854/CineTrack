@@ -40,6 +40,7 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import java.time.ZoneId
 import java.util.concurrent.atomic.AtomicInteger
+import com.cinetrack.data.remote.tmdbImageUrl
 
 /** Future schedule events only get attention priority when they are imminent. */
 internal const val UPCOMING_PROGRESS_ATTENTION_DAYS: Long = 7L
@@ -691,7 +692,7 @@ class ProgressCacheRepository(
                                     title = episode.name,
                                     overview = episode.overview,
                                     airDate = episode.airDate,
-                                    stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                                    stillUrl = tmdbImageUrl(episode.stillPath, "w780"),
                                     runtimeMinutes = episode.runtime,
                                 )
                             }
@@ -708,7 +709,7 @@ class ProgressCacheRepository(
                                         title = episode.name,
                                         overview = episode.overview,
                                         airDate = episode.airDate,
-                                        stillUrl = episode.stillPath?.let { path -> "https://image.tmdb.org/t/p/w780$path" },
+                                        stillUrl = tmdbImageUrl(episode.stillPath, "w780"),
                                         runtimeMinutes = episode.runtime,
                                     )
                                 }
@@ -848,7 +849,7 @@ private fun EpisodeEntity.toEpisodeCard() = EpisodeCard(
     title = title,
     overview = overview,
     airDate = airDate,
-    stillUrl = stillPath?.let { "https://image.tmdb.org/t/p/w780$it" },
+    stillUrl = tmdbImageUrl(stillPath, "w780"),
     runtimeMinutes = runtimeMinutes,
 )
 

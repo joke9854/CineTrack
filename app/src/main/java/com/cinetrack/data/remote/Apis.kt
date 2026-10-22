@@ -3,7 +3,6 @@ package com.cinetrack.data.remote
 import com.cinetrack.BuildConfig
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -466,7 +465,7 @@ data class ApiServices(
 )
 
 object NetworkFactory {
-    private val json = Json { ignoreUnknownKeys = true; explicitNulls = false; coerceInputValues = true }
+    private val json = AppJson.network
     private val TMDB_API_KEY_PATTERN = Regex("[A-Fa-f0-9]{32}")
 
     fun create(
