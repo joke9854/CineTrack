@@ -289,13 +289,14 @@ class ProgressCacheRepository(
                             plays.forEach { play ->
                                 val key = "$showId:$season:${play.episodeNumber}"
                                 seasonRead += key
-                                val title = titles[play.episodeNumber]
+                                val episode = play.episodeNumber ?: return@forEach
+                                val title = titles[episode]
                                 if (title == null) {
                                     if (fetched.isSuccess || fetched.isTmdbNotFound()) episodeTitleMisses += key
                                     return@forEach
                                 }
                                 episodeTitleCache["$showId:$season:${play.episodeNumber}"] = title
-                                database.timelineDao().updateEpisodeTitle(MediaType.TV.name, showId, season, play.episodeNumber, title)
+                                database.timelineDao().updateEpisodeTitle(MediaType.TV.name, showId, season, episode, title)
                             }
                         }
                     }.awaitAll()
