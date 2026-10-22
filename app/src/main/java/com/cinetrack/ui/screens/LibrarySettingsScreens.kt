@@ -1944,19 +1944,6 @@ private fun FloppyReadyPreview() = FloppyStatePreviewContent(AppUiState(floppyCo
 @Composable
 private fun FloppyNeedsAttentionPreview() = FloppyStatePreviewContent(AppUiState(floppyConnected = true, floppyUiState = FloppyUiState.NEEDS_ATTENTION))
 
-@Composable
-private fun AccentChoiceRow(title: String, color: Color, selected: Boolean, onClick: () -> Unit) {
-    val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(22.dp).clip(CircleShape).background(color), contentAlignment = Alignment.Center) {
-            if (selected) Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(14.dp))
-        }
-        Spacer(Modifier.width(11.dp))
-        Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        if (selected) Text(stringResource(R.string.active), color = color, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold)
-    }
-}
-
 private const val SavedCredentialMask = "••••••••••••••••••••••••••••••••"
 
 @Composable

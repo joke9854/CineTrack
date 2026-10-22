@@ -364,13 +364,6 @@ interface MediaDao {
            INNER JOIN media_rails ON media.mediaType = media_rails.mediaType AND media.tmdbId = media_rails.mediaId
            WHERE media_rails.railId = :railId ORDER BY media_rails.position""",
     )
-    fun observeRail(railId: String): Flow<List<MediaEntity>>
-
-    @Query(
-        """SELECT media.* FROM media
-           INNER JOIN media_rails ON media.mediaType = media_rails.mediaType AND media.tmdbId = media_rails.mediaId
-           WHERE media_rails.railId = :railId ORDER BY media_rails.position""",
-    )
     suspend fun railMedia(railId: String): List<MediaEntity>
 
     @Query("SELECT * FROM media WHERE mediaType = :type AND tmdbId = :id LIMIT 1")
@@ -457,12 +450,6 @@ interface TimelineDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertHistoryItems(items: List<WatchHistoryEntity>)
-
-    @Query("SELECT * FROM playback ORDER BY updatedAt DESC")
-    fun observePlayback(): Flow<List<PlaybackEntity>>
-
-    @Query("SELECT * FROM watch_history ORDER BY watchedAt DESC")
-    fun observeHistory(): Flow<List<WatchHistoryEntity>>
 
     @Query("SELECT * FROM watch_history WHERE mediaType = :mediaType AND mediaId = :mediaId AND season IS NOT NULL AND episodeNumber IS NOT NULL")
     suspend fun episodeHistoryForShow(mediaType: String, mediaId: Int): List<WatchHistoryEntity>

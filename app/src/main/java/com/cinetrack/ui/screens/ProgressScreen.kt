@@ -472,18 +472,6 @@ private fun SyncCard(
 }
 
 @Composable
-private fun SimklMark() {
-    Box(
-        Modifier.size(40.dp).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
-            .background(com.cinetrack.ui.theme.SurfacePalette.NeutralText.copy(alpha = .92f))
-            .border(.55.dp, com.cinetrack.ui.theme.GlassStrong, RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small)),
-        contentAlignment = Alignment.Center,
-    ) {
-        Image(painterResource(R.drawable.ic_service_simkl), contentDescription = "Simkl", modifier = Modifier.size(25.dp))
-    }
-}
-
-@Composable
 private fun syncStageLabel(stage: SyncStage): String = when (stage) {
     SyncStage.AUTH -> stringResource(R.string.sync_stage_auth)
     SyncStage.ACTIVITY -> stringResource(R.string.sync_stage_activity)
@@ -956,20 +944,6 @@ internal fun PlaybackRow(
             }
         }
     }
-    }
-}
-
-@Composable
-private fun AnimatedProgressBar(progress: Float, modifier: Modifier = Modifier) {
-    val safeProgress = progress.coerceIn(0f, 1f)
-    val animatedProgress by animateFloatAsState(safeProgress, tween(com.cinetrack.ui.theme.Motion.Extended), label = "progressValue")
-    Box(
-        modifier.fillMaxWidth().height(10.dp)
-            .liquidGlass(surface = com.cinetrack.ui.theme.Glass, refraction = 3.dp, under = GlassMaterial.Content, shadow = false) {
-                clip(CircleShape).background(com.cinetrack.ui.theme.Glass)
-            },
-    ) {
-        Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(AccentLight, Accent))))
     }
 }
 

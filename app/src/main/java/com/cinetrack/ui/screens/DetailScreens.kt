@@ -1699,7 +1699,6 @@ private fun DetailTopBar(
 private object DetailLayout {
     val Gutter = 20.dp
     val Inner = 12.dp
-    val HeadingInset = Gutter + Inner
     val SectionGap = 24.dp
     val RatingsGap = 12.dp
     val CastWidth = 96.dp
@@ -2050,16 +2049,6 @@ private fun CollectionSection(current: MediaCard, related: List<MediaCard>, onMe
             }
         }
     }
-}
-
-@Composable
-private fun detailLibraryActionLabel(status: LibraryStatus): String = when (status) {
-    LibraryStatus.NONE -> stringResource(R.string.add_to_library)
-    LibraryStatus.WATCHING -> stringResource(R.string.in_progress)
-    LibraryStatus.PLAN_TO_WATCH -> stringResource(R.string.plan_to_watch)
-    LibraryStatus.PAUSED -> stringResource(R.string.paused)
-    LibraryStatus.COMPLETED -> stringResource(R.string.completed)
-    LibraryStatus.DROPPED -> stringResource(R.string.dropped)
 }
 
 @Composable
