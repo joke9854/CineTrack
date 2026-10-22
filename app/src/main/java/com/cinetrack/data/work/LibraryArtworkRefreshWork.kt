@@ -65,7 +65,7 @@ class LibraryArtworkRefreshWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
-        application.container.repository.awaitStartup()
+        application.container.syncHost.awaitStartup()
         return try {
             val result = kotlinx.coroutines.withTimeoutOrNull(MAX_JOB_MILLIS) {
                 application.container.progressCache.refreshLibraryArtwork { progress ->

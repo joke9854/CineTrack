@@ -34,7 +34,7 @@ import java.util.Locale
 
 /**
  * Detail-page metadata (details, seasons, episodes, people, cast, ratings,
- * trailers, collections, recommendations) moved out of [CineTrackRepository].
+ * trailers, collections, recommendations) moved out of the former sync-host repository.
  * Episodes read through here are written to Room, the same as before.
  */
 class MediaMetadataRepository(

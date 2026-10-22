@@ -19,7 +19,7 @@ Board Estimate is in points: XS=1, S=2, M=3, L=5, XL=8.
 | 0.99.65 | F2 Widget: mark-watched action (reuse the notification receiver), more sizes, remove the legacy `up_next_widget.xml` | UI | Feature | P1 | M | Home-screen widget |
 | 0.99.66 | Q5 Version catalog (`gradle/libs.versions.toml`) plus Renovate, with the Compose BOM grouped and pinned to PrismalAGSL | Release | Feature | P3 | M | App starts and syncs as before |
 | 0.99.67+ | Q1 Split `CineTrackViewModel` / `AppUiState` **one screen per release**, starting with Settings | UI | Feature | P2 | L | Only that screen |
-| 0.99.67+ | Q2 Retire the `CineTrackRepository` façade alongside Q1 (docs/metadata-sync-migration.md) | Data | Feature | P2 | L | Only that screen |
+| 0.99.71 | Q2 Retire the `CineTrackRepository` façade alongside Q1 (docs/metadata-sync-migration.md). **Done 2026-10-21**: split into MetadataSettings, Backup, MediaMetadata, ProgressCache, Catalog, AppState, Account repositories and SyncConflictResolver; the rest is `data/sync/TrackingSyncHost` | Data | Feature | P2 | L | Only that screen |
 | 0.99.67+ | Q3 Tests for each split screen's ViewModel, plus a backup→restore round trip and ICS export | Tests | Test | P2 | M | CI |
 | Later | F7 Sync conflicts screen using Floppy `sync/conflicts` (both repos) | Sync | Feature | P3 | M | Make a conflict on purpose |
 | Anytime | Q8 Commit a baseline profile (the user generates it) and add a Roborazzi verify step in CI | Tests | Test | P3 | S | CI |

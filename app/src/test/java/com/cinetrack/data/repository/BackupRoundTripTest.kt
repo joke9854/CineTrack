@@ -19,6 +19,7 @@ import com.cinetrack.data.sync.TrackingProvider
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingProviderRegistry
 import com.cinetrack.data.sync.TrackingRoutingMutex
+import com.cinetrack.data.sync.TrackingSyncHost
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.settings.NotificationSettings
@@ -99,7 +100,7 @@ class BackupRoundTripTest {
         }
     } as T
 
-    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val repository: CineTrackRepository, val backup: BackupRepository, val appState: AppStateRepository)
+    private class Store(val database: AppDatabase, val operations: RoomSyncOperationRepository, val syncHost: TrackingSyncHost, val backup: BackupRepository, val appState: AppStateRepository)
 
     private fun store(): Store {
         val database = Room.inMemoryDatabaseBuilder(context, AppDatabase::class.java).allowMainThreadQueries().build()
@@ -107,30 +108,38 @@ class BackupRoundTripTest {
         val mutex = TrackingRoutingMutex()
         val operations = RoomSyncOperationRepository(database, preferences)
         val coordinator = SyncCoordinator(NoProviders, operations, routingMutex = mutex)
-        val repository = CineTrackRepository(
+        val releaseSchedule = DefaultReleaseScheduleRepository(database, services)
+        val mediaMetadata = MediaMetadataRepository(database, services, preferences, releaseSchedule, tmdbApiKey = { "" }, mdbListApiKey = { "" })
+        val appState = AppStateRepository(database, preferences, { null }, NoProviders, { "" }, { "" })
+        val progressCache = ProgressCacheRepository(
+            database = database,
+            preferences = preferences,
+            tmdbApiKey = { "" },
+            loadEpisodes = mediaMetadata::loadEpisodes,
+            services = services,
+            releaseScheduleRepository = releaseSchedule,
+            mediaMetadata = mediaMetadata,
+            loadCachedState = { appState.loadCachedState() },
+        )
+        val syncHost = TrackingSyncHost(
             database = database,
             services = services,
             preferences = preferences,
             tmdbApiKey = { "" },
-            mdbListApiKey = { "" },
             syncOperationRepository = operations,
             durableOperationWriter = DurableSyncOperationWriter(operations, DurableTrackingQueue(NoProviders, mutex), mutex),
-            syncCoordinator = coordinator,
-            releaseScheduleRepository = DefaultReleaseScheduleRepository(database, services),
-            libraryRepository = RoomLibraryRepository(database, preferences, coordinator, {}, NoProviders, mutex),
-            mediaMetadata = MediaMetadataRepository(database, services, preferences, DefaultReleaseScheduleRepository(database, services), tmdbApiKey = { "" }, mdbListApiKey = { "" }),
+            progressCache = progressCache,
             trackingProviderRegistry = NoProviders,
             trackingRoutingMutex = mutex,
         )
-        val appState = AppStateRepository(database, preferences, { null }, NoProviders, { "" }, { "" })
         val backup = BackupRepository(
             database = database,
             preferences = preferences,
             metadataSettings = { MetadataSettingsRepository(database, services, preferences, clearLanguageCaches = {}) },
             loadState = appState::loadCachedState,
-            rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
+            rebuildLibraryRail = syncHost::rebuildLibraryRailInTransaction,
         )
-        return Store(database, operations, repository, backup, appState)
+        return Store(database, operations, syncHost, backup, appState)
     }
 
     private fun media(type: MediaType, id: Int, title: String) =
@@ -177,7 +186,7 @@ class BackupRoundTripTest {
         database.timelineDao().upsertPlayback(
             listOf(PlaybackEntity(movie, 40, progress = .25f, positionSeconds = 900, durationSeconds = 3600, updatedAt = "2026-10-01T10:00:00Z")),
         )
-        source.repository.rebuildLibraryRailInTransaction()
+        source.syncHost.rebuildLibraryRailInTransaction()
         preferences.setNotification("movies", false)
         preferences.setQuietHours(true, 22, 7)
         preferences.setContentRegions(setOf("IT", "US"))

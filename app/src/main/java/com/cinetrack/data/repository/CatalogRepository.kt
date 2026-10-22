@@ -25,7 +25,7 @@ import java.time.ZoneId
 import java.util.Locale
 
 /**
- * TMDB catalog browsing moved out of [CineTrackRepository]: Discover
+ * TMDB catalog browsing moved out of the former sync-host repository: Discover
  * rails/pages/filters, title and people search, and streaming provider lists.
  */
 class CatalogRepository(

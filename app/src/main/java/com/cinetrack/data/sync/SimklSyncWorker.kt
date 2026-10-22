@@ -56,7 +56,7 @@ class PendingDeliveryWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as CineTrackApplication).container
-        container.repository.awaitStartup()
+        container.syncHost.awaitStartup()
         if (!container.syncCoordinator.isMainProviderConnected()) return Result.success()
         return container.syncCoordinator.pushPending().fold(
             onSuccess = { Result.success() },
@@ -79,11 +79,11 @@ open class TrackingSyncWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
-        application.container.repository.awaitStartup()
+        application.container.syncHost.awaitStartup()
         // Even without a sync, keep Progress current: the release schedule and
         // next episodes refresh on their own cadence (cheap when nothing is due).
         if (!application.container.syncCoordinator.isMainProviderConnected() ||
-            !application.container.repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))
+            !application.container.syncHost.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))
         ) {
             runCatching { application.container.progressCache.refreshProgressCache(ProgressRefreshRequest(), null) }
             return Result.success()

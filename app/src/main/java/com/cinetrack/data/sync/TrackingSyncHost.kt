@@ -1,8 +1,7 @@
-package com.cinetrack.data.repository
+package com.cinetrack.data.sync
 
 import androidx.room.withTransaction
 import com.cinetrack.BuildConfig
-import com.cinetrack.data.library.LibraryRepository
 import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.MediaEntity
 import com.cinetrack.data.local.PendingWriteEntity
@@ -16,28 +15,13 @@ import com.cinetrack.data.remote.SimklLibraryItem
 import com.cinetrack.data.remote.SimklPlaybackItem
 import com.cinetrack.data.remote.SimklSyncItem
 import com.cinetrack.data.remote.SimklSyncRequest
-import com.cinetrack.data.schedule.ReleaseScheduleRepository
-import com.cinetrack.data.sync.SyncCoordinator
-import com.cinetrack.data.sync.SyncOperationRepository
-import com.cinetrack.data.sync.DurableSyncOperationWriter
-import com.cinetrack.data.sync.TrackingProviderRegistry
-import com.cinetrack.data.sync.TrackingProviderId
-import com.cinetrack.data.sync.TrackingRoutingMutex
-import com.cinetrack.data.sync.SyncOperation
-import com.cinetrack.data.sync.SyncOperationType
-import com.cinetrack.data.sync.logicalField
-import com.cinetrack.data.sync.MediaIds
-import com.cinetrack.data.sync.SyncReconciler
-import com.cinetrack.data.sync.TrackingSnapshot
-import com.cinetrack.data.sync.TrackedMovieState
-import com.cinetrack.data.sync.TrackedShowState
-import com.cinetrack.data.sync.TrackedEpisodeState
+import com.cinetrack.data.repository.AppPreferences
+import com.cinetrack.data.repository.ProgressCacheRepository
+import com.cinetrack.data.repository.ProgressRefreshRequest
+import com.cinetrack.data.repository.persistedGenerationFloor
 import com.cinetrack.data.sync.simkl.ResolvedSimklItem
 import com.cinetrack.data.sync.simkl.SimklSyncHost
 import com.cinetrack.data.sync.simkl.withDeliveredLibraryState
-import com.cinetrack.data.sync.SyncConflict
-import com.cinetrack.data.sync.ConflictField
-import com.cinetrack.data.sync.MutationGeneration
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
@@ -51,30 +35,22 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-class CineTrackRepository(
+/** The SimklSyncHost/MainSyncHost the sync engines call back into (push, baseline, queue repair, main-tracker swap). */
+class TrackingSyncHost(
     override val database: AppDatabase,
     override val services: ApiServices,
     override val preferences: AppPreferences,
     private val awaitStartupReady: suspend () -> Unit = {},
-    private val currentToken: () -> String? = { null },
     override val tmdbApiKey: () -> String = { BuildConfig.TMDB_API_TOKEN },
-    private val mdbListApiKey: () -> String = { BuildConfig.MDBLIST_API_KEY },
     override val syncOperationRepository: SyncOperationRepository,
     private val durableOperationWriter: DurableSyncOperationWriter,
-    private val syncCoordinator: SyncCoordinator,
-    private val releaseScheduleRepository: ReleaseScheduleRepository,
-    private val libraryRepository: LibraryRepository,
-    private val mediaMetadata: MediaMetadataRepository,
     override val syncReconciler: SyncReconciler = SyncReconciler(),
     private val trackingProviderRegistry: TrackingProviderRegistry? = null,
     private val trackingRoutingMutex: TrackingRoutingMutex = TrackingRoutingMutex(),
     private val trackingConfigurationService: com.cinetrack.data.sync.TrackingConfigurationService? = null,
     override val episodeNumbering: com.cinetrack.data.sync.numbering.EpisodeNumbering? = null,
     override val animeNumberingRepair: com.cinetrack.data.sync.numbering.AnimeNumberingRepair? = null,
-    /** TVDB character pictures through Floppy; null (or a failure) keeps the TMDB-only cast. */
-    private val characterImages: (suspend (MediaType, Int) -> List<com.cinetrack.domain.CharacterImage>?)? = null,
-    progressCacheProvider: ProgressCacheRepository? = null,
-    appStateProvider: AppStateRepository? = null,
+    private val progressCache: ProgressCacheRepository,
 ) : SimklSyncHost {
     /** Shows whose local episode numbers were rewritten, so screens can drop cached episode lists. */
     val renumberedShows = kotlinx.coroutines.flow.MutableSharedFlow<Int>(extraBufferCapacity = 64)
@@ -369,12 +345,6 @@ class CineTrackRepository(
 
     override suspend fun localToday(): LocalDate = LocalDate.now(localZone())
 
-    private val appState by lazy {
-        appStateProvider ?: AppStateRepository(database, preferences, currentToken, trackingProviderRegistry, tmdbApiKey, mdbListApiKey)
-    }
-    private val progressCache by lazy {
-        progressCacheProvider ?: ProgressCacheRepository(database, preferences, tmdbApiKey, mediaMetadata::loadEpisodes, services, releaseScheduleRepository, mediaMetadata, appState::loadCachedState)
-    }
     /**
      * Swaps MAIN and SECONDARY. The caller has already run a final sync with
      * the current MAIN. When Floppy takes over, its first pass reads the whole

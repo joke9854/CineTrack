@@ -33,7 +33,7 @@ import java.time.Instant
  * Portable backups: export, restore from a file or the automatic copy, and the delayed
  * automatic backup after library changes. Restore inserts watch history event by event with
  * the stored timestamps and never queues anything for a tracker. Moved out of
- * CineTrackRepository (roadmap Q2).
+ * the former sync-host repository (roadmap Q2).
  */
 class BackupRepository(
     private val database: AppDatabase,

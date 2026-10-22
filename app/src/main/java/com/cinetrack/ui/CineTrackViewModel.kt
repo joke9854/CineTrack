@@ -13,7 +13,7 @@ import com.cinetrack.data.library.LibraryRepository
 import com.cinetrack.data.discovery.DiscoveryRepository
 import com.cinetrack.data.media.MediaRepository
 import com.cinetrack.data.people.PeopleRepository
-import com.cinetrack.data.repository.CineTrackRepository
+import com.cinetrack.data.sync.TrackingSyncHost
 import com.cinetrack.data.repository.BoundedLruCache
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.sync.SyncCoordinator
@@ -66,7 +66,7 @@ import java.time.ZoneId
 import java.util.concurrent.TimeUnit
 
 class CineTrackViewModel(
-    private val repository: CineTrackRepository,
+    private val syncHost: TrackingSyncHost,
     private val libraryRepository: LibraryRepository,
     private val mediaRepository: MediaRepository,
     private val discoveryRepository: DiscoveryRepository,
@@ -243,7 +243,7 @@ class CineTrackViewModel(
             // Room and DataStore are the source of truth at launch. Publish them
             // before any network work so process recreation never looks like a
             // disconnected, empty account while enrichment is running.
-            withContext(Dispatchers.IO) { repository.awaitStartup() }
+            withContext(Dispatchers.IO) { syncHost.awaitStartup() }
             val cached = readCachedState()
             _syncProgress.value = cached.sync
             _state.value = cached
@@ -650,7 +650,7 @@ class CineTrackViewModel(
             }
             return@withLock Result.success(SyncCoordinatorOutcome(itemsChanged = false))
         }
-        if (!force && !repository.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) {
+        if (!force && !syncHost.isMainTrackingSyncDue(TimeUnit.HOURS.toMillis(8))) {
             if (exposeProgress) {
                 val idle = _syncProgress.value.copy(running = false, stage = com.cinetrack.domain.SyncStage.IDLE, message = null)
                 _syncProgress.value = idle
@@ -683,7 +683,7 @@ class CineTrackViewModel(
         _syncProgress.value = completedSync
         val outcome = result.getOrNull()
         if (outcome?.itemsChanged == true && publishResult) {
-            // The repository does not finish the visible sync until both the
+            // The sync host does not finish the visible sync until both the
             // remote transaction and correctness-critical Progress data are complete.
             _state.value = readCachedState()
                 .copy(sync = completedSync)
@@ -803,7 +803,7 @@ class CineTrackViewModel(
         viewModelScope.launch {
             val error = try {
                 performTrackingSync(force = true).getOrThrow()
-                withContext(Dispatchers.IO) { repository.swapMainTracker() }
+                withContext(Dispatchers.IO) { syncHost.swapMainTracker() }
                 null
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
                 throw cancelled
@@ -942,7 +942,7 @@ class CineTrackViewModel(
     }
 
     class Factory(
-        private val repository: CineTrackRepository,
+        private val syncHost: TrackingSyncHost,
         private val libraryRepository: LibraryRepository,
         private val mediaRepository: MediaRepository,
         private val discoveryRepository: DiscoveryRepository,
@@ -960,7 +960,7 @@ class CineTrackViewModel(
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T =
             CineTrackViewModel(
-                repository,
+                syncHost,
                 libraryRepository,
                 mediaRepository,
                 discoveryRepository,

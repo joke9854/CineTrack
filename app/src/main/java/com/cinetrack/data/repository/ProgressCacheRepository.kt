@@ -183,7 +183,7 @@ internal fun selectProgressCard(
 /**
  * Owns the expensive, cache-backed derivation of the next episode for each show.
  * Network writes and the surrounding Room transaction remain coordinated by the
- * CineTrackRepository facade, preserving the existing mutex boundaries.
+ * TrackingSyncHost facade, preserving the existing mutex boundaries.
  */
 class ProgressCacheRepository(
     private val database: AppDatabase,

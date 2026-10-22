@@ -136,8 +136,8 @@ private class UpNextWidget : GlanceAppWidget() {
     }
 
     private suspend fun load(context: Context): Pair<List<PlaybackCard>, List<Bitmap?>> = withContext(Dispatchers.IO) {
-        val repository = (context.applicationContext as CineTrackApplication).container.repository
-        repository.awaitStartup()
+        val syncHost = (context.applicationContext as CineTrackApplication).container.syncHost
+        syncHost.awaitStartup()
         val cards = try {
             (context.applicationContext as CineTrackApplication).container.appState.loadCachedState().playbackTv.take(MAX_ROWS)
         } catch (cancelled: kotlinx.coroutines.CancellationException) {

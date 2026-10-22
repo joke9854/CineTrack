@@ -8,7 +8,7 @@ import kotlinx.coroutines.CancellationException
 /**
  * Metadata settings and API credentials: each write saves the preference and then updates
  * the live value the network clients read. Credentials are checked against their service
- * before they are saved. Moved out of CineTrackRepository (roadmap Q2).
+ * before they are saved. Moved out of the former sync-host repository (roadmap Q2).
  */
 class MetadataSettingsRepository(
     private val database: AppDatabase,

@@ -24,11 +24,11 @@ import com.cinetrack.data.remote.NetworkFactory
 import com.cinetrack.data.repository.AppPreferences
 import com.cinetrack.data.repository.BackupRepository
 import com.cinetrack.data.repository.CatalogRepository
-import com.cinetrack.data.repository.CineTrackRepository
 import com.cinetrack.data.repository.MetadataSettingsRepository
 import com.cinetrack.data.repository.LegacyMediaDataSource
 import com.cinetrack.data.repository.MediaMetadataRepository
 import com.cinetrack.data.repository.SettingsRepository
+import com.cinetrack.data.sync.TrackingSyncHost
 import com.cinetrack.data.schedule.DefaultReleaseScheduleRepository
 import com.cinetrack.data.sync.DefaultTrackingProviderRegistry
 import com.cinetrack.data.sync.DurableSyncOperationWriter
@@ -203,12 +203,12 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             preferences = preferences,
             metadataSettings = { metadataSettings },
             loadState = appState::loadCachedState,
-            rebuildLibraryRail = repository::rebuildLibraryRailInTransaction,
+            rebuildLibraryRail = syncHost::rebuildLibraryRailInTransaction,
         )
     }
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
     val detailEpisodeCache = com.cinetrack.ui.detail.DetailEpisodeCache()
-    val repository: CineTrackRepository
+    val syncHost: TrackingSyncHost
     /** Sync-operation conflict resolution (keep local / use remote). */
     val syncConflicts: com.cinetrack.data.repository.SyncConflictResolver
     /** Detail-page metadata loads (details, episodes, cast, ratings...). */
@@ -227,7 +227,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     init {
         settingsRepository = SettingsRepository(preferences, trackingConfigurationService)
         val simklSyncEngine by lazy {
-            SimklSyncEngine { repository }
+            SimklSyncEngine { syncHost }
         }
         // Simkl's own anime numbering is converted to TMDB numbering through Floppy's translate
         // endpoint; the table is filled lazily and the one-time local repair settles each show.
@@ -253,7 +253,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 preferences = preferences,
                 fetchAnime = { services.simklSync.allItems("anime").anime },
                 refreshProgress = { request -> progressCache.refreshProgressCache(request, null) },
-                onInvalidate = { showId -> repository.renumberedShows.tryEmit(showId) },
+                onInvalidate = { showId -> syncHost.renumberedShows.tryEmit(showId) },
                 logLine = numberingLog,
             ),
         )
@@ -265,7 +265,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             episodeNumbering = episodeNumbering,
         )
         val floppySyncEngine by lazy {
-            com.cinetrack.data.sync.floppy.FloppySyncEngine { repository }
+            com.cinetrack.data.sync.floppy.FloppySyncEngine { syncHost }
         }
         val floppyOAuth = com.cinetrack.data.sync.floppy.network.FloppyOAuthClient(preferences.floppyOAuthTokenStore)
         val floppyRemote = com.cinetrack.data.sync.floppy.network.FloppyRemoteDataSource(
@@ -400,37 +400,30 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 if (::floppyBootstrapCoordinator.isInitialized) floppyBootstrapCoordinator.unplacedEpisodes() else emptyList()
             },
         )
-        repository = CineTrackRepository(
+        syncHost = TrackingSyncHost(
             database = database,
             services = services,
             preferences = preferences,
             awaitStartupReady = startupReady::await,
-            currentToken = token::get,
             tmdbApiKey = tmdbApiKey::get,
-            mdbListApiKey = mdbListApiKey::get,
             syncOperationRepository = syncOperationRepository,
             durableOperationWriter = durableOperationWriter,
-            syncCoordinator = syncCoordinator,
-            releaseScheduleRepository = releaseSchedule,
-            libraryRepository = localLibrary,
-            progressCacheProvider = progressCache,
-            appStateProvider = appState,
+            progressCache = progressCache,
             syncReconciler = syncReconciler,
             trackingProviderRegistry = trackingProviderRegistry,
             trackingRoutingMutex = trackingRoutingMutex,
             trackingConfigurationService = trackingConfigurationService,
             episodeNumbering = episodeNumbering,
             animeNumberingRepair = animeRepair,
-            mediaMetadata = mediaMetadata,
         )
         syncConflicts = com.cinetrack.data.repository.SyncConflictResolver(
             database = database,
             durableOperationWriter = durableOperationWriter,
             syncCoordinator = syncCoordinator,
             trackingRoutingMutex = trackingRoutingMutex,
-            stateOperationId = repository::stateOperationId,
-            rebuildLibraryRailInTransaction = repository::rebuildLibraryRailInTransaction,
-            enqueueSecondaryMirror = { repository.enqueueSecondaryMirror(it) },
+            stateOperationId = syncHost::stateOperationId,
+            rebuildLibraryRailInTransaction = syncHost::rebuildLibraryRailInTransaction,
+            enqueueSecondaryMirror = { syncHost.enqueueSecondaryMirror(it) },
         )
         libraryRepository = localLibrary
         val catalog = CatalogRepository(database, services, preferences, tmdbApiKey::get)
@@ -446,7 +439,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             preferences = preferences,
             operationRepository = syncOperationRepository,
             operationWriter = durableOperationWriter,
-            canonicalSnapshot = { repository.canonicalTrackingSnapshot() },
+            canonicalSnapshot = { syncHost.canonicalTrackingSnapshot() },
             verifyRemote = { expected ->
                 fun log(message: String) = preferences.appendErrorLog("${java.time.Instant.now()}  $message")
                 val capabilities = preferences.floppySettingsNow()?.capabilities

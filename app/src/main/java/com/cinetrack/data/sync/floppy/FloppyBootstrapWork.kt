@@ -220,7 +220,7 @@ class FloppyBootstrapWorker(
 ) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
-        application.container.repository.awaitStartup()
+        application.container.syncHost.awaitStartup()
         val expected = inputData.getString(EXPECTED_CONNECTION_ID).orEmpty()
         if (expected.isBlank() || !isCurrent(application, expected)) return Result.success()
         val coordinator = application.container.floppyBootstrapCoordinator

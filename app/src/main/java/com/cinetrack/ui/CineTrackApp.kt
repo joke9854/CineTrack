@@ -156,7 +156,7 @@ fun CineTrackApp(
     val pageGlass = remember(navBlurEnabled) { if (navBlurEnabled) com.cinetrack.ui.components.PageGlassBackdrop() else null }
     val viewModel: CineTrackViewModel = viewModel(
         factory = CineTrackViewModel.Factory(
-            application.container.repository,
+            application.container.syncHost,
             application.container.libraryRepository,
             application.container.mediaRepository,
             application.container.discoveryRepository,
@@ -215,7 +215,7 @@ fun CineTrackApp(
             com.cinetrack.data.repository.RepositoryDetailStore(
                 application.container.mediaRepository,
                 application.container.peopleRepository,
-                application.container.repository.renumberedShows,
+                application.container.syncHost.renumberedShows,
             ),
             application.container.detailEpisodeCache,
         ),

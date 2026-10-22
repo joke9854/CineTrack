@@ -417,7 +417,7 @@ internal fun isQuietHour(hour: Int, start: Int, end: Int): Boolean =
 class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
         val application = applicationContext as CineTrackApplication
-        application.container.repository.awaitStartup()
+        application.container.syncHost.awaitStartup()
         // Inside quiet hours: come back when they end instead of dropping the
         // notification until the app is next opened.
         ReleaseNotifier.quietHoursRemainingMillis(application.container.preferences)?.let { wait ->
@@ -459,8 +459,8 @@ class ReleaseNotificationWorker(appContext: Context, params: WorkerParameters) :
 class WatchedProgressRefreshWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val container = (applicationContext as CineTrackApplication).container
-        val repository = container.repository
-        repository.awaitStartup()
+        val syncHost = container.syncHost
+        syncHost.awaitStartup()
         runCatching { container.progressCache.refreshProgressCache(ProgressRefreshRequest(episodeHistoryChanged = true), null) }
         com.cinetrack.UpNextWidgetProvider.refreshNow(applicationContext)
         return Result.success()
@@ -527,7 +527,7 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                 android.util.Log.i("CineTrackWidget", "mark: $showId:S${season}E$number")
                 if (showId > 0 && season >= 0 && number > 0) {
                     val container = (context.applicationContext as CineTrackApplication).container
-                    container.repository.awaitStartup()
+                    container.syncHost.awaitStartup()
                     container.libraryRepository.markEpisodeWatched(EpisodeCard(-1, showId, season, number, intent.getStringExtra("title").orEmpty(), "", LocalDate.now().toString()))
                     // Redraw at once from the local up-next. Fetching the following episode can take
                     // longer than a broadcast may run (about 10s for a widget tap), so it goes to work.
