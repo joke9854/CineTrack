@@ -220,6 +220,14 @@ import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import java.util.Locale
+import com.cinetrack.ui.theme.AccentPalette
+import com.cinetrack.ui.theme.Glass
+import com.cinetrack.ui.theme.GlassStrong
+import com.cinetrack.ui.theme.GlassSubtle
+import com.cinetrack.ui.theme.Motion
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.Spacing
+import com.cinetrack.ui.theme.SurfacePalette
 
 object SettingsPages {
     const val Streaming = "streaming"
@@ -364,12 +372,12 @@ fun LibraryScreen(
                     .pinnedHeader({ titlePx }, headerScroll, com.cinetrack.ui.components.LocalPageTint.current),
             ) {
             // Headline toggle (Serie TV / Film) and the list / grid switch.
-            Row(Modifier.fillMaxWidth().onSizeChanged { titlePx = it.height }.collapsingTitle({ titlePx }, headerScroll).padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().onSizeChanged { titlePx = it.height }.collapsingTitle({ titlePx }, headerScroll).padding(start = Spacing.xl, end = Spacing.lg, top = Spacing.lg, bottom = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                 listOf(MediaType.MOVIE, MediaType.TV).forEach { item ->
                     val selected = item == type
                     val headlineColor by androidx.compose.animation.animateColorAsState(
                         if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),
-                        tween(com.cinetrack.ui.theme.Motion.Extended),
+                        tween(Motion.Extended),
                         label = "libraryHeadline",
                     )
                     Text(
@@ -399,7 +407,7 @@ fun LibraryScreen(
             // Status as underlined tabs with counts; one underline glides between them.
             val indicator = rememberTabIndicator()
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = com.cinetrack.ui.theme.Spacing.xl)
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.xl)
                     .slidingTabIndicator(indicator, statusIndex),
                 horizontalArrangement = Arrangement.spacedBy(20.dp),
             ) {
@@ -408,7 +416,7 @@ fun LibraryScreen(
                     val count = if (value == null) typeItems.size else typeItems.count { it.status == value }
                     val labelColor by androidx.compose.animation.animateColorAsState(
                         if (selected) TextPrimary else TextPrimary.copy(alpha = .5f),
-                        tween(com.cinetrack.ui.theme.Motion.Long),
+                        tween(Motion.Long),
                         label = "libraryTabLabel",
                     )
                     Row(
@@ -427,7 +435,7 @@ fun LibraryScreen(
             Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .08f)))
             // Sort chip, search, artwork refresh and bulk edit.
             Row(
-                Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.lg, top = com.cinetrack.ui.theme.Spacing.md, bottom = com.cinetrack.ui.theme.Spacing.xs),
+                Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.lg, top = Spacing.md, bottom = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
@@ -461,7 +469,7 @@ fun LibraryScreen(
                 PrimaryAction(
                     stringResource(R.string.edit_selected_count, selectedKeys.size),
                     Icons.Filled.PlaylistAddCheck,
-                    Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.sm),
                     enabled = selectedKeys.isNotEmpty(),
                 ) { showBulkSheet = true }
             }
@@ -574,7 +582,7 @@ private fun LibraryList(
             ) {
                 Box(
                     Modifier.width(70.dp).height(105.dp).sharedPoster(media.stableKey, posterSlot).shadow(10.dp, RoundedCornerShape(10.dp), clip = false).clip(RoundedCornerShape(10.dp))
-                        .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterBrown, com.cinetrack.ui.theme.SurfacePalette.OceanMid))),
+                        .background(Brush.linearGradient(listOf(SurfacePalette.PosterBrown, SurfacePalette.OceanMid))),
                     contentAlignment = Alignment.Center,
                 ) {
                     val art = media.posterUrl ?: media.backdropUrl
@@ -608,7 +616,7 @@ private fun LibraryList(
 @Composable
 private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: (LibraryStatus) -> Unit) {
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg)) {
             Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(12.dp))
             listOf(
@@ -620,8 +628,8 @@ private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: 
                 LibraryStatus.NONE to stringResource(R.string.remove_from_library),
             ).forEach { (status, label) ->
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                        .clickable { onApply(status) }.padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.md),
+                    Modifier.fillMaxWidth().padding(bottom = Spacing.sm).glass(RoundedCornerShape(Radius.Medium))
+                        .clickable { onApply(status) }.padding(horizontal = Spacing.md, vertical = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Box(Modifier.size(10.dp).clip(CircleShape).background(if (status == LibraryStatus.NONE) TextMuted else libraryStatusColor(status)))
@@ -652,20 +660,20 @@ private fun LibraryOrderSheet(
     var selected by remember(initialOrder) { mutableStateOf(initialOrder) }
     var ascending by remember(initialAscending) { mutableStateOf(initialAscending) }
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+        Column(Modifier.padding(horizontal = Spacing.lg)) {
             com.cinetrack.ui.components.SectionHeader(stringResource(R.string.sort_by))
             Spacer(Modifier.height(12.dp))
             LibraryOrder.entries.forEach { option ->
                 val active = selected == option
                 Row(
-                    Modifier.fillMaxWidth().padding(bottom = com.cinetrack.ui.theme.Spacing.sm).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
+                    Modifier.fillMaxWidth().padding(bottom = Spacing.sm).glass(RoundedCornerShape(Radius.Medium))
                         .background(if (active) Accent.copy(alpha = .18f) else Color.Transparent)
                         .clickable {
                             selected = option
                             if (option == LibraryOrder.RECENTLY_WATCHED || option == LibraryOrder.RECENTLY_ADDED) {
                                 ascending = false
                             }
-                        }.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md),
+                        }.padding(horizontal = Spacing.lg, vertical = Spacing.md),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -682,8 +690,8 @@ private fun LibraryOrderSheet(
                 }
             }
             Row(
-                Modifier.fillMaxWidth().padding(top = 2.dp, bottom = com.cinetrack.ui.theme.Spacing.md).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-                    .clickable { ascending = !ascending }.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md),
+                Modifier.fillMaxWidth().padding(top = 2.dp, bottom = Spacing.md).glass(RoundedCornerShape(Radius.Medium))
+                    .clickable { ascending = !ascending }.padding(horizontal = Spacing.lg, vertical = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(if (ascending) Icons.Filled.ArrowUpward else Icons.Filled.ArrowDownward, null, tint = AccentLight, modifier = Modifier.size(19.dp))
@@ -702,7 +710,7 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
     val accentName = stringResource(
-        when (com.cinetrack.ui.theme.AccentPalette.normalize(state.uiAccent)) {
+        when (AccentPalette.normalize(state.uiAccent)) {
             "green" -> R.string.color_green
             "silver" -> R.string.color_silver
             "champagne" -> R.string.color_champagne
@@ -751,10 +759,10 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(bottom = 112.dp),
         ) {
-            item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.md)) }
+            item { PageTitle(stringResource(R.string.settings), Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.lg, bottom = Spacing.md)) }
             // Services first: each one's state at a glance, one tap to set it up.
             item {
-                Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(horizontal = Spacing.xl), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     SettingsGroupLabel(stringResource(R.string.settings_services))
                     featured.forEach { ServiceBrandCard(it, onPage) }
                     Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -859,15 +867,15 @@ private fun SettingsGroupLabel(label: String) {
         style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
         letterSpacing = 1.6.sp,
-        modifier = Modifier.padding(start = 4.dp, top = com.cinetrack.ui.theme.Spacing.sm),
+        modifier = Modifier.padding(start = 4.dp, top = Spacing.sm),
     )
 }
 
 @Composable
 private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (String) -> Unit) {
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
+    Column(Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
         SettingsGroupLabel(label)
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+        Spacer(Modifier.height(Spacing.sm))
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) {
             items.forEach { item ->
                 SettingsRow(item, onPage)
@@ -879,7 +887,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
 @Composable
 private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
     val clickAction = rememberUiAction { onPage(item.page) }
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Icon(item.icon, null, tint = TextSecondary, modifier = Modifier.size(21.dp))
         Spacer(Modifier.size(14.dp))
         Column(Modifier.weight(1f)) {
@@ -941,7 +949,7 @@ fun SettingsDetailScreen(
                     // Service pages open on a header in the service's own colours.
                     ServiceHero(brand, state, onBack)
                 } else {
-                    Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.lg, bottom = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                         GlassBackButton(onClick = onBack)
                         Spacer(Modifier.size(8.dp))
                         PageTitle(title, Modifier.weight(1f))
@@ -1124,13 +1132,13 @@ private fun ManagedFloppyBootstrapCard(
     val percent = if (determinate) (progress.processed * 100 / progress.total).coerceIn(0, 100) else 0
     val retryable = stage.allowsRetry()
     Column(
-        Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)
-            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-            .padding(com.cinetrack.ui.theme.Spacing.lg),
+        Modifier.fillMaxWidth().padding(Spacing.lg)
+            .glass(RoundedCornerShape(Radius.Medium))
+            .padding(Spacing.lg),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.CloudSync, contentDescription = null, tint = AccentLight, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.width(Spacing.sm))
             Column(Modifier.weight(1f)) {
                 Text("Floppy", color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleSmall)
                 Text(stringResource(R.string.initial_synchronization), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
@@ -1147,7 +1155,7 @@ private fun ManagedFloppyBootstrapCard(
                 fontWeight = FontWeight.Bold,
             )
         }
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+        Spacer(Modifier.height(Spacing.md))
         Text(
             when (stage) {
                 FloppyBootstrapStage.PREPARING,
@@ -1167,48 +1175,48 @@ private fun ManagedFloppyBootstrapCard(
             fontWeight = FontWeight.SemiBold,
         )
         if (determinate) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             LinearProgressIndicator(
                 progress = { (progress.processed.toFloat() / progress.total).coerceIn(0f, 1f) },
                 color = AccentLight,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.floppy_progress_count, progress.processed, progress.total), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Text("$percent%", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         } else if (planningDeterminate) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             LinearProgressIndicator(
                 progress = { (progress.planningProcessed.toFloat() / progress.planningTotal).coerceIn(0f, 1f) },
                 color = AccentLight,
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.floppy_progress_count, progress.planningProcessed, progress.planningTotal), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Text("${(progress.planningProcessed * 100 / progress.planningTotal).coerceIn(0, 100)}%", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         } else if (stage != FloppyBootstrapStage.COMPLETE && stage != FloppyBootstrapStage.NEEDS_ATTENTION) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             LinearProgressIndicator(color = AccentLight, modifier = Modifier.fillMaxWidth())
         }
         progress.currentTitle?.takeIf(String::isNotBlank)?.let { title ->
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             Text("${stringResource(R.string.current)}: $title", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
         if (stage == FloppyBootstrapStage.SYNCING) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
         summary?.lastError?.takeIf(String::isNotBlank)?.let { error ->
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             Text(error, color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
         if (retryable) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.xs))
+            Spacer(Modifier.height(Spacing.xs))
             TextButton(onClick = onRetry) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                Spacer(Modifier.width(Spacing.xs))
                 Text(if (stage == FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry) else stringResource(R.string.retry_now))
             }
         }
@@ -1250,7 +1258,7 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: SyncSettin
         "MEDIA_HISTORY_REMOVE" -> stringResource(R.string.sync_history_removed)
         else -> stringResource(R.string.sync_library_change)
     }
-    Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg)) {
+    Column(Modifier.fillMaxWidth().padding(Spacing.lg)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(operation.title, color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
@@ -1269,34 +1277,34 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: SyncSettin
             else -> operation.message
         }
         conflictMessage?.takeIf(String::isNotBlank)?.let { message ->
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             Text(message, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
         }
         if (operation.deliveries.isNotEmpty()) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             operation.deliveries.forEach { delivery -> SyncDeliveryRow(delivery) }
         }
         if (operation.status == SyncOperationStatus.CONFLICT) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.sm)) {
+            Spacer(Modifier.height(Spacing.md))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 Button(
                     onClick = { viewModel.resolveSyncConflict(operation.id, SyncConflictChoice.KEEP_LOCAL) },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
-                    colors = ButtonDefaults.buttonColors(containerColor = com.cinetrack.ui.theme.GlassSubtle),
+                    shape = RoundedCornerShape(Radius.Pill),
+                    colors = ButtonDefaults.buttonColors(containerColor = GlassSubtle),
                 ) { Text(stringResource(R.string.keep_local), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
                 Button(
                     onClick = { viewModel.resolveSyncConflict(operation.id, SyncConflictChoice.USE_REMOTE) },
                     modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                    shape = RoundedCornerShape(Radius.Pill),
                 ) { Text(stringResource(R.string.use_provider, providerName), style = androidx.compose.material3.MaterialTheme.typography.labelSmall) }
             }
-            Row(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
+            Row(Modifier.fillMaxWidth().padding(top = Spacing.xs), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(stringResource(R.string.local_value, localizedSyncValue(operation.localValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                 Text(stringResource(R.string.provider_value, providerName, localizedSyncValue(operation.remoteValue)), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
             }
         } else if (!terminalCancelled) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+            Spacer(Modifier.height(Spacing.md))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 operation.localValue?.takeIf(String::isNotBlank)?.let { value ->
                     Text(localizedSyncValue(value), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.weight(1f))
@@ -1304,15 +1312,15 @@ private fun SyncOperationRow(operation: SyncOperationCard, viewModel: SyncSettin
                 Button(
                     onClick = { viewModel.retrySyncOperation(operation.id) },
                     modifier = Modifier.heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                    shape = RoundedCornerShape(Radius.Pill),
                 ) {
                     Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(17.dp))
-                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                    Spacer(Modifier.width(Spacing.xs))
                     Text(if (operation.status == SyncOperationStatus.FAILED) stringResource(R.string.retry) else stringResource(R.string.try_now))
                 }
             }
         } else {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
             Text(stringResource(R.string.sync_delivery_cancelled_instance), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
     }
@@ -1426,12 +1434,12 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMod
             })
             val bootstrapProgress = observedBootstrapProgress ?: state.floppyBootstrapProgress
             if (bootstrapProgress != null && bootstrapProgress.stage != FloppyBootstrapStage.COMPLETE) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.xs), verticalAlignment = Alignment.CenterVertically) {
                     val determinate = bootstrapProgress.total > 0 && bootstrapProgress.stage == FloppyBootstrapStage.SYNCING
                     if (determinate) {
                         LinearProgressIndicator(progress = { (bootstrapProgress.processed.toFloat() / bootstrapProgress.total).coerceIn(0f, 1f) }, color = AccentLight, modifier = Modifier.weight(1f))
                     } else CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text(
                         when (bootstrapProgress.stage) {
                             FloppyBootstrapStage.PREPARING,
@@ -1450,14 +1458,14 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMod
                         style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     )
                 }
-                Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.xs))
+                Text(stringResource(R.string.floppy_leave_screen_copy), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.xs))
             }
         }
         val retryableStage = observedBootstrapProgress?.stage?.allowsRetry() == true
         if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION || retryableStage) {
-            TextButton(onClick = viewModel::retryFloppyInitialSync, modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg)) {
+            TextButton(onClick = viewModel::retryFloppyInitialSync, modifier = Modifier.padding(horizontal = Spacing.lg)) {
                 Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                Spacer(Modifier.width(Spacing.xs))
                 Text(if (retryableStage && observedBootstrapProgress?.stage != FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry_now) else stringResource(R.string.retry))
             }
         }
@@ -1472,12 +1480,12 @@ private fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMod
                 stringResource(R.string.floppy_unplaced_copy),
                 color = TextMuted,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
-                modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
+                modifier = Modifier.padding(horizontal = Spacing.lg, vertical = Spacing.sm),
             )
             unplaced.forEach { item ->
                 FloppyUnplacedCard(item, floppyBaseUrl, onDismiss = { viewModel.dismissFloppyUnplaced(item) })
             }
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.height(Spacing.sm))
         }
     }
     val signInContext = LocalContext.current
@@ -1528,10 +1536,10 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
     val floppyReady = state.floppyUiState == FloppyUiState.READY
     val canSwap = state.floppyIsMain || (floppyReady && state.floppyCanBeMain)
     SettingsSection(stringResource(R.string.main_tracker_title)) {
-        Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md)) {
+        Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             // Two choices side by side; the current one is filled. Picking the
             // other asks first, so Floppy becomes main only by the user's choice.
-            val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+            val shape = RoundedCornerShape(Radius.Pill)
             Row(
                 Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = .06f)).border(.6.dp, Color.White.copy(alpha = .10f), shape).padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -1549,7 +1557,7 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
                     ) {
                         if (switchingHere) {
                             CircularProgressIndicator(color = AccentLight, strokeWidth = 2.dp, modifier = Modifier.size(14.dp))
-                            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                            Spacer(Modifier.width(Spacing.sm))
                         } else if (current) {
                             Icon(Icons.Filled.Check, null, tint = Color.White, modifier = Modifier.size(16.dp))
                             Spacer(Modifier.width(6.dp))
@@ -1578,7 +1586,7 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
                 ),
                 color = TextSecondary,
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = com.cinetrack.ui.theme.Spacing.md),
+                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = Spacing.md),
             )
         }
         swap.error?.let { KitNotice(it) }
@@ -1638,9 +1646,9 @@ private fun FloppyUnplacedCard(
     Column(
         Modifier
             .fillMaxWidth()
-            .padding(horizontal = com.cinetrack.ui.theme.Spacing.md, vertical = com.cinetrack.ui.theme.Spacing.xs)
-            .glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium))
-            .padding(com.cinetrack.ui.theme.Spacing.md),
+            .padding(horizontal = Spacing.md, vertical = Spacing.xs)
+            .glass(RoundedCornerShape(Radius.Medium))
+            .padding(Spacing.md),
     ) {
         Row(verticalAlignment = Alignment.Top) {
             Column(Modifier.weight(1f)) {
@@ -1667,8 +1675,8 @@ private fun FloppyUnplacedCard(
                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.floppy_unplaced_dismiss), tint = TextMuted, modifier = Modifier.size(18.dp))
             }
         }
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
-        Row(horizontalArrangement = Arrangement.spacedBy(com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+        Spacer(Modifier.height(Spacing.sm))
+        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.material3.FilledTonalButton(
                 onClick = { runCatching { uriHandler.openUri(item.floppySearchUrl(floppyBaseUrl)) } },
                 contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 6.dp),
@@ -1713,7 +1721,7 @@ internal fun FloppyConnectionSettingsForm(
     val focusManager = LocalFocusManager.current
 
     SettingsSection(stringResource(R.string.floppy_connection)) {
-        Column(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.md)) {
+        Column(Modifier.fillMaxWidth().padding(Spacing.md)) {
             // Three steps: server address, token, verify. The bar fills as each is done.
             val step = when {
                 !validUrl -> 1
@@ -1749,9 +1757,9 @@ internal fun FloppyConnectionSettingsForm(
                 colors = credentialFieldColors(),
                 isError = url.isNotBlank() && !validUrl,
             )
-            if (url.isNotBlank() && !validUrl) Text(stringResource(R.string.floppy_error_invalid_url), color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            if (url.isNotBlank() && !validUrl) Text(stringResource(R.string.floppy_error_invalid_url), color = androidx.compose.material3.MaterialTheme.colorScheme.error, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Spacing.xs))
             if (signInFlow) {
-                Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+                Spacer(Modifier.height(Spacing.md))
                 // Like Simkl: sign in on Floppy's own page, no key to create or paste.
                 Button(
                     onClick = {
@@ -1760,7 +1768,7 @@ internal fun FloppyConnectionSettingsForm(
                     },
                     enabled = validUrl && !connectionUiState.running,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sign_in_button"),
-                    shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                    shape = RoundedCornerShape(Radius.Pill),
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
                 ) {
                     Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
@@ -1769,7 +1777,7 @@ internal fun FloppyConnectionSettingsForm(
                 }
             }
             if (keyFlow) {
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.md))
+            Spacer(Modifier.height(Spacing.md))
             OutlinedTextField(
                 value = apiKey,
                  onValueChange = { apiKey = if (apiKey.isEmpty() && editing) it.replace("•", "") else it },
@@ -1792,21 +1800,21 @@ internal fun FloppyConnectionSettingsForm(
                 colors = credentialFieldColors(),
             )
             }
-            Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
-            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { advancedExpanded = !advancedExpanded }.padding(vertical = com.cinetrack.ui.theme.Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
+            Spacer(Modifier.height(Spacing.sm))
+            Row(Modifier.fillMaxWidth().heightIn(min = 52.dp).clickable { advancedExpanded = !advancedExpanded }.padding(vertical = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(R.string.floppy_advanced), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
                 Icon(if (advancedExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted)
             }
             if (advancedExpanded) {
                 ToggleRow(stringResource(R.string.floppy_allow_http_local_network), allowLocalHttp) { allowLocalHttp = it }
-                Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm))
+                Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = Spacing.sm))
             }
             if (connectionUiState.stage != FloppyConnectionStage.IDLE) {
                 Text(
                     floppyConnectionStageLabel(connectionUiState.stage, state.floppyUiState),
                     color = if (connectionUiState.stage == FloppyConnectionStage.FAILED) androidx.compose.material3.MaterialTheme.colorScheme.error else TextMuted,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(vertical = com.cinetrack.ui.theme.Spacing.sm),
+                    modifier = Modifier.padding(vertical = Spacing.sm),
                 )
             }
             connectionUiState.error?.let { error ->
@@ -1814,7 +1822,7 @@ internal fun FloppyConnectionSettingsForm(
                     connectionUiState.message ?: floppyConnectionErrorMessage(error),
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.sm),
+                    modifier = Modifier.padding(bottom = Spacing.sm),
                 )
             }
             // Connected to this address, the button syncs (like Simkl's); a changed
@@ -1824,12 +1832,12 @@ internal fun FloppyConnectionSettingsForm(
                 onClick = { onSyncRequested?.invoke() },
                 enabled = !syncing && !connectionUiState.running,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sync_button"),
-                shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                shape = RoundedCornerShape(Radius.Pill),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
             ) {
                 if (syncing) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                    Spacer(Modifier.width(Spacing.sm))
                 } else {
                     Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
@@ -1844,12 +1852,12 @@ internal fun FloppyConnectionSettingsForm(
                 },
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_connect_button"),
-                shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill),
+                shape = RoundedCornerShape(Radius.Pill),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
             ) {
                 if (connectionUiState.running) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+                    Spacer(Modifier.width(Spacing.sm))
                 } else {
                     Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
@@ -1893,7 +1901,7 @@ private fun floppyConnectionErrorMessage(error: FloppyConnectionError): String =
 /** Shared credential/input treatment used by TMDB and Floppy. */
 private fun credentialFieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = Accent,
-    unfocusedBorderColor = com.cinetrack.ui.theme.GlassStrong,
+    unfocusedBorderColor = GlassStrong,
     errorBorderColor = androidx.compose.material3.MaterialTheme.colorScheme.error,
     focusedTextColor = TextPrimary,
     unfocusedTextColor = TextPrimary,
@@ -1994,7 +2002,7 @@ private fun ApiCredentialSettings(
         },
     )
     SettingsSection(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_credential)) {
-        Column(Modifier.padding(com.cinetrack.ui.theme.Spacing.md)) {
+        Column(Modifier.padding(Spacing.md)) {
             if (!compact) {
             Text(
                 if (configured) stringResource(R.string.api_credential_configured, service) else stringResource(R.string.api_credential_missing, service),
@@ -2007,13 +2015,13 @@ private fun ApiCredentialSettings(
                 color = TextMuted,
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 lineHeight = 15.sp,
-                modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs),
+                modifier = Modifier.padding(top = Spacing.xs),
             )
-            Text(help, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm))
-            Text(credentialLinkHelp, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xs))
+            Text(help, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 16.sp, modifier = Modifier.padding(top = Spacing.sm))
+            Text(credentialLinkHelp, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = Spacing.xs))
             TextButton(onClick = { runCatching { uriHandler.openUri(credentialUrl) } }, modifier = Modifier.fillMaxWidth()) {
                 Icon(Icons.Filled.Link, contentDescription = credentialLink, modifier = Modifier.size(17.dp))
-                Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.xs))
+                Spacer(Modifier.width(Spacing.xs))
                 Text(credentialLink, color = AccentLight)
             }
             Spacer(Modifier.height(9.dp))
@@ -2051,7 +2059,7 @@ private fun ApiCredentialSettings(
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     lineHeight = 15.sp,
-                    modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm),
+                    modifier = Modifier.padding(top = Spacing.sm),
                 )
             }
             Spacer(Modifier.height(9.dp))
@@ -2075,7 +2083,7 @@ private fun ApiCredentialSettings(
                     }
                 }
             }
-            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.sm))
+            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = Spacing.sm))
         }
     }
 }
@@ -2179,7 +2187,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
             hiddenEpisodes.forEach { episode ->
                 val showTitle = state.allMedia.firstOrNull { it.type == MediaType.TV && it.id == episode.showId }?.title.orEmpty()
                 Row(
-                    Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.lg, end = com.cinetrack.ui.theme.Spacing.sm, top = com.cinetrack.ui.theme.Spacing.sm, bottom = com.cinetrack.ui.theme.Spacing.sm),
+                    Modifier.fillMaxWidth().padding(start = Spacing.lg, end = Spacing.sm, top = Spacing.sm, bottom = Spacing.sm),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Column(Modifier.weight(1f)) {
@@ -2353,15 +2361,15 @@ private fun LogsSettings(viewModel: SettingsViewModel) {
 private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.ZoneId) {
     var expanded by remember(entry) { mutableStateOf(false) }
     val (tag, color) = when (entry.severity) {
-        com.cinetrack.domain.LogSeverity.ERROR -> stringResource(R.string.logs_error) to com.cinetrack.ui.theme.StatusDropped
-        com.cinetrack.domain.LogSeverity.WARNING -> stringResource(R.string.logs_warning) to com.cinetrack.ui.theme.StatusPaused
+        com.cinetrack.domain.LogSeverity.ERROR -> stringResource(R.string.logs_error) to StatusDropped
+        com.cinetrack.domain.LogSeverity.WARNING -> stringResource(R.string.logs_warning) to StatusPaused
         com.cinetrack.domain.LogSeverity.INFO -> stringResource(R.string.logs_info) to com.cinetrack.ui.theme.Info
     }
     Column(
         Modifier
             .fillMaxWidth()
             .clickable { expanded = !expanded }
-            .padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
+            .padding(horizontal = Spacing.lg, vertical = Spacing.sm),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -2372,7 +2380,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
                     .background(color.copy(alpha = .16f), androidx.compose.foundation.shape.RoundedCornerShape(50))
                     .padding(horizontal = 8.dp, vertical = 2.dp),
             )
-            Spacer(Modifier.width(com.cinetrack.ui.theme.Spacing.sm))
+            Spacer(Modifier.width(Spacing.sm))
             entry.at?.let {
                 Text(
                     it.atZone(zone).format(com.cinetrack.ui.UiDateFormatters.current.time),
@@ -2507,7 +2515,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
     com.cinetrack.ui.components.SharedGlassDialog(onDismiss) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 620.dp)
-                .padding(com.cinetrack.ui.theme.Spacing.lg),
+                .padding(Spacing.lg),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.History, null, tint = AccentLight, modifier = Modifier.size(23.dp))
@@ -2529,7 +2537,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                     Modifier.fillMaxWidth().height(150.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    com.cinetrack.ui.components.SkeletonLines(Modifier.fillMaxWidth().padding(com.cinetrack.ui.theme.Spacing.lg))
+                    com.cinetrack.ui.components.SkeletonLines(Modifier.fillMaxWidth().padding(Spacing.lg))
                 }
                 AppChangelogState.Empty -> Text(
                     stringResource(R.string.changelog_empty),
@@ -2573,9 +2581,9 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
 
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
-    Column(Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.md)) {
+    Column(Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
         SettingsGroupLabel(title)
-        Spacer(Modifier.height(com.cinetrack.ui.theme.Spacing.sm))
+        Spacer(Modifier.height(Spacing.sm))
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) { content() }
     }
 }
@@ -2589,7 +2597,7 @@ private fun currentAppLanguageLabel(): String {
 
 @Composable
 private fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> Unit) {
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChecked).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChecked).padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         CompactSwitch(checked)
     }
@@ -2600,11 +2608,11 @@ private fun CompactSwitch(checked: Boolean) {
     val knobOffset by animateDpAsState(if (checked) 22.dp else 3.dp, label = "switchKnob")
     Box(
         Modifier.width(52.dp).height(32.dp).clip(CircleShape)
-            .background(if (checked) Accent else com.cinetrack.ui.theme.Glass)
+            .background(if (checked) Accent else Glass)
             .border(.7.dp, AccentLight.copy(alpha = .24f), CircleShape),
     ) {
         // Glass knob over the track; the track and card it covers are redrawn under it.
-        val track = if (checked) Accent else com.cinetrack.ui.theme.Glass
+        val track = if (checked) Accent else Glass
         Box(
             Modifier.offset(x = knobOffset, y = 3.dp).size(26.dp)
                 .liquidGlass(
@@ -2619,7 +2627,7 @@ private fun CompactSwitch(checked: Boolean) {
 
 @Composable
 private fun ValueRow(title: String, value: String, success: Boolean = false) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
         Text(value, modifier = Modifier.weight(1f), textAlign = androidx.compose.ui.text.style.TextAlign.End, color = if (success) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
     }
@@ -2628,7 +2636,7 @@ private fun ValueRow(title: String, value: String, success: Boolean = false) {
 @Composable
 private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         ServiceLogo(name)
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
@@ -2642,12 +2650,12 @@ private fun ProviderRow(name: String, subtitle: String, configured: Boolean, onC
 private fun ServiceLogo(name: String, siteUrl: String? = null, size: androidx.compose.ui.unit.Dp = 38.dp) {
     val uriHandler = LocalUriHandler.current
     val (logo, background, logoSize) = when (name.lowercase()) {
-        "tmdb" -> Triple(R.drawable.ic_service_tmdb, com.cinetrack.ui.theme.SurfacePalette.OceanDeep, 29.dp)
-        "mdblist" -> Triple(R.drawable.ic_service_mdblist, com.cinetrack.ui.theme.SurfacePalette.CoolText, 24.dp)
+        "tmdb" -> Triple(R.drawable.ic_service_tmdb, SurfacePalette.OceanDeep, 29.dp)
+        "mdblist" -> Triple(R.drawable.ic_service_mdblist, SurfacePalette.CoolText, 24.dp)
         // Floppy's own app icon, full bleed.
         "floppy" -> Triple(R.drawable.floppy_app_icon, Color.Transparent, 38.dp)
         "trakt" -> Triple(R.drawable.ic_service_trakt, androidx.compose.ui.graphics.Color(0xFFED1C24), 26.dp)
-        else -> Triple(R.drawable.ic_service_simkl, com.cinetrack.ui.theme.SurfacePalette.WarmText, 24.dp)
+        else -> Triple(R.drawable.ic_service_simkl, SurfacePalette.WarmText, 24.dp)
     }
     Box(
         Modifier.size(size).clip(RoundedCornerShape(size * .3f)).background(background)
@@ -2669,7 +2677,7 @@ private fun ServiceLogo(name: String, siteUrl: String? = null, size: androidx.co
 @Composable
 internal fun ChoiceRow(title: String, selected: Boolean, description: String? = null, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.md), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).clickable(onClick = clickAction).padding(horizontal = Spacing.lg, vertical = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
             Text(title, color = if (selected) AccentLight else TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.ExtraBold else FontWeight.Bold)
             if (!description.isNullOrBlank()) {
@@ -2760,7 +2768,7 @@ private fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> Un
 @Composable
 private fun KitStatusPill(active: Boolean, text: String, modifier: Modifier = Modifier) {
     Row(
-        modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(Color.Black.copy(alpha = .28f))
+        modifier.clip(RoundedCornerShape(Radius.Pill)).background(Color.Black.copy(alpha = .28f))
             .padding(horizontal = 10.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2830,7 +2838,7 @@ private fun KitToggleRow(icon: ImageVector, title: String, subtitle: String?, ch
 @Composable
 private fun KitStatTiles(stats: List<Pair<String, String>>) {
     Row(
-        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+        Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
             .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -2846,9 +2854,9 @@ private fun KitStatTiles(stats: List<Pair<String, String>>) {
 @Composable
 private fun KitPrimaryButton(text: String, icon: ImageVector, color: Color, enabled: Boolean = true, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val shape = RoundedCornerShape(Radius.Pill)
     Row(
-        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth().height(52.dp)
+        Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth().height(52.dp)
             .clip(shape).background(if (enabled) color.copy(alpha = .9f) else Color.White.copy(alpha = .08f))
             .border(.6.dp, Color.White.copy(alpha = .14f), shape)
             .clickable(enabled = enabled, onClick = clickAction),
@@ -2864,13 +2872,13 @@ private fun KitPrimaryButton(text: String, icon: ImageVector, color: Color, enab
 @Composable
 private fun KitDangerText(text: String, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
-    Box(Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.md), contentAlignment = Alignment.Center) {
+    Box(Modifier.fillMaxWidth().padding(top = Spacing.md), contentAlignment = Alignment.Center) {
         Text(
             text,
             color = Color(0xFFF09595),
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = 12.dp),
+            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = 12.dp),
         )
     }
 }
@@ -2898,7 +2906,7 @@ private fun ConfirmedDangerText(text: String, title: String, body: String, onCon
 @Composable
 private fun KitFootnote(text: String) {
     Text(text, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, lineHeight = 15.sp,
-        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = 2.dp))
+        modifier = Modifier.padding(horizontal = Spacing.xxl, vertical = 2.dp))
 }
 
 @Composable
@@ -2907,7 +2915,7 @@ private fun KitNotice(text: String) {
         text,
         color = Color(0xFFF7C1C1),
         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-        modifier = Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.xs).fillMaxWidth()
+        modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xs).fillMaxWidth()
             .clip(RoundedCornerShape(16.dp)).background(Color(0x33E24B4A)).padding(14.dp),
     )
 }
@@ -2917,7 +2925,7 @@ private fun KitNotice(text: String) {
 private fun KitStatusCard(ok: Boolean, title: String, subtitle: String) {
     val tint = if (ok) Color(0xFF5DCAA5) else Color(0xFFF0997B)
     Row(
-        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+        Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
             .glass(RoundedCornerShape(20.dp)).padding(16.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -2937,7 +2945,7 @@ private fun KitStatusCard(ok: Boolean, title: String, subtitle: String) {
 private fun KitCallout(icon: ImageVector, title: String, body: String, action: String, onAction: () -> Unit) {
     val clickAction = rememberUiAction(onAction)
     Row(
-        Modifier.padding(horizontal = com.cinetrack.ui.theme.Spacing.xl, vertical = com.cinetrack.ui.theme.Spacing.sm).fillMaxWidth()
+        Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
             .clip(RoundedCornerShape(20.dp)).background(Accent.copy(alpha = .16f))
             .border(.6.dp, Accent.copy(alpha = .35f), RoundedCornerShape(20.dp)).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -2950,7 +2958,7 @@ private fun KitCallout(icon: ImageVector, title: String, body: String, action: S
         }
         Spacer(Modifier.width(8.dp))
         Text(action, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(Accent).clickable(onClick = clickAction).padding(horizontal = 14.dp, vertical = 8.dp))
+            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(Accent).clickable(onClick = clickAction).padding(horizontal = 14.dp, vertical = 8.dp))
     }
 }
 
@@ -2971,7 +2979,7 @@ private fun KitSteps(title: String, steps: List<String>, linkLabel: String? = nu
             if (linkLabel != null) {
                 val clickAction = rememberUiAction(onLink)
                 Row(
-                    Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable(onClick = clickAction).padding(vertical = 6.dp, horizontal = 2.dp),
+                    Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable(onClick = clickAction).padding(vertical = 6.dp, horizontal = 2.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, null, tint = AccentLight, modifier = Modifier.size(16.dp))
@@ -3000,7 +3008,7 @@ private fun CredentialBlock(service: String, configured: Boolean, onSave: (Strin
                     color = AccentLight,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                     fontWeight = FontWeight.Bold,
-                    modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).clickable { editing = true }.padding(horizontal = 10.dp, vertical = 6.dp),
+                    modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable { editing = true }.padding(horizontal = 10.dp, vertical = 6.dp),
                 )
             })
         }

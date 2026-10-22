@@ -76,6 +76,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.SurfacePalette
 
 /*
  * Calendar and History share one timeline language: the same day headers
@@ -84,7 +86,7 @@ import java.time.temporal.ChronoUnit
  * back with each day's total and binge sessions folded into one card.
  */
 
-private val CardShape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)
+private val CardShape = RoundedCornerShape(Radius.Medium)
 
 internal fun timelineDate(raw: String): LocalDate? = releaseDateTime(raw, ZoneId.systemDefault())?.toLocalDate()
 
@@ -130,7 +132,7 @@ private fun open(item: TimelineCard, onMedia: (MediaCard) -> Unit, onEpisode: (E
 @Composable
 private fun PosterThumb(media: MediaCard, width: androidx.compose.ui.unit.Dp, height: androidx.compose.ui.unit.Dp) {
     Box(
-        Modifier.width(width).height(height).clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Small))
+        Modifier.width(width).height(height).clip(RoundedCornerShape(Radius.Small))
             .background(Brush.linearGradient(listOf(Accent.copy(alpha = .5f), Info.copy(alpha = .32f)))),
     ) {
         if (!media.posterUrl.isNullOrBlank()) AsyncImage(media.posterUrl, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -317,7 +319,7 @@ private fun FeaturedRelease(group: List<TimelineCard>, reminderOn: Boolean, onRe
     StackedCard(group.size > 1, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.md)) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 8.5f)
-                .clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large))
+                .clip(RoundedCornerShape(Radius.Large))
                 .background(Brush.linearGradient(listOf(Accent.copy(alpha = .55f), Info.copy(alpha = .25f))))
                 .clickable(onClick = onOpen),
         ) {
@@ -326,7 +328,7 @@ private fun FeaturedRelease(group: List<TimelineCard>, reminderOn: Boolean, onRe
             val clock = if (com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
             if (clock.isNotBlank()) Text(
                 clock, color = TextPrimary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Compact)).padding(horizontal = 9.dp, vertical = 4.dp),
+                modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(Radius.Compact)).padding(horizontal = 9.dp, vertical = 4.dp),
             )
             Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ReminderBell(reminderOn, onReminder, onArt = true) }
             Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
@@ -460,7 +462,7 @@ internal fun LazyListScope.historyTimeline(
 private fun Milestone(text: String, color: Color) {
     Text(
         text, color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1,
-        modifier = Modifier.clip(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)).background(color.copy(alpha = .16f))
+        modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(color.copy(alpha = .16f))
             .padding(horizontal = 8.dp, vertical = 3.dp),
     )
 }
@@ -499,7 +501,7 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
                 Text(detail, color = TextSecondary, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (session.seasonFinished || session.rewatch) {
                     Row(Modifier.padding(top = 5.dp), horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                        if (session.seasonFinished) Milestone(stringResource(R.string.milestone_season_finished), com.cinetrack.ui.theme.SurfacePalette.PosterMint)
+                        if (session.seasonFinished) Milestone(stringResource(R.string.milestone_season_finished), SurfacePalette.PosterMint)
                         if (session.rewatch) Milestone(stringResource(R.string.milestone_rewatch), Violet)
                     }
                 }

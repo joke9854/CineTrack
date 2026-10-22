@@ -47,6 +47,9 @@ import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
+import com.cinetrack.ui.theme.GlassBorder
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.Spacing
 
 private data class IntroductionPage(
     val title: Int,
@@ -68,14 +71,14 @@ fun IntroductionScreen(
     val page = pages[pageIndex]
     AdaptiveBackground {
         Column(
-            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.xxl, vertical = com.cinetrack.ui.theme.Spacing.xxl),
+            Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().padding(horizontal = Spacing.xxl, vertical = Spacing.xxl),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             BrandMark(62.dp)
-            Text("CineTrack", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md))
+            Text("CineTrack", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black, modifier = Modifier.padding(top = Spacing.md))
             Spacer(Modifier.weight(1f))
             Box(
-                Modifier.size(78.dp).glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Large)).background(Accent.copy(alpha = .20f)),
+                Modifier.size(78.dp).glass(RoundedCornerShape(Radius.Large)).background(Accent.copy(alpha = .20f)),
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(page.icon, null, tint = AccentLight, modifier = Modifier.size(36.dp))
@@ -87,7 +90,7 @@ fun IntroductionScreen(
                 lineHeight = 32.sp,
                 fontWeight = FontWeight.Black,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.xxl),
+                modifier = Modifier.padding(top = Spacing.xxl),
             )
             Text(
                 stringResource(page.body),
@@ -95,14 +98,14 @@ fun IntroductionScreen(
                 style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                 lineHeight = 22.sp,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.padding(top = com.cinetrack.ui.theme.Spacing.md),
+                modifier = Modifier.padding(top = Spacing.md),
             )
             Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = com.cinetrack.ui.theme.Spacing.xl)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = Spacing.xl)) {
                 pages.indices.forEach { index ->
                     Box(
                         Modifier.size(if (index == pageIndex) 20.dp else 8.dp, 8.dp)
-                            .background(if (index == pageIndex) AccentLight else com.cinetrack.ui.theme.GlassBorder, CircleShape),
+                            .background(if (index == pageIndex) AccentLight else GlassBorder, CircleShape),
                     )
                 }
             }
@@ -126,7 +129,7 @@ fun IntroductionScreen(
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Bold,
                     textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth().height(48.dp).clickable(onClick = later).padding(top = com.cinetrack.ui.theme.Spacing.lg),
+                    modifier = Modifier.fillMaxWidth().height(48.dp).clickable(onClick = later).padding(top = Spacing.lg),
                 )
             }
         }

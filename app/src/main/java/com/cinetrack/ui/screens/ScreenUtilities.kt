@@ -23,6 +23,8 @@ import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.ui.theme.AccentLight
 import java.time.LocalDate
 import java.time.ZoneId
+import com.cinetrack.ui.theme.Spacing
+import com.cinetrack.ui.theme.SurfacePalette
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,8 +50,8 @@ internal fun LongPullRefreshContainer(
         PullToRefreshDefaults.Indicator(
             state = pullState,
             isRefreshing = refreshing,
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.xs),
-            containerColor = com.cinetrack.ui.theme.SurfacePalette.MenuSurface,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.xs),
+            containerColor = SurfacePalette.MenuSurface,
             color = AccentLight,
             maxDistance = 62.dp,
         )

@@ -63,6 +63,13 @@ import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.theme.TextMuted
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
+import com.cinetrack.ui.theme.Accent
+import com.cinetrack.ui.theme.AccentLight
+import com.cinetrack.ui.theme.Gold
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.StatusDropped
+import com.cinetrack.ui.theme.Success
+import com.cinetrack.ui.theme.SurfacePalette
 
 /** Popup material shared by menus, dialogs and sheets. */
 internal object PopupMaterial {
@@ -267,7 +274,7 @@ internal fun MediaContextMenu(
                     text = stringResource(R.string.watched),
                     icon = Icons.Filled.Check,
                     filled = completed,
-                    tint = com.cinetrack.ui.theme.Success,
+                    tint = Success,
                     modifier = Modifier.weight(1f),
                 ) { onStatus(if (completed) LibraryStatus.NONE else LibraryStatus.COMPLETED) }
                 if (onNotInterested != null) {
@@ -290,7 +297,7 @@ private fun ContextMenuHeader(media: MediaCard) {
     Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
         Box(
             Modifier.width(72.dp).height(108.dp).clip(RoundedCornerShape(12.dp))
-                .background(Brush.linearGradient(listOf(com.cinetrack.ui.theme.SurfacePalette.PosterShadow, PopupMaterial.Scrim))),
+                .background(Brush.linearGradient(listOf(SurfacePalette.PosterShadow, PopupMaterial.Scrim))),
         ) {
             val art = media.posterUrl ?: media.backdropUrl
             if (!art.isNullOrBlank()) AsyncImage(art, media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
@@ -300,7 +307,7 @@ private fun ContextMenuHeader(media: MediaCard) {
             Text(media.title, color = TextPrimary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
             Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 3.dp)) {
                 media.score?.takeIf { it > 0 }?.let { score ->
-                    Icon(Icons.Filled.Star, null, tint = com.cinetrack.ui.theme.Gold, modifier = Modifier.size(13.dp))
+                    Icon(Icons.Filled.Star, null, tint = Gold, modifier = Modifier.size(13.dp))
                     Spacer(Modifier.width(3.dp))
                     Text(String.format(com.cinetrack.ui.currentLocale(), "%.1f", score) + "  •  ", color = TextSecondary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                 }
@@ -368,7 +375,7 @@ internal fun TonalButton(
     onClick: () -> Unit,
 ) {
     val clickAction = rememberUiAction(onClick)
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val shape = RoundedCornerShape(Radius.Pill)
     Row(
         modifier.height(52.dp).clip(shape)
             .background(if (filled) tint.copy(alpha = .78f) else Color.White.copy(alpha = .05f))
@@ -389,11 +396,11 @@ internal fun TonalButton(
 /** Floating pill with the current backup or restore stage and a thin progress line. */
 @Composable
 fun BackupProgressPill(progress: com.cinetrack.domain.BackupProgress) {
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val shape = RoundedCornerShape(Radius.Pill)
     val tint = when {
-        progress.failed -> com.cinetrack.ui.theme.StatusDropped
-        progress.finished -> com.cinetrack.ui.theme.Success
-        else -> com.cinetrack.ui.theme.AccentLight
+        progress.failed -> StatusDropped
+        progress.finished -> Success
+        else -> AccentLight
     }
     val fraction by androidx.compose.animation.core.animateFloatAsState(
         progress.fraction ?: 0f,
@@ -452,11 +459,11 @@ fun StatusPill(
     onAction: (() -> Unit)? = null,
     onDismiss: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val shape = RoundedCornerShape(Radius.Pill)
     val tint = when (tone) {
-        PillTone.FAILED -> com.cinetrack.ui.theme.StatusDropped
-        PillTone.DONE -> com.cinetrack.ui.theme.Success
-        else -> com.cinetrack.ui.theme.AccentLight
+        PillTone.FAILED -> StatusDropped
+        PillTone.DONE -> Success
+        else -> AccentLight
     }
     val shownFraction by androidx.compose.animation.core.animateFloatAsState(fraction ?: 0f, androidx.compose.animation.core.tween(300), label = "pillFraction")
     Column(
@@ -484,7 +491,7 @@ fun StatusPill(
             if (actionLabel != null && onAction != null) {
                 Spacer(Modifier.width(10.dp))
                 Box(
-                    Modifier.clip(shape).background(com.cinetrack.ui.theme.Accent).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onAction)
+                    Modifier.clip(shape).background(Accent).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onAction)
                         .heightIn(min = 34.dp).padding(horizontal = 14.dp),
                     contentAlignment = Alignment.Center,
                 ) { Text(actionLabel, color = Color.White, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold) }

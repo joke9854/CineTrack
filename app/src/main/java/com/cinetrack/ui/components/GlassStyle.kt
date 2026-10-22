@@ -60,13 +60,17 @@ import com.styropyr0.prismal.shapes.PrismalCapsule
 import com.styropyr0.prismal.specular.PrismalSpecular
 import com.styropyr0.prismal.sources.PrismalGlassLayer
 import com.styropyr0.prismal.sources.rememberPrismalGlassLayer
+import com.cinetrack.ui.theme.Accent
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.Success
+import com.cinetrack.ui.theme.SurfacePalette
 
 // One material family: lightweight content, compact controls, and live overlays.
 internal object GlassMaterial {
-    val Content = com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .27f)
+    val Content = SurfacePalette.GlassSurface.copy(alpha = .27f)
     /** Cards: a faint cool lift so they read as raised on the near-black page. */
-    val Card = Color(0xFFB4C3D2).copy(alpha = .075f).compositeOver(com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .30f))
-    val Control = com.cinetrack.ui.theme.SurfacePalette.GlassSurface.copy(alpha = .58f)
+    val Card = Color(0xFFB4C3D2).copy(alpha = .075f).compositeOver(SurfacePalette.GlassSurface.copy(alpha = .30f))
+    val Control = SurfacePalette.GlassSurface.copy(alpha = .58f)
     val OverlayFallback = Background0.copy(alpha = .90f)
     val DetailSurface = Background0.copy(alpha = .58f)
 }
@@ -317,7 +321,7 @@ internal fun Modifier.liquidGlass(
 @Composable
 internal fun Modifier.liquidGlassPill(under: Color = Color.Unspecified): Modifier =
     liquidGlass(surface = GlassMaterial.Content, refraction = 8.dp, under = under) {
-        glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill), fill = GlassMaterial.Content)
+        glass(RoundedCornerShape(Radius.Pill), fill = GlassMaterial.Content)
     }
 
 /** [glassIcon] as liquid glass: same 6dp inset and circular control material; no lift, the IconButton clips it. */
@@ -335,8 +339,8 @@ internal fun Modifier.liquidGlassIcon(under: Color = Color.Unspecified): Modifie
  * container when selected. Flat on purpose, so long chip rows scroll without
  * re-blurring the page for every chip.
  */
-internal fun Modifier.tonalPill(selected: Boolean, tint: Color = com.cinetrack.ui.theme.Accent): Modifier {
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+internal fun Modifier.tonalPill(selected: Boolean, tint: Color = Accent): Modifier {
+    val shape = RoundedCornerShape(Radius.Pill)
     return clip(shape)
         .background(if (selected) tint.copy(alpha = .28f) else Color.White.copy(alpha = .06f))
         .border(.6.dp, if (selected) tint.copy(alpha = .42f) else Color.White.copy(alpha = .08f), shape)
@@ -362,17 +366,17 @@ private val PanelSurface: DrawScope.() -> Unit = { drawRect(Background0.copy(alp
 /** The popup material, clipped to an action. Capture only the separate artwork/backdrop. */
 @Composable
 internal fun Modifier.liveActionGlass(state: HazeState?, completed: Boolean = false): Modifier {
-    val shape = RoundedCornerShape(com.cinetrack.ui.theme.Radius.Pill)
+    val shape = RoundedCornerShape(Radius.Pill)
     val style = if (!completed) NavGlassStyle else HazeStyle(
         backgroundColor = Background0,
-        tint = HazeTint(com.cinetrack.ui.theme.Success.copy(alpha = .45f)),
+        tint = HazeTint(Success.copy(alpha = .45f)),
         blurRadius = 16.dp,
         noiseFactor = .03f,
-        fallbackTint = HazeTint(com.cinetrack.ui.theme.Success.copy(alpha = .82f)),
+        fallbackTint = HazeTint(Success.copy(alpha = .82f)),
     )
     return clip(shape)
         .then(if (state != null) Modifier.hazeEffect(state, style = style)
-            else Modifier.background(if (completed) com.cinetrack.ui.theme.Success.copy(alpha = .82f) else GlassMaterial.OverlayFallback))
+            else Modifier.background(if (completed) Success.copy(alpha = .82f) else GlassMaterial.OverlayFallback))
         .border(.7.dp, ControlEdgeBrush, shape)
 }
 
@@ -488,7 +492,7 @@ internal fun Modifier.slidingTabIndicator(state: TabIndicatorState, selected: In
     return drawBehind {
         val line = 2.dp.toPx()
         if (width.value > 0f) drawRoundRect(
-            com.cinetrack.ui.theme.Accent,
+            Accent,
             topLeft = androidx.compose.ui.geometry.Offset(left.value, size.height - line),
             size = androidx.compose.ui.geometry.Size(width.value, line),
             cornerRadius = androidx.compose.ui.geometry.CornerRadius(line / 2),

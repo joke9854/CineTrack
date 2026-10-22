@@ -33,6 +33,7 @@ import com.cinetrack.ui.theme.GlassStrong
 import com.cinetrack.ui.theme.Motion
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
+import com.cinetrack.ui.theme.PosterAspectRatio
 
 @Composable
 fun SkeletonBox(
@@ -70,6 +71,6 @@ fun SkeletonLines(modifier: Modifier = Modifier) {
 fun SkeletonPosterRow(modifier: Modifier = Modifier) {
     val loading = stringResource(R.string.loading)
     Row(modifier.semantics { contentDescription = loading }, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
-        repeat(3) { SkeletonBox(Modifier.weight(1f).aspectRatio(com.cinetrack.ui.theme.PosterAspectRatio)) }
+        repeat(3) { SkeletonBox(Modifier.weight(1f).aspectRatio(PosterAspectRatio)) }
     }
 }

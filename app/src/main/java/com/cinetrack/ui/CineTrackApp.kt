@@ -90,6 +90,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.theme.LocalCardAppearance
+import com.cinetrack.ui.theme.Motion
+import com.cinetrack.ui.theme.Radius
+import com.cinetrack.ui.theme.Spacing
 
 private object Routes {
     const val Discover = "discover"
@@ -345,7 +349,7 @@ fun CineTrackApp(
     Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
         com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, pageGlass, navShown) { captureModifier ->
         androidx.compose.runtime.CompositionLocalProvider(
-            com.cinetrack.ui.theme.LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape),
+            LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape),
             com.cinetrack.ui.components.LocalPopupBlur provides popupBlur,
         ) {
         // Shared elements (the tapped poster flying into the detail page) need one scope
@@ -361,11 +365,11 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(Motion.Medium))
                     isDetailRoute(targetState.destination.route) -> DetailEnter
-                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(Motion.Medium))
                 }
             },
             exitTransition = {
@@ -373,11 +377,11 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
                     isDetailRoute(targetState.destination.route) -> DetailExit
-                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(Motion.Short))
                 }
             },
             popEnterTransition = {
@@ -385,11 +389,11 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(Motion.Medium))
                     from != null && to != null && to < from ->
-                        slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(Motion.Medium))
                     isDetailRoute(initialState.destination.route) -> DetailPopEnter
-                    else -> slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium))
+                    else -> slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(Motion.Medium))
                 }
             },
             popExitTransition = {
@@ -397,11 +401,11 @@ fun CineTrackApp(
                 val to = mainPageIndex(targetState.destination.route)
                 when {
                     from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(Motion.Short))
                     from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
                     isDetailRoute(initialState.destination.route) -> DetailPopExit
-                    else -> slideOutHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(com.cinetrack.ui.theme.Motion.Short))
+                    else -> slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
                 }
             },
         ) {
@@ -637,7 +641,7 @@ fun CineTrackApp(
         }
         AnimatedVisibility(
             visible = navShown,
-            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium, easing = FastOutSlowInEasing)) { it / 2 },
+            enter = fadeIn(tween(Motion.Medium)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 2 },
             exit = fadeOut(tween(100)),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
@@ -655,7 +659,7 @@ fun CineTrackApp(
                         restoreState = true
                     }
                 },
-                modifier = Modifier.navigationBarsPadding().padding(bottom = com.cinetrack.ui.theme.Spacing.lg),
+                modifier = Modifier.navigationBarsPadding().padding(bottom = Spacing.lg),
             )
         }
 
@@ -664,15 +668,15 @@ fun CineTrackApp(
         if (backupProgress != null) shownBackup = backupProgress
         AnimatedVisibility(
             visible = backupProgress != null,
-            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
-            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm),
+            enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
+            exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm),
         ) {
             shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
         }
         // Library artwork refresh and an available update report in the same pill spot.
         com.cinetrack.ui.screens.FloppyAddressMoveDialog(syncSettingsViewModel)
-        LibraryArtworkPill(libraryArtwork, onDismiss = libraryViewModel::dismissProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm))
+        LibraryArtworkPill(libraryArtwork, onDismiss = libraryViewModel::dismissProgress, modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm))
         // Once per launch, after the start-up animation: offer a newer release.
         var updateDismissed by androidx.compose.runtime.saveable.rememberSaveable { mutableStateOf<String?>(null) }
         LaunchedEffect(minimumLaunchElapsed) {
@@ -687,9 +691,9 @@ fun CineTrackApp(
         if (offeredUpdate != null) shownUpdate = offeredUpdate
         AnimatedVisibility(
             visible = offeredUpdate != null && offeredUpdate.version != updateDismissed && backupProgress == null && !libraryArtwork.progressVisible,
-            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
-            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = com.cinetrack.ui.theme.Spacing.sm),
+            enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
+            exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm),
         ) {
             shownUpdate?.let { update ->
                 val downloading = appUpdateState as? com.cinetrack.data.update.AppUpdateState.Downloading
@@ -706,12 +710,12 @@ fun CineTrackApp(
         }
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
-            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + slideInHorizontally(tween(com.cinetrack.ui.theme.Motion.Medium)) { it / 5 },
-            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Short)),
-            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = com.cinetrack.ui.theme.Spacing.lg, vertical = com.cinetrack.ui.theme.Spacing.sm),
+            enter = fadeIn(tween(Motion.Short)) + slideInHorizontally(tween(Motion.Medium)) { it / 5 },
+            exit = fadeOut(tween(Motion.Short)),
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         ) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(com.cinetrack.ui.theme.Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(com.cinetrack.ui.theme.Spacing.md),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))
@@ -722,8 +726,8 @@ fun CineTrackApp(
 
         AnimatedVisibility(
             visible = !minimumLaunchElapsed || state.loading,
-            enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)),
-            exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Long, easing = FastOutSlowInEasing)),
+            enter = fadeIn(tween(Motion.Short)),
+            exit = fadeOut(tween(Motion.Long, easing = FastOutSlowInEasing)),
             modifier = Modifier.align(Alignment.Center),
         ) {
             Box(
@@ -776,8 +780,8 @@ private fun LibraryArtworkPill(artwork: com.cinetrack.ui.library.LibraryArtworkS
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(com.cinetrack.ui.theme.Motion.Short)) + androidx.compose.animation.slideInVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
-        exit = fadeOut(tween(com.cinetrack.ui.theme.Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(com.cinetrack.ui.theme.Motion.Medium)) { -it },
+        enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
+        exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
         modifier = modifier,
     ) {
         val current = shown ?: return@AnimatedVisibility
