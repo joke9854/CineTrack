@@ -524,7 +524,7 @@ class MarkEpisodeWatchedReceiver : BroadcastReceiver() {
                 val showId = intent.getIntExtra("showId", 0)
                 val season = intent.getIntExtra("season", 0)
                 val number = intent.getIntExtra("episode", 0)
-                android.util.Log.i("CineTrackWidget", "mark: $showId:S${season}E$number")
+                if (com.cinetrack.BuildConfig.DEBUG) android.util.Log.i("CineTrackWidget", "mark: $showId:S${season}E$number")
                 if (showId > 0 && season >= 0 && number > 0) {
                     val container = (context.applicationContext as CineTrackApplication).container
                     container.syncHost.awaitStartup()

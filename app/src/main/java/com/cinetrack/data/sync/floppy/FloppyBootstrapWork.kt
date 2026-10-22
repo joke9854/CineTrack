@@ -523,7 +523,7 @@ class FloppyBootstrapWorker(
                             break
                         }
                     }
-                    Log.i(TAG, "Floppy bootstrap batch started: run=$runId connection=$expected size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId}")
+                    if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, "Floppy bootstrap batch started: run=$runId connection=$expected size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId}")
                     val batchStartedAt = System.nanoTime()
                     val selectMs = (batchStartedAt - selectStartedAt) / 1_000_000
                     var networkMs = 0L
@@ -623,7 +623,7 @@ class FloppyBootstrapWorker(
                     val countStartedAt = System.nanoTime()
                     val remaining = application.container.syncCoordinator.pendingBootstrapCount(expected)
                     val countMs = (System.nanoTime() - countStartedAt) / 1_000_000
-                    Log.i(TAG, "Floppy bootstrap timing: select=${selectMs}ms network=${networkMs}ms outcomes=${outcomesMs}ms push+ack=${(countStartedAt - batchStartedAt) / 1_000_000}ms count=${countMs}ms")
+                    if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, "Floppy bootstrap timing: select=${selectMs}ms network=${networkMs}ms outcomes=${outcomesMs}ms push+ack=${(countStartedAt - batchStartedAt) / 1_000_000}ms count=${countMs}ms")
                     processed = (total - remaining).coerceIn(processed, total)
                     lastProgressAt = System.currentTimeMillis()
                     stalledPublished = false
@@ -634,7 +634,7 @@ class FloppyBootstrapWorker(
                     val batchLine = "Floppy bootstrap batch complete: run=$runId size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId} durationMs=$batchMs processed=$processed total=$total"
                     // The in-app log is capped, so only slow batches and a periodic
                     // summary go there; every batch still reaches logcat.
-                    if (batchMs >= SLOW_BATCH_MS || completedBatches % BATCH_LOG_EVERY == 0) report(batchLine) else Log.i(TAG, batchLine)
+                    if (batchMs >= SLOW_BATCH_MS || completedBatches % BATCH_LOG_EVERY == 0) report(batchLine) else if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, batchLine)
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))
                 }
@@ -676,7 +676,7 @@ class FloppyBootstrapWorker(
             return Result.failure(progressData(attention))
         }
         setProgress(progressData(FloppyBootstrapProgress(FloppyBootstrapStage.VERIFYING, processed, total, processed, failed, expected)))
-        Log.i(TAG, "Floppy bootstrap verifying: run=$runId connection=$expected")
+        if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, "Floppy bootstrap verifying: run=$runId connection=$expected")
         val ready = coordinator.markReadyIfComplete()
         if (!ready) {
             report(warn = true, message = "Floppy bootstrap not marked ready: run=$runId connection=$expected verification did not pass (see the line above)")
@@ -729,7 +729,7 @@ class FloppyBootstrapWorker(
     /** Logcat plus the in-app error log (Settings), so sync problems can be
      * read on the device. Messages carry ids, counts and error summaries only. */
     private fun report(message: String, warn: Boolean = false) {
-        if (warn) Log.w(TAG, message) else Log.i(TAG, message)
+        if (warn) Log.w(TAG, message) else if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, message)
         (applicationContext as? CineTrackApplication)?.container?.preferences
             ?.appendErrorLog("${java.time.Instant.now()}  $message")
     }

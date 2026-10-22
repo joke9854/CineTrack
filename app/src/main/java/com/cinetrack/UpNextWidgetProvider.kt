@@ -87,7 +87,7 @@ class UpNextWidgetProvider : GlanceAppWidgetReceiver() {
             runCatching {
                 val widget = UpNextWidget()
                 val ids = GlanceAppWidgetManager(appContext).getGlanceIds(UpNextWidget::class.java)
-                Log.i(WIDGET_LOG, "refresh: ${ids.size} widget(s)")
+                if (com.cinetrack.BuildConfig.DEBUG) Log.i(WIDGET_LOG, "refresh: ${ids.size} widget(s)")
                 ids.forEach { id ->
                     updateAppWidgetState(appContext, id) { it[REFRESH_STAMP] = System.currentTimeMillis() }
                     widget.update(appContext, id)
@@ -128,7 +128,7 @@ private class UpNextWidget : GlanceAppWidget() {
             var data by remember { mutableStateOf(initial) }
             // A new stamp from refreshNow() means the next episodes changed while this session was alive.
             LaunchedEffect(stamp) {
-                Log.i(WIDGET_LOG, "session stamp=$stamp")
+                if (com.cinetrack.BuildConfig.DEBUG) Log.i(WIDGET_LOG, "session stamp=$stamp")
                 if (stamp != 0L) data = load(context)
             }
             Content(context, data.first, data.second)
@@ -148,7 +148,7 @@ private class UpNextWidget : GlanceAppWidget() {
             emptyList()
         }
         // Episode coordinates only, no titles.
-        Log.i(WIDGET_LOG, "load: " + cards.joinToString { "${it.media.id}:S${it.season}E${it.episodeNumber}" })
+        if (com.cinetrack.BuildConfig.DEBUG) Log.i(WIDGET_LOG, "load: " + cards.joinToString { "${it.media.id}:S${it.season}E${it.episodeNumber}" })
         cards to cards.map { card -> card.media.posterUrl?.let { loadPoster(context, it) } }
     }
 
