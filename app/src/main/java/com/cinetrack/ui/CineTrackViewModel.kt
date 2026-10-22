@@ -545,23 +545,27 @@ class CineTrackViewModel(
     private suspend fun readCachedState(): AppUiState = withContext(Dispatchers.Main.immediate) {
         var version: Long
         var cached: AppUiState
+        var watched: Set<Triple<Int, Int, Int>>
         do {
             version = pendingEpisodeEdits.version
-            cached = withContext(Dispatchers.IO) {
+            val loaded = withContext(Dispatchers.IO) {
                 // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
-                appState.loadCachedState().copy(
+                val state = appState.loadCachedState().copy(
                     simklReconnectReason = preferences.simklReconnectReason.first(),
                     simklFirstSyncPending = preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
                     floppyUsername = preferences.floppyUsername.first(),
                     hideAdultTitles = preferences.hideAdultTitles.first(),
                 )
+                // Scanning the whole history happens here too, off the main thread.
+                state to state.history.mapNotNull { event ->
+                    val season = event.season ?: return@mapNotNull null
+                    val number = event.episodeNumber ?: return@mapNotNull null
+                    if (event.media.type == MediaType.TV) Triple(event.media.id, season, number) else null
+                }.toSet()
             }
+            cached = loaded.first
+            watched = loaded.second
         } while (version != pendingEpisodeEdits.version)
-        val watched = cached.history.mapNotNull { event ->
-            val season = event.season ?: return@mapNotNull null
-            val number = event.episodeNumber ?: return@mapNotNull null
-            if (event.media.type == MediaType.TV) Triple(event.media.id, season, number) else null
-        }.toSet()
         val pendingShows = pendingEpisodeEdits.unconfirmedShows(watched)
         if (pendingShows.isEmpty()) cached else cached.copy(
             playbackTv = _state.value.playbackTv.filter { it.media.id in pendingShows } +
