@@ -1,3 +1,10 @@
+# CineTrack 0.99.71 beta
+
+**Changes**
+- Behind the scenes: the app's old all-in-one data layer is gone. Metadata settings, backups, title and episode details, Progress, Discover and search, the app's saved state, Floppy and Simkl sign-in, and sync conflicts each have their own part now, and what remains only handles syncing with Simkl and Floppy. Everything works as before; this makes later fixes safer.
+- Sync conflicts: Keep local and Use remote work as before and now have automated tests, including that Use remote keeps the remote watched time exactly.
+- The startup profile was recorded again on a real phone, so the reorganised code is prepared at install time as well.
+
 # CineTrack 0.99.70 beta
 
 **Changes**
