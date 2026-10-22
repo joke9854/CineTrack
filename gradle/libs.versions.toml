@@ -60,7 +60,6 @@ coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version
 haze = "dev.chrisbanes.haze:haze:1.6.10"
 prismal-agsl = "com.github.styropyr0:PrismalAGSL:1.0.4"
 youtube-player-core = "com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0"
-errorprone-annotations = "com.google.errorprone:error_prone_annotations:2.36.0"
 
 junit = "junit:junit:4.13.2"
 robolectric = "org.robolectric:robolectric:4.17"

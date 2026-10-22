@@ -183,7 +183,6 @@ dependencies {
     // Liquid glass (AGSL refraction, specular rim) for compact controls.
     implementation(libs.prismal.agsl)
     implementation(libs.youtube.player.core)
-    implementation(libs.errorprone.annotations)
 
     testImplementation(libs.junit)
     testImplementation(libs.robolectric)
