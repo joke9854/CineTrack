@@ -96,7 +96,8 @@ class FloppyApiClientFactory(
                 redactHeader("Authorization")
                 level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
             }
-            val client = OkHttpClient.Builder()
+            // Shares the app's connection pool; Floppy keeps its own timeouts and redirect rule.
+            val client = com.cinetrack.data.remote.SharedHttp.client.newBuilder()
                 .followRedirects(false)
                 .followSslRedirects(false)
                 .connectTimeout(20, TimeUnit.SECONDS)

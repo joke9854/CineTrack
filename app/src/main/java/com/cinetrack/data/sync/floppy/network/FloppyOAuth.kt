@@ -109,7 +109,7 @@ private data class TokenResponse(
 class FloppyOAuthClient(
     private val store: FloppyOAuthTokenStore,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val http: OkHttpClient = OkHttpClient.Builder()
+    private val http: OkHttpClient = com.cinetrack.data.remote.SharedHttp.client.newBuilder()
         .followRedirects(false)
         .followSslRedirects(false)
         .connectTimeout(20, TimeUnit.SECONDS)

@@ -4,6 +4,7 @@ import com.cinetrack.BuildConfig
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
+import okhttp3.Cache
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
@@ -476,6 +477,8 @@ object NetworkFactory {
         metadataTimezone: () -> String,
         /** Called on a Simkl 401 with the token that was rejected; returns the token to retry with. */
         refreshSimklToken: (rejected: String) -> String? = { null },
+        /** HTTP cache for TMDB; responses are always revalidated, so nothing is ever served stale. */
+        tmdbCache: Cache? = null,
     ): ApiServices {
         val logger = HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
@@ -484,7 +487,7 @@ object NetworkFactory {
             redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         }
-        val common = OkHttpClient.Builder()
+        val common = SharedHttp.client.newBuilder()
             .addInterceptor(RateLimitInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
@@ -511,6 +514,15 @@ object NetworkFactory {
                 .apply { if (key.isNotBlank() && !key.matches(TMDB_API_KEY_PATTERN)) header("Authorization", "Bearer $key") }
                 .build()
             chain.proceed(request)
+        }.apply {
+            if (tmdbCache != null) {
+                cache(tmdbCache)
+                // Stored but revalidated on every use (ETag / Last-Modified), so a repeat fetch
+                // can come back as a small 304 while the metadata stays exactly as fresh as before.
+                addNetworkInterceptor { chain ->
+                    chain.proceed(chain.request()).newBuilder().header("Cache-Control", "no-cache").removeHeader("Expires").build()
+                }
+            }
         }.build()
 
         val simklClient = common.newBuilder().addInterceptor { chain ->

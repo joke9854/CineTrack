@@ -135,6 +135,8 @@ class CineTrackApplication : Application(), SingletonImageLoader.Factory {
                 .build()
         }
         .crossfade(true)
+        // Posters share the app's one connection pool instead of opening their own.
+        .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = { com.cinetrack.data.remote.SharedHttp.client })) }
         .build()
 }
 
@@ -168,6 +170,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
         metadataLanguage = metadataLanguage::get,
         metadataRegion = metadataRegion::get,
         metadataTimezone = metadataTimezone::get,
+        tmdbCache = okhttp3.Cache(application.cacheDir.resolve("http_tmdb"), 20L * 1024 * 1024),
     )
     val syncOperationRepository = RoomSyncOperationRepository(database, preferences)
     val trackingRoutingMutex = TrackingRoutingMutex()
