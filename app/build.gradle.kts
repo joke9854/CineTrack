@@ -119,6 +119,8 @@ android {
 
     sourceSets {
         getByName("androidTest").assets.srcDir("$projectDir/schemas")
+        // Previews are judged for performance, so they install the release baseline profile too.
+        getByName("preview").baselineProfiles.srcDir("src/release/generated/baselineProfiles")
     }
 }
 
