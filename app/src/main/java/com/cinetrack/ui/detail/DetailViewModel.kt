@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The metadata the Detail, Episode and person pages read. No tracking writes. */
 interface DetailStore {
@@ -154,8 +155,7 @@ class DetailViewModel(
         }
     }
 
-    class Factory(private val store: DetailStore, private val episodeCache: DetailEpisodeCache) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = DetailViewModel(store, episodeCache) as T
-    }
+    class Factory(store: DetailStore, episodeCache: DetailEpisodeCache) : ViewModelProvider.Factory by viewModelFactoryOf({
+        DetailViewModel(store, episodeCache)
+    })
 }

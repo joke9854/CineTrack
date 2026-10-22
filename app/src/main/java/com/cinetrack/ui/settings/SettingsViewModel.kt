@@ -24,6 +24,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The Notifications page's switches and quiet-hours window. */
 data class NotificationSettings(
@@ -240,8 +241,7 @@ class SettingsViewModel(
         }
     }
 
-    class Factory(private val preferences: SettingsPreferences) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = SettingsViewModel(preferences) as T
-    }
+    class Factory(preferences: SettingsPreferences) : ViewModelProvider.Factory by viewModelFactoryOf({
+        SettingsViewModel(preferences)
+    })
 }

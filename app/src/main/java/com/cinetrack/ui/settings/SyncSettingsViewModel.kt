@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The repository side of the Sync, Sync operations, Simkl and Floppy pages. */
 interface SyncSettingsStore {
@@ -455,8 +456,7 @@ class SyncSettingsViewModel(
         else -> FloppyConnectionError.UNKNOWN
     }
 
-    class Factory(private val store: SyncSettingsStore) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = SyncSettingsViewModel(store) as T
-    }
+    class Factory(store: SyncSettingsStore) : ViewModelProvider.Factory by viewModelFactoryOf({
+        SyncSettingsViewModel(store)
+    })
 }

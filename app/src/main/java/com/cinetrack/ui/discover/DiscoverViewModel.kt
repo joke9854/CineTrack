@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.cinetrack.ui.viewModelFactoryOf
 
 /**
  * The Discover filter page, the Mosaic layout's chip results and the streaming
@@ -199,11 +200,9 @@ class DiscoverViewModel(
     }
 
     class Factory(
-        private val discoveryRepository: DiscoveryRepository,
-        private val watchProviderRepository: WatchProviderRepository,
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            DiscoverViewModel(discoveryRepository, watchProviderRepository) as T
-    }
+        discoveryRepository: DiscoveryRepository,
+        watchProviderRepository: WatchProviderRepository,
+    ) : ViewModelProvider.Factory by viewModelFactoryOf({
+        DiscoverViewModel(discoveryRepository, watchProviderRepository)
+    })
 }

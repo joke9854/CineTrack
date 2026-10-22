@@ -942,24 +942,22 @@ class CineTrackViewModel(
     }
 
     class Factory(
-        private val syncHost: TrackingSyncHost,
-        private val libraryRepository: LibraryRepository,
-        private val mediaRepository: MediaRepository,
-        private val discoveryRepository: DiscoveryRepository,
-        private val peopleRepository: PeopleRepository,
-        private val watchProviderRepository: WatchProviderRepository,
-        private val syncCoordinator: SyncCoordinator,
-            private val floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
-        private val detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
-        private val backupRepository: com.cinetrack.data.repository.BackupRepository,
-        private val appState: com.cinetrack.data.repository.AppStateRepository,
-        private val accounts: com.cinetrack.data.repository.AccountRepository,
-        private val progressCache: com.cinetrack.data.repository.ProgressCacheRepository,
-        private val preferences: com.cinetrack.data.repository.AppPreferences,
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            CineTrackViewModel(
+        syncHost: TrackingSyncHost,
+        libraryRepository: LibraryRepository,
+        mediaRepository: MediaRepository,
+        discoveryRepository: DiscoveryRepository,
+        peopleRepository: PeopleRepository,
+        watchProviderRepository: WatchProviderRepository,
+        syncCoordinator: SyncCoordinator,
+            floppyBootstrapWorkManager: FloppyBootstrapWorkManager,
+        detailEpisodeCache: com.cinetrack.ui.detail.DetailEpisodeCache,
+        backupRepository: com.cinetrack.data.repository.BackupRepository,
+        appState: com.cinetrack.data.repository.AppStateRepository,
+        accounts: com.cinetrack.data.repository.AccountRepository,
+        progressCache: com.cinetrack.data.repository.ProgressCacheRepository,
+        preferences: com.cinetrack.data.repository.AppPreferences,
+    ) : ViewModelProvider.Factory by viewModelFactoryOf({
+        CineTrackViewModel(
                 syncHost,
                 libraryRepository,
                 mediaRepository,
@@ -974,7 +972,7 @@ class CineTrackViewModel(
                 accounts,
                 progressCache,
                 preferences,
-            ) as T
-    }
+            )
+    })
 }
 

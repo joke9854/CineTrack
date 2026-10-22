@@ -24,6 +24,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** What the TMDB, MDBList and Streaming pages show, as AppPreferences stores it. */
 data class ContentSettings(
@@ -167,8 +168,7 @@ class ContentSettingsViewModel(
         }
     }
 
-    class Factory(private val store: ContentSettingsStore) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = ContentSettingsViewModel(store) as T
-    }
+    class Factory(store: ContentSettingsStore) : ViewModelProvider.Factory by viewModelFactoryOf({
+        ContentSettingsViewModel(store)
+    })
 }

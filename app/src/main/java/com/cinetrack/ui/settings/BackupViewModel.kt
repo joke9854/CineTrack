@@ -26,6 +26,7 @@ import java.time.LocalDate
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The repository side of a backup; the history it restores keeps its exact timestamps. */
 interface BackupStore {
@@ -198,8 +199,7 @@ class BackupViewModel(
         }
     }
 
-    class Factory(private val store: BackupStore) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = BackupViewModel(store) as T
-    }
+    class Factory(store: BackupStore) : ViewModelProvider.Factory by viewModelFactoryOf({
+        BackupViewModel(store)
+    })
 }

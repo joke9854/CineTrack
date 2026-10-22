@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The recent searches the Search screen shows and edits. */
 interface SearchHistoryStore {
@@ -140,12 +141,10 @@ class SearchViewModel(
     }
 
     class Factory(
-        private val discoveryRepository: DiscoveryRepository,
-        private val peopleRepository: PeopleRepository,
-        private val history: SearchHistoryStore,
-    ) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            SearchViewModel(discoveryRepository, peopleRepository, history) as T
-    }
+        discoveryRepository: DiscoveryRepository,
+        peopleRepository: PeopleRepository,
+        history: SearchHistoryStore,
+    ) : ViewModelProvider.Factory by viewModelFactoryOf({
+        SearchViewModel(discoveryRepository, peopleRepository, history)
+    })
 }

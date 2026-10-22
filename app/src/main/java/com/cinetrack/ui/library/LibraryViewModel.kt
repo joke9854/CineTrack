@@ -17,6 +17,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** The background artwork refresh: WorkManager progress, the enqueue and the Wi-Fi-only preference. */
 interface LibraryArtworkStore {
@@ -78,8 +79,7 @@ class LibraryViewModel(
         _artwork.update { it.copy(progressVisible = false) }
     }
 
-    class Factory(private val store: LibraryArtworkStore) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = LibraryViewModel(store) as T
-    }
+    class Factory(store: LibraryArtworkStore) : ViewModelProvider.Factory by viewModelFactoryOf({
+        LibraryViewModel(store)
+    })
 }

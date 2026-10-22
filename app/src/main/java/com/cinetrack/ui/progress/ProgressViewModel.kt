@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import com.cinetrack.ui.viewModelFactoryOf
 
 /** Release reminder keys and writes, plus the people behind the viewing statistics. */
 interface ProgressStore {
@@ -85,8 +86,7 @@ class ProgressViewModel(
         }
     }
 
-    class Factory(private val store: ProgressStore) : ViewModelProvider.Factory {
-        @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T = ProgressViewModel(store) as T
-    }
+    class Factory(store: ProgressStore) : ViewModelProvider.Factory by viewModelFactoryOf({
+        ProgressViewModel(store)
+    })
 }
