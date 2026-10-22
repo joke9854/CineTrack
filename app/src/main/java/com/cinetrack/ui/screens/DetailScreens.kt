@@ -73,7 +73,7 @@ import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.ui.text.withStyle
-import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.map
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.ui.graphics.luminance
@@ -176,7 +176,7 @@ private val AccentLight: Color
 @Composable
 private fun rememberPosterAccentEnabled(viewModel: CineTrackViewModel): Boolean {
     val enabled by remember(viewModel) { viewModel.state.map { it.posterAccent }.distinctUntilChanged() }
-        .collectAsState(initial = true)
+        .collectAsStateWithLifecycle(initialValue = true)
     return enabled
 }
 
@@ -427,7 +427,7 @@ fun DetailScreen(
                         if (detail.type == MediaType.TV && detailEpisodes.isNotEmpty()) {
                             val seasonPicker by remember(viewModel) {
                                 viewModel.state.map { it.seasonPicker }.distinctUntilChanged()
-                            }.collectAsState(initial = "text")
+                            }.collectAsStateWithLifecycle(initialValue = "text")
                             EpisodesSection(
                                 detail,
                                 detailEpisodes,
@@ -1351,10 +1351,10 @@ private fun daysUntil(raw: String?): Int? {
 private fun ReleaseCountdown(media: MediaCard, release: String, episode: EpisodeCard?, viewModel: CineTrackViewModel, progressViewModel: com.cinetrack.ui.progress.ProgressViewModel) {
     val days = daysUntil(release) ?: return
     val context = LocalContext.current
-    val reminders by progressViewModel.releaseReminders.collectAsState()
+    val reminders by progressViewModel.releaseReminders.collectAsStateWithLifecycle()
     val byDefault by remember(viewModel, media.stableKey, episode?.season, episode?.number) {
         viewModel.state.map { com.cinetrack.ui.progress.notifiesByDefault(it, media, episode?.season, episode?.number) }.distinctUntilChanged()
-    }.collectAsState(initial = false)
+    }.collectAsStateWithLifecycle(initialValue = false)
     val reminderOn = progressViewModel.isReleaseReminderOn(reminders, media, release, episode?.season, episode?.number, byDefault)
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
     val whenText = when (days) {
@@ -2311,7 +2311,7 @@ fun EpisodeDetailScreen(
     var selectedPerson by remember { mutableStateOf<PersonCard?>(null) }
     var showFullCast by remember(show?.stableKey) { mutableStateOf(false) }
     var showCharacters by remember(show?.stableKey) { mutableStateOf(true) }
-    val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsState(initial = emptyList())
+    val history by remember(viewModel) { viewModel.state.map { it.history }.distinctUntilChanged() }.collectAsStateWithLifecycle(initialValue = emptyList())
     val posterAccent = com.cinetrack.ui.components.rememberPosterAccent(show?.posterUrl ?: show?.backdropUrl, rememberPosterAccentEnabled(viewModel))
     androidx.compose.runtime.CompositionLocalProvider(com.cinetrack.ui.theme.LocalDetailAccent provides posterAccent) {
     val detailGlassState = rememberDetailGlassState()
