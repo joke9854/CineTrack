@@ -882,19 +882,35 @@ fun DiscoverListScreen(
     val gridState = rememberLazyGridState()
     LaunchedEffect(browseKey) { if (browseStates[browseKey] == null) viewModel.loadDiscoverMore(railId, state) }
     val backgroundItem = items.firstOrNull()
+    // As on Progress, Discover and Library, the title scrolls away with the posters. Here only
+    // the back button stays pinned; once posters pass beneath it, the page's colour fades in.
+    val pageTint = com.cinetrack.ui.components.LocalPageTint.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val backing by remember(gridState, density) {
+        androidx.compose.runtime.derivedStateOf {
+            if (gridState.firstVisibleItemIndex > 0) 1f
+            else with(density) { (gridState.firstVisibleItemScrollOffset / 48.dp.toPx()).coerceIn(0f, 1f) }
+        }
+    }
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
-        Column(Modifier.fillMaxSize().statusBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(start = com.cinetrack.ui.theme.Spacing.xl, end = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
-                GlassBackButton(onClick = onBack)
-                PageTitle(title, Modifier.padding(start = com.cinetrack.ui.theme.Spacing.md))
-            }
+        Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 state = gridState,
                 columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
-                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 112.dp),
+                modifier = Modifier.fillMaxSize().statusBarsPadding(),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
+                // Same place as the old fixed row: beside the 52dp back button, then 28dp to the posters.
+                item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+                    Box(
+                        Modifier.fillMaxWidth().padding(top = com.cinetrack.ui.theme.Spacing.lg, bottom = 12.dp).height(52.dp),
+                        contentAlignment = Alignment.CenterStart,
+                    ) {
+                        PageTitle(title, Modifier.padding(start = 52.dp + com.cinetrack.ui.theme.Spacing.md))
+                    }
+                }
                 items(items, key = MediaCard::stableKey) { media ->
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
                         MediaPoster(
@@ -920,6 +936,29 @@ fun DiscoverListScreen(
                         }
                     }
                 }
+            }
+            Box(
+                Modifier.fillMaxWidth()
+                    .drawBehind {
+                        val alpha = backing
+                        if (alpha > 0f) {
+                            val bottom = size.height + 20.dp.toPx()
+                            val ink = pageTint()
+                            drawRect(
+                                Brush.verticalGradient(
+                                    0f to ink.copy(alpha = .96f * alpha),
+                                    size.height / bottom to ink.copy(alpha = .90f * alpha),
+                                    1f to Color.Transparent,
+                                    endY = bottom,
+                                ),
+                                size = androidx.compose.ui.geometry.Size(size.width, bottom),
+                            )
+                        }
+                    }
+                    .statusBarsPadding()
+                    .padding(start = com.cinetrack.ui.theme.Spacing.xl, top = com.cinetrack.ui.theme.Spacing.lg, bottom = com.cinetrack.ui.theme.Spacing.lg),
+            ) {
+                GlassBackButton(onClick = onBack)
             }
         }
     }

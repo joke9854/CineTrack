@@ -241,6 +241,7 @@ class MediaMetadataRepository(
                 profileUrl = details.profilePath?.let { "https://image.tmdb.org/t/p/w500$it" },
                 biography = details.biography,
                 birthday = details.birthday,
+                deathday = details.deathday,
                 placeOfBirth = details.placeOfBirth,
                 movieCredits = credits,
             )

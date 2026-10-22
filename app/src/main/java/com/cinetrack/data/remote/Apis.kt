@@ -165,6 +165,7 @@ data class TmdbPersonDto(
     val name: String,
     val biography: String = "",
     val birthday: String? = null,
+    val deathday: String? = null,
     @SerialName("place_of_birth") val placeOfBirth: String? = null,
     @SerialName("profile_path") val profilePath: String? = null,
 )

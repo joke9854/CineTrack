@@ -2165,7 +2165,10 @@ internal fun ActorSheet(person: PersonCard, detailViewModel: com.cinetrack.ui.de
                     Text(details.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold)
                     Text(details.role, color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
                     val age = details.age()
-                    val born = listOfNotNull(formatFullDate(details.birthday).takeIf(String::isNotBlank), age?.let { stringResource(R.string.years_old, it) }).joinToString(" · ")
+                    val died = formatFullDate(details.deathday).takeIf(String::isNotBlank)
+                    val dates = listOfNotNull(formatFullDate(details.birthday).takeIf(String::isNotBlank), died).joinToString(" – ")
+                    val ageLabel = age?.let { stringResource(if (died != null) R.string.age_at_death else R.string.years_old, it) }
+                    val born = listOfNotNull(dates.takeIf(String::isNotBlank), ageLabel).joinToString(" · ")
                     if (born.isNotBlank()) Text(born, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
                     details.placeOfBirth?.let { Text(it, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1) }
                 }

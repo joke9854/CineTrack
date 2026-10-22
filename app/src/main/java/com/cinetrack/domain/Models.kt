@@ -137,9 +137,12 @@ data class PersonCard(
     val character: String = "",
     /** TVDB picture of the character this person plays, when Floppy has one. */
     val characterImageUrl: String? = null,
+    val deathday: String? = null,
 ) {
+    /** Age on [on], or the age at death once [deathday] is known. */
     fun age(on: LocalDate = LocalDate.now()): Int? = runCatching {
-        birthday?.let { Period.between(LocalDate.parse(it), on).years }
+        val end = deathday?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: on
+        birthday?.let { Period.between(LocalDate.parse(it), end).years }
     }.getOrNull()
 }
 

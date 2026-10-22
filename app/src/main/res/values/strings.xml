@@ -272,6 +272,7 @@
     <string name="recent_credits">Recent movies and TV shows</string>
     <string name="born">Born</string>
     <string name="years_old">%1$d years old</string>
+    <string name="age_at_death">Died at %1$d</string>
     <string name="unknown_age">Age unavailable</string>
     <string name="synchronization">Synchronization</string>
     <string name="integrations">Connected services</string>

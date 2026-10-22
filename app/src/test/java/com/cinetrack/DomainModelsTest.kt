@@ -21,6 +21,13 @@ class DomainModelsTest {
     }
 
     @Test
+    fun actorAgeStopsAtDeathday() {
+        val person = PersonCard(id = 1, name = "Test", role = "Actor", birthday = "1950-01-15", deathday = "2020-01-14")
+        assertEquals(69, person.age(LocalDate.of(2026, 8, 24)))
+        assertEquals(69, person.copy(deathday = "not a date").age(LocalDate.of(2019, 6, 1)))
+    }
+
+    @Test
     fun discoverKeepsTvAndMoviesInSeparateRails() {
         val state = AppUiState(
             rails = mapOf(

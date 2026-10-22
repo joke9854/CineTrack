@@ -1,3 +1,11 @@
+# CineTrack 0.99.72 beta
+
+**Changes**
+- Discover See all lists: the title now scrolls away with the posters, as on Progress, Discover and Library. Only the back button stays at the top, and the page colour fades in behind it once posters pass underneath.
+
+**Fixes**
+- Cast: actors who have died now show their birth and death dates and their age at death, instead of the age they would be today.
+
 # CineTrack 0.99.71 beta
 
 **Changes**

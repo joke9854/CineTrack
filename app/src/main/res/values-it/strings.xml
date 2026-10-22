@@ -272,6 +272,7 @@
     <string name="recent_credits">Film e serie TV recenti</string>
     <string name="born">Nascita</string>
     <string name="years_old">%1$d anni</string>
+    <string name="age_at_death">%1$d anni alla morte</string>
     <string name="unknown_age">Età non disponibile</string>
     <string name="synchronization">Sincronizzazione</string>
     <string name="integrations">Servizi collegati</string>
