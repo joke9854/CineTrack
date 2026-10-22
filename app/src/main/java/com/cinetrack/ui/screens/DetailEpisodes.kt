@@ -91,6 +91,7 @@ import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import com.cinetrack.ui.components.fillMaxWidthOf
 import com.cinetrack.ui.theme.LocalDetailAccent
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
@@ -98,9 +99,9 @@ import com.cinetrack.ui.theme.SurfacePalette
 
 /** On detail pages the accent follows the poster (see [LocalDetailAccent]). */
 private val Accent: Color
-    @Composable get() = LocalDetailAccent.current ?: com.cinetrack.ui.theme.Accent
+    @Composable get() = LocalDetailAccent.current?.value ?: com.cinetrack.ui.theme.Accent
 private val AccentLight: Color
-    @Composable get() = LocalDetailAccent.current?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
+    @Composable get() = LocalDetailAccent.current?.value?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
         ?: com.cinetrack.ui.theme.AccentLight
 
 @Composable
@@ -117,7 +118,7 @@ internal fun EpisodesSection(
     posterPicker: Boolean,
     onPosterPicker: (Boolean) -> Unit,
 ) {
-    val grouped = episodes.groupBy(EpisodeCard::season).toSortedMap()
+    val grouped = remember(episodes) { episodes.groupBy(EpisodeCard::season).toSortedMap() }
     val watchedAtByEpisode = remember(history) { latestEpisodeWatchTimes(history) }
     val watchCounts = remember(history, media.id) { episodeWatchCounts(history, media.id) }
     val nextEpisode = remember(episodes) {
@@ -144,7 +145,7 @@ internal fun EpisodesSection(
     val total = (summary?.episodeCount ?: seasonEpisodes.size).coerceAtLeast(seasonEpisodes.size).coerceAtLeast(1)
     val watched = seasonEpisodes.count(EpisodeCard::watched)
     val allWatched = seasonEpisodes.isNotEmpty() && watched == seasonEpisodes.size
-    val seasonKeys = grouped.keys.toList()
+    val seasonKeys = remember(grouped) { grouped.keys.toList() }
     // Pills and covers each keep their own row state: one state shared by both
     // rows while they crossfade leaves the incoming row blank for a few frames.
     val pillState = rememberLazyListState()
@@ -156,7 +157,7 @@ internal fun EpisodesSection(
         hidden.scrollToItem(target)
         shown.animateScrollToItem(target)
     }
-    val progress by androidx.compose.animation.core.animateFloatAsState(
+    val progress = androidx.compose.animation.core.animateFloatAsState(
         watched.toFloat() / total,
         androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "seasonProgress",
@@ -245,7 +246,7 @@ internal fun EpisodesSection(
             }
             Spacer(Modifier.width(12.dp))
             Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(SurfacePalette.ProgressTrack)) {
-                Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(CircleShape).background(Accent))
+                Box(Modifier.fillMaxWidthOf { progress.value }.fillMaxHeight().clip(CircleShape).background(Accent))
             }
             Spacer(Modifier.width(6.dp))
             Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction { onSeasonInfo(season) }), contentAlignment = Alignment.Center) {
@@ -377,7 +378,7 @@ internal fun SeasonDashes(episodes: List<EpisodeCard>, current: Int, currentWatc
                     },
                     label = "seasonDash",
                 )
-                Box(Modifier.width(width).height(if (isCurrent) 4.dp else 3.dp).clip(CircleShape).background(color))
+                Box(Modifier.width(width).height(if (isCurrent) 4.dp else 3.dp).clip(CircleShape).drawBehind { drawRect(color) })
             }
         }
     }
@@ -475,13 +476,13 @@ internal fun nextAiredEpisode(episodes: List<EpisodeCard>): EpisodeCard? {
 /** Where you are in a started series: the current season on the left, the whole show on the right. */
 @Composable
 internal fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, nextUp: EpisodeCard?, onMarkAll: (() -> Unit)? = null) {
-    val regular = episodes.filter { it.season > 0 }
+    val regular = remember(episodes) { episodes.filter { it.season > 0 } }
     val focusSeason = nextUp?.season ?: regular.filter(EpisodeCard::watched).maxOfOrNull(EpisodeCard::season) ?: return
     val inSeason = regular.filter { it.season == focusSeason }
     val seasonTotal = (media.seasons.firstOrNull { it.number == focusSeason }?.episodeCount ?: 0).coerceAtLeast(inSeason.size)
     val total = media.seasons.filter { it.number > 0 }.sumOf { it.episodeCount }.coerceAtLeast(regular.size).coerceAtLeast(1)
     val watched = regular.count(EpisodeCard::watched)
-    val progress by androidx.compose.animation.core.animateFloatAsState(watched.toFloat() / total, label = "seriesProgress")
+    val progress = androidx.compose.animation.core.animateFloatAsState(watched.toFloat() / total, label = "seriesProgress")
     Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.series_progress_season, focusSeason, inSeason.count(EpisodeCard::watched), seasonTotal),
@@ -490,7 +491,7 @@ internal fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, n
         }
         Spacer(Modifier.height(9.dp))
         Box(Modifier.fillMaxWidth().height(4.dp).clip(CircleShape).background(SurfacePalette.ProgressTrack)) {
-            Box(Modifier.fillMaxWidth(progress).fillMaxHeight().clip(CircleShape).background(Accent))
+            Box(Modifier.fillMaxWidthOf { progress.value }.fillMaxHeight().clip(CircleShape).background(Accent))
         }
         if (onMarkAll != null) {
             Row(

@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
@@ -98,8 +99,9 @@ fun AdaptiveBackground(
     val pageTint: () -> Color = remember { { androidx.compose.ui.graphics.lerp(base, primary, .30f) } }
     val backgroundModifier = Modifier
             .fillMaxSize()
-            .background(base)
             .drawBehind {
+                // The ground colour, drawn here so its fade doesn't recompose the page.
+                drawRect(base)
                 // Artwork light falls evenly across the top: a full-width wash, a soft bloom
                 // centred above the screen, and the second colour low at the bottom.
                 drawRect(
@@ -172,16 +174,34 @@ private val CachedBackground = Modifier.graphicsLayer { compositingStrategy = an
  * Null when turned off; posters without a clear colour (black and white, grey) keep the app accent.
  */
 @Composable
-fun rememberPosterAccent(url: String?, enabled: Boolean): Color? {
+fun rememberPosterAccent(url: String?, enabled: Boolean): State<Color?> {
     val context = androidx.compose.ui.platform.LocalContext.current
     val target by produceState(url?.let { posterAccentCache.get(it) }, url, enabled) {
         value = if (!enabled || url == null) null else posterAccentCache.get(url) ?: extractPosterAccent(context, url)?.also { posterAccentCache.put(url, it) }
     }
-    val animated by animateColorAsState(target ?: Accent, androidx.compose.animation.core.tween(500), label = "posterAccent")
-    return if (enabled) animated else null
+    val animated = animateColorAsState(target ?: Accent, androidx.compose.animation.core.tween(500), label = "posterAccent")
+    val enabledState = androidx.compose.runtime.rememberUpdatedState(enabled)
+    // Read lazily, so the caller's composition doesn't follow every frame of the fade.
+    return remember(animated) {
+        object : State<Color?> {
+            override val value: Color? get() = if (enabledState.value) animated.value else null
+        }
+    }
 }
 
 private val posterAccentCache = LruCache<String, Color>(24)
+
+/**
+ * Artwork that is only ever shown heavily blurred, decoded small: the blur hides the lower
+ * resolution, and decoding and holding a full-size backdrop costs far more.
+ */
+@Composable
+fun rememberBlurredArtRequest(url: String): ImageRequest {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(url) { ImageRequest.Builder(context).data(url).size(BlurredArtSizePx).build() }
+}
+
+private const val BlurredArtSizePx = 480
 
 /**
  * The poster's dominant vivid hue: saturated pixels are grouped into twelve hue bands and the

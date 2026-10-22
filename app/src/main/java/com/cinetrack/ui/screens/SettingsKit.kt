@@ -109,7 +109,7 @@ private fun CompactSwitch(checked: Boolean) {
         // Glass knob over the track; the track and card it covers are redrawn under it.
         val track = if (checked) Accent else Glass
         Box(
-            Modifier.offset(x = knobOffset, y = 3.dp).size(26.dp)
+            Modifier.offset { androidx.compose.ui.unit.IntOffset(knobOffset.roundToPx(), 3.dp.roundToPx()) }.size(26.dp)
                 .liquidGlass(
                     surface = if (checked) Color.White.copy(alpha = .78f) else TextMuted.copy(alpha = .45f),
                     refraction = 6.dp,

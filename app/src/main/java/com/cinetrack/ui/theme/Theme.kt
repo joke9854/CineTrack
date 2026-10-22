@@ -29,8 +29,11 @@ var Accent by mutableStateOf(StatusWatching)
     private set
 var AccentLight by mutableStateOf(lerp(StatusWatching, Color.White, .32f))
     private set
-/** The accent of a detail page, taken from its poster; null outside detail pages or when turned off. */
-val LocalDetailAccent = androidx.compose.runtime.compositionLocalOf<Color?> { null }
+/**
+ * The accent of a detail page, taken from its poster; null outside detail pages, and its value is
+ * null when turned off. A [State] so the fade-in recomposes only the composables that read it.
+ */
+val LocalDetailAccent = androidx.compose.runtime.staticCompositionLocalOf<androidx.compose.runtime.State<Color?>?> { null }
 
 val Info = Color(0xFF4FC7E8)
 val Violet = Color(0xFF9B7CF0)

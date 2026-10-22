@@ -76,7 +76,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -97,6 +96,7 @@ import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.PlaybackCard
 import com.cinetrack.ui.components.PrimaryAction
+import com.cinetrack.ui.components.fillMaxWidthOf
 import com.cinetrack.ui.components.RevealOnMount
 import com.cinetrack.ui.components.SharedGlassSheet
 import com.cinetrack.ui.components.glass
@@ -144,6 +144,8 @@ internal fun ExpandablePlaybackSection(
     // button only ever travels in one direction while the list opens or closes.
     val expandSpec = tween<Float>(Motion.Extended, easing = FastOutSlowInEasing)
     val reveal by animateFloatAsState(if (expanded) 1f else 0f, expandSpec, label = "showAllReveal")
+    // Only whether the extra rows exist is a composition question; the fade itself is drawn.
+    val showRest by remember { androidx.compose.runtime.derivedStateOf { reveal > 0f } }
     Column(verticalArrangement = Arrangement.spacedBy(0.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl), verticalAlignment = Alignment.CenterVertically) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f).padding(bottom = Spacing.md))
@@ -227,7 +229,7 @@ internal fun ExpandablePlaybackSection(
                     }
                     .graphicsLayer { alpha = reveal },
             ) {
-                if (reveal > 0f) orderedItems.drop(4).forEach { PlaybackRow(it, onMedia, onEpisode, onWatched) }
+                if (showRest) orderedItems.drop(4).forEach { PlaybackRow(it, onMedia, onEpisode, onWatched) }
             }
         }
         if (orderedItems.size > 3) {
@@ -510,13 +512,13 @@ internal fun PlaybackRow(
                             .border(.6.dp, Color.White.copy(alpha = .30f), CircleShape),
                         contentAlignment = Alignment.Center,
                     ) {
-                        Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(17.dp).scale(checkScale))
+                        Icon(Icons.Filled.Check, stringResource(R.string.mark_watched), tint = TextPrimary, modifier = Modifier.size(17.dp).graphicsLayer { scaleX = checkScale; scaleY = checkScale })
                     }
                 }
             }
         }
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .10f))) {
-            Box(Modifier.fillMaxWidth(animatedProgress).fillMaxHeight().background(Accent))
+            Box(Modifier.fillMaxWidthOf { animatedProgress }.fillMaxHeight().background(Accent))
         }
         AnimatedVisibility(
             visible = confirming,

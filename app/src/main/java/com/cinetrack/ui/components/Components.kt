@@ -196,7 +196,7 @@ fun PrimaryAction(
         modifier
             .then(if (compact) Modifier.heightIn(min = 52.dp) else Modifier.height(52.dp))
             .then(if (liveGlass) Modifier.liquidGlass(
-                surface = if (containerColor == Success) Success.copy(alpha = .50f) else (LocalDetailAccent.current ?: Accent).copy(alpha = .42f),
+                surface = if (containerColor == Success) Success.copy(alpha = .50f) else (LocalDetailAccent.current?.value ?: Accent).copy(alpha = .42f),
                 refraction = 10.dp,
                 under = GlassMaterial.DetailSurface,
             ) { then(liveFallback) } else Modifier
@@ -242,10 +242,12 @@ fun LoadingPane(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(Spacing.md, Alignment.CenterVertically),
     ) {
-        SkeletonBox(Modifier.width(160.dp).height(240.dp))
-        SkeletonBox(Modifier.fillMaxWidth(.72f).height(24.dp))
-        SkeletonBox(Modifier.fillMaxWidth(.9f).height(14.dp))
-        SkeletonBox(Modifier.fillMaxWidth(.8f).height(14.dp))
-        SkeletonBox(Modifier.fillMaxWidth().height(80.dp))
+        SkeletonPulseGroup {
+            SkeletonBox(Modifier.width(160.dp).height(240.dp))
+            SkeletonBox(Modifier.fillMaxWidth(.72f).height(24.dp))
+            SkeletonBox(Modifier.fillMaxWidth(.9f).height(14.dp))
+            SkeletonBox(Modifier.fillMaxWidth(.8f).height(14.dp))
+            SkeletonBox(Modifier.fillMaxWidth().height(80.dp))
+        }
     }
 }

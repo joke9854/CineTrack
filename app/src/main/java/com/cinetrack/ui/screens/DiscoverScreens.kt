@@ -569,7 +569,7 @@ private fun LazyListScope.mosaicGrid(items: List<MediaCard>, actions: MosaicActi
     val blocks = mosaicRowSizes(items.size, seed).map { size ->
         MosaicRow(items.subList(index, index + size), posterOnRight = flips.nextBoolean()).also { index += size }
     }
-    items(blocks.size, key = { blocks[it].items.first().stableKey }) { position ->
+    items(blocks.size, key = { blocks[it].items.first().stableKey }, contentType = { "mosaic:${blocks[it].items.size}" }) { position ->
         Box(Modifier.directionalSlide(slide)) { MosaicBlock(blocks[position], actions) }
     }
 }
@@ -686,9 +686,9 @@ private fun LazyListScope.railSection(
 ) {
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
-    item { SectionHeader(title, Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xl, bottom = Spacing.md), seeAll, { onSeeAll(railId) }) }
-    item { MediaRail(items, onMedia, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
-    item { Spacer(Modifier.height(4.dp)) }
+    item(contentType = "discover:header") { SectionHeader(title, Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xl, bottom = Spacing.md), seeAll, { onSeeAll(railId) }) }
+    item(contentType = "discover:rail") { MediaRail(items, onMedia, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
+    item(contentType = "discover:spacer") { Spacer(Modifier.height(4.dp)) }
 }
 
 @Composable

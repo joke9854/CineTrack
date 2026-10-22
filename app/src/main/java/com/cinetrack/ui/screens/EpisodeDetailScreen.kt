@@ -82,7 +82,7 @@ import com.cinetrack.ui.theme.Spacing
 import com.cinetrack.ui.theme.SurfacePalette
 
 private val AccentLight: Color
-    @Composable get() = LocalDetailAccent.current?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
+    @Composable get() = LocalDetailAccent.current?.value?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
         ?: com.cinetrack.ui.theme.AccentLight
 
 @Composable
@@ -224,7 +224,7 @@ fun EpisodeDetailScreen(
                 item {
                     Box(Modifier.fillMaxWidth()) {
                         (displayedEpisode.stillUrl ?: show?.backdropUrl)?.takeIf(String::isNotBlank)?.let { art ->
-                            AsyncImage(art, null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
+                            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(art), null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
                             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
                         }
                     Box(Modifier.fillMaxWidth().statusBarsPadding().height(330.dp)) {

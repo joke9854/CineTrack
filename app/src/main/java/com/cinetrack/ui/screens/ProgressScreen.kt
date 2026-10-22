@@ -278,7 +278,7 @@ fun ProgressScreen(
                 ) {
                 when (activeTab) {
                     ProgressTab.IN_PROGRESS -> {
-                        item {
+                        item(contentType = "progress:playback") {
                             ExpandablePlaybackSection(
                                 title = "${stringResource(R.string.tv_shows)} ${stringResource(R.string.in_progress).lowercase()}",
                                 items = state.playbackTv,
@@ -289,7 +289,7 @@ fun ProgressScreen(
                             onWatched = onWatched,
                             )
                         }
-                        item {
+                        item(contentType = "progress:playback") {
                             ExpandablePlaybackSection(
                                 title = "${stringResource(R.string.movies)} ${stringResource(R.string.in_progress).lowercase()}",
                                 items = state.playbackMovies,
@@ -301,18 +301,18 @@ fun ProgressScreen(
                             )
                         }
                     if (comingSoon.isNotEmpty()) {
-                        item { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, allMedia, onEpisode, onHideUpcoming) }
+                        item(contentType = "progress:upcoming") { UpcomingEpisodesRail(stringResource(R.string.coming_soon), comingSoon, allMedia, onEpisode, onHideUpcoming) }
                     }
                     if (upcomingResult?.isEmpty() == true) {
                         item { UpcomingDiagnostics(trackedShowCount) }
                     }
                         if (tvList.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.your_tv_list), Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.sm, bottom = Spacing.md)) }
-                            item { MediaRail(tvList, onMedia, showYear = false) }
+                            item(contentType = "progress:header") { SectionHeader(stringResource(R.string.your_tv_list), Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.sm, bottom = Spacing.md)) }
+                            item(contentType = "progress:rail") { MediaRail(tvList, onMedia, showYear = false) }
                         }
                         if (movieList.isNotEmpty()) {
-                            item { SectionHeader(stringResource(R.string.your_movie_list), Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xxl, bottom = Spacing.md)) }
-                            item { MediaRail(movieList, onMedia, showYear = false) }
+                            item(contentType = "progress:header") { SectionHeader(stringResource(R.string.your_movie_list), Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xxl, bottom = Spacing.md)) }
+                            item(contentType = "progress:rail") { MediaRail(movieList, onMedia, showYear = false) }
                         }
                     }
                     ProgressTab.HISTORY -> {

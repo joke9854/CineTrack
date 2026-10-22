@@ -75,9 +75,9 @@ import com.cinetrack.ui.theme.Spacing
 
 /** On detail pages the accent follows the poster (see [LocalDetailAccent]). */
 private val Accent: Color
-    @Composable get() = LocalDetailAccent.current ?: com.cinetrack.ui.theme.Accent
+    @Composable get() = LocalDetailAccent.current?.value ?: com.cinetrack.ui.theme.Accent
 private val AccentLight: Color
-    @Composable get() = LocalDetailAccent.current?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
+    @Composable get() = LocalDetailAccent.current?.value?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
         ?: com.cinetrack.ui.theme.AccentLight
 
 @Composable

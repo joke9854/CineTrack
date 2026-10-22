@@ -96,9 +96,9 @@ import com.cinetrack.ui.theme.SurfacePalette
 
 /** On detail pages the accent follows the poster (see [LocalDetailAccent]). */
 private val Accent: Color
-    @Composable get() = LocalDetailAccent.current ?: com.cinetrack.ui.theme.Accent
+    @Composable get() = LocalDetailAccent.current?.value ?: com.cinetrack.ui.theme.Accent
 private val AccentLight: Color
-    @Composable get() = LocalDetailAccent.current?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
+    @Composable get() = LocalDetailAccent.current?.value?.let { androidx.compose.ui.graphics.lerp(it, Color.White, .32f) }
         ?: com.cinetrack.ui.theme.AccentLight
 
 @Composable
@@ -192,7 +192,7 @@ internal fun DetailHero(media: MediaCard) {
         // The backdrop art, blurred, fades into the page behind the poster.
         media.backdropUrl?.takeIf(String::isNotBlank)?.let { backdrop ->
             // matchParentSize: the hero now takes its height from the poster.
-            AsyncImage(backdrop, null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
+            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(backdrop), null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
         }
         Box(
@@ -297,7 +297,7 @@ internal fun RatingsSection(ratings: List<RatingScore>, tmdbScore: Double?, pend
         Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().height(58.dp)
             .liquidGlassPill(under = com.cinetrack.ui.components.GlassMaterial.DetailSurface),
         verticalAlignment = Alignment.CenterVertically,
-    ) {
+    ) { SkeletonPillGroup(enabled = shown.size < cells) {
         repeat(cells) { index ->
             if (index > 0) Box(Modifier.width(.6.dp).fillMaxHeight(.46f).background(Color.White.copy(alpha = .12f)))
             Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
@@ -313,7 +313,7 @@ internal fun RatingsSection(ratings: List<RatingScore>, tmdbScore: Double?, pend
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable
@@ -355,9 +355,11 @@ internal fun OverviewSkeleton() {
         // Same heading as the loaded plot, so nothing moves when the text arrives.
         SectionHeader(stringResource(R.string.overview))
         Spacer(Modifier.height(10.dp))
-        listOf(1f, .96f, .92f, .58f).forEach { width ->
-            SkeletonPill(Modifier.fillMaxWidth(width).height(12.dp))
-            Spacer(Modifier.height(10.dp))
+        SkeletonPillGroup {
+            listOf(1f, .96f, .92f, .58f).forEach { width ->
+                SkeletonPill(Modifier.fillMaxWidth(width).height(12.dp))
+                Spacer(Modifier.height(10.dp))
+            }
         }
     }
 }
@@ -368,7 +370,7 @@ internal fun CastSkeleton() {
         // Same header as the loaded section, so the title doesn't move when the cast arrives.
         SectionHeader(stringResource(R.string.cast_title), Modifier.padding(horizontal = DetailLayout.Gutter), stringResource(R.string.see_all)) {}
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.padding(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { SkeletonPillGroup {
             repeat(4) {
                 Column(Modifier.width(DetailLayout.CastWidth).padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     SkeletonPill(Modifier.size(DetailLayout.CastPhoto), CircleShape)
@@ -378,23 +380,24 @@ internal fun CastSkeleton() {
                     SkeletonPill(Modifier.fillMaxWidth(.55f).height(9.dp))
                 }
             }
-        }
+        } }
     }
 }
 
 /** A soft pulsing placeholder in a pill shape, for values that are still loading. */
 @Composable
 private fun SkeletonPill(modifier: Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(Radius.Pill)) {
-    val pulse = androidx.compose.animation.core.rememberInfiniteTransition(label = "skeleton")
-    val alpha by pulse.animateFloat(
-        initialValue = .05f,
-        targetValue = .11f,
-        animationSpec = androidx.compose.animation.core.infiniteRepeatable(androidx.compose.animation.core.tween<Float>(800), androidx.compose.animation.core.RepeatMode.Reverse),
-        label = "skeletonAlpha",
-    )
-    Box(modifier.clip(shape).drawBehind { drawRect(Color.White.copy(alpha = alpha)) })
+    val pulse = com.cinetrack.ui.components.skeletonPulse(SkeletonPillPulseMillis, reducedMotion = false)
+    Box(modifier.clip(shape).drawBehind { drawRect(Color.White.copy(alpha = androidx.compose.ui.util.lerp(.05f, .11f, pulse.fraction.value))) })
 
 }
+
+private const val SkeletonPillPulseMillis = 800
+
+/** One pulse for every [SkeletonPill] in [content]. */
+@Composable
+private fun SkeletonPillGroup(enabled: Boolean = true, content: @Composable () -> Unit) =
+    com.cinetrack.ui.components.SkeletonPulseGroup(SkeletonPillPulseMillis, reducedMotion = false, enabled = enabled, content = content)
 
 /**
  * The best way to watch (subscription first) as the page's one card, with Apri.

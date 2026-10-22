@@ -87,6 +87,9 @@ fun LiquidBottomNav(
         if (motionEnabled) tween(Motion.Medium, easing = FastOutSlowInEasing) else tween(Motion.Instant),
         label = "navHeight",
     )
+    // The bar's size and labels follow these during layout and drawing; only whether the
+    // labels exist at all is decided in composition.
+    val labelsShown by remember { androidx.compose.runtime.derivedStateOf { labelFraction > .01f } }
     val sidePadding by animateDpAsState(
         if (compact) 58.dp else 28.dp,
         if (motionEnabled) tween(Motion.Medium, easing = FastOutSlowInEasing) else tween(Motion.Instant),
@@ -95,8 +98,8 @@ fun LiquidBottomNav(
     Box(
         modifier
             .fillMaxWidth()
-            .padding(horizontal = sidePadding)
-            .height(height)
+            .horizontalPaddingOf { sidePadding }
+            .heightOf { height }
             .shadow(15.dp, RoundedCornerShape(Radius.Pill), clip = false)
             .liquidGlass(
                 surface = Background0.copy(alpha = .50f),
@@ -153,12 +156,12 @@ fun LiquidBottomNav(
                         tint = if (selected) AccentLight else SurfacePalette.BrightText,
                         modifier = Modifier.size(if (compact) 25.dp else 22.dp),
                     )
-                    if (labelFraction > .01f) {
+                    if (labelsShown) {
                         Column(
                             Modifier.graphicsLayer { alpha = labelFraction },
                             horizontalAlignment = Alignment.CenterHorizontally,
                         ) {
-                            Spacer(Modifier.height(6.dp * labelFraction))
+                            Spacer(Modifier.heightOf { 6.dp * labelFraction })
                             Text(
                                 item.label,
                                 color = if (selected) Color.White else SurfacePalette.LightText,
@@ -166,7 +169,7 @@ fun LiquidBottomNav(
                                 lineHeight = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                                 maxLines = 1,
-                                modifier = Modifier.height(12.dp * labelFraction),
+                                modifier = Modifier.heightOf { 12.dp * labelFraction },
                             )
                         }
                     }

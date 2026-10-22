@@ -2,6 +2,7 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -272,7 +273,7 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
                     val switchingHere = swap.running && !current
                     val fill by androidx.compose.animation.animateColorAsState(if (current) Accent else Color.Transparent, label = "mainTrackerFill")
                     Row(
-                        Modifier.weight(1f).heightIn(min = 44.dp).clip(shape).background(fill)
+                        Modifier.weight(1f).heightIn(min = 44.dp).clip(shape).drawBehind { drawRect(fill) }
                             .clickable(enabled = !current && canSwap && !swap.running, role = androidx.compose.ui.semantics.Role.RadioButton) { asking = true }
                             .semantics { selected = current },
                         horizontalArrangement = Arrangement.Center,

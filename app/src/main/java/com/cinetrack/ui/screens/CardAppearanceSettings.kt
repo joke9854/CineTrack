@@ -223,7 +223,7 @@ private fun SegmentedChoice(
     ) {
         val segment = maxWidth / choices.size
         val offset by animateDpAsState(segment * index, spring(dampingRatio = .82f, stiffness = Spring.StiffnessMediumLow), label = "segmentThumb")
-        Box(Modifier.offset(x = offset).width(segment).fillMaxHeight().clip(shape).background(Accent.copy(alpha = .9f)))
+        Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(offset.roundToPx(), 0) }.width(segment).fillMaxHeight().clip(shape).background(Accent.copy(alpha = .9f)))
         Row(Modifier.fillMaxSize().selectableGroup()) {
             choices.forEach { (key, label) ->
                 val chosen = key == selected

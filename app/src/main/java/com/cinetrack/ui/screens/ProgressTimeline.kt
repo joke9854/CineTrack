@@ -1,5 +1,7 @@
 package com.cinetrack.ui.screens
 
+import androidx.compose.ui.draw.drawBehind
+import com.cinetrack.ui.components.heightOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.expandVertically
@@ -191,7 +193,7 @@ internal fun LazyListScope.calendarTimeline(
     val headerIndex = HashMap<LocalDate, Int>()
     var index = 1
     days.forEach { day -> headerIndex[day.date] = index; index += 1 + day.groups.size }
-    item(key = "calendar:week") {
+    item(key = "calendar:week", contentType = "calendar:week") {
         WeekStrip(today, days.map(CalendarDay::date).toSet()) { picked ->
             val target = headerIndex[picked] ?: headerIndex.entries.filter { it.key >= picked }.minByOrNull { it.key }?.value
             if (target != null) scope.launch { listState.animateScrollToItem(target) }
@@ -199,7 +201,7 @@ internal fun LazyListScope.calendarTimeline(
     }
     var featured = false
     days.forEach { day ->
-        item(key = "calendar:day:${day.date}") {
+        item(key = "calendar:day:${day.date}", contentType = "calendar:day") {
             DayHeader(relativeDayLabel(day.date, today), pluralStringResource(R.plurals.releases_count, day.items.size, day.items.size))
         }
         day.groups.forEachIndexed { position, group ->
@@ -207,7 +209,7 @@ internal fun LazyListScope.calendarTimeline(
             val out = group.all { released(it, zone, now) }
             val big = !featured && !out && !day.date.isBefore(today)
             if (big) featured = true
-            item(key = "calendar:${first.media.stableKey}:${first.timestamp}:${first.season}:${first.episodeNumber}:${group.size}:$position") {
+            item(key = "calendar:${first.media.stableKey}:${first.timestamp}:${first.season}:${first.episodeNumber}:${group.size}:$position", contentType = "calendar:entry") {
                 val reminderOn = group.all(isReminderOn)
                 val toggle = { group.forEach { onReminder(it, !reminderOn) } }
                 if (big) FeaturedRelease(group, reminderOn, toggle) { open(first, onMedia, onEpisode) }
@@ -226,7 +228,7 @@ private fun WeekStrip(today: LocalDate, withReleases: Set<LocalDate>, onPick: (L
             val chosen = date == selected
             val fill by androidx.compose.animation.animateColorAsState(if (chosen) Accent else Color.Transparent, label = "weekDay")
             Column(
-                Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).background(fill)
+                Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).drawBehind { drawRect(fill) }
                     .clickable(role = Role.Tab) { selected = date; onPick(date) }
                     .padding(vertical = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -295,12 +297,13 @@ private fun episodesLine(events: List<TimelineCard>): String {
 @Composable
 private fun StackedCard(stacked: Boolean, modifier: Modifier = Modifier, content: @Composable () -> Unit) {
     val reveal by androidx.compose.animation.core.animateFloatAsState(if (stacked) 1f else 0f, label = "stackedCard")
+    val revealed by remember { androidx.compose.runtime.derivedStateOf { reveal > 0f } }
     Column(modifier) {
         content()
-        if (reveal > 0f) {
+        if (revealed) {
             val edge = RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)
-            Box(Modifier.padding(horizontal = 10.dp).fillMaxWidth().height(5.dp * reveal).clip(edge).background(Color.White.copy(alpha = .085f)))
-            Box(Modifier.padding(horizontal = 22.dp).fillMaxWidth().height(4.dp * reveal).clip(edge).background(Color.White.copy(alpha = .045f)))
+            Box(Modifier.padding(horizontal = 10.dp).fillMaxWidth().heightOf { 5.dp * reveal }.clip(edge).background(Color.White.copy(alpha = .085f)))
+            Box(Modifier.padding(horizontal = 22.dp).fillMaxWidth().heightOf { 4.dp * reveal }.clip(edge).background(Color.White.copy(alpha = .045f)))
         }
     }
 }
@@ -444,7 +447,7 @@ internal fun LazyListScope.historyTimeline(
 ) {
     entries.forEachIndexed { index, entry ->
         when (entry) {
-            is HistoryEntry.Day -> item(key = "history:day:${entry.date}") {
+            is HistoryEntry.Day -> item(key = "history:day:${entry.date}", contentType = "history:day") {
                 DayHeader(
                     relativeDayLabel(entry.date, today),
                     listOf(
@@ -453,7 +456,7 @@ internal fun LazyListScope.historyTimeline(
                     ).filter(String::isNotBlank).joinToString(" · "),
                 )
             }
-            is HistoryEntry.Session -> item(key = "history:${entry.key}:$index") { HistorySession(entry, onMedia, onEpisode) }
+            is HistoryEntry.Session -> item(key = "history:${entry.key}:$index", contentType = "history:session") { HistorySession(entry, onMedia, onEpisode) }
         }
     }
 }

@@ -437,7 +437,7 @@ fun BackupProgressPill(progress: com.cinetrack.domain.BackupProgress) {
         }
         // Progress line along the bottom edge, like the Progress cards.
         Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .06f))) {
-            if (progress.fraction != null) Box(Modifier.fillMaxWidth(fraction).height(3.dp).background(tint))
+            if (progress.fraction != null) Box(Modifier.fillMaxWidthOf { fraction }.height(3.dp).background(tint))
         }
     }
 }
@@ -504,7 +504,7 @@ fun StatusPill(
             }
         }
         Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .06f))) {
-            if (fraction != null) Box(Modifier.fillMaxWidth(shownFraction).height(3.dp).background(tint))
+            if (fraction != null) Box(Modifier.fillMaxWidthOf { shownFraction }.height(3.dp).background(tint))
         }
     }
 }
