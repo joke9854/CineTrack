@@ -919,20 +919,31 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         if (errorLogFile.exists()) errorLogFile.readLines().filter(String::isNotBlank).takeLast(ERROR_LOG_LINES) else emptyList()
     }.getOrDefault(emptyList())
 
-    /** Synchronized: the UI and background workers append concurrently, and
-     * this is a read-modify-write of one file. */
+    /** Lines in the log file, counted on the first append and kept up to date after that. */
+    private var errorLogLineCount: Int? = null
+
+    /** Synchronized: the UI and background workers append concurrently. Each line is
+     * appended; the file is cut back to the last [ERROR_LOG_LINES] only once it holds twice
+     * that, and readers only ever see the last [ERROR_LOG_LINES] anyway. */
     @Synchronized
     fun appendErrorLog(line: String) {
         runCatching {
-            val lines = (readErrorLogs() + line).takeLast(ERROR_LOG_LINES)
-            errorLogFile.writeText(lines.joinToString(separator = "\n", postfix = "\n"))
-        }
+            val count = errorLogLineCount ?: if (errorLogFile.exists()) errorLogFile.useLines { it.count() } else 0
+            errorLogFile.appendText(line + "\n")
+            errorLogLineCount = count + line.lines().size
+            if (count + 1 > ERROR_LOG_LINES * 2) {
+                val kept = readErrorLogs()
+                errorLogFile.writeText(kept.joinToString(separator = "\n", postfix = "\n"))
+                errorLogLineCount = kept.size
+            }
+        }.onFailure { errorLogLineCount = null }
         errorLogVersion.update { it + 1 }
     }
 
     @Synchronized
     override fun clearErrorLog() {
         runCatching { errorLogFile.delete() }
+        errorLogLineCount = null
         errorLogVersion.update { it + 1 }
     }
 
