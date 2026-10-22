@@ -3,7 +3,11 @@ from pathlib import Path
 import re
 import sqlite3
 
-source = (Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local/AppDatabase.kt").read_text()
+# AppDatabase.kt (entities and migrations) first, then the DAO files split out of it.
+local_dir = Path(__file__).resolve().parents[1] / "app/src/main/java/com/cinetrack/data/local"
+source = "\n".join(
+    path.read_text() for path in [local_dir / "AppDatabase.kt", *sorted(p for p in local_dir.glob("*.kt") if p.name != "AppDatabase.kt")]
+)
 schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
 for version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
     assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
