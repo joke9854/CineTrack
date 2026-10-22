@@ -1,3 +1,13 @@
+# CineTrack 0.99.74 beta
+
+**Changes**
+- Smoother everywhere, with no change to how anything looks: animations (the bottom bar shrinking and growing, progress lines, the poster colour on title pages, switches) now redraw only what moves instead of the whole screen, loading placeholders share one pulse, and long lists (Progress, History, Calendar, Discover) reuse their rows more efficiently.
+- Title pages: long series (hundreds of episodes) no longer regroup every episode each time the page redraws, and the blurred header art takes far less memory.
+- Network: all connections (TMDB, Simkl, Floppy, posters) share one pool, and TMDB answers are cached and re-checked with TMDB each time, so details stay exactly as fresh as before while repeat visits download less. Floppy keeps its own timeouts and redirect rule.
+- Settings > Logs: new lines are added to the end of the log instead of rewriting the whole file each time; you still see the last 500 lines.
+- The startup profile was recorded again on a real phone after the code reorganisation below, so the moved code is prepared at install time.
+- Behind the scenes (from 0.99.73, which was not published on its own): unused code and texts removed, shared helpers for image links, dates and JSON, and the largest screen files split into smaller ones. Everything works as before.
+
 # CineTrack 0.99.72 beta
 
 **Changes**
