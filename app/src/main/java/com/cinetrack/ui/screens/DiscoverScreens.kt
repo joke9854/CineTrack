@@ -153,7 +153,7 @@ import com.cinetrack.ui.theme.SurfacePalette
 
 @Composable
 fun DiscoverScreen(
-    state: AppUiState,
+    state: com.cinetrack.ui.discover.DiscoverUiState,
     onRefresh: () -> Unit,
     loadTagline: suspend (MediaCard) -> String?,
     onSearch: () -> Unit,
@@ -678,7 +678,7 @@ private fun LazyListScope.railSection(
     title: String,
     seeAll: String,
     railId: String,
-    state: AppUiState,
+    state: com.cinetrack.ui.discover.DiscoverUiState,
     onSeeAll: (String) -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
@@ -873,7 +873,7 @@ internal fun HeroCard(
 fun DiscoverListScreen(
     railId: String,
     viewModel: com.cinetrack.ui.discover.DiscoverViewModel,
-    state: AppUiState,
+    state: com.cinetrack.ui.discover.DiscoverUiState,
     onBack: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit,
@@ -887,7 +887,7 @@ fun DiscoverListScreen(
         else -> stringResource(R.string.upcoming)
     }
     val browseStates by viewModel.discoverBrowse.collectAsStateWithLifecycle()
-    val browseKey = com.cinetrack.domain.discoverBrowseKey(railId, state)
+    val browseKey = com.cinetrack.ui.discover.discoverBrowseKey(railId, state)
     val browse = browseStates[browseKey]
     val localMedia = remember(state.allMedia) { state.allMedia.associateBy(MediaCard::stableKey) }
     val items = (browse?.items ?: state.rails[railId].orEmpty())

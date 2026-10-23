@@ -74,7 +74,7 @@ import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 
 @Composable
-internal fun StatisticsSection(state: AppUiState, people: ViewingPeopleInsights) {
+internal fun StatisticsSection(state: com.cinetrack.ui.progress.ProgressUiState, people: ViewingPeopleInsights) {
     val now = remember(state.metadataTimezone) {
         val zone = if (state.metadataTimezone == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(state.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())

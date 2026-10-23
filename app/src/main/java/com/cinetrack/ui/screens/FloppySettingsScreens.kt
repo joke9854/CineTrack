@@ -111,9 +111,12 @@ private fun floppyIntegrationSubtitle(state: AppUiState): String = if (state.flo
 
 /** "Connected as <name>" once Floppy is ready and has sent a name; otherwise the setup stage. */
 @Composable
-internal fun floppyConnectedLabel(state: AppUiState): String =
-    if (state.floppyUiState == FloppyUiState.READY && !state.floppyUsername.isNullOrBlank()) stringResource(R.string.floppy_connected_as, state.floppyUsername.orEmpty())
-    else floppyStatusLabel(state.floppyUiState)
+internal fun floppyConnectedLabel(state: AppUiState): String = floppyConnectedLabel(state.floppyUiState, state.floppyUsername)
+
+@Composable
+internal fun floppyConnectedLabel(uiState: FloppyUiState, username: String?): String =
+    if (uiState == FloppyUiState.READY && !username.isNullOrBlank()) stringResource(R.string.floppy_connected_as, username)
+    else floppyStatusLabel(uiState)
 
 @Composable
 private fun floppyStatusLabel(state: FloppyUiState): String = when (state) {

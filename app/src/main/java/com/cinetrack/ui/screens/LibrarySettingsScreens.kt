@@ -115,7 +115,6 @@ import com.cinetrack.data.update.AppUpdateState
 import com.cinetrack.data.update.AppChangelogState
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.MediaType
-import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.settings.SettingsViewModel
 import com.cinetrack.ui.settings.BackupViewModel
 import com.cinetrack.ui.settings.SyncSettingsViewModel
@@ -167,7 +166,7 @@ internal const val TRAKT_API_APPS_URL = "https://trakt.tv/oauth/applications"
 private data class SettingsItem(val page: String, val title: String, val subtitle: String, val icon: ImageVector)
 
 @Composable
-fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (Boolean) -> Unit) {
+fun SettingsScreen(state: com.cinetrack.ui.settings.SettingsUiState, onPage: (String) -> Unit, onCompactNav: (Boolean) -> Unit) {
     val listState = rememberLazyListState()
     NavCollapseEffect(listState, onCompactNav)
     val accentName = stringResource(
@@ -186,7 +185,7 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
     )
     val dataAndDiagnostics = listOf(
         SettingsItem(SettingsPages.Export, stringResource(R.string.export_data), stringResource(R.string.export_data_summary), Icons.Filled.Download),
-        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_health_summary, state.sync.report.pendingLocalChanges, state.sync.report.failedOperations, state.sync.report.conflicts), Icons.Filled.SyncProblem),
+        SettingsItem(SettingsPages.SyncOperations, stringResource(R.string.sync_operations), stringResource(R.string.sync_health_summary, state.syncReport.pendingLocalChanges, state.syncReport.failedOperations, state.syncReport.conflicts), Icons.Filled.SyncProblem),
         SettingsItem(SettingsPages.Logs, stringResource(R.string.logs), stringResource(R.string.logs_summary), Icons.Filled.BugReport),
     )
     val more = listOf(SettingsItem(SettingsPages.About, stringResource(R.string.about_app), stringResource(R.string.version_label, BuildConfig.VERSION_NAME), Icons.Filled.Info))
@@ -206,7 +205,7 @@ fun SettingsScreen(state: AppUiState, onPage: (String) -> Unit, onCompactNav: (B
             },
         ),
         ServiceStatus("Trakt", SettingsPages.ServiceTrakt, state.traktConfigured, if (state.traktConfigured) configured else notConfigured),
-        ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyConnectedLabel(state) else notConnected),
+        ServiceStatus("Floppy", SettingsPages.ServiceFloppy, state.floppyConnected, if (state.floppyConnected) floppyConnectedLabel(state.floppyUiState, state.floppyUsername) else notConnected),
         ServiceStatus("MDBList", SettingsPages.ServiceMdblist, state.mdbListApiConfigured, if (state.mdbListApiConfigured) configured else notConfigured),
     )
     // Catalogue, tracking and server get a full brand card; the two add-ons share a row.
@@ -363,7 +362,8 @@ private fun SettingsRow(item: SettingsItem, onPage: (String) -> Unit) {
 fun SettingsDetailScreen(
     page: String,
     state: AppUiState,
-    viewModel: CineTrackViewModel,
+    syncControls: TrackingSyncControls,
+    contentControls: com.cinetrack.ui.settings.HiddenContentControls,
     settingsViewModel: SettingsViewModel,
     contentViewModel: ContentSettingsViewModel,
     backupViewModel: BackupViewModel,
@@ -376,9 +376,6 @@ fun SettingsDetailScreen(
         return
     }
     val context = LocalContext.current
-    val syncControls = remember(viewModel) {
-        TrackingSyncControls(viewModel.syncProgress, viewModel::sync, viewModel.mainTrackerSwap, viewModel::swapMainTracker, viewModel.floppyBootstrapProgress)
-    }
     val title = when (page) {
         SettingsPages.Streaming -> stringResource(R.string.streaming_services)
         SettingsPages.Sync -> stringResource(R.string.synchronization)
@@ -428,7 +425,7 @@ fun SettingsDetailScreen(
                     SettingsPages.ServiceTmdb -> Column {
                         CredentialBlock("TMDB", state.tmdbApiConfigured, contentViewModel::verifyAndSetTmdbApiKey)
                         MetadataSettings(contentViewModel)
-                        ContentRegionSettings(state, viewModel, contentViewModel, onPage)
+                        ContentRegionSettings(state, contentControls, contentViewModel, onPage)
                     }
                     SettingsPages.ServiceMdblist -> Column {
                         CredentialBlock("MDBList", state.mdbListApiConfigured, contentViewModel::verifyAndSetMdbListApiKey)
@@ -441,7 +438,7 @@ fun SettingsDetailScreen(
                             KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.trakt_adds_calendar), stringResource(R.string.trakt_adds_calendar_sub))
                         }
                     }
-                    SettingsPages.Notifications -> NotificationSettings(state, viewModel, settingsViewModel)
+                    SettingsPages.Notifications -> NotificationSettings(state, contentControls, settingsViewModel)
                     SettingsPages.Language -> LanguageSettings(settingsViewModel)
                     SettingsPages.Ratings -> RatingSettings(contentViewModel)
                     SettingsPages.Export -> ExportSettings(backupViewModel)
@@ -638,7 +635,7 @@ private fun MetadataSettings(viewModel: ContentSettingsViewModel) {
 }
 
 @Composable
-private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewModel, settingsViewModel: SettingsViewModel) {
+private fun NotificationSettings(state: AppUiState, controls: com.cinetrack.ui.settings.HiddenContentControls, settingsViewModel: SettingsViewModel) {
     val notifications by settingsViewModel.notificationSettings.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val hiddenEpisodes = remember(state.episodes, state.hiddenUpcoming) {
@@ -681,7 +678,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
         }
     }
     SettingsSection(stringResource(R.string.upcoming_episodes)) {
-        KitToggleRow(Icons.Filled.Star, stringResource(R.string.exclude_specials), stringResource(R.string.exclude_specials_sub), state.excludeSpecials, viewModel::setExcludeSpecials)
+        KitToggleRow(Icons.Filled.Star, stringResource(R.string.exclude_specials), stringResource(R.string.exclude_specials_sub), state.excludeSpecials, controls.onExcludeSpecials)
     }
     KitFootnote(stringResource(R.string.upcoming_diagnostic_explanation))
     if (hiddenEpisodes.isNotEmpty()) {
@@ -696,7 +693,7 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
                         Text(showTitle.ifBlank { episode.title }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    IconButton(onClick = { viewModel.restoreHiddenUpcomingEpisode(episode) }) {
+                    IconButton(onClick = { controls.onRestoreHiddenUpcomingEpisode(episode) }) {
                         Icon(Icons.Filled.Visibility, stringResource(R.string.restore_upcoming_episode, episode.title), tint = AccentLight)
                     }
                 }
@@ -705,9 +702,9 @@ private fun NotificationSettings(state: AppUiState, viewModel: CineTrackViewMode
     }
     SettingsSection(stringResource(R.string.section_actions)) {
         if (state.hiddenUpcoming.isNotEmpty()) {
-            KitRow(Icons.Filled.Visibility, stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size), onClick = viewModel::restoreHiddenUpcoming)
+            KitRow(Icons.Filled.Visibility, stringResource(R.string.restore_hidden_upcoming, state.hiddenUpcoming.size), onClick = controls.onRestoreHiddenUpcoming)
         }
-        KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.export_calendar), stringResource(R.string.export_calendar_sub), onClick = { viewModel.exportCalendar(context) })
+        KitRow(Icons.Filled.CalendarMonth, stringResource(R.string.export_calendar), stringResource(R.string.export_calendar_sub), onClick = { controls.onExportCalendar(context) })
     }
 }
 
@@ -784,7 +781,7 @@ private fun RatingSettings(viewModel: ContentSettingsViewModel) {
 }
 
 @Composable
-private fun ContentRegionSettings(appState: AppUiState, viewModel: CineTrackViewModel, contentViewModel: ContentSettingsViewModel, onPage: (String) -> Unit = {}) {
+private fun ContentRegionSettings(appState: AppUiState, controls: com.cinetrack.ui.settings.HiddenContentControls, contentViewModel: ContentSettingsViewModel, onPage: (String) -> Unit = {}) {
     val state by contentViewModel.content.collectAsStateWithLifecycle()
     var showRegions by remember { mutableStateOf(false) }
     val locale = com.cinetrack.ui.currentLocale()
@@ -797,7 +794,7 @@ private fun ContentRegionSettings(appState: AppUiState, viewModel: CineTrackView
             KitRow(
                 Icons.Filled.Visibility,
                 pluralStringResource(R.plurals.restore_hidden_recommendations, appState.hiddenDiscovery.size, appState.hiddenDiscovery.size),
-                onClick = viewModel::restoreHiddenDiscovery,
+                onClick = controls.onRestoreHiddenDiscovery,
             )
         }
     }

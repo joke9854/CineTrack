@@ -456,13 +456,7 @@ data class AppUiState(
 
     /** Built once per state instance; the state is immutable, so the result never changes. */
     val allMedia: List<MediaCard> by lazy(LazyThreadSafetyMode.PUBLICATION) {
-        (
-            rails.values.flatten() +
-                playbackTv.map(PlaybackCard::media) +
-                playbackMovies.map(PlaybackCard::media) +
-                history.map(TimelineCard::media) +
-                calendar.map(TimelineCard::media)
-            ).distinctBy(MediaCard::stableKey)
+        allMediaOf(rails, playbackTv, playbackMovies, history, calendar)
     }
 
     private val mediaByKey: Map<String, MediaCard> by lazy(LazyThreadSafetyMode.PUBLICATION) {
@@ -495,6 +489,21 @@ data class DiscoverMovieFilters(
     /** "day" or "week": read TMDB trending instead of discover. Genres then filter locally. */
     val trendingWindow: String? = null,
 )
+
+/** Every title the rails, playback, history and calendar show, once each (AppUiState.allMedia and the screen states). */
+fun allMediaOf(
+    rails: Map<String, List<MediaCard>>,
+    playbackTv: List<PlaybackCard>,
+    playbackMovies: List<PlaybackCard>,
+    history: List<TimelineCard>,
+    calendar: List<TimelineCard>,
+): List<MediaCard> = (
+    rails.values.flatten() +
+        playbackTv.map(PlaybackCard::media) +
+        playbackMovies.map(PlaybackCard::media) +
+        history.map(TimelineCard::media) +
+        calendar.map(TimelineCard::media)
+    ).distinctBy(MediaCard::stableKey)
 
 object RailIds {
     const val TRENDING_TV = "trending-tv"

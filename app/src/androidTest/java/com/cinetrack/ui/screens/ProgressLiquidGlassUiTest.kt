@@ -1,5 +1,6 @@
 package com.cinetrack.ui.screens
 
+import com.cinetrack.ui.progress.progressUiState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -43,7 +44,7 @@ class ProgressLiquidGlassUiTest {
         composeRule.setContent {
             MaterialTheme {
                 ProgressScreen(
-                    state = AppUiState(loading = false, playbackTv = cards),
+                    state = AppUiState(loading = false, playbackTv = cards).progressUiState(),
                     syncProgress = MutableStateFlow(SyncProgress()),
                     syncRunning = MutableStateFlow(false),
                     onSearch = {},

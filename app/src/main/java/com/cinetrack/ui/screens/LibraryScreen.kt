@@ -115,7 +115,7 @@ private enum class LibraryOrder { TITLE, RATING, YEAR, RECENTLY_WATCHED, RECENTL
 
 @Composable
 fun LibraryScreen(
-    state: AppUiState,
+    state: com.cinetrack.ui.library.LibraryUiState,
     artwork: com.cinetrack.ui.library.LibraryArtworkState,
     onSearch: () -> Unit,
     onMedia: (MediaCard) -> Unit,
@@ -136,7 +136,7 @@ fun LibraryScreen(
     val listState = rememberLazyListState()
     NavCollapseGridEffect(gridState, onCompactNav)
     NavCollapseEffect(listState, onCompactNav)
-    val typeItems = state.rails[RailIds.LIBRARY].orEmpty().filter { it.type == type }
+    val typeItems = state.library.filter { it.type == type }
     val filteredItems = typeItems.filter { status == null || it.status == status }
     val watchedAtByKey = remember(state.history) {
         state.history.groupBy { it.media.stableKey }.mapValues { (_, events) ->
@@ -165,7 +165,7 @@ fun LibraryScreen(
         (state.playbackTv + state.playbackMovies).associate { it.media.stableKey to it.progress }
     }
     LaunchedEffect(type, status, bulkMode) { selectedKeys = emptySet() }
-    val backgroundMedia = state.rails[RailIds.LIBRARY].orEmpty().minByOrNull { it.stableKey }
+    val backgroundMedia = state.library.minByOrNull { it.stableKey }
     AdaptiveBackground(artworkUrl = backgroundMedia?.posterUrl) {
         LongPullRefreshContainer(
             refreshing = artwork.refreshing,

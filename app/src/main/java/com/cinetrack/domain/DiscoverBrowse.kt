@@ -18,4 +18,7 @@ fun DiscoverBrowseState.appendPage(page: DiscoverPage, upcoming: Boolean = false
 }
 
 fun discoverBrowseKey(railId: String, state: AppUiState): String =
-    listOf(railId, state.metadataLanguage, state.metadataRegion, state.contentRegions.sorted().joinToString(",")).joinToString(":")
+    discoverBrowseKey(railId, state.metadataLanguage, state.metadataRegion, state.contentRegions)
+
+fun discoverBrowseKey(railId: String, metadataLanguage: String, metadataRegion: String, contentRegions: Set<String>): String =
+    listOf(railId, metadataLanguage, metadataRegion, contentRegions.sorted().joinToString(",")).joinToString(":")

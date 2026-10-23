@@ -113,7 +113,7 @@ internal enum class PlaybackOrder { RECENT, TITLE, TOP_RATED, REMAINING, RANDOM 
 
 @Composable
 fun ProgressScreen(
-    state: AppUiState,
+    state: com.cinetrack.ui.progress.ProgressUiState,
     syncProgress: StateFlow<SyncProgress>,
     syncRunning: StateFlow<Boolean>,
     onSearch: () -> Unit,

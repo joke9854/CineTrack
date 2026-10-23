@@ -2,6 +2,10 @@
 
 package com.cinetrack.ui
 
+import com.cinetrack.ui.discover.discoverUiState
+import com.cinetrack.ui.library.libraryUiState
+import com.cinetrack.ui.progress.progressUiState
+import com.cinetrack.ui.settings.settingsUiState
 import com.cinetrack.ui.components.popupBackdropBlur
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -177,6 +181,19 @@ fun CineTrackApp(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // What the settings pages still run on CineTrackViewModel (sync mutex, AppUiState and Progress).
+    val syncControls = remember(viewModel) {
+        com.cinetrack.ui.settings.TrackingSyncControls(viewModel.syncProgress, viewModel::sync, viewModel.mainTrackerSwap, viewModel::swapMainTracker, viewModel.floppyBootstrapProgress)
+    }
+    val hiddenContentControls = remember(viewModel) {
+        com.cinetrack.ui.settings.HiddenContentControls(
+            onExcludeSpecials = viewModel::setExcludeSpecials,
+            onRestoreHiddenUpcomingEpisode = viewModel::restoreHiddenUpcomingEpisode,
+            onRestoreHiddenUpcoming = viewModel::restoreHiddenUpcoming,
+            onRestoreHiddenDiscovery = viewModel::restoreHiddenDiscovery,
+            onExportCalendar = viewModel::exportCalendar,
+        )
+    }
     val searchViewModel: com.cinetrack.ui.search.SearchViewModel = viewModel(
         factory = com.cinetrack.ui.search.SearchViewModel.Factory(
             application.container.discoveryRepository,
@@ -411,7 +428,7 @@ fun CineTrackApp(
         ) {
             screen(Routes.Discover) {
                 DiscoverScreen(
-                    state = state,
+                    state = state.discoverUiState(),
                     onRefresh = { if (viewModel.refresh()) discoverViewModel.resetBrowse() },
                     loadTagline = detailViewModel::loadTagline,
                     onSearch = { navController.navigate("search/discover") },
@@ -430,7 +447,7 @@ fun CineTrackApp(
             }
             screen(Routes.Progress) {
                 ProgressScreen(
-                    state = state,
+                    state = state.progressUiState(),
                     syncProgress = viewModel.syncProgress,
                     syncRunning = viewModel.syncRunning,
                     onSearch = { navController.navigate("search/progress") },
@@ -455,11 +472,11 @@ fun CineTrackApp(
                 )
             }
             screen(Routes.Library) {
-                LibraryScreen(state = state, artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
             }
             screen(Routes.Settings) {
                 SettingsScreen(
-                    state = state,
+                    state = state.settingsUiState(),
                     onPage = { navController.navigate("settings-detail/$it") },
                     onCompactNav = { compactNav = it },
                 )
@@ -512,7 +529,7 @@ fun CineTrackApp(
                 DiscoverListScreen(
                     railId = entry.arguments?.getString("railId").orEmpty(),
                     viewModel = discoverViewModel,
-                    state = state,
+                    state = state.discoverUiState(),
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
                     onStatus = viewModel::setStatus,
@@ -624,7 +641,8 @@ fun CineTrackApp(
                 SettingsDetailScreen(
                     page = entry.arguments?.getString("page").orEmpty(),
                     state = state,
-                    viewModel = viewModel,
+                    syncControls = syncControls,
+                    contentControls = hiddenContentControls,
                     settingsViewModel = settingsViewModel,
                     contentViewModel = contentSettingsViewModel,
                     backupViewModel = backupViewModel,

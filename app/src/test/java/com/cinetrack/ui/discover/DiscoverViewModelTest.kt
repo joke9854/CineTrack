@@ -141,7 +141,7 @@ class DiscoverViewModelTest {
         val state = AppUiState(rails = mapOf(RailIds.POPULAR_MOVIES to listOf(movie(1))))
         val key = discoverBrowseKey(RailIds.POPULAR_MOVIES, state)
 
-        vm.loadDiscoverMore(RailIds.POPULAR_MOVIES, state)
+        vm.loadDiscoverMore(RailIds.POPULAR_MOVIES, state.discoverUiState())
         val browse = vm.discoverBrowse.value.getValue(key)
         assertEquals(listOf(1, 2, 3), browse.items.map(MediaCard::id))
         assertFalse(browse.hasMore)

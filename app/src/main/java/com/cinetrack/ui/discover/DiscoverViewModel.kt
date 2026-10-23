@@ -5,7 +5,6 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.discovery.DiscoveryRepository
 import com.cinetrack.data.watchprovider.WatchProviderRepository
-import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.DiscoverBrowseState
 import com.cinetrack.domain.DiscoverMovieFilters
 import com.cinetrack.domain.LibraryStatus
@@ -14,7 +13,6 @@ import com.cinetrack.domain.MediaType
 import com.cinetrack.domain.RailIds
 import com.cinetrack.domain.StreamingProvider
 import com.cinetrack.domain.appendPage
-import com.cinetrack.domain.discoverBrowseKey
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -68,7 +66,7 @@ class DiscoverViewModel(
     private var browseGeneration = 0
 
     /** Loads the next pages of [railId]; [state] gives its key and first items (the rail itself). */
-    fun loadDiscoverMore(railId: String, state: AppUiState) {
+    fun loadDiscoverMore(railId: String, state: DiscoverUiState) {
         val key = discoverBrowseKey(railId, state)
         val existing = _discoverBrowse.value[key] ?: DiscoverBrowseState(items = state.rails[railId].orEmpty())
         if (existing.loading || !existing.hasMore) return
