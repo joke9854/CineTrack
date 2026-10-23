@@ -1,3 +1,12 @@
+# CineTrack 0.99.75 beta
+
+**Changes**
+- Faster start and lighter updates, with no change to how anything looks: the app now reads only the titles your library, history and Progress actually show (search and Discover cache entries are no longer loaded each time), reloads only what changed after a sync or an edit, and reads its settings in one go. On a Galaxy S23 Ultra a cold start is about 13% faster.
+- Discover, Progress, Library and the Settings list now redraw only when something they show changes, not on every background update (for example while Floppy is setting up).
+- Network connections are created the first time they are needed instead of at app start.
+- The in-app periodic sync now runs only while CineTrack is open; in the background the scheduled sync takes over as before.
+- Behind the scenes: one shared Simkl status mapping instead of three copies, and a smaller release build. Sync behaviour is unchanged.
+
 # CineTrack 0.99.74 beta
 
 **Changes**
