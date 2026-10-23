@@ -21,8 +21,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
@@ -357,6 +355,12 @@ fun CineTrackApp(
         if (showBottomNav) kotlinx.coroutines.delay(230)
         value = showBottomNav
     }
+    // Key actions answer with a haptic: a status change confirms, a tab switch ticks.
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+    val setStatus: (com.cinetrack.domain.MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit = { media, status ->
+        haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+        viewModel.setStatus(media, status)
+    }
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media ->
         detailViewModel.rememberOpened(media)
         navController.navigate("detail/${media.type.name}/${media.id}")
@@ -381,48 +385,36 @@ fun CineTrackApp(
                 val from = mainPageIndex(initialState.destination.route)
                 val to = mainPageIndex(targetState.destination.route)
                 when {
-                    from != null && to != null && to > from ->
-                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(Motion.Medium))
-                    from != null && to != null && to < from ->
-                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(Motion.Medium))
+                    from != null && to != null -> Motion.tabEnter(forward = to > from)
                     isDetailRoute(targetState.destination.route) -> DetailEnter
-                    else -> slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 5 } + fadeIn(tween(Motion.Medium))
+                    else -> Motion.PushEnter
                 }
             },
             exitTransition = {
                 val from = mainPageIndex(initialState.destination.route)
                 val to = mainPageIndex(targetState.destination.route)
                 when {
-                    from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(Motion.Short))
-                    from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
+                    from != null && to != null -> Motion.tabExit(forward = to > from)
                     isDetailRoute(targetState.destination.route) -> DetailExit
-                    else -> slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 10 } + fadeOut(tween(Motion.Short))
+                    else -> Motion.PushExit
                 }
             },
             popEnterTransition = {
                 val from = mainPageIndex(initialState.destination.route)
                 val to = mainPageIndex(targetState.destination.route)
                 when {
-                    from != null && to != null && to > from ->
-                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 3 } + fadeIn(tween(Motion.Medium))
-                    from != null && to != null && to < from ->
-                        slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(Motion.Medium))
+                    from != null && to != null -> Motion.tabEnter(forward = to > from)
                     isDetailRoute(initialState.destination.route) -> DetailPopEnter
-                    else -> slideInHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 5 } + fadeIn(tween(Motion.Medium))
+                    else -> Motion.PopEnter
                 }
             },
             popExitTransition = {
                 val from = mainPageIndex(initialState.destination.route)
                 val to = mainPageIndex(targetState.destination.route)
                 when {
-                    from != null && to != null && to > from ->
-                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { -it / 4 } + fadeOut(tween(Motion.Short))
-                    from != null && to != null && to < from ->
-                        slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
+                    from != null && to != null -> Motion.tabExit(forward = to > from)
                     isDetailRoute(initialState.destination.route) -> DetailPopExit
-                    else -> slideOutHorizontally(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 4 } + fadeOut(tween(Motion.Short))
+                    else -> Motion.PopExit
                 }
             },
         ) {
@@ -435,7 +427,7 @@ fun CineTrackApp(
                     onFilters = { navController.navigate(Routes.DiscoverFilters) },
                     onSeeAll = { navController.navigate("discover-list/$it") },
                     onMedia = openMedia,
-                    onStatus = viewModel::setStatus,
+                    onStatus = setStatus,
                     onNotInterested = hideDiscoveryItem,
                     onOpenTmdbSettings = { navController.navigate("settings-detail/${com.cinetrack.ui.screens.SettingsPages.ServiceTmdb}") },
                     onCompactNav = { compactNav = it },
@@ -472,7 +464,7 @@ fun CineTrackApp(
                 )
             }
             screen(Routes.Library) {
-                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = viewModel::setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
             }
             screen(Routes.Settings) {
                 SettingsScreen(
@@ -532,7 +524,7 @@ fun CineTrackApp(
                     state = state.discoverUiState(),
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
-                    onStatus = viewModel::setStatus,
+                    onStatus = setStatus,
                     onNotInterested = hideDiscoveryItem,
                 )
             }
@@ -546,7 +538,7 @@ fun CineTrackApp(
                     onLoadProviders = { discoverViewModel.loadStreamingProviders(it, state.preferredProviders) },
                     onBack = { navController.popBackStack() },
                     onMedia = openMedia,
-                    onStatus = viewModel::setStatus,
+                    onStatus = setStatus,
                     onNotInterested = hideDiscoveryItem,
                 )
             }
@@ -590,7 +582,7 @@ fun CineTrackApp(
                     detailViewModel = detailViewModel,
                     progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
-                    onStatus = viewModel::setStatus,
+                    onStatus = setStatus,
                     onMedia = openMedia,
                     onEpisode = { episode ->
                         entry.savedStateHandle["selectedSeason"] = episode.season
@@ -659,8 +651,8 @@ fun CineTrackApp(
         }
         AnimatedVisibility(
             visible = navShown,
-            enter = fadeIn(tween(Motion.Medium)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium, easing = FastOutSlowInEasing)) { it / 2 },
-            exit = fadeOut(tween(100)),
+            enter = fadeIn(Motion.enter(Motion.Medium)) + androidx.compose.animation.slideInVertically(Motion.enter(Motion.Long)) { it / 2 },
+            exit = fadeOut(Motion.exit(100)),
             modifier = Modifier.align(Alignment.BottomCenter),
         ) {
             LiquidBottomNav(
@@ -670,6 +662,7 @@ fun CineTrackApp(
                 selectedIndex = selectedIndex,
                 compact = true,
                 onSelected = { index ->
+                    if (index != selectedIndex) haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.SegmentTick)
                     val destination = navItems[index].route
                     navController.navigate(destination) {
                         popUpTo(navController.graph.findStartDestination().id) { saveState = true }
@@ -686,8 +679,8 @@ fun CineTrackApp(
         if (backupProgress != null) shownBackup = backupProgress
         AnimatedVisibility(
             visible = backupProgress != null,
-            enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
-            exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
+            enter = Motion.PillEnter,
+            exit = Motion.PillExit,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm),
         ) {
             shownBackup?.let { com.cinetrack.ui.components.BackupProgressPill(it) }
@@ -709,8 +702,8 @@ fun CineTrackApp(
         if (offeredUpdate != null) shownUpdate = offeredUpdate
         AnimatedVisibility(
             visible = offeredUpdate != null && offeredUpdate.version != updateDismissed && backupProgress == null && !libraryArtwork.progressVisible,
-            enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
-            exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
+            enter = Motion.PillEnter,
+            exit = Motion.PillExit,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm),
         ) {
             shownUpdate?.let { update ->
@@ -728,8 +721,8 @@ fun CineTrackApp(
         }
         AnimatedVisibility(
             visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
-            enter = fadeIn(tween(Motion.Short)) + slideInHorizontally(tween(Motion.Medium)) { it / 5 },
-            exit = fadeOut(tween(Motion.Short)),
+            enter = Motion.PillEnter,
+            exit = Motion.PillExit,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         ) {
             Row(
@@ -798,8 +791,8 @@ private fun LibraryArtworkPill(artwork: com.cinetrack.ui.library.LibraryArtworkS
     }
     AnimatedVisibility(
         visible = visible,
-        enter = fadeIn(tween(Motion.Short)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { -it },
-        exit = fadeOut(tween(Motion.Medium)) + androidx.compose.animation.slideOutVertically(tween(Motion.Medium)) { -it },
+        enter = Motion.PillEnter,
+        exit = Motion.PillExit,
         modifier = modifier,
     ) {
         val current = shown ?: return@AnimatedVisibility

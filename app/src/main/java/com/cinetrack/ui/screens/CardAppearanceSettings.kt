@@ -1,9 +1,7 @@
 package com.cinetrack.ui.screens
 
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -222,7 +220,7 @@ private fun SegmentedChoice(
             .glass(shape).padding(4.dp),
     ) {
         val segment = maxWidth / choices.size
-        val offset by animateDpAsState(segment * index, spring(dampingRatio = .82f, stiffness = Spring.StiffnessMediumLow), label = "segmentThumb")
+        val offset by animateDpAsState(segment * index, Motion.snappy(), label = "segmentThumb")
         Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(offset.roundToPx(), 0) }.width(segment).fillMaxHeight().clip(shape).background(Accent.copy(alpha = .9f)))
         Row(Modifier.fillMaxSize().selectableGroup()) {
             choices.forEach { (key, label) ->

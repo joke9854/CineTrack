@@ -20,10 +20,6 @@ import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -255,13 +251,9 @@ fun ProgressScreen(
                 targetState = tab,
                 modifier = Modifier.fillMaxSize(),
                 transitionSpec = {
-                    if (targetState.ordinal > initialState.ordinal) {
-                        (slideInHorizontally(tween(Motion.Long)) { it / 3 } + fadeIn(tween(Motion.Medium))) togetherWith
-                            (slideOutHorizontally(tween(Motion.Medium)) { -it / 4 } + fadeOut(tween(Motion.Short)))
-                    } else {
-                        (slideInHorizontally(tween(Motion.Long)) { -it / 3 } + fadeIn(tween(Motion.Medium))) togetherWith
-                            (slideOutHorizontally(tween(Motion.Medium)) { it / 4 } + fadeOut(tween(Motion.Short)))
-                    }
+                    // The same tab motion as the bottom bar's pages.
+                    val forward = targetState.ordinal > initialState.ordinal
+                    Motion.tabEnter(forward) togetherWith Motion.tabExit(forward)
                 },
                 label = "progressTabPage",
             ) { activeTab ->

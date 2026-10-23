@@ -4,11 +4,8 @@ package com.cinetrack.ui.components
 
 import android.animation.ValueAnimator
 import android.os.Build
-import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -79,12 +76,12 @@ fun LiquidBottomNav(
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
     val labelFraction by animateFloatAsState(
         targetValue = if (compact) 0f else 1f,
-        animationSpec = if (motionEnabled) tween(Motion.Medium, easing = FastOutSlowInEasing) else tween(Motion.Instant),
+        animationSpec = if (motionEnabled) Motion.enter(Motion.Medium) else tween(Motion.Instant),
         label = "navLabels",
     )
     val height by animateDpAsState(
         if (compact) 54.dp else 64.dp,
-        if (motionEnabled) tween(Motion.Medium, easing = FastOutSlowInEasing) else tween(Motion.Instant),
+        if (motionEnabled) Motion.enter(Motion.Medium) else tween(Motion.Instant),
         label = "navHeight",
     )
     // The bar's size and labels follow these during layout and drawing; only whether the
@@ -92,7 +89,7 @@ fun LiquidBottomNav(
     val labelsShown by remember { androidx.compose.runtime.derivedStateOf { labelFraction > .01f } }
     val sidePadding by animateDpAsState(
         if (compact) 58.dp else 28.dp,
-        if (motionEnabled) tween(Motion.Medium, easing = FastOutSlowInEasing) else tween(Motion.Instant),
+        if (motionEnabled) Motion.enter(Motion.Medium) else tween(Motion.Instant),
         label = "navSidePadding",
     )
     Box(
@@ -119,7 +116,7 @@ fun LiquidBottomNav(
             val itemWidth = maxWidth / items.size.coerceAtLeast(1)
             val dropletX by animateDpAsState(
                 itemWidth * selectedIndex,
-                if (motionEnabled) spring(dampingRatio = .72f, stiffness = Spring.StiffnessMediumLow) else tween(Motion.Instant),
+                if (motionEnabled) Motion.snappy() else tween(Motion.Instant),
                 label = "navDroplet",
             )
             Box(
