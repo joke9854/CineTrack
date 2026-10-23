@@ -219,7 +219,6 @@ fun DetailScreen(
     AdaptiveBackground(
         artworkUrl = detail.posterUrl ?: detail.backdropUrl,
         hazeState = detailGlassState,
-        blurBackdrop = true,
     ) {
         val detailListState = rememberLazyListState()
         val headerHaze = remember { dev.chrisbanes.haze.HazeState() }
@@ -602,11 +601,11 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.DetailSectionSurface(
     // to their new place instead of jumping; growing sections resize smoothly.
     Box(Modifier.fillMaxWidth()
         .animateItem(
-            fadeInSpec = androidx.compose.animation.core.tween(Motion.Long),
-            placementSpec = androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold),
+            fadeInSpec = Motion.enter(Motion.Long),
+            placementSpec = Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold),
             fadeOutSpec = null,
         )
-        .animateContentSize(androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow))
+        .animateContentSize(Motion.gentle(androidx.compose.ui.unit.IntSize.VisibilityThreshold))
         .then(if (first) Modifier.shelfFeather() else Modifier.background(GlassMaterial.DetailSurface))
         .padding(top = if (first) 32.dp else 0.dp, bottom = bottomGap)) { content() }
 }
@@ -634,17 +633,6 @@ private val DetailHeaderGlass = dev.chrisbanes.haze.HazeStyle(
     noiseFactor = .03f,
     fallbackTint = dev.chrisbanes.haze.HazeTint(Color(0xF7080A0C)),
 )
-
-/** Fades the blurred hero art out over its lower part, so it never ends on a straight edge. */
-internal fun Modifier.fadeOutBottom(alpha: Float): Modifier =
-    graphicsLayer { this.alpha = alpha; compositingStrategy = androidx.compose.ui.graphics.CompositingStrategy.Offscreen }
-        .drawWithContent {
-            drawContent()
-            drawRect(
-                Brush.verticalGradient(0f to Color.White, .55f to Color.White, 1f to Color.Transparent),
-                blendMode = androidx.compose.ui.graphics.BlendMode.DstIn,
-            )
-        }
 
 /** 0 while the hero is visible, rising to 1 as the content passes under the top bar. */
 @Composable

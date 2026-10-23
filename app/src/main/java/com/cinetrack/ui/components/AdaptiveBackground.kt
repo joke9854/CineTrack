@@ -31,6 +31,7 @@ import coil3.imageLoader
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
 import coil3.request.allowHardware
+import coil3.request.transformations
 import coil3.toBitmap
 import androidx.core.graphics.drawable.toBitmap
 import com.cinetrack.ui.theme.Accent
@@ -39,7 +40,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import dev.chrisbanes.haze.hazeEffect
 import com.styropyr0.prismal.sources.prismalGlassLayer
 import com.cinetrack.ui.theme.Motion
 
@@ -72,7 +72,6 @@ fun AdaptiveBackground(
     glow: Color? = null,
     secondaryGlow: Color? = null,
     hazeState: HazeState? = null,
-    blurBackdrop: Boolean = false,
     /** Record the background so liquidGlass controls in [content] can refract it. */
     liquidGlass: Boolean = true,
     modifier: Modifier = Modifier,
@@ -152,10 +151,6 @@ fun AdaptiveBackground(
                     .then(CachedBackground)
                     .then(backgroundModifier),
             )
-            if (blurBackdrop) {
-                Box(Modifier.matchParentSize().hazeEffect(hazeState,
-                    style = DetailBackdropStyle))
-            }
             androidx.compose.runtime.CompositionLocalProvider(LocalGlassBackdrop provides glassBackdrop) { content() }
         }
     }
@@ -192,16 +187,93 @@ fun rememberPosterAccent(url: String?, enabled: Boolean): State<Color?> {
 private val posterAccentCache = LruCache<String, Color>(24)
 
 /**
- * Artwork that is only ever shown heavily blurred, decoded small: the blur hides the lower
- * resolution, and decoding and holding a full-size backdrop costs far more.
+ * Header art behind the detail and episode pages: decoded small, then blurred and faded out
+ * at the bottom once while decoding. Drawn as a plain image it needs no live effects: a
+ * RenderEffect blur re-ran on every frame of the page's open and close, and the fade's
+ * DstIn mask layer compiled a GPU program mid-flight on the first open after launch.
  */
 @Composable
 fun rememberBlurredArtRequest(url: String): ImageRequest {
     val context = androidx.compose.ui.platform.LocalContext.current
-    return remember(url) { ImageRequest.Builder(context).data(url).size(BlurredArtSizePx).build() }
+    return remember(url) {
+        ImageRequest.Builder(context).data(url).size(BlurredArtSizePx)
+            .transformations(BlurredArtTransformation)
+            .build()
+    }
 }
 
 private const val BlurredArtSizePx = 480
+
+/**
+ * Scales the art down to [WidthPx] and runs three box-blur passes over it, close to the
+ * 18 dp blur the headers used to apply live; bilinear upscaling keeps the result smooth.
+ * Then bakes in the headers' fade: [Opacity] overall, fully opaque to [FadeStart] of the
+ * height, then down to transparent at the bottom. The headers are taller than the art's
+ * aspect, so ContentScale.Crop trims only the sides and the fade stays where it was.
+ */
+private object BlurredArtTransformation : coil3.transform.Transformation() {
+    private const val WidthPx = 160
+    private const val Radius = 3
+    private const val Opacity = .72f
+    private const val FadeStart = .55f
+    override val cacheKey = "blurredArt:$WidthPx:$Radius:$Opacity:$FadeStart"
+
+    override suspend fun transform(input: android.graphics.Bitmap, size: coil3.size.Size): android.graphics.Bitmap {
+        val width = WidthPx.coerceAtMost(input.width)
+        val height = (input.height * width / input.width.toFloat()).toInt().coerceAtLeast(1)
+        val small = android.graphics.Bitmap.createScaledBitmap(input, width, height, true)
+        val pixels = IntArray(width * height)
+        small.getPixels(pixels, 0, width, 0, 0, width, height)
+        val scratch = IntArray(pixels.size)
+        repeat(3) {
+            boxBlur(pixels, scratch, width, height, horizontal = true)
+            boxBlur(scratch, pixels, width, height, horizontal = false)
+        }
+        for (y in 0 until height) {
+            val position = y / (height - 1).coerceAtLeast(1).toFloat()
+            val fade = if (position <= FadeStart) 1f else 1f - (position - FadeStart) / (1f - FadeStart)
+            val factor = Opacity * fade
+            for (x in 0 until width) {
+                val index = y * width + x
+                val p = pixels[index]
+                pixels[index] = (((p ushr 24) * factor).toInt() shl 24) or (p and 0xFFFFFF)
+            }
+        }
+        val out = small.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+        out.setHasAlpha(true)
+        out.setPixels(pixels, 0, width, 0, 0, width, height)
+        if (small !== input) small.recycle()
+        return out
+    }
+
+    /** One running-sum box blur along rows or columns, clamping at the edges. */
+    private fun boxBlur(src: IntArray, dst: IntArray, width: Int, height: Int, horizontal: Boolean) {
+        val lines = if (horizontal) height else width
+        val length = if (horizontal) width else height
+        val window = Radius * 2 + 1
+        for (line in 0 until lines) {
+            fun at(i: Int): Int {
+                val c = i.coerceIn(0, length - 1)
+                return if (horizontal) src[line * width + c] else src[c * width + line]
+            }
+            var a = 0; var r = 0; var g = 0; var b = 0
+            for (i in -Radius..Radius) {
+                val p = at(i)
+                a += p ushr 24; r += (p shr 16) and 0xFF; g += (p shr 8) and 0xFF; b += p and 0xFF
+            }
+            for (i in 0 until length) {
+                val index = if (horizontal) line * width + i else i * width + line
+                dst[index] = ((a / window) shl 24) or ((r / window) shl 16) or ((g / window) shl 8) or (b / window)
+                val add = at(i + Radius + 1)
+                val drop = at(i - Radius)
+                a += (add ushr 24) - (drop ushr 24)
+                r += ((add shr 16) and 0xFF) - ((drop shr 16) and 0xFF)
+                g += ((add shr 8) and 0xFF) - ((drop shr 8) and 0xFF)
+                b += (add and 0xFF) - (drop and 0xFF)
+            }
+        }
+    }
+}
 
 /**
  * The poster's dominant vivid hue: saturated pixels are grouped into twelve hue bands and the

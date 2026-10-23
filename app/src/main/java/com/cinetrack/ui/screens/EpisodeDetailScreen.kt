@@ -4,7 +4,6 @@ package com.cinetrack.ui.screens
 
 import com.cinetrack.ui.components.sharedBackdrop
 import dev.chrisbanes.haze.hazeSource
-import androidx.compose.ui.draw.blur
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.pager.HorizontalPager
@@ -198,7 +197,6 @@ fun EpisodeDetailScreen(
     AdaptiveBackground(
         artworkUrl = currentEpisode.stillUrl ?: show?.backdropUrl ?: show?.posterUrl,
         hazeState = detailGlassState,
-        blurBackdrop = true,
     ) {
         val headerHaze = remember { dev.chrisbanes.haze.HazeState() }
         Box(Modifier.fillMaxSize()) {
@@ -224,7 +222,7 @@ fun EpisodeDetailScreen(
                 item {
                     Box(Modifier.fillMaxWidth()) {
                         (displayedEpisode.stillUrl ?: show?.backdropUrl)?.takeIf(String::isNotBlank)?.let { art ->
-                            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(art), null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
+                            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(art), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
                             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
                         }
                     Box(Modifier.fillMaxWidth().statusBarsPadding().height(330.dp)) {

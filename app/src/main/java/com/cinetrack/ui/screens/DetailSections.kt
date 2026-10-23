@@ -7,7 +7,6 @@ import com.cinetrack.ui.components.sharedBackdrop
 import com.cinetrack.ui.components.sharedPoster
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.graphicsLayer
 import com.cinetrack.ui.components.liquidGlassPill
 import androidx.compose.animation.AnimatedVisibility
@@ -192,7 +191,7 @@ internal fun DetailHero(media: MediaCard) {
         // The backdrop art, blurred, fades into the page behind the poster.
         media.backdropUrl?.takeIf(String::isNotBlank)?.let { backdrop ->
             // matchParentSize: the hero now takes its height from the poster.
-            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(backdrop), null, Modifier.matchParentSize().blur(18.dp).fadeOutBottom(.72f), contentScale = ContentScale.Crop)
+            AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(backdrop), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
             Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
         }
         Box(
@@ -344,7 +343,7 @@ private fun ratingSourceLabel(source: String): String {
 /** Fades from a skeleton to the real section once its data is known. */
 @Composable
 internal fun LoadedSection(loaded: Boolean, skeleton: @Composable () -> Unit, content: @Composable () -> Unit) {
-    androidx.compose.animation.Crossfade(loaded, animationSpec = androidx.compose.animation.core.tween(220), label = "loadedSection") { ready ->
+    androidx.compose.animation.Crossfade(loaded, animationSpec = Motion.enter(Motion.Medium), label = "loadedSection") { ready ->
         if (ready) Column { content() } else skeleton()
     }
 }

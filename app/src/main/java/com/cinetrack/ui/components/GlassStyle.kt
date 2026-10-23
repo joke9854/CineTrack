@@ -84,15 +84,6 @@ internal val NavGlassStyle = HazeStyle(
     fallbackTint = HazeTint(GlassMaterial.OverlayFallback),
 )
 
-// Detail foreground sections supply their own tint; blur the backdrop only once.
-internal val DetailBackdropStyle = HazeStyle(
-    backgroundColor = Background0,
-    tint = HazeTint(Color.Transparent),
-    blurRadius = 16.dp,
-    noiseFactor = .03f,
-    fallbackTint = HazeTint(Color.Transparent),
-)
-
 // Cards can't take Prismal's specular, so their border imitates it (0.9 dp, 20% peak, like
 // LiquidRim): light catches the top edge, the sides stay faint but hold the card's shape on
 // near-black, and the bottom picks up a little bounce light.
@@ -518,7 +509,7 @@ internal fun rememberDirectionalSlide(index: Int): androidx.compose.runtime.Stat
         androidx.compose.animation.core.animate(
             offset.floatValue,
             0f,
-            animationSpec = androidx.compose.animation.core.tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+            animationSpec = com.cinetrack.ui.theme.Motion.snappy(),
         ) { value, _ -> offset.floatValue = value }
     }
     return offset
