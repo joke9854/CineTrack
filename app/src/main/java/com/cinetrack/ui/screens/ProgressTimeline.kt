@@ -4,10 +4,8 @@ import androidx.compose.ui.draw.drawBehind
 import com.cinetrack.ui.components.heightOf
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -30,7 +28,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.outlined.NotificationsNone
@@ -39,6 +36,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.graphics.graphicsLayer
+import com.cinetrack.ui.theme.Motion
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -89,6 +88,10 @@ import com.cinetrack.ui.theme.SurfacePalette
  */
 
 private val CardShape = RoundedCornerShape(Radius.Medium)
+
+// Timeline cards are a flat surface; the glass sits on their controls (bell, chevron, clock).
+private fun Modifier.timelineCard(): Modifier =
+    clip(CardShape).background(Color.White.copy(alpha = .045f)).border(.5.dp, Color.White.copy(alpha = .08f), CardShape)
 
 internal fun timelineDate(raw: String): LocalDate? = releaseDateTime(raw, ZoneId.systemDefault())?.toLocalDate()
 
@@ -254,12 +257,19 @@ private fun WeekStrip(today: LocalDate, withReleases: Set<LocalDate>, onPick: (L
 
 @Composable
 private fun ReminderBell(on: Boolean, onToggle: () -> Unit, onArt: Boolean = false) {
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     Box(
-        Modifier.size(44.dp).clip(CircleShape).clickable(role = Role.Switch, onClick = onToggle),
+        Modifier.size(44.dp).clip(CircleShape).clickable(role = Role.Switch) {
+            haptics.performHapticFeedback(
+                if (on) androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOff
+                else androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOn,
+            )
+            onToggle()
+        },
         contentAlignment = Alignment.Center,
     ) {
         Box(
-            Modifier.size(32.dp).then(if (onArt) Modifier.glass(CircleShape) else Modifier),
+            Modifier.size(32.dp).glass(CircleShape),
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -308,6 +318,15 @@ private fun StackedCard(stacked: Boolean, modifier: Modifier = Modifier, content
     }
 }
 
+/** The expand control of a grouped card: a small glass circle whose chevron turns over. */
+@Composable
+private fun ExpandChevron(expanded: Boolean, modifier: Modifier = Modifier) {
+    val turn by androidx.compose.animation.core.animateFloatAsState(if (expanded) 180f else 0f, Motion.snappy(), label = "expandChevron")
+    Box(modifier.size(28.dp).glass(CircleShape), contentAlignment = Alignment.Center) {
+        Icon(Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = turn })
+    }
+}
+
 @Composable
 private fun ReleasedMark(item: TimelineCard) {
     Box(Modifier.padding(end = 10.dp)) {
@@ -348,7 +367,7 @@ private fun CompactRelease(group: List<TimelineCard>, released: Boolean, reminde
     val several = group.size > 1
     var expanded by rememberSaveable(item.media.stableKey, item.timestamp, group.size) { mutableStateOf(false) }
     StackedCard(several && !expanded, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm)) {
-        Column(Modifier.fillMaxWidth().glass(CardShape).clip(CardShape).animateContentSize()) {
+        Column(Modifier.fillMaxWidth().timelineCard().animateContentSize(Motion.gentle())) {
             Row(
                 Modifier.fillMaxWidth()
                     .clickable { if (several) expanded = !expanded else onOpen(item) }
@@ -365,10 +384,10 @@ private fun CompactRelease(group: List<TimelineCard>, released: Boolean, reminde
                         color = TextMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (several) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted, modifier = Modifier.padding(end = 4.dp).size(20.dp))
+                if (several) ExpandChevron(expanded, Modifier.padding(end = 4.dp))
                 if (released) ReleasedMark(item) else ReminderBell(reminderOn, onReminder)
             }
-            AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+            AnimatedVisibility(expanded, enter = fadeIn(Motion.enter(Motion.Medium, delay = 60)), exit = fadeOut(Motion.exit())) {
                 Column(Modifier.padding(start = 58.dp, end = 12.dp, bottom = 6.dp)) {
                     group.forEach { episode ->
                         Row(
@@ -479,7 +498,7 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
     var expanded by rememberSaveable(session.key) { mutableStateOf(false) }
     val isMovie = first.media.type == MediaType.MOVIE
     StackedCard(several && !expanded, Modifier.padding(horizontal = Spacing.xl).padding(bottom = Spacing.sm)) {
-    Column(Modifier.fillMaxWidth().glass(CardShape).clip(CardShape).animateContentSize()) {
+    Column(Modifier.fillMaxWidth().timelineCard().animateContentSize(Motion.gentle())) {
         Row(
             Modifier.fillMaxWidth()
                 .clickable { if (several) expanded = !expanded else open(first, onMedia, onEpisode) }
@@ -509,10 +528,10 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
                     }
                 }
             }
-            if (several) Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted, modifier = Modifier.size(20.dp))
+            if (several) ExpandChevron(expanded)
             else Icon(Icons.Filled.Check, null, tint = Success, modifier = Modifier.size(22.dp))
         }
-        AnimatedVisibility(expanded, enter = fadeIn() + expandVertically(), exit = fadeOut() + shrinkVertically()) {
+        AnimatedVisibility(expanded, enter = fadeIn(Motion.enter(Motion.Medium, delay = 60)), exit = fadeOut(Motion.exit())) {
             Column(Modifier.padding(start = 67.dp, end = 12.dp, bottom = 6.dp)) {
                 events.forEach { event ->
                     Row(

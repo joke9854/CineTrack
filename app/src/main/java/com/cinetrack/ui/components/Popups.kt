@@ -70,6 +70,8 @@ import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.StatusDropped
 import com.cinetrack.ui.theme.Success
 import com.cinetrack.ui.theme.SurfacePalette
+import com.cinetrack.ui.theme.Motion
+import androidx.compose.animation.togetherWith
 
 /** Popup material shared by menus, dialogs and sheets. */
 internal object PopupMaterial {
@@ -393,53 +395,19 @@ internal fun TonalButton(
     }
 }
 
-/** Floating pill with the current backup or restore stage and a thin progress line. */
+/** The current backup or restore stage, in the same pill as other background work. */
 @Composable
 fun BackupProgressPill(progress: com.cinetrack.domain.BackupProgress) {
-    val shape = RoundedCornerShape(Radius.Pill)
-    val tint = when {
-        progress.failed -> StatusDropped
-        progress.finished -> Success
-        else -> AccentLight
-    }
-    val fraction by androidx.compose.animation.core.animateFloatAsState(
-        progress.fraction ?: 0f,
-        androidx.compose.animation.core.tween(300),
-        label = "backupFraction",
+    StatusPill(
+        title = stringResource(if (progress.restore) R.string.backup_restoring else R.string.backup_creating),
+        detail = stringResource(progress.stage) + (progress.fraction?.takeIf { !progress.finished }?.let { " · ${(it * 100).toInt()}%" } ?: ""),
+        tone = when {
+            progress.failed -> PillTone.FAILED
+            progress.finished -> PillTone.DONE
+            else -> PillTone.RUNNING
+        },
+        fraction = progress.fraction,
     )
-    Column(
-        Modifier.widthIn(min = 240.dp, max = 340.dp)
-            .shadow(16.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
-            .clip(shape)
-            .background(Color(0xF0121419))
-            .border(.6.dp, ControlEdgeBrush, shape)
-            .semantics(mergeDescendants = true) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
-    ) {
-        Row(Modifier.padding(start = 14.dp, end = 18.dp, top = 10.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                when {
-                    progress.failed -> Icon(Icons.Filled.Close, null, tint = tint, modifier = Modifier.size(20.dp))
-                    progress.finished -> Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(20.dp))
-                    else -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), color = tint, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = .10f))
-                }
-            }
-            Spacer(Modifier.width(10.dp))
-            Column {
-                Text(
-                    stringResource(if (progress.restore) R.string.backup_restoring else R.string.backup_creating),
-                    color = TextPrimary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold, maxLines = 1,
-                )
-                Text(
-                    stringResource(progress.stage) + (progress.fraction?.takeIf { !progress.finished }?.let { " · ${(it * 100).toInt()}%" } ?: ""),
-                    color = TextSecondary, style = MaterialTheme.typography.labelSmall, maxLines = 1,
-                )
-            }
-        }
-        // Progress line along the bottom edge, like the Progress cards.
-        Box(Modifier.fillMaxWidth().height(3.dp).background(Color.White.copy(alpha = .06f))) {
-            if (progress.fraction != null) Box(Modifier.fillMaxWidthOf { fraction }.height(3.dp).background(tint))
-        }
-    }
 }
 
 /** What a [StatusPill] reports: work going on, done, or failed. */
@@ -460,12 +428,16 @@ fun StatusPill(
     onDismiss: (() -> Unit)? = null,
 ) {
     val shape = RoundedCornerShape(Radius.Pill)
-    val tint = when (tone) {
-        PillTone.FAILED -> StatusDropped
-        PillTone.DONE -> Success
-        else -> AccentLight
-    }
-    val shownFraction by androidx.compose.animation.core.animateFloatAsState(fraction ?: 0f, androidx.compose.animation.core.tween(300), label = "pillFraction")
+    val tint by androidx.compose.animation.animateColorAsState(
+        when (tone) {
+            PillTone.FAILED -> StatusDropped
+            PillTone.DONE -> Success
+            else -> AccentLight
+        },
+        androidx.compose.animation.core.tween(Motion.Medium),
+        label = "pillTint",
+    )
+    val shownFraction by androidx.compose.animation.core.animateFloatAsState(fraction ?: 0f, Motion.gentle(), label = "pillFraction")
     Column(
         Modifier.widthIn(min = 260.dp, max = 360.dp)
             .shadow(16.dp, shape, clip = false, ambientColor = Color.Black, spotColor = Color.Black)
@@ -475,12 +447,25 @@ fun StatusPill(
             .semantics(mergeDescendants = false) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
     ) {
         Row(Modifier.padding(start = 14.dp, end = if (onDismiss != null) 4.dp else 18.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
-                when (tone) {
-                    PillTone.FAILED -> Icon(Icons.Filled.Close, null, tint = tint, modifier = Modifier.size(20.dp))
-                    PillTone.DONE -> Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(20.dp))
-                    PillTone.INFO -> Icon(Icons.Filled.SystemUpdate, null, tint = tint, modifier = Modifier.size(20.dp))
-                    PillTone.RUNNING -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), color = tint, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = .10f))
+            // The spinner turns into a check or a cross: the new icon pops in on a bouncy spring.
+            androidx.compose.animation.AnimatedContent(
+                tone,
+                transitionSpec = {
+                    (androidx.compose.animation.fadeIn(Motion.enter(Motion.Short)) +
+                        androidx.compose.animation.scaleIn(Motion.bouncy(), initialScale = .4f)) togetherWith
+                        androidx.compose.animation.fadeOut(Motion.exit(90))
+                },
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(28.dp),
+                label = "pillIcon",
+            ) { shownTone ->
+                Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+                    when (shownTone) {
+                        PillTone.FAILED -> Icon(Icons.Filled.Close, null, tint = tint, modifier = Modifier.size(20.dp))
+                        PillTone.DONE -> Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(20.dp))
+                        PillTone.INFO -> Icon(Icons.Filled.SystemUpdate, null, tint = tint, modifier = Modifier.size(20.dp))
+                        PillTone.RUNNING -> androidx.compose.material3.CircularProgressIndicator(Modifier.size(20.dp), color = tint, strokeWidth = 2.dp, trackColor = Color.White.copy(alpha = .10f))
+                    }
                 }
             }
             Spacer(Modifier.width(10.dp))
