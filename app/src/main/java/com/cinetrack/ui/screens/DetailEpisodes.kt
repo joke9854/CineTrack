@@ -4,6 +4,7 @@ package com.cinetrack.ui.screens
 
 import com.cinetrack.ui.components.sharedBackdrop
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
 import com.cinetrack.ui.components.liquidGlassPill
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
@@ -87,6 +88,7 @@ import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Info
 import com.cinetrack.ui.theme.Success
 import com.cinetrack.ui.theme.TextMuted
+import com.cinetrack.ui.theme.Motion
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -145,6 +147,7 @@ internal fun EpisodesSection(
     val total = (summary?.episodeCount ?: seasonEpisodes.size).coerceAtLeast(seasonEpisodes.size).coerceAtLeast(1)
     val watched = seasonEpisodes.count(EpisodeCard::watched)
     val allWatched = seasonEpisodes.isNotEmpty() && watched == seasonEpisodes.size
+    val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
     val seasonKeys = remember(grouped) { grouped.keys.toList() }
     // Pills and covers each keep their own row state: one state shared by both
     // rows while they crossfade leaves the incoming row blank for a few frames.
@@ -159,7 +162,7 @@ internal fun EpisodesSection(
     }
     val progress = androidx.compose.animation.core.animateFloatAsState(
         watched.toFloat() / total,
-        androidx.compose.animation.core.tween(420, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+        Motion.gentle(),
         label = "seasonProgress",
     )
     Column(Modifier.fillMaxWidth()) {
@@ -174,19 +177,17 @@ internal fun EpisodesSection(
             )
         }
         Spacer(Modifier.height(12.dp))
-        // Switching style: the old row fades out, the height glides to the new
-        // row's, and the new row fades and grows in, so the list below moves once.
+        // Switching style: the old row fades out and the new row fades and grows in. The
+        // height snaps here; the section surface animates it once, so the list below moves once.
         androidx.compose.animation.AnimatedContent(
             posterPicker,
             transitionSpec = {
-                val enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = 90)) +
-                    androidx.compose.animation.scaleIn(androidx.compose.animation.core.tween(280, delayMillis = 90, easing = androidx.compose.animation.core.FastOutSlowInEasing), initialScale = .94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f))
-                val exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(90))
+                val enter = androidx.compose.animation.fadeIn(Motion.enter(Motion.Medium, delay = 90)) +
+                    androidx.compose.animation.scaleIn(Motion.enter(Motion.Long, delay = 90), initialScale = .94f, transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0f, .5f))
+                val exit = androidx.compose.animation.fadeOut(Motion.exit(90))
                 androidx.compose.animation.ContentTransform(
                     enter, exit,
-                    sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ ->
-                        androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing)
-                    },
+                    sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() },
                 )
             },
             label = "seasonPickerStyle",
@@ -196,7 +197,7 @@ internal fun EpisodesSection(
                     val chosen = number == season
                     // The accent fades between choices instead of jumping.
                     val fill by androidx.compose.animation.core.animateFloatAsState(
-                        if (chosen) 1f else 0f, androidx.compose.animation.core.tween(240), label = "seasonChoice",
+                        if (chosen) 1f else 0f, Motion.snappy(), label = "seasonChoice",
                     )
                     val label = if (number == 0) stringResource(R.string.specials_short)
                     else stringResource(if (covers) R.string.season_number else R.string.season_short, number)
@@ -252,7 +253,10 @@ internal fun EpisodesSection(
             Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction { onSeasonInfo(season) }), contentAlignment = Alignment.Center) {
                 Icon(Icons.Filled.Info, stringResource(R.string.show_season_info, season), tint = TextSecondary, modifier = Modifier.size(19.dp))
             }
-            Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction { onSeasonWatched(seasonEpisodes, !allWatched) }), contentAlignment = Alignment.Center) {
+            Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction {
+                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                onSeasonWatched(seasonEpisodes, !allWatched)
+            }), contentAlignment = Alignment.Center) {
                 WatchedCircle(allWatched, stringResource(if (allWatched) R.string.mark_unwatched else R.string.mark_watched))
             }
         }
@@ -261,19 +265,14 @@ internal fun EpisodesSection(
             season,
             transitionSpec = {
                 val forward = targetState > initialState
-                val enter = androidx.compose.animation.slideInHorizontally(
-                    androidx.compose.animation.core.tween(320, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                ) { width -> if (forward) width / 4 else -width / 4 } +
-                    androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(260, delayMillis = 60))
-                val exit = androidx.compose.animation.slideOutHorizontally(
-                    androidx.compose.animation.core.tween(220, easing = androidx.compose.animation.core.FastOutLinearInEasing),
-                ) { width -> if (forward) -width / 6 else width / 6 } +
-                    androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160))
+                val enter = androidx.compose.animation.slideInHorizontally(Motion.enter(Motion.Long)) { width -> if (forward) width / 4 else -width / 4 } +
+                    androidx.compose.animation.fadeIn(Motion.enter(Motion.Medium, delay = 60))
+                val exit = androidx.compose.animation.slideOutHorizontally(Motion.exit(Motion.Medium)) { width -> if (forward) -width / 6 else width / 6 } +
+                    androidx.compose.animation.fadeOut(Motion.exit(Motion.Short))
+                // Height snaps here too; the section surface is the one size animation.
                 androidx.compose.animation.ContentTransform(
                     enter, exit,
-                    sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ ->
-                        androidx.compose.animation.core.spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow)
-                    },
+                    sizeTransform = androidx.compose.animation.SizeTransform(clip = false) { _, _ -> androidx.compose.animation.core.snap() },
                 )
             },
             label = "seasonEpisodes",
@@ -293,13 +292,12 @@ internal fun EpisodesSection(
                         val returnTarget = episode.season == initialSeason && episode.number == initialEpisode
                         val isNext = episode.season == nextEpisode?.season && episode.number == nextEpisode.number
                         val watchedAt = watchedAtByEpisode[episode.season to episode.number]
-                        val delay = 50 + index * 45
+                        // Stagger capped at the sixth row, so long seasons don't trickle in.
+                        val delay = 40 + index.coerceAtMost(StaggerCap) * 40
                         Column(
                             Modifier.animateEnterExit(
-                                enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(240, delayMillis = delay)) +
-                                    androidx.compose.animation.slideInVertically(
-                                        androidx.compose.animation.core.tween(300, delayMillis = delay, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                                    ) { it / 5 },
+                                enter = androidx.compose.animation.fadeIn(Motion.enter(Motion.Medium, delay = delay)) +
+                                    androidx.compose.animation.slideInVertically(Motion.enter(Motion.Long, delay = delay)) { it / 5 },
                                 exit = androidx.compose.animation.ExitTransition.None,
                             ),
                         ) {
@@ -335,6 +333,8 @@ internal fun EpisodesSection(
         }
     }
 }
+
+private const val StaggerCap = 6
 
 internal fun stepLabel(target: EpisodeCard, from: EpisodeCard): String =
     if (target.season == from.season) "E${target.number}" else "S${target.season} E${target.number}"
@@ -568,7 +568,17 @@ internal fun EpisodeRow(
                 )
             }
         }
-        Box(Modifier.size(48.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onWatched), contentAlignment = Alignment.Center) {
+        val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
+        Box(
+            Modifier.size(48.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                haptics.performHapticFeedback(
+                    if (episode.watched) androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOff
+                    else androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOn,
+                )
+                onWatched()
+            },
+            contentAlignment = Alignment.Center,
+        ) {
             WatchedCircle(episode.watched, stringResource(if (episode.watched) R.string.mark_unwatched else R.string.mark_watched))
         }
     }
@@ -583,12 +593,24 @@ internal fun EpisodeRow(
 
 @Composable
 private fun WatchedCircle(watched: Boolean, description: String) {
+    // The fill fades in and the check pops on a bouncy spring instead of swapping at once.
+    val fill by androidx.compose.animation.core.animateFloatAsState(if (watched) 1f else 0f, Motion.snappy(), label = "watchedFill")
+    val check by androidx.compose.animation.core.animateFloatAsState(if (watched) 1f else 0f, Motion.bouncy(), label = "watchedCheck")
+    // Both values are read while drawing only, so the row doesn't recompose per frame.
     Box(
         Modifier.size(28.dp).semantics { contentDescription = description }.clip(CircleShape)
-            .then(if (watched) Modifier.background(Success) else Modifier.border(1.3.dp, TextMuted.copy(alpha = .7f), CircleShape)),
+            .drawBehind {
+                val shown = fill.coerceIn(0f, 1f)
+                drawCircle(Success.copy(alpha = shown))
+                val stroke = 1.3.dp.toPx()
+                drawCircle(TextMuted.copy(alpha = .7f * (1f - shown)), radius = (size.minDimension - stroke) / 2f, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+            },
         contentAlignment = Alignment.Center,
     ) {
-        if (watched) Icon(Icons.Filled.Check, null, tint = SurfacePalette.WatchedInk, modifier = Modifier.size(16.dp))
+        Icon(
+            Icons.Filled.Check, null, tint = SurfacePalette.WatchedInk,
+            modifier = Modifier.size(16.dp).graphicsLayer { scaleX = check; scaleY = check; alpha = check.coerceIn(0f, 1f) },
+        )
     }
 }
 
