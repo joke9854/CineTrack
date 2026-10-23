@@ -8,6 +8,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.ProcessLifecycleOwner
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.viewModelScope
 import com.cinetrack.data.library.LibraryRepository
 import com.cinetrack.data.discovery.DiscoveryRepository
@@ -300,11 +301,15 @@ class CineTrackViewModel(
             if (!mainProviderConnected || coldSync.isFailure) scheduleProgressCacheRefresh()
         }
         viewModelScope.launch {
+            // Only while the app is in the foreground; in the background WorkManager
+            // runs the periodic sync. Each return to the foreground starts a new interval.
             val interval = TimeUnit.MINUTES.toMillis(510)
-            delay(interval)
-            while (isActive) {
-                performTrackingSync(force = false)
+            ProcessLifecycleOwner.get().lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
                 delay(interval)
+                while (isActive) {
+                    performTrackingSync(force = false)
+                    delay(interval)
+                }
             }
         }
     }
