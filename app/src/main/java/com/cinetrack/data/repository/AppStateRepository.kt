@@ -1,10 +1,12 @@
 package com.cinetrack.data.repository
 
 import com.cinetrack.data.local.AppDatabase
+import com.cinetrack.data.local.AppDatabaseSnapshot
 import com.cinetrack.data.local.UpNextEntity
 import com.cinetrack.data.local.toDomain
 import com.cinetrack.data.sync.TrackingProviderId
 import com.cinetrack.data.sync.TrackingProviderRegistry
+import com.cinetrack.data.sync.simkl.SimklFirstSyncMode
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.FloppyUiState
@@ -20,6 +22,8 @@ import com.cinetrack.domain.releaseDateTime
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -54,42 +58,24 @@ class AppStateRepository(
         emitInitialState = false,
     )
 
-    suspend fun loadCachedState(): AppUiState = coroutineScope {
+    private val snapshotLock = Mutex()
+    private var lastSnapshot: AppDatabaseSnapshot? = null
+
+    /** Loads serially so a partial reload always starts from the latest snapshot. */
+    private suspend fun databaseSnapshot(changedTables: Set<String>?): AppDatabaseSnapshot = snapshotLock.withLock {
+        database.snapshotDao().appStateSnapshot(lastSnapshot, changedTables).also { lastSnapshot = it }
+    }
+
+    /**
+     * [changedTables] are Room invalidation names seen since the last load; only those
+     * tables are re-read. Null (every caller but the invalidation observer) reads all.
+     */
+    suspend fun loadCachedState(changedTables: Set<String>? = null): AppUiState = coroutineScope {
         // The database portion is read in one Room transaction. Preferences can
         // still be collected concurrently because they are independent DataStore
         // values and cannot produce a structurally inconsistent media snapshot.
-        val snapshotDeferred = async { database.snapshotDao().snapshot() }
-        val backgroundSyncDeferred = async { preferences.backgroundSync.first() }
-        val wifiOnlyDeferred = async { preferences.wifiOnly.first() }
-        val ratingSourcesDeferred = async { preferences.ratingSources.first() }
-        val contentRegionsDeferred = async { preferences.contentRegions.first() }
-        val uiAccentDeferred = async { preferences.uiAccent.first() }
-        val metadataLanguageDeferred = async { preferences.metadataLanguage.first() }
-        val metadataRegionDeferred = async { preferences.metadataRegion.first() }
-        val metadataTimezoneDeferred = async { preferences.metadataTimezone.first() }
-        val syncReportDeferred = async { preferences.syncReportNow() }
-        val excludeSpecialsDeferred = async { preferences.excludeSpecials.first() }
-        val providerRegionDeferred = async { preferences.providerRegion.first() }
-        val preferredProvidersDeferred = async { preferences.preferredProviders.first() }
-        val visibleProviderTypesDeferred = async { preferences.visibleProviderTypes.first() }
-        val notificationEpisodesDeferred = async { preferences.notificationEpisodes.first() }
-        val notificationMoviesDeferred = async { preferences.notificationMovies.first() }
-        val notificationSyncDeferred = async { preferences.notificationSync.first() }
-        val quietHoursEnabledDeferred = async { preferences.quietHoursEnabled.first() }
-        val quietHoursStartDeferred = async { preferences.quietHoursStart.first() }
-        val quietHoursEndDeferred = async { preferences.quietHoursEnd.first() }
-        val heroLayoutDeferred = async { preferences.heroLayout.first() }
-        val discoverLayoutDeferred = async { preferences.discoverLayout.first() }
-        val seasonPickerDeferred = async { preferences.seasonPicker.first() }
-        val posterAccentDeferred = async { preferences.posterAccent.first() }
-        val posterFormatDeferred = async { preferences.posterFormat.first() }
-        val posterSizeDeferred = async { preferences.posterSize.first() }
-        val cardDensityDeferred = async { preferences.cardDensity.first() }
-        val hiddenUpcomingDeferred = async { preferences.hiddenUpcoming.first() }
-        val hiddenDiscoveryDeferred = async { preferences.hiddenDiscovery.first() }
-        val introductionCompletedDeferred = async { preferences.introductionCompleted.first() }
-        val floppySettingsDeferred = async { preferences.floppySettingsNow() }
-        val floppyAllowInsecureHttpDeferred = async { preferences.floppyAllowInsecureLocalHttpNow() }
+        val snapshotDeferred = async { databaseSnapshot(changedTables) }
+        val prefsDeferred = async { preferences.appStatePreferences.first() }
         val providerStatesDeferred = async { buildTrackingProviderStates() }
 
         val snapshot = snapshotDeferred.await()
@@ -171,7 +157,8 @@ class AppStateRepository(
                 episodeNumber = item.episodeNumber,
             )
         }
-        val configuredTimezone = metadataTimezoneDeferred.await()
+        val prefs = prefsDeferred.await()
+        val configuredTimezone = prefs.content.metadataTimezone
         val releaseZone = if (configuredTimezone == "system") ZoneId.systemDefault()
         else runCatching { ZoneId.of(configuredTimezone) }.getOrDefault(ZoneId.systemDefault())
         val releaseNow = Instant.now()
@@ -193,8 +180,8 @@ class AppStateRepository(
         // The episode table is the durable schedule snapshot. Rebuild Calendar
         // from it at process start, just as Showly reads its local episode cache,
         // instead of waiting for a new network enrichment pass.
-        val excludeSpecials = excludeSpecialsDeferred.await()
-        val hiddenUpcoming = hiddenUpcomingDeferred.await()
+        val excludeSpecials = prefs.excludeSpecials
+        val hiddenUpcoming = prefs.hiddenUpcoming
         val episodeCalendar = cachedEpisodes.mapNotNull { episode ->
             val show = activeShowsById[episode.showId] ?: return@mapNotNull null
             if (excludeSpecials && episode.season == 0) return@mapNotNull null
@@ -283,6 +270,7 @@ class AppStateRepository(
             .map { media -> PlaybackCard(media = media, progress = 0f, remainingMinutes = media.runtimeMinutes, durationMinutes = media.runtimeMinutes) }
         moviePlayback.sortWith(compareByDescending<PlaybackCard>(::playbackActivityRecency).thenBy { it.media.title.lowercase() })
 
+        val floppyConnected = prefs.floppySettings != null && preferences.floppyApiKeyNow(prefs.floppyCredentialAlias) != null
         AppUiState(
             rails = rails,
             playbackTv = cachedUpNext,
@@ -296,50 +284,54 @@ class AppStateRepository(
             },
             sync = SyncProgress(
                 lastSuccessfulSync = snapshot.syncStates.firstOrNull { it.area == "all" }?.lastSuccessfulSync,
-                report = syncReportDeferred.await(),
+                report = prefs.syncReport,
             ),
             simklConnected = simklConnectedNow(),
-            floppyConnected = floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null,
-            floppyServerVersion = floppySettingsDeferred.await()?.serverVersion,
-            floppyBaseUrl = floppySettingsDeferred.await()?.baseUrl,
-            floppyConnectionId = floppySettingsDeferred.await()?.connectionId,
-            floppyAllowInsecureLocalHttp = floppyAllowInsecureHttpDeferred.await(),
+            floppyConnected = floppyConnected,
+            floppyServerVersion = prefs.floppySettings?.serverVersion,
+            floppyBaseUrl = prefs.floppySettings?.baseUrl,
+            floppyConnectionId = prefs.floppySettings?.connectionId,
+            floppyAllowInsecureLocalHttp = prefs.floppyAllowInsecureLocalHttp,
             floppyUiState = providerStatesDeferred.await().firstOrNull { it.providerId == TrackingProviderId.FLOPPY.name }
-                .toFloppyUiState(floppySettingsDeferred.await() != null && preferences.floppyApiKeyNow() != null),
+                .toFloppyUiState(floppyConnected),
             trackingProviders = providerStatesDeferred.await(),
-            backgroundSync = backgroundSyncDeferred.await(),
-            wifiOnly = wifiOnlyDeferred.await(),
-            notificationEpisodes = notificationEpisodesDeferred.await(),
-            notificationMovies = notificationMoviesDeferred.await(),
-            notificationSync = notificationSyncDeferred.await(),
-            quietHoursEnabled = quietHoursEnabledDeferred.await(),
-            quietHoursStart = quietHoursStartDeferred.await(),
-            quietHoursEnd = quietHoursEndDeferred.await(),
-            ratingSources = ratingSourcesDeferred.await(),
-            contentRegions = contentRegionsDeferred.await(),
-            uiAccent = uiAccentDeferred.await(),
+            backgroundSync = prefs.backgroundSync,
+            wifiOnly = prefs.wifiOnly,
+            notificationEpisodes = prefs.notifications.episodes,
+            notificationMovies = prefs.notifications.movies,
+            notificationSync = prefs.notifications.sync,
+            quietHoursEnabled = prefs.notifications.quietHoursEnabled,
+            quietHoursStart = prefs.notifications.quietHoursStart,
+            quietHoursEnd = prefs.notifications.quietHoursEnd,
+            ratingSources = prefs.content.ratingSources,
+            contentRegions = prefs.content.contentRegions,
+            uiAccent = prefs.appearance.uiAccent,
             tmdbApiConfigured = tmdbApiKey().isNotBlank(),
             mdbListApiConfigured = mdbListApiKey().isNotBlank(),
             traktConfigured = preferences.traktClientIdNow().isNotBlank(),
-            metadataLanguage = metadataLanguageDeferred.await(),
-            metadataRegion = metadataRegionDeferred.await(),
-            providerRegion = providerRegionDeferred.await(),
-            metadataTimezone = metadataTimezoneDeferred.await(),
-            airDateSource = preferences.airDateSource.first(),
-            simklUsername = preferences.simklUsername.first(),
+            metadataLanguage = prefs.content.metadataLanguage,
+            metadataRegion = prefs.content.metadataRegion,
+            providerRegion = prefs.content.providerRegion,
+            metadataTimezone = configuredTimezone,
+            airDateSource = prefs.content.airDateSource,
+            simklUsername = prefs.simklUsername,
             excludeSpecials = excludeSpecials,
-            preferredProviders = preferredProvidersDeferred.await(),
-            visibleProviderTypes = visibleProviderTypesDeferred.await(),
-            heroLayout = heroLayoutDeferred.await(),
-            discoverLayout = discoverLayoutDeferred.await(),
-            seasonPicker = seasonPickerDeferred.await(),
-            posterAccent = posterAccentDeferred.await(),
-            posterFormat = posterFormatDeferred.await(),
-            posterSize = posterSizeDeferred.await(),
-            cardDensity = cardDensityDeferred.await(),
+            preferredProviders = prefs.content.preferredProviders,
+            visibleProviderTypes = prefs.content.visibleProviderTypes,
+            heroLayout = prefs.appearance.heroLayout,
+            discoverLayout = prefs.appearance.discoverLayout,
+            seasonPicker = prefs.seasonPicker,
+            posterAccent = prefs.appearance.posterAccent,
+            posterFormat = prefs.appearance.posterFormat,
+            posterSize = prefs.appearance.posterSize,
+            cardDensity = prefs.appearance.cardDensity,
             hiddenUpcoming = hiddenUpcoming,
-            hiddenDiscovery = hiddenDiscoveryDeferred.await(),
-            introductionCompleted = introductionCompletedDeferred.await(),
+            hiddenDiscovery = prefs.hiddenDiscovery,
+            introductionCompleted = prefs.introductionCompleted,
+            simklReconnectReason = prefs.simklReconnectReason,
+            simklFirstSyncPending = prefs.simklFirstSyncMode == SimklFirstSyncMode.ASK,
+            floppyUsername = prefs.floppyUsername,
+            hideAdultTitles = prefs.content.hideAdultTitles,
             loading = false,
         )
     }

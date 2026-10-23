@@ -56,6 +56,18 @@ interface AppSnapshotDao {
     @Query("SELECT * FROM sync_state")
     suspend fun syncStates(): List<SyncStateEntity>
 
+    /** Only the media rows AppUiState can show: those a rail, playback or history row points at. */
+    @Query(
+        """SELECT media.* FROM media
+           INNER JOIN (
+             SELECT mediaType, mediaId FROM media_rails
+             UNION SELECT mediaType, mediaId FROM playback
+             UNION SELECT mediaType, mediaId FROM watch_history
+           ) AS referenced
+             ON media.mediaType = referenced.mediaType AND media.tmdbId = referenced.mediaId""",
+    )
+    suspend fun referencedMedia(): List<MediaEntity>
+
     @Transaction
     suspend fun snapshot(): AppDatabaseSnapshot = AppDatabaseSnapshot(
         media = media(),
@@ -67,6 +79,36 @@ interface AppSnapshotDao {
         upNext = upNext(),
         syncStates = syncStates(),
     )
+
+    /**
+     * The AppUiState input: like [snapshot] but with only [referencedMedia]. With [previous]
+     * and [changedTables] (Room invalidation names) it re-reads only those tables and keeps
+     * the rest. Episodes are not observed, so they are always re-read, as before.
+     */
+    @Transaction
+    suspend fun appStateSnapshot(previous: AppDatabaseSnapshot?, changedTables: Set<String>?): AppDatabaseSnapshot {
+        if (previous == null || changedTables == null) return AppDatabaseSnapshot(
+            media = referencedMedia(),
+            rails = rails(),
+            states = states(),
+            episodes = episodes(),
+            playback = playback(),
+            history = history(),
+            upNext = upNext(),
+            syncStates = syncStates(),
+        )
+        fun changed(vararg tables: String) = tables.any { it in changedTables }
+        return AppDatabaseSnapshot(
+            media = if (changed("media", "media_rails", "playback", "watch_history")) referencedMedia() else previous.media,
+            rails = if (changed("media_rails")) rails() else previous.rails,
+            states = if (changed("user_media_state")) states() else previous.states,
+            episodes = episodes(),
+            playback = if (changed("playback")) playback() else previous.playback,
+            history = if (changed("watch_history")) history() else previous.history,
+            upNext = if (changed("up_next")) upNext() else previous.upNext,
+            syncStates = if (changed("sync_state")) syncStates() else previous.syncStates,
+        )
+    }
 }
 
 @Dao

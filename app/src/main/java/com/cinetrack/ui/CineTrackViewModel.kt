@@ -221,14 +221,20 @@ class CineTrackViewModel(
             // Room is the source of truth for imports performed by either this
             // ViewModel or WorkManager. Refresh the active pages whenever an
             // import transaction commits instead of waiting for process restart.
-            libraryRepository.observeLocalChanges().collectLatest {
+            // Tables changed since the last reload from here; a cancelled or skipped
+            // reload keeps them, so the partial reload never misses one.
+            val changedTables = mutableSetOf<String>()
+            libraryRepository.observeLocalChanges().collectLatest { tables ->
+                changedTables += tables
                 // Room can emit several invalidations for one synchronization.
                 // Wait for the burst to settle and never publish a raw snapshot
                 // while the coordinated sync is still rebuilding derived rows.
                 delay(280)
                 if (syncMutex.isLocked || refreshMutex.isLocked || progressCache.progressCacheRefreshing || startupStateBuilding) return@collectLatest
                 val current = _state.value
-                val cached = readCachedState()
+                val reloading = changedTables.toSet()
+                val cached = readCachedState(reloading)
+                changedTables -= reloading
                 val latestSync = if (_syncProgress.value.running) _syncProgress.value else cached.sync
                 _syncProgress.value = latestSync
                 _state.value = cached.copy(
@@ -542,20 +548,14 @@ class CineTrackViewModel(
 
     /** Read on IO, but reconcile optimistic edits on the main thread. A read
      * started before a tap is retried, and uncommitted shows keep their UI state. */
-    private suspend fun readCachedState(): AppUiState = withContext(Dispatchers.Main.immediate) {
+    private suspend fun readCachedState(changedTables: Set<String>? = null): AppUiState = withContext(Dispatchers.Main.immediate) {
         var version: Long
         var cached: AppUiState
         var watched: Set<Triple<Int, Int, Int>>
         do {
             version = pendingEpisodeEdits.version
             val loaded = withContext(Dispatchers.IO) {
-                // Simkl's connect flags live outside loadCachedState, which is at the JVM method-size limit.
-                val state = appState.loadCachedState().copy(
-                    simklReconnectReason = preferences.simklReconnectReason.first(),
-                    simklFirstSyncPending = preferences.simklFirstSyncModeNow() == com.cinetrack.data.sync.simkl.SimklFirstSyncMode.ASK,
-                    floppyUsername = preferences.floppyUsername.first(),
-                    hideAdultTitles = preferences.hideAdultTitles.first(),
-                )
+                val state = appState.loadCachedState(changedTables)
                 // Scanning the whole history happens here too, off the main thread.
                 state to state.history.mapNotNull { event ->
                     val season = event.season ?: return@mapNotNull null

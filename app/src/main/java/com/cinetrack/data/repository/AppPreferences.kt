@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatDelegate
 import androidx.core.os.LocaleListCompat
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
@@ -60,6 +61,28 @@ import com.cinetrack.data.remote.AppJson
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
 private const val ERROR_LOG_LINES = 500
+
+/** One read of the DataStore values the cached AppUiState is built from. */
+data class AppStatePreferences(
+    val backgroundSync: Boolean,
+    val wifiOnly: Boolean,
+    val notifications: NotificationSettings,
+    val content: ContentSettings,
+    val appearance: AppearanceSettings,
+    val seasonPicker: String,
+    val excludeSpecials: Boolean,
+    val hiddenUpcoming: Set<String>,
+    val hiddenDiscovery: Set<String>,
+    val introductionCompleted: Boolean,
+    val simklUsername: String?,
+    val syncReport: SyncReport,
+    val floppySettings: FloppyConnectionSettings?,
+    val floppyAllowInsecureLocalHttp: Boolean,
+    val floppyCredentialAlias: String,
+    val simklReconnectReason: String?,
+    val simklFirstSyncMode: SimklFirstSyncMode?,
+    val floppyUsername: String?,
+)
 
 class AppPreferences(private val context: Context) : SettingsPreferences, SearchHistoryStore {
     fun discoverTimeoutMessage(): String = context.getString(com.cinetrack.R.string.discover_refresh_timeout)
@@ -243,7 +266,38 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     val quietHoursEnabled: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnabled] ?: true }
     val quietHoursStart: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursStart] ?: 23 }
     val quietHoursEnd: Flow<Int> = context.cineTrackDataStore.data.map { it[Keys.quietHoursEnd] ?: 8 }
-    override val notificationSettings: Flow<NotificationSettings> = context.cineTrackDataStore.data.map {
+    override val notificationSettings: Flow<NotificationSettings> =
+        context.cineTrackDataStore.data.map { it.notificationSettings() }.distinctUntilChanged()
+    val contentSettings: Flow<ContentSettings> =
+        context.cineTrackDataStore.data.map { it.contentSettings() }.distinctUntilChanged()
+    override val appearanceSettings: Flow<AppearanceSettings> =
+        context.cineTrackDataStore.data.map { it.appearanceSettings() }.distinctUntilChanged()
+
+    /** Every DataStore value AppStateRepository.loadCachedState needs, from one read. */
+    val appStatePreferences: Flow<AppStatePreferences> = context.cineTrackDataStore.data.map { prefs ->
+        AppStatePreferences(
+            backgroundSync = prefs[Keys.backgroundSync] ?: true,
+            wifiOnly = prefs[Keys.wifiOnly] ?: false,
+            notifications = prefs.notificationSettings(),
+            content = prefs.contentSettings(),
+            appearance = prefs.appearanceSettings(),
+            seasonPicker = if (prefs[Keys.seasonPicker] == "posters") "posters" else "text",
+            excludeSpecials = prefs[Keys.excludeSpecials] ?: true,
+            hiddenUpcoming = prefs[Keys.hiddenUpcoming].orEmpty().split('|').filter(String::isNotBlank).toSet(),
+            hiddenDiscovery = prefs[Keys.hiddenDiscovery].orEmpty().split('|').filter(String::isNotBlank).toSet(),
+            introductionCompleted = prefs[Keys.introductionCompleted] ?: false,
+            simklUsername = prefs[Keys.simklUsername],
+            syncReport = prefs.syncReport(),
+            floppySettings = prefs.floppySettings(),
+            floppyAllowInsecureLocalHttp = prefs[Keys.floppyAllowInsecureLocalHttp] ?: false,
+            floppyCredentialAlias = prefs[Keys.floppyCredentialAlias] ?: "floppy_api_key",
+            simklReconnectReason = prefs[Keys.simklReconnectReason],
+            simklFirstSyncMode = prefs[Keys.simklFirstSyncMode]?.let { runCatching { SimklFirstSyncMode.valueOf(it) }.getOrNull() },
+            floppyUsername = prefs[Keys.floppyUsername],
+        )
+    }
+
+    private fun Preferences.notificationSettings() = this.let {
         NotificationSettings(
             episodes = it[Keys.notifyEpisodes] ?: true,
             movies = it[Keys.notifyMovies] ?: true,
@@ -252,8 +306,8 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             quietHoursStart = it[Keys.quietHoursStart] ?: 23,
             quietHoursEnd = it[Keys.quietHoursEnd] ?: 8,
         )
-    }.distinctUntilChanged()
-    val contentSettings: Flow<ContentSettings> = context.cineTrackDataStore.data.map { prefs ->
+    }
+    private fun Preferences.contentSettings() = this.let { prefs ->
         ContentSettings(
             metadataLanguage = prefs[Keys.metadataLanguage] ?: "system",
             metadataRegion = prefs[Keys.metadataRegion] ?: "system",
@@ -272,8 +326,8 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             visibleProviderTypes = prefs[Keys.visibleProviderTypes]?.split('|')?.filter(String::isNotBlank)?.toSet()
                 ?: setOf("flatrate", "rent", "buy", "free", "ads"),
         )
-    }.distinctUntilChanged()
-    override val appearanceSettings: Flow<AppearanceSettings> = context.cineTrackDataStore.data.map {
+    }
+    private fun Preferences.appearanceSettings() = this.let {
         AppearanceSettings(
             uiAccent = it[Keys.uiAccent] ?: "watching",
             posterAccent = it[Keys.posterAccent] ?: true,
@@ -284,7 +338,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             cardDensity = it[Keys.cardDensity] ?: "standard",
             castPhotoShape = com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle"),
         )
-    }.distinctUntilChanged()
+    }
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
         it[Keys.hiddenUpcoming].orEmpty().split('|').filter(String::isNotBlank).toSet()
     }
@@ -393,8 +447,10 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
 
     suspend fun floppyApiKeyNow(alias: String): String? = secureCredential(alias)?.takeIf(String::isNotBlank)
 
-    suspend fun floppySettingsNow(): FloppyConnectionSettings? {
-        val values = context.cineTrackDataStore.data.first()
+    suspend fun floppySettingsNow(): FloppyConnectionSettings? = context.cineTrackDataStore.data.first().floppySettings()
+
+    private fun Preferences.floppySettings(): FloppyConnectionSettings? {
+        val values = this
         val baseUrl = values[Keys.floppyBaseUrl]?.takeIf(String::isNotBlank) ?: return null
         val capabilities = values[Keys.floppyCapabilities].orEmpty().split(',').toSet()
         return FloppyConnectionSettings(
@@ -519,8 +575,10 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     suspend fun floppyAllowInsecureLocalHttpNow(): Boolean =
         context.cineTrackDataStore.data.first()[Keys.floppyAllowInsecureLocalHttp] ?: false
 
-    suspend fun syncReportNow(): SyncReport {
-        val values = context.cineTrackDataStore.data.first()[Keys.syncReport].orEmpty().split('|')
+    suspend fun syncReportNow(): SyncReport = context.cineTrackDataStore.data.first().syncReport()
+
+    private fun Preferences.syncReport(): SyncReport {
+        val values = this[Keys.syncReport].orEmpty().split('|')
         fun intAt(index: Int) = values.getOrNull(index)?.toIntOrNull() ?: 0
         fun longAt(index: Int) = values.getOrNull(index)?.toLongOrNull()?.takeIf { it > 0L }
         return SyncReport(
