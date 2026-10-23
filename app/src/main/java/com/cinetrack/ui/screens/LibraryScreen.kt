@@ -2,9 +2,9 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.tween
-import com.cinetrack.ui.components.directionalSlide
-import com.cinetrack.ui.components.rememberDirectionalSlide
+import androidx.compose.animation.togetherWith
 import com.cinetrack.ui.components.slidingTabIndicator
 import com.cinetrack.ui.components.tabSpan
 import com.cinetrack.ui.components.rememberTabIndicator
@@ -132,18 +132,20 @@ fun LibraryScreen(
     var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
     var showBulkSheet by rememberSaveable { mutableStateOf(false) }
     var listView by rememberSaveable { mutableStateOf(false) }
-    val gridState = rememberLazyGridState()
-    val listState = rememberLazyListState()
+    // Each tab has its own grid and list (two are on screen while tabs slide), kept by a
+    // saveable holder so a tab's scroll survives switching away and opening a title.
+    val tabStates = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    var gridState by remember { mutableStateOf(androidx.compose.foundation.lazy.grid.LazyGridState()) }
+    var listState by remember { mutableStateOf(androidx.compose.foundation.lazy.LazyListState()) }
     NavCollapseGridEffect(gridState, onCompactNav)
     NavCollapseEffect(listState, onCompactNav)
     val typeItems = state.library.filter { it.type == type }
-    val filteredItems = typeItems.filter { status == null || it.status == status }
     val watchedAtByKey = remember(state.history) {
         state.history.groupBy { it.media.stableKey }.mapValues { (_, events) ->
             events.maxOfOrNull { it.timestamp }.orEmpty()
         }
     }
-    val items = remember(filteredItems, order, ascending, watchedAtByKey) {
+    fun sortedItems(filteredItems: List<MediaCard>): List<MediaCard> {
         val sorted = when (order) {
             LibraryOrder.TITLE -> filteredItems.sortedBy { it.title.lowercase() }
             LibraryOrder.RATING -> filteredItems.sortedBy { it.score ?: -1.0 }
@@ -151,7 +153,10 @@ fun LibraryScreen(
             LibraryOrder.RECENTLY_WATCHED -> filteredItems.sortedBy { watchedAtByKey[it.stableKey].orEmpty() }
             LibraryOrder.RECENTLY_ADDED -> filteredItems.sortedBy { it.libraryUpdatedAt ?: 0L }
         }
-        if (ascending) sorted else sorted.reversed()
+        return if (ascending) sorted else sorted.reversed()
+    }
+    val items = remember(typeItems, status, order, ascending, watchedAtByKey) {
+        sortedItems(typeItems.filter { status == null || it.status == status })
     }
     val filterChoices = listOf(
         Triple<LibraryStatus?, String, Color>(null, stringResource(R.string.all), Accent),
@@ -174,19 +179,6 @@ fun LibraryScreen(
         ) {
         Box(Modifier.fillMaxSize().statusBarsPadding()) {
             val statusIndex = filterChoices.indexOfFirst { it.first == status }.coerceAtLeast(0)
-            // Each tab keeps its own scroll position. The grid would otherwise keep the
-            // first visible item by key, which lands mid-list when returning to "Tutti".
-            val tabScroll = remember { mutableMapOf<String, Pair<Int, Int>>() }
-            var shownTab by remember { mutableStateOf("$type:$status") }
-            val currentTab = "$type:$status"
-            if (shownTab != currentTab) {
-                tabScroll[shownTab] = if (listView) listState.firstVisibleItemIndex to listState.firstVisibleItemScrollOffset
-                else gridState.firstVisibleItemIndex to gridState.firstVisibleItemScrollOffset
-                shownTab = currentTab
-                val (index, offset) = tabScroll[currentTab] ?: (0 to 0)
-                gridState.requestScrollToItem(index, offset)
-                listState.requestScrollToItem(index, offset)
-            }
             // Warm the image cache with the first posters of every tab, so switching tabs
             // shows artwork straight away instead of popping it in.
             val prefetchContext = LocalContext.current
@@ -204,8 +196,16 @@ fun LibraryScreen(
                     }
                 }
             }
-            val typeSlide = rememberDirectionalSlide(if (type == MediaType.TV) 0 else 1)
-            val statusSlide = rememberDirectionalSlide(statusIndex)
+            // Items glide when one of them changes in place (a status change), but not when a
+            // tab, type or sort swaps the whole list: titles in both lists would fly across the
+            // grid to their new places while the rest fade. The tab slide is the only motion then.
+            val listContent = "$type:$status:$order"
+            var settledContent by remember { mutableStateOf(listContent) }
+            val itemMotion = settledContent == listContent
+            LaunchedEffect(listContent) {
+                kotlinx.coroutines.delay(Motion.Long.toLong())
+                settledContent = listContent
+            }
             val scrollToTop = {
                 gridState.requestScrollToItem(0)
                 listState.requestScrollToItem(0)
@@ -217,7 +217,7 @@ fun LibraryScreen(
             // at a tile one header too high, then had to chase it.
             var titlePx by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
             var headerPx by rememberSaveable { androidx.compose.runtime.mutableIntStateOf(0) }
-            val headerScroll = remember(listView) {
+            val headerScroll = remember(listView, gridState, listState) {
                 {
                     if (listView) { if (listState.firstVisibleItemIndex > 0) Int.MAX_VALUE else listState.firstVisibleItemScrollOffset }
                     else { if (gridState.firstVisibleItemIndex > 0) Int.MAX_VALUE else gridState.firstVisibleItemScrollOffset }
@@ -332,32 +332,60 @@ fun LibraryScreen(
             }
             }
             val headerHeight = with(androidx.compose.ui.platform.LocalDensity.current) { headerPx.toDp() }
-            Box(Modifier.fillMaxSize().directionalSlide(typeSlide, statusSlide)) {
-            if (items.isEmpty()) {
+            // Tabs slide as whole pages, the same motion as Progress's tabs.
+            androidx.compose.animation.AnimatedContent(
+                targetState = LibraryTab(type, status),
+                modifier = Modifier.fillMaxSize(),
+                transitionSpec = {
+                    val forward = if (targetState.type != initialState.type) targetState.type == MediaType.TV
+                    else filterChoices.indexOfFirst { it.first == targetState.status } > filterChoices.indexOfFirst { it.first == initialState.status }
+                    Motion.tabEnter(forward) togetherWith Motion.tabExit(forward)
+                },
+                label = "libraryTabPage",
+            ) { tab ->
+            tabStates.SaveableStateProvider("${tab.type}:${tab.status}") {
+            val tabGrid = rememberLazyGridState()
+            val tabList = rememberLazyListState()
+            if (tab == LibraryTab(type, status)) androidx.compose.runtime.SideEffect {
+                gridState = tabGrid
+                listState = tabList
+            }
+            val items = if (tab == LibraryTab(type, status)) items
+            else remember(typeItems, tab, order, ascending, watchedAtByKey) {
+                sortedItems(state.library.filter { it.type == tab.type && (tab.status == null || it.status == tab.status) })
+            }
+            // Empty state, list and grid crossfade instead of swapping in one frame.
+            val layoutMode = when {
+                items.isEmpty() -> 0
+                listView -> 1
+                else -> 2
+            }
+            androidx.compose.animation.Crossfade(layoutMode, animationSpec = tween(Motion.Medium), label = "libraryLayout") { mode ->
+            if (mode == 0) {
                 Box(Modifier.fillMaxSize().padding(top = headerHeight), contentAlignment = Alignment.Center) {
                     Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(Icons.Filled.AutoAwesome, null, tint = AccentLight, modifier = Modifier.size(40.dp))
-                        Text(stringResource(if (status != null) R.string.library_no_matches else R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                        Text(stringResource(if (status != null) R.string.library_no_matches_description else R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                        if (status != null) TextButton(onClick = { status = null }) { Text(stringResource(R.string.clear_filters), color = TextPrimary) }
+                        Text(stringResource(if (tab.status != null) R.string.library_no_matches else R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
+                        Text(stringResource(if (tab.status != null) R.string.library_no_matches_description else R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                        if (tab.status != null) TextButton(onClick = { status = null }) { Text(stringResource(R.string.clear_filters), color = TextPrimary) }
                         else TextButton(onClick = onSearch) { Text(stringResource(R.string.accessibility_search), color = TextPrimary) }
                     }
                 }
-            } else if (listView) {
+            } else if (mode == 1) {
                 val statusLabels = filterChoices.mapNotNull { (value, label, _) -> value?.let { it to label } }.toMap()
-                LibraryList(items, listState, bulkMode, selectedKeys, progressByKey, statusLabels, onMedia, topPadding = headerHeight) { media ->
+                LibraryList(items, tabList, bulkMode, selectedKeys, progressByKey, statusLabels, onMedia, topPadding = headerHeight, itemMotion = itemMotion) { media ->
                     selectedKeys = if (media.stableKey in selectedKeys) selectedKeys - media.stableKey else selectedKeys + media.stableKey
                 }
             } else {
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
-                    state = gridState,
+                    state = tabGrid,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = headerHeight + 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(items, key = MediaCard::stableKey) { media ->
-                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        BoxWithConstraints(Modifier.fillMaxWidth().animateItem(fadeInSpec = if (itemMotion) Motion.enter(Motion.Medium) else null, placementSpec = if (itemMotion) Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold) else null, fadeOutSpec = if (itemMotion) Motion.exit() else null)) {
                             val visibleProgress = progressByKey[media.stableKey]
                             MediaPoster(
                                 media,
@@ -376,6 +404,8 @@ fun LibraryScreen(
                         }
                     }
                 }
+            }
+            }
             }
             }
         }
@@ -417,6 +447,7 @@ private fun LibraryList(
     statusLabels: Map<LibraryStatus, String>,
     onMedia: (MediaCard) -> Unit,
     topPadding: androidx.compose.ui.unit.Dp = 0.dp,
+    itemMotion: Boolean = true,
     onToggle: (MediaCard) -> Unit,
 ) {
     LazyColumn(state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = topPadding + 4.dp, bottom = 112.dp)) {
@@ -425,7 +456,7 @@ private fun LibraryList(
             val rowShape = RoundedCornerShape(14.dp)
             val posterSlot = com.cinetrack.ui.components.rememberPosterSlot()
             Row(
-                Modifier.fillMaxWidth().clip(rowShape)
+                Modifier.animateItem(fadeInSpec = if (itemMotion) Motion.enter(Motion.Medium) else null, placementSpec = if (itemMotion) Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold) else null, fadeOutSpec = if (itemMotion) Motion.exit() else null).fillMaxWidth().clip(rowShape)
                     .then(if (selected) Modifier.border(1.5.dp, AccentLight, rowShape) else Modifier)
                     .clickable {
                         if (bulkMode) onToggle(media)
@@ -559,3 +590,6 @@ private fun LibraryOrderSheet(
         }
     }
 }
+
+/** One Library page: a media type and a status filter (null for all). */
+private data class LibraryTab(val type: MediaType, val status: LibraryStatus?)

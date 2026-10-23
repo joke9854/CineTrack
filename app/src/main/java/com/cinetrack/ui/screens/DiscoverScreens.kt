@@ -2,6 +2,7 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.ui.draw.drawBehind
 import com.cinetrack.ui.components.sharedBackdrop
 import com.cinetrack.ui.components.directionalSlide
@@ -1149,7 +1150,7 @@ fun SearchScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     items(visibleResults, key = MediaCard::stableKey) { media ->
-                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                        BoxWithConstraints(Modifier.fillMaxWidth().animateItem(fadeInSpec = Motion.enter(Motion.Medium), placementSpec = Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold), fadeOutSpec = Motion.exit())) {
                             MediaPoster(media, width = maxWidth, showYear = false, onClick = {
                                 onSubmitQuery(query)
                                 onMedia(media)

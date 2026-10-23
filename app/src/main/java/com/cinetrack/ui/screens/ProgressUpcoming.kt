@@ -2,6 +2,7 @@
 
 package com.cinetrack.ui.screens
 
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -64,6 +65,7 @@ import java.time.Instant
 import java.time.ZoneId
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
+import com.cinetrack.ui.theme.Motion
 
 @Composable
 internal fun UpcomingEpisodesRail(
@@ -84,7 +86,7 @@ internal fun UpcomingEpisodesRail(
                 val pressed by interaction.collectIsPressedAsState()
                 val openEpisodeAction = rememberUiAction { onEpisode(episode) }
                 Column(
-                    Modifier.width(236.dp).combinedClickable(
+                    Modifier.animateItem(fadeInSpec = Motion.enter(Motion.Medium), placementSpec = Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold), fadeOutSpec = Motion.exit()).width(236.dp).combinedClickable(
                         interactionSource = interaction,
                         indication = null,
                         onClick = openEpisodeAction,
