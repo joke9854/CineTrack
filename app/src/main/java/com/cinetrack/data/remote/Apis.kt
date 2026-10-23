@@ -456,14 +456,43 @@ interface TraktCalendarService {
 @Serializable data class TraktCalendarShow(val ids: TraktIds = TraktIds())
 @Serializable data class TraktIds(val tmdb: Int? = null)
 
-data class ApiServices(
-    val tmdb: TmdbService,
-    val mdbList: MdbListService,
-    val simklAuth: SimklAuthService,
-    val simklSync: SimklSyncService,
-    val simklCalendar: SimklCalendarService,
-    val traktCalendar: TraktCalendarService? = null,
-)
+/** The Retrofit services. NetworkFactory builds each one, and its OkHttp client, on first use. */
+class ApiServices private constructor(
+    tmdb: Lazy<TmdbService>,
+    mdbList: Lazy<MdbListService>,
+    simklAuth: Lazy<SimklAuthService>,
+    simklSync: Lazy<SimklSyncService>,
+    simklCalendar: Lazy<SimklCalendarService>,
+    traktCalendar: Lazy<TraktCalendarService?>,
+    @Suppress("UNUSED_PARAMETER") lazily: Unit,
+) {
+    constructor(
+        tmdb: TmdbService,
+        mdbList: MdbListService,
+        simklAuth: SimklAuthService,
+        simklSync: SimklSyncService,
+        simklCalendar: SimklCalendarService,
+        traktCalendar: TraktCalendarService? = null,
+    ) : this(lazyOf(tmdb), lazyOf(mdbList), lazyOf(simklAuth), lazyOf(simklSync), lazyOf(simklCalendar), lazyOf(traktCalendar), Unit)
+
+    val tmdb: TmdbService by tmdb
+    val mdbList: MdbListService by mdbList
+    val simklAuth: SimklAuthService by simklAuth
+    val simklSync: SimklSyncService by simklSync
+    val simklCalendar: SimklCalendarService by simklCalendar
+    val traktCalendar: TraktCalendarService? by traktCalendar
+
+    internal companion object {
+        fun lazily(
+            tmdb: () -> TmdbService,
+            mdbList: () -> MdbListService,
+            simklAuth: () -> SimklAuthService,
+            simklSync: () -> SimklSyncService,
+            simklCalendar: () -> SimklCalendarService,
+            traktCalendar: () -> TraktCalendarService?,
+        ) = ApiServices(lazy(tmdb), lazy(mdbList), lazy(simklAuth), lazy(simklSync), lazy(simklCalendar), lazy(traktCalendar), Unit)
+    }
+}
 
 object NetworkFactory {
     private val json = AppJson.network
@@ -478,23 +507,24 @@ object NetworkFactory {
         /** Called on a Simkl 401 with the token that was rejected; returns the token to retry with. */
         refreshSimklToken: (rejected: String) -> String? = { null },
         /** HTTP cache for TMDB; responses are always revalidated, so nothing is ever served stale. */
-        tmdbCache: Cache? = null,
+        tmdbCache: (() -> Cache)? = null,
     ): ApiServices {
-        val logger = HttpLoggingInterceptor().apply {
+        // Nothing below runs until a service is first used: no client is built at app start.
+        val logger by lazy { HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
             redactHeader("simkl-api-key")
             redactQueryParams("api_key")
             redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
-        }
-        val common = SharedHttp.client.newBuilder()
+        } }
+        val common by lazy { SharedHttp.client.newBuilder()
             .addInterceptor(RateLimitInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(logger)
-            .build()
+            .build() }
 
-        val tmdbClient = common.newBuilder().addInterceptor { chain ->
+        val tmdbClient by lazy { common.newBuilder().addInterceptor { chain ->
             val original = chain.request()
             val language = metadataLanguage().takeUnless { it == "system" }.orEmpty()
                 .ifBlank { Locale.getDefault().toLanguageTag() }
@@ -516,16 +546,16 @@ object NetworkFactory {
             chain.proceed(request)
         }.apply {
             if (tmdbCache != null) {
-                cache(tmdbCache)
+                cache(tmdbCache())
                 // Stored but revalidated on every use (ETag / Last-Modified), so a repeat fetch
                 // can come back as a small 304 while the metadata stays exactly as fresh as before.
                 addNetworkInterceptor { chain ->
                     chain.proceed(chain.request()).newBuilder().header("Cache-Control", "no-cache").removeHeader("Expires").build()
                 }
             }
-        }.build()
+        }.build() }
 
-        val simklClient = common.newBuilder().addInterceptor { chain ->
+        val simklClient by lazy { common.newBuilder().addInterceptor { chain ->
             val original = chain.request()
             val url = original.url.newBuilder().apply {
                 if (BuildConfig.SIMKL_CLIENT_ID.isNotBlank()) addQueryParameter("client_id", BuildConfig.SIMKL_CLIENT_ID)
@@ -546,15 +576,15 @@ object NetworkFactory {
             if (rejected == null || response.priorResponse != null) return@authenticator null
             val fresh = refreshSimklToken(rejected)?.takeIf { it != rejected } ?: return@authenticator null
             response.request.newBuilder().header("Authorization", "Bearer $fresh").build()
-        }.build()
-        val simklAuthClient = common.newBuilder().addInterceptor { chain ->
+        }.build() }
+        val simklAuthClient by lazy { common.newBuilder().addInterceptor { chain ->
             chain.proceed(
                 chain.request().newBuilder()
                     .header("Accept", "application/json")
                     .header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
                     .build(),
             )
-        }.build()
+        }.build() }
 
         fun retrofit(baseUrl: String, client: OkHttpClient) = Retrofit.Builder()
             .baseUrl(baseUrl)
@@ -562,13 +592,13 @@ object NetworkFactory {
             .addConverterFactory(json.asConverterFactory("application/json".toMediaType()))
             .build()
 
-        return ApiServices(
-            tmdb = retrofit("https://api.themoviedb.org/", tmdbClient).create(TmdbService::class.java),
-            mdbList = retrofit("https://api.mdblist.com/", common.newBuilder().build()).create(MdbListService::class.java),
-            simklAuth = retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java),
-            simklSync = retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java),
-            simklCalendar = retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java),
-            traktCalendar = retrofit(
+        return ApiServices.lazily(
+            tmdb = { retrofit("https://api.themoviedb.org/", tmdbClient).create(TmdbService::class.java) },
+            mdbList = { retrofit("https://api.mdblist.com/", common.newBuilder().build()).create(MdbListService::class.java) },
+            simklAuth = { retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java) },
+            simklSync = { retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java) },
+            simklCalendar = { retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java) },
+            traktCalendar = { retrofit(
                 "https://api.trakt.tv/",
                 common.newBuilder().addInterceptor { chain ->
                     chain.proceed(
@@ -579,7 +609,7 @@ object NetworkFactory {
                             .build(),
                     )
                 }.build(),
-            ).create(TraktCalendarService::class.java),
+            ).create(TraktCalendarService::class.java) },
         )
     }
 }

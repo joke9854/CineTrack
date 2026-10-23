@@ -109,13 +109,17 @@ private data class TokenResponse(
 class FloppyOAuthClient(
     private val store: FloppyOAuthTokenStore,
     private val clock: () -> Long = System::currentTimeMillis,
-    private val http: OkHttpClient = com.cinetrack.data.remote.SharedHttp.client.newBuilder()
-        .followRedirects(false)
-        .followSslRedirects(false)
-        .connectTimeout(20, TimeUnit.SECONDS)
-        .readTimeout(30, TimeUnit.SECONDS)
-        .build(),
+    /** Built on first use, not when the app starts. */
+    httpClient: Lazy<OkHttpClient> = lazy {
+        com.cinetrack.data.remote.SharedHttp.client.newBuilder()
+            .followRedirects(false)
+            .followSslRedirects(false)
+            .connectTimeout(20, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+    },
 ) {
+    private val http by httpClient
     private val json = AppJson.tolerant
 
     /**
