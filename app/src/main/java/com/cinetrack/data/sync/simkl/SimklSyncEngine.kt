@@ -1198,8 +1198,6 @@ internal fun TrackingSnapshot.withoutAbsentSimklItems(remoteShowSimklIds: Set<Lo
 internal fun remoteActivityAt(remoteUpdatedAt: Long?, watchedAt: Long?, previousUpdatedAt: Long?, committedAt: Long): Long =
     watchedAt ?: remoteUpdatedAt ?: previousUpdatedAt ?: committedAt
 
-private fun String.fromCineTrackStatus(): LibraryStatus =
-    runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
 private fun SimklLibraryItem.toState(type: MediaType, resolvedTmdbId: Int? = null, localUpdatedAt: Long? = null): UserMediaStateEntity? {
     val item = show ?: movie ?: return null
     val tmdbId = resolvedTmdbId ?: item.ids.tmdb?.toIntOrNull() ?: return null
@@ -1295,24 +1293,6 @@ private fun EpisodeEntity.toDomain() = EpisodeCard(
     stillUrl = tmdbImageUrl(stillPath, "w780"),
     runtimeMinutes = runtimeMinutes,
 )
-
-private fun String.fromSimklStatus() = when (this) {
-    "watching" -> LibraryStatus.WATCHING
-    "hold" -> LibraryStatus.PAUSED
-    "plantowatch" -> LibraryStatus.PLAN_TO_WATCH
-    "completed" -> LibraryStatus.COMPLETED
-    "dropped" -> LibraryStatus.DROPPED
-    else -> LibraryStatus.NONE
-}
-
-private fun String.toSimklStatus() = when (this) {
-    LibraryStatus.WATCHING.name -> "watching"
-    LibraryStatus.PLAN_TO_WATCH.name -> "plantowatch"
-    LibraryStatus.PAUSED.name -> "hold"
-    LibraryStatus.COMPLETED.name -> "completed"
-    LibraryStatus.DROPPED.name -> "dropped"
-    else -> null
-}
 
 private fun SimklIds.toTrackingIds() = MediaIds(
     tmdb = tmdb?.toLongOrNull(),

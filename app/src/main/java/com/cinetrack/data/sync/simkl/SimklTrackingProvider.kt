@@ -229,23 +229,10 @@ private fun SyncOperation.request(item: SimklSyncItem): SimklSyncRequest =
     if (mediaType == MediaType.MOVIE) SimklSyncRequest(movies = listOf(item))
     else SimklSyncRequest(shows = listOf(item))
 
-private fun LibraryStatus.toSimklStatus(): String = when (this) {
-    LibraryStatus.WATCHING -> "watching"
-    LibraryStatus.PLAN_TO_WATCH -> "plantowatch"
-    LibraryStatus.PAUSED -> "hold"
-    LibraryStatus.COMPLETED -> "completed"
-    LibraryStatus.DROPPED -> "dropped"
-    LibraryStatus.NONE -> error("NONE is represented by a remove operation")
-}
+private fun LibraryStatus.toSimklStatus(): String =
+    SimklStatusMapping.toSimkl(this) ?: error("NONE is represented by a remove operation")
 
-private fun String.toLibraryStatus(): LibraryStatus = when (lowercase()) {
-    "watching" -> LibraryStatus.WATCHING
-    "plantowatch" -> LibraryStatus.PLAN_TO_WATCH
-    "hold" -> LibraryStatus.PAUSED
-    "completed" -> LibraryStatus.COMPLETED
-    "dropped" -> LibraryStatus.DROPPED
-    else -> LibraryStatus.NONE
-}
+private fun String.toLibraryStatus(): LibraryStatus = SimklStatusMapping.toLibraryStatus(lowercase())
 
 private fun String?.toInstantOrNull(): Instant? = this?.let { runCatching { Instant.parse(it) }.getOrNull() }
 

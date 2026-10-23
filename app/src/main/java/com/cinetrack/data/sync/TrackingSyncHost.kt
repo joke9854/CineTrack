@@ -3,16 +3,13 @@ package com.cinetrack.data.sync
 import androidx.room.withTransaction
 import com.cinetrack.BuildConfig
 import com.cinetrack.data.local.AppDatabase
-import com.cinetrack.data.local.MediaEntity
 import com.cinetrack.data.local.PendingWriteEntity
-import com.cinetrack.data.local.PlaybackEntity
 import com.cinetrack.data.local.SyncStateEntity
 import com.cinetrack.data.local.SyncOperationEntity
 import com.cinetrack.data.local.UserMediaStateEntity
 import com.cinetrack.data.remote.ApiServices
 import com.cinetrack.data.remote.SimklIds
 import com.cinetrack.data.remote.SimklLibraryItem
-import com.cinetrack.data.remote.SimklPlaybackItem
 import com.cinetrack.data.remote.SimklSyncItem
 import com.cinetrack.data.remote.SimklSyncRequest
 import com.cinetrack.data.repository.AppPreferences
@@ -20,6 +17,8 @@ import com.cinetrack.data.repository.ProgressCacheRepository
 import com.cinetrack.data.repository.ProgressRefreshRequest
 import com.cinetrack.data.repository.persistedGenerationFloor
 import com.cinetrack.data.sync.simkl.ResolvedSimklItem
+import com.cinetrack.data.sync.simkl.fromCineTrackStatus
+import com.cinetrack.data.sync.simkl.toSimklStatus
 import com.cinetrack.data.sync.simkl.SimklSyncHost
 import com.cinetrack.data.sync.simkl.withDeliveredLibraryState
 import com.cinetrack.domain.LibraryStatus
@@ -695,110 +694,4 @@ class TrackingSyncHost(
     }
 
     private fun normalizeMediaTitle(value: String): String = value.lowercase().replace(Regex("[^\\p{L}\\p{N}]+"), "")
-
-    private fun SimklLibraryItem.toState(type: MediaType, resolvedTmdbId: Int? = null): UserMediaStateEntity? {
-        val item = show ?: movie ?: return null
-        val tmdbId = resolvedTmdbId ?: item.ids.tmdb?.toIntOrNull() ?: return null
-        return UserMediaStateEntity(
-            mediaType = type.name,
-            mediaId = tmdbId,
-            status = status.fromSimklStatus().name,
-            watched = status == "completed",
-            simklId = item.ids.simkl,
-            updatedAt = listOfNotNull(lastWatchedAt, addedAt).firstNotNullOfOrNull { raw ->
-                runCatching { Instant.parse(raw).toEpochMilli() }.getOrNull()
-            } ?: System.currentTimeMillis(),
-            dirty = false,
-        )
-    }
-
-    private fun SimklLibraryItem.toMediaEntity(type: MediaType, resolvedTmdbId: Int? = null): MediaEntity? {
-        val item = show ?: movie ?: return null
-        val tmdbId = resolvedTmdbId ?: item.ids.tmdb?.toIntOrNull() ?: return null
-        return MediaEntity(
-            mediaType = type.name,
-            tmdbId = tmdbId,
-            title = item.title.ifBlank { "Untitled" },
-            overview = "",
-            posterPath = null,
-            backdropPath = null,
-            releaseDate = item.year?.toString(),
-            score = null,
-            runtimeMinutes = item.runtime,
-            genres = "",
-            providers = "",
-            collectionId = null,
-        )
-    }
-
-    private fun SimklPlaybackItem.toMediaEntity(): MediaEntity? {
-        val item = show ?: movie ?: return null
-        val tmdbId = item.ids.tmdb?.toIntOrNull() ?: return null
-        return MediaEntity(
-            mediaType = if (movie != null) MediaType.MOVIE.name else MediaType.TV.name,
-            tmdbId = tmdbId,
-            title = item.title.ifBlank { "Untitled" },
-            overview = "",
-            posterPath = null,
-            backdropPath = null,
-            releaseDate = item.year?.toString(),
-            score = null,
-            runtimeMinutes = item.runtime,
-            genres = "",
-            providers = "",
-            collectionId = null,
-        )
-    }
-
-    private fun SimklPlaybackItem.toPlaybackEntity(): PlaybackEntity? {
-        val item = show ?: movie ?: return null
-        val tmdbId = item.ids.tmdb?.toIntOrNull() ?: return null
-        val episodeNumber = episode?.number ?: episode?.episode
-        return PlaybackEntity(
-            mediaType = if (movie != null) MediaType.MOVIE.name else MediaType.TV.name,
-            mediaId = tmdbId,
-            episodeId = id,
-            progress = (progress / 100.0).toFloat().coerceIn(0f, 1f),
-            positionSeconds = 0,
-            durationSeconds = 0,
-            updatedAt = pausedAt,
-            season = episode?.season,
-            episodeNumber = episodeNumber,
-            episodeTitle = episode?.title,
-        )
-    }
-
-    private fun String.fromSimklStatus() = when (this) {
-        "watching" -> LibraryStatus.WATCHING
-        "hold" -> LibraryStatus.PAUSED
-        "plantowatch" -> LibraryStatus.PLAN_TO_WATCH
-        "completed" -> LibraryStatus.COMPLETED
-        "dropped" -> LibraryStatus.DROPPED
-        else -> LibraryStatus.NONE
-    }
-
-    private fun String.toSimklStatus() = when (this) {
-        LibraryStatus.WATCHING.name -> "watching"
-        LibraryStatus.PLAN_TO_WATCH.name -> "plantowatch"
-        LibraryStatus.PAUSED.name -> "hold"
-        LibraryStatus.COMPLETED.name -> "completed"
-        LibraryStatus.DROPPED.name -> "dropped"
-        else -> null
-    }
-
-    private fun SimklIds.toTrackingIds() = MediaIds(
-        tmdb = tmdb?.toLongOrNull(),
-        tvdb = tvdb?.toLongOrNull(),
-        imdb = imdb,
-        simkl = simkl,
-    )
-
-    private fun String?.toInstantOrNull(): Instant? = this?.let { raw ->
-        runCatching { Instant.parse(raw) }.getOrNull()
-    }
-
-    private fun String.fromCineTrackStatus(): LibraryStatus =
-        runCatching { LibraryStatus.valueOf(this) }.getOrDefault(LibraryStatus.NONE)
 }
-
-
