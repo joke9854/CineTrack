@@ -899,7 +899,6 @@ fun DiscoverListScreen(
     val backgroundItem = items.firstOrNull()
     // As on Progress, Discover and Library, the title scrolls away with the posters. Here only
     // the back button stays pinned; once posters pass beneath it, the page's colour fades in.
-    val pageTint = com.cinetrack.ui.components.LocalPageTint.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val backing by remember(gridState, density) {
         androidx.compose.runtime.derivedStateOf {
@@ -908,6 +907,9 @@ fun DiscoverListScreen(
         }
     }
     AdaptiveBackground(artworkUrl = backgroundItem?.backdropUrl ?: backgroundItem?.posterUrl) {
+        // Read inside AdaptiveBackground: it provides this page's colour (outside it, the
+        // header took the default ground instead of the page's artwork tint).
+        val pageTint = com.cinetrack.ui.components.LocalPageTint.current
         Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 state = gridState,
