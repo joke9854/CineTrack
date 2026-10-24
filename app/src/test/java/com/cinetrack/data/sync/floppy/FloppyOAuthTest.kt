@@ -137,6 +137,8 @@ class FloppyOAuthTest {
         assertTrue(FloppyOAuthRules.callbackProblem(null, "s1", null, null, url) != null)
         assertTrue(FloppyOAuthRules.callbackProblem("s1", "s1", null, "https://evil.example", url) != null)
         assertEquals("Sign-in was cancelled.", FloppyOAuthRules.callbackProblem("s1", "s1", "access_denied", null, url))
+        assertEquals("Floppy refused the sign-in (server_error).", FloppyOAuthRules.callbackProblem("s1", "s1", "server_error", null, url))
+        assertEquals("Floppy refused the sign-in.", FloppyOAuthRules.callbackProblem("s1", "s1", "Visit evil.example to fix", null, url))
     }
 
     @Test

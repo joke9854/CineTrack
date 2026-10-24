@@ -514,7 +514,8 @@ internal fun FloppyConnectionSettingsForm(
                 label = { Text(stringResource(if (editing) R.string.floppy_api_key_keep else R.string.floppy_api_key)) },
                 placeholder = { if (editing) Text(stringResource(R.string.floppy_saved_securely), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
                 visualTransformation = if (showApiKey) VisualTransformation.None else PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                // Password keyboard: no suggestions or learned words from a pasted key.
+                keyboardOptions = KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false, imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = {
                     focusManager.clearFocus()
                     onConnectRequested(fullUrl, apiKey.trim(), allowLocalHttp)

@@ -34,6 +34,12 @@ object SimklAuthRules {
     }
 
     /** User-facing text for an `error` callback; Simkl sends `access_denied` when the user declines. */
-    fun callbackErrorMessage(error: String): String =
-        if (error == "access_denied") "Simkl sign-in was cancelled" else "Simkl sign-in failed: $error"
+    fun callbackErrorMessage(error: String): String = when {
+        error == "access_denied" -> "Simkl sign-in was cancelled"
+        // The callback is a BROWSABLE link any page can fire: only echo a short RFC 6749 error code.
+        OAUTH_ERROR_CODE.matches(error) -> "Simkl sign-in failed: $error"
+        else -> "Simkl sign-in failed"
+    }
+
+    private val OAUTH_ERROR_CODE = Regex("[a-z_]{1,40}")
 }

@@ -38,6 +38,8 @@ import com.cinetrack.data.remote.tmdbImageUrl
  * trailers, collections, recommendations) moved out of the former sync-host repository.
  * Episodes read through here are written to Room, the same as before.
  */
+private val YOUTUBE_KEY = Regex("[A-Za-z0-9_-]{11}")
+
 class MediaMetadataRepository(
     private val database: AppDatabase,
     private val services: ApiServices,
@@ -151,7 +153,7 @@ class MediaMetadataRepository(
                 buyProviders = providerCountry?.buy.orEmpty().visibleProviders().map { it.name },
                 freeProviders = providerCountry?.free.orEmpty().visibleProviders().map { it.name },
                 adsProviders = providerCountry?.ads.orEmpty().visibleProviders().map { it.name },
-                providerLink = providerCountry?.link,
+                providerLink = providerCountry?.link?.takeIf { it.startsWith("https://", ignoreCase = true) },
                 visibleProviderTypes = visibleTypes,
                 providerAvailabilityExists = providerCountry?.let { (it.flatrate + it.rent + it.buy + it.free + it.ads).isNotEmpty() } == true,
                 seasons = dto.seasons.filter { it.number > 0 }.map { season ->
@@ -403,7 +405,8 @@ class MediaMetadataRepository(
                 services.tmdb.movie(media.id).videos?.results.orEmpty()
             }
             videos.asSequence()
-                .filter { it.site.equals("YouTube", ignoreCase = true) && it.key.isNotBlank() }
+                // The key is handed to the player's JavaScript, so accept only the 11-character YouTube id shape.
+                .filter { it.site.equals("YouTube", ignoreCase = true) && YOUTUBE_KEY.matches(it.key) }
                 .sortedWith(
                     compareByDescending<com.cinetrack.data.remote.TmdbVideoDto> { it.official }
                         .thenByDescending { it.type.equals("Trailer", ignoreCase = true) }

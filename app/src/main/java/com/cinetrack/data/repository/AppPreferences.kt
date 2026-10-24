@@ -994,7 +994,8 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     fun appendErrorLog(line: String) {
         runCatching {
             val count = errorLogLineCount ?: if (errorLogFile.exists()) errorLogFile.useLines { it.count() } else 0
-            errorLogFile.appendText(line + "\n")
+            // Lines can carry exception and server text; the log is shareable, so scrub it like crash reports.
+            errorLogFile.appendText(com.cinetrack.crash.CrashSanitizer.sanitize(line) + "\n")
             errorLogLineCount = count + line.lines().size
             if (count + 1 > ERROR_LOG_LINES * 2) {
                 val kept = readErrorLogs()
@@ -1109,6 +1110,12 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val verifier = values[Keys.floppyPkceVerifier]
         val baseUrl = values[Keys.floppyPendingBaseUrl]
         val allowHttp = values[Keys.floppyPendingAllowHttp] ?: false
+        // A link with the wrong state can come from any page: refuse it without consuming the
+        // pending sign-in, so the real callback can still finish.
+        val pendingState = values[Keys.floppyPkceState]
+        if (pendingState != null && verifier != null && baseUrl != null && pendingState != returnedState) {
+            error("This sign-in didn't come from CineTrack. Please start it again.")
+        }
         context.cineTrackDataStore.edit {
             it.remove(Keys.floppyPkceVerifier)
             it.remove(Keys.floppyPkceState)
@@ -1192,8 +1199,10 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         Unit
     }.recoverCatching { cause ->
         if (cause is HttpException) {
-            val serverMessage = cause.response()?.errorBody()?.string()?.take(500).orEmpty()
-            error("Simkl authorization failed (${cause.code()})${serverMessage.takeIf(String::isNotBlank)?.let { ": $it" }.orEmpty()}")
+            // Only the OAuth error code: the body is never shown or logged whole.
+            val code = cause.response()?.errorBody()?.string()?.take(2000)
+                ?.let { Regex(""""error"\s*:\s*"([a-z_]{1,40})"""").find(it)?.groupValues?.get(1) }
+            error("Simkl authorization failed (${cause.code()})${code?.let { ": $it" }.orEmpty()}")
         }
         throw cause
     }

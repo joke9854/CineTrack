@@ -323,12 +323,14 @@ fun CineTrackApp(
             // the current tab saved it into that tab's history, so tapping that tab later
             // reopened the linked screen (Discover showed Library).
             val tab = destination in setOf(Routes.Discover, Routes.Progress, Routes.Library, Routes.Settings)
-            navController.navigate(destination) {
-                if (tab) {
-                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                    restoreState = true
+            runCatching {
+                navController.navigate(destination) {
+                    if (tab) {
+                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                        restoreState = true
+                    }
+                    launchSingleTop = true
                 }
-                launchSingleTop = true
             }
             if (requested == "sync") viewModel.sync()
             navigationRequest.value = null

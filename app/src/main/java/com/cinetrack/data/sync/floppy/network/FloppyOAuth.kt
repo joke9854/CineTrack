@@ -63,7 +63,8 @@ object FloppyOAuthRules {
         baseUrl: String,
     ): String? = when {
         error == "access_denied" -> "Sign-in was cancelled."
-        error != null -> "Floppy refused the sign-in ($error)."
+        error != null && Regex("[a-z_]{1,40}").matches(error) -> "Floppy refused the sign-in ($error)."
+        error != null -> "Floppy refused the sign-in."
         expectedState == null -> "This sign-in has expired. Please start it again."
         expectedState != returnedState -> "This sign-in didn't come from CineTrack. Please start it again."
         issuer != null && !sameOrigin(issuer, baseUrl) -> "This sign-in came from a different server. Please start it again."

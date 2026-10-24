@@ -537,6 +537,7 @@ internal fun ApiCredentialSettings(
                 enabled = !validating,
                 label = { Text(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_key_label)) },
                 visualTransformation = if (revealNewValue && !showingSavedMask) VisualTransformation.None else PasswordVisualTransformation(),
+                keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Password, autoCorrectEnabled = false),
                 placeholder = { Text(stringResource(R.string.api_credential_hint, service), style = androidx.compose.material3.MaterialTheme.typography.bodySmall) },
                 trailingIcon = {
                     IconButton(

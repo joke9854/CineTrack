@@ -24,6 +24,10 @@ internal class SecureCredentialStore(context: Context) {
             val cipher = Cipher.getInstance(TRANSFORMATION)
             cipher.init(Cipher.DECRYPT_MODE, secretKey(), GCMParameterSpec(128, payload.copyOfRange(0, IV_SIZE)))
             cipher.doFinal(payload.copyOfRange(IV_SIZE, payload.size)).decodeToString()
+        }.onFailure {
+            // A Keystore key invalidation reads as a silent sign-out; leave a trace (name and
+            // failure type only, never the value).
+            android.util.Log.w("SecureCredentialStore", "Stored credential '$key' is unreadable (${it.javaClass.simpleName})")
         }.getOrNull()
     }
 

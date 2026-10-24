@@ -112,6 +112,12 @@ class CineTrackApplication : Application(), SingletonImageLoader.Factory {
         applicationScope.launch(Dispatchers.IO) {
             val connected = runCatching { container.preferences.floppySettingsNow() != null }.getOrDefault(false)
             runCatching { CrashReporting.startup(this@CineTrackApplication, connected) }
+            // Shared exports (backup zip with watch history, logs, calendar) only need to live
+            // while the share sheet reads them; drop anything older than a day.
+            runCatching {
+                val cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000
+                java.io.File(cacheDir, "exports").listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+            }
         }
         applicationScope.launch {
             TrackingWorkScheduler.update(

@@ -55,5 +55,7 @@ class SimklAuthRulesTest {
     fun `declined consent reads as cancelled`() {
         assertEquals("Simkl sign-in was cancelled", SimklAuthRules.callbackErrorMessage("access_denied"))
         assertEquals("Simkl sign-in failed: server_error", SimklAuthRules.callbackErrorMessage("server_error"))
+        // Any page can fire the callback: free text is never echoed.
+        assertEquals("Simkl sign-in failed", SimklAuthRules.callbackErrorMessage("Your account is locked, call +1 555"))
     }
 }

@@ -83,9 +83,10 @@ class FloppyApiClientFactory(
 
     @Synchronized
     fun get(baseUrl: String, apiKey: String?, allowInsecureLocalHttp: Boolean = false): FloppyApi {
-        // Loopback is used by MockWebServer and is not reachable beyond this
-        // process. Private-LAN addresses still require the explicit opt-in.
-        val loopback = runCatching { URI(baseUrl.trim()).host?.lowercase() }
+        // Loopback without the opt-in is for MockWebServer in debug and unit-test builds only;
+        // in release another app listening on the port could receive the key.
+        // Private-LAN addresses still require the explicit opt-in.
+        val loopback = com.cinetrack.BuildConfig.DEBUG && runCatching { URI(baseUrl.trim()).host?.lowercase() }
             .getOrNull() in setOf("localhost", "127.0.0.1", "::1")
         val identity = FloppyUrlNormalizer.normalize(baseUrl, allowInsecureLocalHttp || loopback)
         val originUrl = identity.origin.toHttpUrl()

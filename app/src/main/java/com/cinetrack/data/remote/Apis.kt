@@ -513,6 +513,7 @@ object NetworkFactory {
         val logger by lazy { HttpLoggingInterceptor().apply {
             redactHeader("Authorization")
             redactHeader("simkl-api-key")
+            redactHeader("trakt-api-key")
             redactQueryParams("api_key")
             redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
@@ -522,6 +523,13 @@ object NetworkFactory {
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
             .addInterceptor(logger)
+            // OkHttp drops Authorization on a cross-host redirect but keeps custom headers:
+            // strip the key headers when a hop leaves the host the call started on.
+            .addNetworkInterceptor { chain ->
+                val request = chain.request()
+                if (request.url.host == chain.call().request().url.host) chain.proceed(request)
+                else chain.proceed(request.newBuilder().removeHeader("simkl-api-key").removeHeader("trakt-api-key").build())
+            }
             .build() }
 
         val tmdbClient by lazy { common.newBuilder().addInterceptor { chain ->

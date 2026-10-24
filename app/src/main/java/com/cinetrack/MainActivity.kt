@@ -56,21 +56,8 @@ class MainActivity : AppCompatActivity() {
                 issuer = uri.getQueryParameter("iss"),
                 floppy = uri.host == "floppy",
             )
-        } else if (uri.scheme == "cinetrack" && uri.host == "app") {
-            navigationRequest.value = when (uri.path) {
-                "/search" -> "search/discover"
-                "/up-next", "/progress" -> "progress"
-                "/sync" -> "sync"
-                "/sync-operations" -> "settings-detail/sync-operations"
-                "/library" -> "library"
-                else -> null
-            }
-        } else if (uri.scheme == "cinetrack" && uri.host == "episode") {
-            val parts = uri.pathSegments
-            if (parts.size >= 3) navigationRequest.value = "episode/${parts[0]}/${parts[1]}/${parts[2]}"
-        } else if (uri.scheme == "cinetrack" && uri.host == "detail") {
-            val parts = uri.pathSegments
-            if (parts.size >= 2) navigationRequest.value = "detail/${parts[0].uppercase()}/${parts[1]}"
+        } else if (uri.scheme == "cinetrack") {
+            DeepLinkRoutes.route(uri.host, uri.path, uri.pathSegments)?.let { navigationRequest.value = it }
         }
     }
 }
