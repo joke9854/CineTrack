@@ -57,6 +57,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.cinetrack.R
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.outlined.RemoveDone
 import com.cinetrack.domain.EpisodeCard
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
@@ -165,6 +167,8 @@ fun DetailScreen(
     /** Aired, unwatched episodes waiting for the user to confirm marking the whole show. */
     var pendingShowEpisodes by remember(media.stableKey) { mutableStateOf<List<EpisodeCard>?>(null) }
     var confirmUnmarkShow by remember(media.stableKey) { mutableStateOf(false) }
+    var confirmRemoveTitle by remember(media.stableKey) { mutableStateOf(false) }
+    var pendingSeasonUnmark by remember(media.stableKey) { mutableStateOf<List<com.cinetrack.domain.EpisodeCard>?>(null) }
     val openLibrarySheet = rememberUiAction { librarySheet = true }
     LaunchedEffect(media.status, media.watched, media.libraryUpdatedAt) {
         // Keep the action label/pill tied to the shared Room state even when a
@@ -376,6 +380,11 @@ fun DetailScreen(
                                     }
                                 },
                                 onSeasonWatched = { seasonEpisodes, watched ->
+                                    if (!watched && seasonEpisodes.any { it.watched }) {
+                                        // Unmarking drops the exact watch dates: ask first.
+                                        pendingSeasonUnmark = seasonEpisodes
+                                        return@EpisodesSection
+                                    }
                                     val numbers = seasonEpisodes.map { it.season to it.number }.toSet()
                                     detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = watched) else it }
                                     viewModel.setSeasonWatched(seasonEpisodes, watched)
@@ -451,6 +460,13 @@ fun DetailScreen(
     }
     if (librarySheet) {
         LibraryStatusSheet(detail, onDismiss = { librarySheet = false }) { status ->
+            if (status == LibraryStatus.NONE && (detail.status != LibraryStatus.NONE || detail.watched)) {
+                // Removing deletes the watch history too: ask first, like the watched button does.
+                librarySheet = false
+                if (detail.type == MediaType.TV && detailEpisodes.any { it.season > 0 && it.watched }) confirmUnmarkShow = true
+                else confirmRemoveTitle = true
+                return@LibraryStatusSheet
+            }
             detail = detail.copy(status = status, watched = status == LibraryStatus.COMPLETED)
             onStatus(detail, status)
             librarySheet = false
@@ -529,6 +545,35 @@ fun DetailScreen(
                 confirmUnmarkShow = false
             },
         )
+    }
+    if (confirmRemoveTitle) {
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(R.string.remove_titles_title),
+            message = stringResource(R.string.remove_title_message, detail.title),
+            confirmLabel = stringResource(R.string.remove_titles_confirm),
+            icon = Icons.Filled.Delete,
+            onDismiss = { confirmRemoveTitle = false },
+        ) {
+            if (detail.type == MediaType.TV) detailViewModel.forgetWatchedEpisodes(detail.id)
+            detail = detail.copy(status = LibraryStatus.NONE, watched = false)
+            onStatus(detail, LibraryStatus.NONE)
+            confirmRemoveTitle = false
+        }
+    }
+    pendingSeasonUnmark?.let { seasonEpisodes ->
+        val watchedCount = seasonEpisodes.count { it.watched }
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(R.string.unmark_season_title, seasonEpisodes.first().season),
+            message = androidx.compose.ui.res.pluralStringResource(R.plurals.unmark_season_message, watchedCount, watchedCount),
+            confirmLabel = stringResource(R.string.unmark_season_confirm),
+            icon = Icons.Outlined.RemoveDone,
+            onDismiss = { pendingSeasonUnmark = null },
+        ) {
+            val numbers = seasonEpisodes.map { it.season to it.number }.toSet()
+            detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = false) else it }
+            viewModel.setSeasonWatched(seasonEpisodes, false)
+            pendingSeasonUnmark = null
+        }
     }
     pendingShowEpisodes?.let { episodes ->
         MarkShowWatchedPrompt(

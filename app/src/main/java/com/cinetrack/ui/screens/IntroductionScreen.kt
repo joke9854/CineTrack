@@ -68,6 +68,8 @@ fun IntroductionScreen(
         IntroductionPage(R.string.intro_api_title, R.string.intro_api_body, Icons.Filled.Link),
     )
     var pageIndex by remember { mutableIntStateOf(0) }
+    // Back steps through the intro instead of reaching the page underneath it.
+    androidx.activity.compose.BackHandler(enabled = pageIndex > 0) { pageIndex-- }
     val page = pages[pageIndex]
     AdaptiveBackground {
         Column(

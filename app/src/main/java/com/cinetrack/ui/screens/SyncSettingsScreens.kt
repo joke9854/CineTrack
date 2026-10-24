@@ -432,10 +432,10 @@ private fun SyncDeliveryRow(delivery: SyncDeliveryCard) {
 
 @Composable
 private fun localizedSyncValue(value: String?): String = when (value) {
-    "PLAN_TO_WATCH" -> stringResource(R.string.status_plan_to_watch)
-    "COMPLETED" -> stringResource(R.string.status_completed)
-    "DROPPED" -> stringResource(R.string.status_dropped)
-    "PAUSED" -> stringResource(R.string.status_paused)
+    // Every status, WATCHING included (it used to fall through as the raw "WATCHING").
+    "NONE" -> stringResource(R.string.not_in_library)
+    in com.cinetrack.domain.LibraryStatus.entries.map { it.name } ->
+        stringResource(com.cinetrack.ui.components.libraryStatusLabel(com.cinetrack.domain.LibraryStatus.valueOf(value.orEmpty())))
     "true" -> stringResource(R.string.watched)
     "false" -> stringResource(R.string.not_watched)
     else -> value.orEmpty().replace(':', ' ').replace('_', ' ')

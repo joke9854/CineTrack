@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.cinetrack.R
+import androidx.compose.material.icons.filled.SwapHoriz
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.domain.FloppyUiState
 import com.cinetrack.domain.FloppyConnectionError
@@ -319,22 +320,17 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
         swap.error?.let { KitNotice(it) }
     }
     if (asking) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { asking = false },
-            title = { Text(stringResource(if (state.floppyIsMain) R.string.main_tracker_make_simkl else R.string.main_tracker_make_floppy)) },
-            text = {
-                Text(
-                    stringResource(if (state.floppyIsMain) R.string.main_tracker_confirm_simkl else R.string.main_tracker_confirm_floppy),
-                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { asking = false; controls.onSwapMainTracker() }) {
-                    Text(stringResource(R.string.main_tracker_switch), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
-        )
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(if (state.floppyIsMain) R.string.main_tracker_make_simkl else R.string.main_tracker_make_floppy),
+            message = stringResource(if (state.floppyIsMain) R.string.main_tracker_confirm_simkl else R.string.main_tracker_confirm_floppy),
+            confirmLabel = stringResource(R.string.main_tracker_switch),
+            icon = androidx.compose.material.icons.Icons.Filled.SwapHoriz,
+            destructive = false,
+            onDismiss = { asking = false },
+        ) {
+            asking = false
+            controls.onSwapMainTracker()
+        }
     }
 }
 

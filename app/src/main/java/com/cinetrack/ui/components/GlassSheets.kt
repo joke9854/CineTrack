@@ -135,12 +135,8 @@ fun LibraryStatusSheet(
         Column(Modifier.padding(horizontal = 12.dp)) {
             SheetTitle(stringResource(R.string.add_to_library))
             val choices = listOf(
-                Triple(LibraryStatus.PLAN_TO_WATCH, stringResource(R.string.plan_to_watch), Icons.Filled.Bookmark),
-                Triple(LibraryStatus.WATCHING, stringResource(R.string.in_progress), Icons.Filled.Visibility),
-                Triple(LibraryStatus.PAUSED, stringResource(R.string.paused), Icons.Filled.Pause),
-                Triple(LibraryStatus.COMPLETED, stringResource(R.string.completed), Icons.Filled.Check),
-                Triple(LibraryStatus.DROPPED, stringResource(R.string.dropped), Icons.Filled.VisibilityOff),
-            )
+                LibraryStatus.PLAN_TO_WATCH, LibraryStatus.WATCHING, LibraryStatus.PAUSED, LibraryStatus.COMPLETED, LibraryStatus.DROPPED,
+            ).map { Triple(it, stringResource(libraryStatusLabel(it)), libraryStatusIcon(it)) }
             GlassMenuGroup {
                 choices.forEachIndexed { index, (status, label, icon) ->
                     val selected = media.status == status

@@ -170,14 +170,7 @@ fun MediaPoster(
                     Modifier.align(Alignment.TopEnd),
                 )
             } else if (media.status != LibraryStatus.NONE) {
-                val stateIcon = when (media.status) {
-                    LibraryStatus.WATCHING -> Icons.Filled.Visibility
-                    LibraryStatus.PLAN_TO_WATCH -> Icons.Filled.Bookmark
-                    LibraryStatus.PAUSED -> Icons.Filled.Pause
-                    LibraryStatus.DROPPED -> Icons.Filled.VisibilityOff
-                    else -> Icons.Filled.Bookmark
-                }
-                StateBadge(libraryStatusColor(media.status), stateIcon, stringResource(R.string.in_library), Modifier.align(Alignment.TopEnd))
+                StateBadge(libraryStatusColor(media.status), libraryStatusIcon(media.status), stringResource(libraryStatusLabel(media.status)), Modifier.align(Alignment.TopEnd))
             }
             if (!selectionMode && progress != null && progress > 0f && !media.watched && media.status != LibraryStatus.COMPLETED) {
                 // A thin line along the bottom edge, as on the Progress card; the art stays clear.

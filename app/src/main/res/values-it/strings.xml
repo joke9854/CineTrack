@@ -742,5 +742,24 @@
     <string name="year_busiest_month">Mese più attivo</string>
     <string name="widget_up_next_title">Prossimi episodi</string>
     <string name="widget_up_next_empty">Ancora niente da guardare</string>
+    <string name="remove_titles_title">Rimuovere dalla raccolta?</string>
+    <string name="remove_title_message">%1$s verrà rimosso dalla raccolta e la sua cronologia di visione verrà eliminata, qui e sui servizi collegati.</string>
+    <plurals name="remove_titles_message">
+        <item quantity="one">%1$d titolo verrà rimosso dalla raccolta e la sua cronologia di visione verrà eliminata, qui e sui servizi collegati.</item>
+        <item quantity="other">%1$d titoli verranno rimossi dalla raccolta e la loro cronologia di visione verrà eliminata, qui e sui servizi collegati.</item>
+    </plurals>
+    <string name="remove_titles_confirm">Rimuovi</string>
+    <string name="restore_confirm_title">Ripristinare questo backup?</string>
+    <string name="restore_confirm_message">Titoli, progressi e cronologia di visione del backup sovrascrivono quelli su questo dispositivo. Non si può annullare.</string>
+    <string name="restore_confirm_action">Ripristina</string>
+    <string name="unmark_season_title">Togliere la stagione %1$d dai visti?</string>
+    <plurals name="unmark_season_message">
+        <item quantity="one">%1$d episodio visto perde la data di visione, qui e sui servizi collegati.</item>
+        <item quantity="other">%1$d episodi visti perdono la data di visione, qui e sui servizi collegati.</item>
+    </plurals>
+    <string name="unmark_season_confirm">Togli dai visti</string>
+    <string name="simkl_replace_confirm_title">Usare la raccolta di Simkl?</string>
+    <string name="simkl_replace_confirm_message">I titoli che non sono su Simkl verranno rimossi da questo dispositivo, con la loro cronologia di visione. Non si può annullare.</string>
+    <string name="not_in_library">Non nella raccolta</string>
 </resources>
 

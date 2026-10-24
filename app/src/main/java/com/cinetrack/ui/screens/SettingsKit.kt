@@ -60,6 +60,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.appcompat.app.AppCompatDelegate
 import com.cinetrack.R
+import androidx.compose.material.icons.filled.LinkOff
 import com.cinetrack.domain.AppUiState
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.glass
@@ -384,17 +385,17 @@ internal fun ConfirmedDangerText(text: String, title: String, body: String, onCo
     var asking by rememberSaveable { mutableStateOf(false) }
     KitDangerText(text) { asking = true }
     if (asking) {
-        androidx.compose.material3.AlertDialog(
-            onDismissRequest = { asking = false },
-            title = { Text(title) },
-            text = { Text(body, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium) },
-            confirmButton = {
-                TextButton(onClick = { asking = false; onConfirm() }) {
-                    Text(stringResource(R.string.disconnect), color = Color(0xFFF09595), fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = { TextButton(onClick = { asking = false }) { Text(stringResource(R.string.cancel)) } },
-        )
+        // The confirm button repeats the action's own label ("Disconnect account").
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = title,
+            message = body,
+            confirmLabel = text,
+            icon = androidx.compose.material.icons.Icons.Filled.LinkOff,
+            onDismiss = { asking = false },
+        ) {
+            asking = false
+            onConfirm()
+        }
     }
 }
 

@@ -120,6 +120,7 @@ fun LibraryScreen(
     onSearch: () -> Unit,
     onMedia: (MediaCard) -> Unit,
     onStatus: (MediaCard, LibraryStatus) -> Unit,
+    onBulkStatus: (List<MediaCard>, LibraryStatus) -> Unit,
     onRefreshArtwork: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
 ) {
@@ -130,6 +131,11 @@ fun LibraryScreen(
     var showOrderSheet by rememberSaveable { mutableStateOf(false) }
     var bulkMode by rememberSaveable { mutableStateOf(false) }
     var selectedKeys by remember { mutableStateOf(emptySet<String>()) }
+    // System back leaves selection first, like every other Android list.
+    androidx.activity.compose.BackHandler(enabled = bulkMode) {
+        bulkMode = false
+        selectedKeys = emptySet()
+    }
     var showBulkSheet by rememberSaveable { mutableStateOf(false) }
     var listView by rememberSaveable { mutableStateOf(false) }
     // Each tab has its own grid and list (two are on screen while tabs slide), kept by a
@@ -160,12 +166,8 @@ fun LibraryScreen(
     }
     val filterChoices = listOf(
         Triple<LibraryStatus?, String, Color>(null, stringResource(R.string.all), Accent),
-        Triple(LibraryStatus.WATCHING, stringResource(R.string.in_progress), libraryStatusColor(LibraryStatus.WATCHING)),
-        Triple(LibraryStatus.PLAN_TO_WATCH, stringResource(R.string.plan_to_watch), libraryStatusColor(LibraryStatus.PLAN_TO_WATCH)),
-        Triple(LibraryStatus.PAUSED, stringResource(R.string.paused), libraryStatusColor(LibraryStatus.PAUSED)),
-        Triple(LibraryStatus.COMPLETED, stringResource(R.string.completed), libraryStatusColor(LibraryStatus.COMPLETED)),
-        Triple(LibraryStatus.DROPPED, stringResource(R.string.dropped), libraryStatusColor(LibraryStatus.DROPPED)),
-    )
+    ) + listOf(LibraryStatus.WATCHING, LibraryStatus.PLAN_TO_WATCH, LibraryStatus.PAUSED, LibraryStatus.COMPLETED, LibraryStatus.DROPPED)
+        .map { Triple<LibraryStatus?, String, Color>(it, stringResource(com.cinetrack.ui.components.libraryStatusLabel(it)), libraryStatusColor(it)) }
     val progressByKey = remember(state.playbackTv, state.playbackMovies) {
         (state.playbackTv + state.playbackMovies).associate { it.media.stableKey to it.progress }
     }
@@ -429,7 +431,7 @@ fun LibraryScreen(
             selectedCount = selectedKeys.size,
             onDismiss = { showBulkSheet = false },
         ) { selectedStatus ->
-            items.filter { it.stableKey in selectedKeys }.forEach { onStatus(it, selectedStatus) }
+            onBulkStatus(items.filter { it.stableKey in selectedKeys }, selectedStatus)
             selectedKeys = emptySet()
             bulkMode = false
             showBulkSheet = false
@@ -508,14 +510,10 @@ private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: 
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg)) {
             Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(12.dp))
-            listOf(
-                LibraryStatus.WATCHING to stringResource(R.string.in_progress),
-                LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
-                LibraryStatus.PAUSED to stringResource(R.string.paused),
-                LibraryStatus.COMPLETED to stringResource(R.string.completed),
-                LibraryStatus.DROPPED to stringResource(R.string.dropped),
-                LibraryStatus.NONE to stringResource(R.string.remove_from_library),
-            ).forEach { (status, label) ->
+            (listOf(
+                LibraryStatus.WATCHING, LibraryStatus.PLAN_TO_WATCH, LibraryStatus.PAUSED, LibraryStatus.COMPLETED, LibraryStatus.DROPPED,
+            ).map { it to stringResource(com.cinetrack.ui.components.libraryStatusLabel(it)) } +
+                (LibraryStatus.NONE to stringResource(R.string.remove_from_library))).forEach { (status, label) ->
                 Row(
                     Modifier.fillMaxWidth().padding(bottom = Spacing.sm).glass(RoundedCornerShape(Radius.Medium))
                         .clickable { onApply(status) }.padding(horizontal = Spacing.md, vertical = Spacing.md),

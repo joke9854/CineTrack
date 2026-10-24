@@ -742,5 +742,24 @@
     <string name="year_busiest_month">Busiest month</string>
     <string name="widget_up_next_title">Up next</string>
     <string name="widget_up_next_empty">Nothing to watch next yet</string>
+    <string name="remove_titles_title">Remove from library?</string>
+    <string name="remove_title_message">%1$s will be removed from your library, and its watch history deleted here and on your connected services.</string>
+    <plurals name="remove_titles_message">
+        <item quantity="one">%1$d title will be removed from your library, and its watch history deleted here and on your connected services.</item>
+        <item quantity="other">%1$d titles will be removed from your library, and their watch history deleted here and on your connected services.</item>
+    </plurals>
+    <string name="remove_titles_confirm">Remove</string>
+    <string name="restore_confirm_title">Restore this backup?</string>
+    <string name="restore_confirm_message">Titles, progress and watch history in the backup overwrite what\'s on this device. This can\'t be undone.</string>
+    <string name="restore_confirm_action">Restore</string>
+    <string name="unmark_season_title">Unmark season %1$d?</string>
+    <plurals name="unmark_season_message">
+        <item quantity="one">%1$d watched episode loses its watch date, here and on your connected services.</item>
+        <item quantity="other">%1$d watched episodes lose their watch dates, here and on your connected services.</item>
+    </plurals>
+    <string name="unmark_season_confirm">Unmark season</string>
+    <string name="simkl_replace_confirm_title">Use Simkl\'s library?</string>
+    <string name="simkl_replace_confirm_message">Titles that are not on Simkl will be removed from this device, with their watch history. This can\'t be undone.</string>
+    <string name="not_in_library">Not in library</string>
 </resources>
 

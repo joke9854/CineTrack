@@ -910,8 +910,23 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
 @Composable
 private fun ExportSettings(viewModel: BackupViewModel) {
     val context = LocalContext.current
+    // Restoring overwrites titles, progress and history: the picked file or the automatic
+    // backup waits for a confirmation first.
+    var pendingRestore by remember { mutableStateOf<(() -> Unit)?>(null) }
     val restoreLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        uri?.let { viewModel.restoreData(context, it) }
+        uri?.let { picked -> pendingRestore = { viewModel.restoreData(context, picked) } }
+    }
+    pendingRestore?.let { restore ->
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(R.string.restore_confirm_title),
+            message = stringResource(R.string.restore_confirm_message),
+            confirmLabel = stringResource(R.string.restore_confirm_action),
+            icon = Icons.Filled.Restore,
+            onDismiss = { pendingRestore = null },
+        ) {
+            pendingRestore = null
+            restore()
+        }
     }
     val sections = listOf(
         Triple("library", Icons.Filled.Bookmark, stringResource(R.string.library) to stringResource(R.string.export_library_sub)),
@@ -930,7 +945,7 @@ private fun ExportSettings(viewModel: BackupViewModel) {
     }
     SettingsSection(stringResource(R.string.section_restore)) {
         KitRow(Icons.Filled.FolderOpen, stringResource(R.string.restore_file_title), stringResource(R.string.restore_file_sub), onClick = { restoreLauncher.launch(arrayOf("application/zip", "application/octet-stream")) })
-        KitRow(Icons.Filled.Restore, stringResource(R.string.restore_auto_title), stringResource(R.string.restore_auto_sub), onClick = viewModel::restoreAutomaticBackup)
+        KitRow(Icons.Filled.Restore, stringResource(R.string.restore_auto_title), stringResource(R.string.restore_auto_sub), onClick = { pendingRestore = viewModel::restoreAutomaticBackup })
     }
     KitFootnote(stringResource(R.string.restore_backup_explanation))
 }

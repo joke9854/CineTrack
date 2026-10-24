@@ -67,6 +67,7 @@ import androidx.navigation.navArgument
 import com.cinetrack.CineTrackApplication
 import com.cinetrack.SimklAuthCallback
 import com.cinetrack.R
+import androidx.compose.material.icons.filled.Delete
 import com.cinetrack.data.sync.ReleaseNotifier
 import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.components.BottomNavItem
@@ -359,9 +360,34 @@ fun CineTrackApp(
     }
     // Key actions answer with a haptic: a status change confirms, a tab switch ticks.
     val haptics = androidx.compose.ui.platform.LocalHapticFeedback.current
-    val setStatus: (com.cinetrack.domain.MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit = { media, status ->
+    val applyStatus: (List<com.cinetrack.domain.MediaCard>, com.cinetrack.domain.LibraryStatus) -> Unit = { items, status ->
+        // One confirm per change, however many titles it covers.
         haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
-        viewModel.setStatus(media, status)
+        items.forEach { viewModel.setStatus(it, status) }
+    }
+    // Removing a title also deletes its watch history here and on Simkl/Floppy, so every
+    // removal path (context menu, bulk edit, sheets) asks first.
+    var pendingRemoval by remember { mutableStateOf<List<com.cinetrack.domain.MediaCard>>(emptyList()) }
+    val setStatuses: (List<com.cinetrack.domain.MediaCard>, com.cinetrack.domain.LibraryStatus) -> Unit = { items, status ->
+        if (status == com.cinetrack.domain.LibraryStatus.NONE && items.any { it.status != com.cinetrack.domain.LibraryStatus.NONE || it.watched }) {
+            pendingRemoval = items
+        } else applyStatus(items, status)
+    }
+    val setStatus: (com.cinetrack.domain.MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit = { media, status -> setStatuses(listOf(media), status) }
+    val setStatusConfirmed: (com.cinetrack.domain.MediaCard, com.cinetrack.domain.LibraryStatus) -> Unit = { media, status -> applyStatus(listOf(media), status) }
+    if (pendingRemoval.isNotEmpty()) {
+        val items = pendingRemoval
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(R.string.remove_titles_title),
+            message = if (items.size == 1) stringResource(R.string.remove_title_message, items.first().title)
+                else androidx.compose.ui.res.pluralStringResource(R.plurals.remove_titles_message, items.size, items.size),
+            confirmLabel = stringResource(R.string.remove_titles_confirm),
+            icon = androidx.compose.material.icons.Icons.Filled.Delete,
+            onDismiss = { pendingRemoval = emptyList() },
+        ) {
+            applyStatus(items, com.cinetrack.domain.LibraryStatus.NONE)
+            pendingRemoval = emptyList()
+        }
     }
     val openMedia: (com.cinetrack.domain.MediaCard) -> Unit = { media ->
         detailViewModel.rememberOpened(media)
@@ -466,7 +492,7 @@ fun CineTrackApp(
                 )
             }
             screen(Routes.Library) {
-                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = setStatus, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = setStatus, onBulkStatus = setStatuses, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
             }
             screen(Routes.Settings) {
                 SettingsScreen(
@@ -584,7 +610,7 @@ fun CineTrackApp(
                     detailViewModel = detailViewModel,
                     progressViewModel = progressViewModel,
                     onBack = { com.cinetrack.ui.components.SharedPosterSource.goingBack(); navController.popBackStack() },
-                    onStatus = setStatus,
+                    onStatus = setStatusConfirmed,
                     onMedia = openMedia,
                     onEpisode = { episode ->
                         entry.savedStateHandle["selectedSeason"] = episode.season

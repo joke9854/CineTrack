@@ -45,6 +45,8 @@ object SurfacePalette {
     val WarmText = Color(0xFFF4F4F5)
     val CoolText = Color(0xFFF4F7FB)
     val Negative = Color(0xFFFF5C5C)
+    /** Filled destructive actions (remove, unmark, replace). */
+    val DangerAction = Color(0xFFB3423F)
     val WarningLight = Color(0xFFFFD37A)
 }
 

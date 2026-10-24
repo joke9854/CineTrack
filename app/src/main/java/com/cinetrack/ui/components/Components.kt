@@ -104,6 +104,16 @@ fun libraryStatusIcon(status: LibraryStatus): ImageVector = when (status) {
     LibraryStatus.NONE -> Icons.Filled.Bookmark
 }
 
+/** The name of a library status, the same in every sheet, tab, badge and conflict row. */
+fun libraryStatusLabel(status: LibraryStatus): Int = when (status) {
+    LibraryStatus.WATCHING -> R.string.in_progress
+    LibraryStatus.PLAN_TO_WATCH -> R.string.plan_to_watch
+    LibraryStatus.PAUSED -> R.string.paused
+    LibraryStatus.COMPLETED -> R.string.completed
+    LibraryStatus.DROPPED -> R.string.dropped
+    LibraryStatus.NONE -> R.string.in_library
+}
+
 /**
  * Gives content restored from the local cache a calm entrance instead of
  * snapping into place when a database flow or background enrichment finishes.

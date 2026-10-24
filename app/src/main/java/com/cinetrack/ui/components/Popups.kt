@@ -256,11 +256,8 @@ internal fun MediaContextMenu(
                 Box(Modifier.padding(vertical = 16.dp).fillMaxWidth().height(.6.dp).background(PopupMaterial.Hairline))
             }
             val round = listOf(
-                LibraryStatus.PLAN_TO_WATCH to stringResource(R.string.plan_to_watch),
-                LibraryStatus.WATCHING to stringResource(R.string.in_progress),
-                LibraryStatus.PAUSED to stringResource(R.string.paused),
-                LibraryStatus.DROPPED to stringResource(R.string.dropped),
-            )
+                LibraryStatus.PLAN_TO_WATCH, LibraryStatus.WATCHING, LibraryStatus.PAUSED, LibraryStatus.DROPPED,
+            ).map { it to stringResource(libraryStatusLabel(it)) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
                 round.forEach { (status, label) ->
                     val selected = currentStatus == status

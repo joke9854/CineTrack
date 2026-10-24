@@ -19,6 +19,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.cinetrack.R
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.CloudDownload
 
 /**
  * Shown once after connecting a Simkl account, before its first sync. It cannot be dismissed
@@ -26,6 +29,20 @@ import com.cinetrack.R
  */
 @Composable
 fun SimklFirstSyncDialog(onMerge: () -> Unit, onReplace: () -> Unit, onDisconnect: () -> Unit) {
+    // Replacing deletes the titles only on this device: it takes a second, explicit step.
+    var confirmReplace by androidx.compose.runtime.saveable.rememberSaveable { androidx.compose.runtime.mutableStateOf(false) }
+    if (confirmReplace) {
+        com.cinetrack.ui.components.ConfirmPrompt(
+            title = stringResource(R.string.simkl_replace_confirm_title),
+            message = stringResource(R.string.simkl_replace_confirm_message),
+            confirmLabel = stringResource(R.string.simkl_first_sync_replace),
+            icon = androidx.compose.material.icons.Icons.Filled.CloudDownload,
+            onDismiss = { confirmReplace = false },
+        ) {
+            confirmReplace = false
+            onReplace()
+        }
+    }
     AlertDialog(
         onDismissRequest = {},
         properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -43,7 +60,7 @@ fun SimklFirstSyncDialog(onMerge: () -> Unit, onReplace: () -> Unit, onDisconnec
                     title = stringResource(R.string.simkl_first_sync_replace),
                     body = stringResource(R.string.simkl_first_sync_replace_sub),
                     highlighted = false,
-                    onClick = onReplace,
+                    onClick = { confirmReplace = true },
                 )
             }
         },

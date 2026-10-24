@@ -733,24 +733,14 @@ internal fun UnmarkShowPrompt(
     onDismiss: () -> Unit,
     onConfirm: () -> Unit,
 ) {
-    SharedGlassSheet(onDismiss) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg)) {
-            Text(stringResource(R.string.unmark_show_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(7.dp))
-            Text(
-                androidx.compose.ui.res.pluralStringResource(R.plurals.unmark_show_message, watchedCount, watchedCount, title),
-                color = TextSecondary,
-                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                lineHeight = 18.sp,
-            )
-            Spacer(Modifier.height(16.dp))
-            PrimaryAction(stringResource(R.string.unmark_show_confirm), Icons.Outlined.RemoveDone, Modifier.fillMaxWidth(), containerColor = Color(0xFFB3423F), onClick = onConfirm)
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(Radius.Pill)) {
-                Text(stringResource(R.string.cancel), color = TextPrimary, fontWeight = FontWeight.Bold)
-            }
-        }
-    }
+    com.cinetrack.ui.components.ConfirmPrompt(
+        title = stringResource(R.string.unmark_show_title),
+        message = androidx.compose.ui.res.pluralStringResource(R.plurals.unmark_show_message, watchedCount, watchedCount, title),
+        confirmLabel = stringResource(R.string.unmark_show_confirm),
+        icon = Icons.Outlined.RemoveDone,
+        onDismiss = onDismiss,
+        onConfirm = onConfirm,
+    )
 }
 
 @Composable

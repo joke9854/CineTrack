@@ -841,14 +841,7 @@ internal fun HeroCard(
                     )
                     Spacer(Modifier.width(7.dp))
                     Text(
-                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) stringResource(R.string.add_to_library) else stringResource(when (media.status) {
-                            com.cinetrack.domain.LibraryStatus.WATCHING -> R.string.in_progress
-                            com.cinetrack.domain.LibraryStatus.PLAN_TO_WATCH -> R.string.plan_to_watch
-                            com.cinetrack.domain.LibraryStatus.PAUSED -> R.string.paused
-                            com.cinetrack.domain.LibraryStatus.COMPLETED -> R.string.completed
-                            com.cinetrack.domain.LibraryStatus.DROPPED -> R.string.dropped
-                            else -> R.string.in_library
-                        }),
+                        if (media.status == com.cinetrack.domain.LibraryStatus.NONE) stringResource(R.string.add_to_library) else stringResource(com.cinetrack.ui.components.libraryStatusLabel(media.status)),
                         color = Color.White,
                         style = if (compact) androidx.compose.material3.MaterialTheme.typography.bodySmall else androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                         maxLines = 1,
