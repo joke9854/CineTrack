@@ -1,3 +1,13 @@
+# CineTrack 0.99.77 beta
+
+**Changes**
+- One glass engine for the whole app: the blur and the liquid glass now both come from Haze 2, replacing the previous glass library.
+- Search, filter, refresh and bulk-edit buttons, the sort and view pills, the back button and the watch button use the same frosted glass as the bottom bar, lit softly from the top, without the grey ring around small buttons.
+- The bottom bar and its tab selection are clearer glass; the dark bar behind a title page's back button is lighter and lets more of the page show through.
+- Opening and closing title pages is a little smoother again.
+- Liquid glass now needs Android 13 or newer; on Android 12 buttons keep their flat look and the bar and sheets keep the blur.
+- Behind the scenes: newer Compose (1.12) and Kotlin (2.4).
+
 # CineTrack 0.99.76 beta
 
 **Changes**
