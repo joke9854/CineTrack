@@ -1,3 +1,17 @@
+# CineTrack 0.99.76 beta
+
+**Changes**
+- Smoother motion across the app: tabs and pages now slide side by side as whole pages (bottom bar, Progress and Library tabs, Settings pages), on one curve, forward and back.
+- Opening and closing a show, movie or episode page is smoother, and the hitch on the first page you open after starting the app is gone. The blurred art behind the poster is now prepared once when it loads instead of on every frame.
+- Library tabs keep their own scroll position, also after opening a title; switching tabs no longer makes posters fly across the grid.
+- Selections settle with a soft spring, list items glide when a title changes status, and swapping content fades instead of jumping. The watched circle fills and its check pops in.
+- Swipe to mark watched follows your finger more closely and springs back at your speed, with a vibration when you pass the threshold and when it is confirmed. Status changes, tab switches, episode and season ticks and reminder bells also give a light vibration.
+- Season lists: rows appear one after another but long seasons no longer trickle in, and the section grows in one smooth step.
+- Backup, artwork refresh, update and error notices share one pill that drops in from the top; its spinner turns into a check or a cross.
+- Calendar and History cards are flat; the glass is now on their bell, expand button and time.
+- New in Settings > Appearance: Show titles / Hide titles under the posters in classic Discover and the Library grid.
+- Fixed: in classic Discover's See all lists, the header behind the back button now takes the page's colour.
+
 # CineTrack 0.99.75 beta
 
 **Changes**
