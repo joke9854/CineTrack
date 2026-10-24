@@ -117,6 +117,7 @@ class FloppyOAuthClient(
             .followSslRedirects(false)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)
+            .addNetworkInterceptor(FloppyUrlNormalizer.privateHttpGuard)
             .build()
     },
 ) {

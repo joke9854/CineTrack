@@ -518,7 +518,7 @@ object NetworkFactory {
             redactQueryParams("apikey")
             level = if (BuildConfig.DEBUG) HttpLoggingInterceptor.Level.BASIC else HttpLoggingInterceptor.Level.NONE
         } }
-        val common by lazy { SharedHttp.client.newBuilder()
+        val common by lazy { SharedHttp.webClient.newBuilder()
             .addInterceptor(RateLimitInterceptor())
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(30, TimeUnit.SECONDS)

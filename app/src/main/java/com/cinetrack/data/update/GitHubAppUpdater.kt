@@ -2,6 +2,8 @@ package com.cinetrack.data.update
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageInfo
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -104,6 +106,8 @@ object GitHubAppUpdater {
                     it.name.equals("${apk.name}.sha256", ignoreCase = true) ||
                         it.name.endsWith(".apk.sha256", ignoreCase = true)
                 } ?: return@mapNotNull null
+                // Only this repository's release assets, over HTTPS.
+                if (!isReleaseAsset(apk.downloadUrl) || !isReleaseAsset(checksum.downloadUrl)) return@mapNotNull null
                 val version = release.tagName.removePrefix("v")
                 AppUpdateInfo(
                     version = version,
@@ -169,6 +173,9 @@ object GitHubAppUpdater {
             }
             val actual = digest.digest().joinToString("") { "%02x".format(it) }
             check(actual == expected) { "The APK checksum does not match" }
+            // The checksum ships in the same release, so it proves integrity only. The signer
+            // check proves the APK comes from whoever signed the installed app.
+            verifySigner(context, temporary)
             if (target.exists()) target.delete()
             check(temporary.renameTo(target)) { "Could not prepare the downloaded APK" }
             onProgress(1f)
@@ -194,6 +201,29 @@ object GitHubAppUpdater {
             },
         )
         return true
+    }
+
+    private fun isReleaseAsset(url: String): Boolean =
+        url.startsWith("https://github.com/${BuildConfig.GITHUB_UPDATE_REPO}/releases/download/")
+
+    private fun verifySigner(context: Context, apk: File) {
+        val packageManager = context.packageManager
+        @Suppress("DEPRECATION")
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) PackageManager.GET_SIGNING_CERTIFICATES else PackageManager.GET_SIGNATURES
+        val archive = packageManager.getPackageArchiveInfo(apk.path, flags) ?: error("The downloaded file is not an app package")
+        check(archive.packageName == context.packageName) { "The update is for a different app" }
+        val installed = packageManager.getPackageInfo(context.packageName, flags)
+        // Lineage included, so a rotated signing key still matches the installed app.
+        check(signerDigests(archive).intersect(signerDigests(installed)).isNotEmpty()) { "The update is not signed by the CineTrack developer" }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun signerDigests(info: PackageInfo): Set<String> {
+        val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            info.signingInfo?.let { it.apkContentsSigners.orEmpty().toList() + it.signingCertificateHistory.orEmpty().toList() }.orEmpty()
+        } else info.signatures.orEmpty().toList()
+        val sha256 = MessageDigest.getInstance("SHA-256")
+        return signatures.mapTo(mutableSetOf()) { signature -> sha256.digest(signature.toByteArray()).joinToString("") { "%02x".format(it) } }
     }
 
     private fun open(url: String): HttpURLConnection = (URL(url).openConnection() as HttpURLConnection).apply {

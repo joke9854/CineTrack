@@ -142,7 +142,7 @@ class CineTrackApplication : Application(), SingletonImageLoader.Factory {
         }
         .crossfade(true)
         // Posters share the app's one connection pool instead of opening their own.
-        .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = { com.cinetrack.data.remote.SharedHttp.client })) }
+        .components { add(coil3.network.okhttp.OkHttpNetworkFetcherFactory(callFactory = { com.cinetrack.data.remote.SharedHttp.webClient })) }
         .build()
 }
 

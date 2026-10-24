@@ -11,6 +11,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import java.net.URI
 import java.net.Inet6Address
 import java.net.InetAddress
+import java.net.UnknownHostException
+import okhttp3.Dns
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import com.cinetrack.data.remote.AppJson
@@ -46,7 +48,43 @@ object FloppyUrlNormalizer {
         return FloppyServerIdentity(normalized, origin)
     }
 
-    private fun isPrivateHost(rawHost: String): Boolean {
+    /**
+     * Plain HTTP carries the API key in the clear, so every address a name resolves to must be
+     * private. Checked when OkHttp connects, not when the URL is typed: a `.local` name or a
+     * DNS answer could otherwise point at a public server.
+     */
+    val privateOnlyDns = Dns { hostname ->
+        Dns.SYSTEM.lookup(hostname).also { addresses ->
+            if (addresses.isEmpty() || addresses.any { !isPrivateAddress(it) }) {
+                throw UnknownHostException("$hostname does not resolve to a private network address")
+            }
+        }
+    }
+
+    /**
+     * The same rule for a client shared across servers (the OAuth client): a plain-HTTP
+     * request may only be written to a connection whose peer is a private address.
+     */
+    val privateHttpGuard = okhttp3.Interceptor { chain ->
+        val peer = (chain.connection()?.route()?.socketAddress)?.address
+        if (chain.request().url.scheme == "http" && (peer == null || !isPrivateAddress(peer))) {
+            throw java.io.IOException("Plain HTTP is only sent to a private network address")
+        }
+        chain.proceed(chain.request())
+    }
+
+    /** True for loopback, link-local, RFC 1918, Tailscale/CGNAT 100.64/10 and IPv6 ULA addresses. */
+    fun isPrivateAddress(address: InetAddress): Boolean {
+        if (address.isLoopbackAddress || address.isLinkLocalAddress || address.isSiteLocalAddress) return true
+        val bytes = address.address
+        val first = bytes[0].toInt() and 0xff
+        val second = bytes[1].toInt() and 0xff
+        return if (address is Inet6Address) first and 0xfe == 0xfc
+        else first == 100 && second in 64..127
+    }
+
+    /** Syntactic check of a typed host: private IP literals and `.local`/`localhost` names. */
+    fun isPrivateHost(rawHost: String): Boolean {
         val host = rawHost.trim('[', ']').lowercase()
         if (host == "localhost" || host.endsWith(".local")) return true
         if (host.contains(':')) {
@@ -69,6 +107,7 @@ object FloppyUrlNormalizer {
             (values[0] == 172 && values[1] in 16..31) ||
             (values[0] == 192 && values[1] == 168) ||
             (values[0] == 169 && values[1] == 254) ||
+            (values[0] == 100 && values[1] in 64..127) ||
             (values[0] == 127)
     }
 }
@@ -104,6 +143,7 @@ class FloppyApiClientFactory(
                 .connectTimeout(20, TimeUnit.SECONDS)
                 .readTimeout(30, TimeUnit.SECONDS)
                 .writeTimeout(30, TimeUnit.SECONDS)
+                .apply { if (identity.origin.startsWith("http://")) dns(FloppyUrlNormalizer.privateOnlyDns) }
                 .addInterceptor { chain ->
                     val request = chain.request()
                     val sameOrigin = request.url.scheme == originUrl.scheme &&

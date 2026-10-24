@@ -7,4 +7,7 @@
     <exclude domain="file" path="backups/" />
     <exclude domain="file" path="crash-outbox/" />
     <exclude domain="file" path="cinetrack-error-log.txt" />
+    <!-- ACRA keeps reports here before they are sanitized into the outbox. -->
+    <exclude domain="root" path="app_ACRA-approved/" />
+    <exclude domain="root" path="app_ACRA-unapproved/" />
 </full-backup-content>
