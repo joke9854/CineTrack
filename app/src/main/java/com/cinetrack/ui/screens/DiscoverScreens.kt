@@ -688,7 +688,7 @@ private fun LazyListScope.railSection(
     val items = state.rails[railId].orEmpty()
     if (items.isEmpty()) return
     item(contentType = "discover:header") { SectionHeader(title, Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xl, bottom = Spacing.md), seeAll, { onSeeAll(railId) }) }
-    item(contentType = "discover:rail") { MediaRail(items, onMedia, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
+    item(contentType = "discover:rail") { MediaRail(items, onMedia, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
     item(contentType = "discover:spacer") { Spacer(Modifier.height(4.dp)) }
 }
 
@@ -933,6 +933,7 @@ fun DiscoverListScreen(
                         MediaPoster(
                             media,
                             width = maxWidth,
+                            showTitle = LocalCardAppearance.current.posterTitles,
                             showYear = false,
                             onStatus = { onStatus(media, it) },
                             onNotInterested = { onNotInterested(media) },

@@ -227,7 +227,7 @@ fun CineTrackApp(
         factory = com.cinetrack.ui.settings.SettingsViewModel.Factory(application.container.preferences),
     )
     val appUpdateState by settingsViewModel.appUpdateState.collectAsStateWithLifecycle()
-    val castPhotoShape = settingsViewModel.appearance.collectAsStateWithLifecycle().value.castPhotoShape
+    val appearance = settingsViewModel.appearance.collectAsStateWithLifecycle().value
     LaunchedEffect(settingsViewModel) { settingsViewModel.errors.collect(viewModel::showError) }
     val detailViewModel: com.cinetrack.ui.detail.DetailViewModel = viewModel(
         factory = com.cinetrack.ui.detail.DetailViewModel.Factory(
@@ -370,7 +370,7 @@ fun CineTrackApp(
     Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
         com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, pageGlass, navShown) { captureModifier ->
         androidx.compose.runtime.CompositionLocalProvider(
-            LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, castPhotoShape),
+            LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, appearance.castPhotoShape, appearance.posterTitles),
             com.cinetrack.ui.components.LocalPopupBlur provides popupBlur,
         ) {
         // Shared elements (the tapped poster flying into the detail page) need one scope

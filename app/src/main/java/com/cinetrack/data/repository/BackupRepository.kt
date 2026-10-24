@@ -159,6 +159,7 @@ class BackupRepository(
                 put("posterAccent", state.posterAccent)
                 put("posterFormat", state.posterFormat)
                 put("castPhotoShape", preferences.castPhotoShape.first())
+                put("posterTitles", preferences.posterTitles.first())
                 put("posterSize", state.posterSize)
                 put("cardDensity", state.cardDensity)
                 put("hiddenDiscovery", state.hiddenDiscovery.sorted().joinToString("|"))
@@ -333,6 +334,7 @@ class BackupRepository(
             saved["posterAccent"]?.jsonPrimitive?.booleanOrNull?.let { preferences.setPosterAccent(it) }
             saved["posterFormat"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterFormat(it) }
             saved["castPhotoShape"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCastPhotoShape(it) }
+            saved["posterTitles"]?.jsonPrimitive?.booleanOrNull?.let { preferences.setPosterTitles(it) }
             saved["posterSize"]?.jsonPrimitive?.contentOrNull?.let { preferences.setPosterSize(it) }
             saved["cardDensity"]?.jsonPrimitive?.contentOrNull?.let { preferences.setCardDensity(it) }
             saved["hiddenDiscovery"]?.jsonPrimitive?.contentOrNull?.split('|')?.filter(String::isNotBlank)?.toSet()

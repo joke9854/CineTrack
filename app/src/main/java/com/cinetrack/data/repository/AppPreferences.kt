@@ -163,6 +163,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val releaseReminders = stringPreferencesKey("release_reminders")
         val posterFormat = stringPreferencesKey("poster_format")
         val castPhotoShape = stringPreferencesKey("cast_photo_shape")
+        val posterTitles = booleanPreferencesKey("poster_titles")
         val posterSize = stringPreferencesKey("poster_size")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
@@ -258,6 +259,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     val heroLayout: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeHero(it[Keys.heroLayout] ?: "standard") }
     val posterFormat: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeFormat(it[Keys.posterFormat] ?: "classic") }
     val castPhotoShape: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle") }
+    val posterTitles: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.posterTitles] ?: true }
     val posterSize: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard") }
     val cardDensity: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.cardDensity] ?: "standard" }
     val notificationEpisodes: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.notifyEpisodes] ?: true }
@@ -337,6 +339,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             posterSize = com.cinetrack.domain.CardAppearance.normalizeSize(it[Keys.posterSize] ?: "standard"),
             cardDensity = it[Keys.cardDensity] ?: "standard",
             castPhotoShape = com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle"),
+            posterTitles = it[Keys.posterTitles] ?: true,
         )
     }
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
@@ -901,6 +904,10 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
 
     override suspend fun setCastPhotoShape(value: String) {
         context.cineTrackDataStore.edit { it[Keys.castPhotoShape] = com.cinetrack.domain.CardAppearance.normalizeCastShape(value) }
+    }
+
+    override suspend fun setPosterTitles(enabled: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.posterTitles] = enabled }
     }
 
     override suspend fun setPosterSize(value: String) {

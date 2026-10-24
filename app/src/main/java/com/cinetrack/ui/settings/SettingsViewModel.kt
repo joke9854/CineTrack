@@ -46,6 +46,7 @@ data class AppearanceSettings(
     val posterSize: String = "standard",
     val cardDensity: String = "standard",
     val castPhotoShape: String = "circle",
+    val posterTitles: Boolean = true,
 )
 
 /** The preferences the Settings pages owned by [SettingsViewModel] read and write. */
@@ -69,6 +70,7 @@ interface SettingsPreferences {
     suspend fun setPosterSize(value: String)
     suspend fun setCardDensity(value: String)
     suspend fun setCastPhotoShape(value: String)
+    suspend fun setPosterTitles(enabled: Boolean)
 }
 
 /** The in-app updater, behind an interface so tests don't reach GitHub. */
@@ -182,6 +184,7 @@ class SettingsViewModel(
     fun setPosterSize(value: String) = save { preferences.setPosterSize(value) }
     fun setCardDensity(value: String) = save { preferences.setCardDensity(value) }
     fun setCastPhotoShape(value: String) = save { preferences.setCastPhotoShape(value) }
+    fun setPosterTitles(enabled: Boolean) = save { preferences.setPosterTitles(enabled) }
 
     private fun save(write: suspend () -> Unit) {
         viewModelScope.launch { write() }

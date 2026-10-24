@@ -67,7 +67,7 @@ private val MiniatureHeight = 560.dp
 internal fun AppearancePage(title: String, state: AppUiState, settingsViewModel: SettingsViewModel, onBack: () -> Unit) {
     var posterMode by rememberSaveable { mutableStateOf("rows") }
     val appearance by settingsViewModel.appearance.collectAsStateWithLifecycle()
-    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(appearance.heroLayout, appearance.posterFormat, appearance.posterSize, appearance.castPhotoShape)) {
+    CompositionLocalProvider(LocalCardAppearance provides CardAppearance(appearance.heroLayout, appearance.posterFormat, appearance.posterSize, appearance.castPhotoShape, appearance.posterTitles)) {
         Column(Modifier.fillMaxSize().statusBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                 GlassBackButton(onClick = onBack)
@@ -182,6 +182,11 @@ private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsView
             state.cardDensity, onSelected = viewModel::setCardDensity,
         )
     }
+    Spacer(Modifier.height(Spacing.sm))
+    SegmentedChoice(
+        listOf("show" to stringResource(R.string.poster_titles_show), "hide" to stringResource(R.string.poster_titles_hide)),
+        if (state.posterTitles) "show" else "hide", onSelected = { viewModel.setPosterTitles(it == "show") },
+    )
 
     AppearanceLabel(stringResource(R.string.appearance_cast_photos_short))
     SegmentedChoice(
@@ -334,7 +339,7 @@ private fun PosterMiniature(state: AppUiState, samples: List<MediaCard>, posterM
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 repeat(3) { row ->
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        repeat(columns) { MediaPoster(samples[(row * columns + it) % samples.size], width = width, showYear = false, onClick = {}) }
+                        repeat(columns) { MediaPoster(samples[(row * columns + it) % samples.size], width = width, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, onClick = {}) }
                     }
                 }
             }
@@ -352,7 +357,7 @@ private fun PosterRow(items: List<MediaCard>) {
         Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = 20.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        items.take(4).forEach { MediaPoster(it, showYear = false, onClick = {}) }
+        items.take(4).forEach { MediaPoster(it, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, onClick = {}) }
     }
 }
 

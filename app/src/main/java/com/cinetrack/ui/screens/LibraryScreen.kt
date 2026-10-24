@@ -390,6 +390,7 @@ fun LibraryScreen(
                             MediaPoster(
                                 media,
                                 width = maxWidth,
+                                showTitle = com.cinetrack.ui.theme.LocalCardAppearance.current.posterTitles,
                                 showYear = false,
                                 progress = visibleProgress,
                                 selectedBorder = AccentLight.takeIf { bulkMode && media.stableKey in selectedKeys },

@@ -237,6 +237,7 @@ fun MediaRail(
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp),
     showAirDate: Boolean = false,
     showYear: Boolean = true,
+    showTitle: Boolean = true,
     progressByKey: Map<String, Float> = emptyMap(),
     onStatus: ((MediaCard, LibraryStatus) -> Unit)? = null,
     onNotInterested: ((MediaCard) -> Unit)? = null,
@@ -246,6 +247,7 @@ fun MediaRail(
             MediaPoster(
                 it,
                 showAirDate = showAirDate,
+                showTitle = showTitle,
                 showYear = showYear,
                 progress = progressByKey[it.stableKey],
                 onStatus = onStatus?.let { callback -> { status -> callback(it, status) } },

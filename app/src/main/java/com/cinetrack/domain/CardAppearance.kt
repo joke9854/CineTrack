@@ -7,6 +7,8 @@ data class CardAppearance(
     val posterSize: String = "standard",
     /** Cast and character photos: "circle" or "poster" (2:3). */
     val castPhotoShape: String = "circle",
+    /** Titles under the posters in classic Discover and the Library grid. */
+    val posterTitles: Boolean = true,
 ) {
     val heroAspectRatio: Float? get() = when (heroLayout) {
         "landscape" -> 16f / 9f

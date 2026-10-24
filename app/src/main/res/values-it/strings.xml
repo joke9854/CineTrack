@@ -694,6 +694,8 @@
     <string name="plot_more">Altro</string>
     <string name="plot_less">Meno</string>
     <string name="cast_title">Cast</string>
+    <string name="poster_titles_show">Mostra titoli</string>
+    <string name="poster_titles_hide">Nascondi titoli</string>
     <string name="appearance_cast_photos_short">Foto del cast</string>
     <string name="cast_photo_circle">Cerchio</string>
     <string name="cast_photo_poster">Poster</string>

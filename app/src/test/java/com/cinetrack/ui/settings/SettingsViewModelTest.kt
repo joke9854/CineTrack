@@ -67,6 +67,7 @@ class SettingsViewModelTest {
         override suspend fun setPosterSize(value: String) = edit { copy(posterSize = value) }
         override suspend fun setCardDensity(value: String) = edit { copy(cardDensity = value) }
         override suspend fun setCastPhotoShape(value: String) = edit { copy(castPhotoShape = value) }
+        override suspend fun setPosterTitles(enabled: Boolean) = edit { copy(posterTitles = enabled) }
         fun append(line: String) { lines = lines + line; changes.value++ }
     }
 
@@ -124,8 +125,9 @@ class SettingsViewModelTest {
         model.setPosterSize("large")
         model.setCardDensity("compact")
         model.setCastPhotoShape("poster")
+        model.setPosterTitles(false)
         assertEquals(
-            AppearanceSettings("blue", false, "b", "landscape", "tall", "large", "compact", "poster"),
+            AppearanceSettings("blue", false, "b", "landscape", "tall", "large", "compact", "poster", posterTitles = false),
             model.appearance.value,
         )
         // A restored backup writes preferences directly; the page follows.
