@@ -36,7 +36,8 @@ sealed interface AppUpdateState {
     data object UpToDate : AppUpdateState
     data class Available(val update: AppUpdateInfo) : AppUpdateState
     data class Downloading(val update: AppUpdateInfo, val progress: Float) : AppUpdateState
-    data class Error(val message: String) : AppUpdateState
+    /** [reason] is what the user reads (localized); [message] is the technical cause. */
+    data class Error(val message: String?, val reason: Int = com.cinetrack.R.string.update_check_failed) : AppUpdateState
 }
 
 sealed interface AppChangelogState {
@@ -44,7 +45,7 @@ sealed interface AppChangelogState {
     data object Loading : AppChangelogState
     data class Available(val update: AppUpdateInfo) : AppChangelogState
     data object Empty : AppChangelogState
-    data class Error(val message: String) : AppChangelogState
+    data class Error(val message: String?, val reason: Int = com.cinetrack.R.string.changelog_failed) : AppChangelogState
 }
 
 @Serializable

@@ -481,7 +481,7 @@ internal fun PlaybackRow(
                 }
             }
             val detail = if (item.media.type == com.cinetrack.domain.MediaType.TV) {
-                val numbered = item.episodeLabel ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
+                val numbered = item.episodeLabel ?: item.season?.let { season -> item.episodeNumber?.let { com.cinetrack.domain.episodeCode(season, it) } } ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
                 listOfNotNull(numbered.takeIf(String::isNotBlank), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
             } else stringResource(R.string.movies)
             Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))

@@ -817,14 +817,14 @@ internal fun HeroCard(
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
             Text(metadata, maxLines = 1, overflow = TextOverflow.Ellipsis, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, letterSpacing = .6.sp, fontWeight = FontWeight.ExtraBold)
             Text(media.title, color = TextPrimary, fontSize = titleSize, lineHeight = titleSize * 1.12f, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.xs))
-            if (!compact) media.score?.let { Text("★  %.1f".format(it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = Spacing.xs)) }
+            if (!compact) media.score?.let { Text("★  " + String.format(com.cinetrack.ui.currentLocale(), "%.1f", it), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = Spacing.xs)) }
             tagline?.takeIf(String::isNotBlank)?.let {
                 Text(it, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.xs))
             }
             Spacer(Modifier.height(if (compact) 6.dp else 14.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
                 if (compact) {
-                    Text(media.score?.let { "★  %.1f".format(it) }.orEmpty(), color = TextPrimary,
+                    Text(media.score?.let { "★  " + String.format(com.cinetrack.ui.currentLocale(), "%.1f", it) }.orEmpty(), color = TextPrimary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f), maxLines = 1)
                 }

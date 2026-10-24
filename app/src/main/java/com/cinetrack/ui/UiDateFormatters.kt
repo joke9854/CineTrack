@@ -14,7 +14,8 @@ internal object UiDateFormatters {
         val shortWeekday = DateTimeFormatter.ofPattern("EEE", locale)
         val weekdayDay = DateTimeFormatter.ofPattern("EEEE d", locale)
         val time = DateTimeFormatter.ofPattern("HH:mm", locale)
-        val date = DateTimeFormatter.ofPattern("dd/MM/yyyy", locale)
+        // The device-language short date, the same style as shortDate() (not a fixed dd/MM/yyyy).
+        val date: DateTimeFormatter = DateTimeFormatter.ofLocalizedDate(java.time.format.FormatStyle.SHORT).withLocale(locale)
         val weekdayDate = DateTimeFormatter.ofPattern("EEE\ndd MMM", locale)
     }
     @Volatile private var cached = Formats(Locale.getDefault())

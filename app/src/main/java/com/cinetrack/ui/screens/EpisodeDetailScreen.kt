@@ -126,7 +126,7 @@ fun EpisodeDetailScreen(
                     showId = it.id,
                     season = requestedSeason,
                     number = requestedNumber,
-                    title = "S${requestedSeason.toString().padStart(2, '0')} E${requestedNumber.toString().padStart(2, '0')}",
+                    title = com.cinetrack.domain.episodeCode(requestedSeason, requestedNumber),
                     overview = "",
                     airDate = null,
                 )
@@ -268,7 +268,7 @@ fun EpisodeDetailScreen(
                             Text(
                                 androidx.compose.ui.text.buildAnnotatedString {
                                     withStyle(androidx.compose.ui.text.SpanStyle(color = AccentLight, fontWeight = FontWeight.ExtraBold)) {
-                                        append("S${displayedEpisode.season} · E${displayedEpisode.number}")
+                                        append(displayedEpisode.code)
                                     }
                                     episodeFacts.forEach { append(" · "); append(it) }
                                 },
@@ -374,7 +374,7 @@ fun EpisodeDetailScreen(
         val headerProgress = rememberHeaderProgress(activeListState, revealStart = 230.dp)
         DetailTopBar(
             title = currentEpisode.title,
-            subtitle = listOfNotNull(show?.title, "S%02d · E%02d".format(currentEpisode.season, currentEpisode.number)).joinToString(" · "),
+            subtitle = listOfNotNull(show?.title, currentEpisode.code).joinToString(" · "),
             progress = headerProgress,
             haze = headerHaze,
             onBack = onBack,

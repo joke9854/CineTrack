@@ -199,7 +199,7 @@ class SettingsViewModel(
                     _appUpdateState.value = update?.let(AppUpdateState::Available) ?: AppUpdateState.UpToDate
                 }
                 .onFailure { failure ->
-                    _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update check failed")
+                    _appUpdateState.value = AppUpdateState.Error(failure.message, com.cinetrack.R.string.update_check_failed)
                 }
         }
     }
@@ -214,9 +214,7 @@ class SettingsViewModel(
                         ?: AppChangelogState.Empty
                 }
                 .onFailure { failure ->
-                    _appChangelogState.value = AppChangelogState.Error(
-                        failure.message ?: "Could not load the changelog",
-                    )
+                    _appChangelogState.value = AppChangelogState.Error(failure.message, com.cinetrack.R.string.changelog_failed)
                 }
         }
     }
@@ -227,7 +225,7 @@ class SettingsViewModel(
             val cached = downloadedUpdateFile?.takeIf(File::exists)
             if (cached != null) {
                 runCatching { updater.launchInstaller(context, cached) }
-                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message, com.cinetrack.R.string.installer_open_failed) }
                 return@launch
             }
             _appUpdateState.value = AppUpdateState.Downloading(update, 0f)
@@ -237,9 +235,9 @@ class SettingsViewModel(
                 downloadedUpdateFile = apk
                 _appUpdateState.value = AppUpdateState.Available(update)
                 runCatching { updater.launchInstaller(context, apk) }
-                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message ?: "Could not open Android installer") }
+                    .onFailure { _appUpdateState.value = AppUpdateState.Error(it.message, com.cinetrack.R.string.installer_open_failed) }
             }.onFailure { failure ->
-                _appUpdateState.value = AppUpdateState.Error(failure.message ?: "Update download failed")
+                _appUpdateState.value = AppUpdateState.Error(failure.message, com.cinetrack.R.string.update_download_failed)
             }
         }
     }

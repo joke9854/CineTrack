@@ -279,7 +279,7 @@ private fun ManagedFloppyBootstrapCard(
         }
         progress.currentTitle?.takeIf(String::isNotBlank)?.let { title ->
             Spacer(Modifier.height(Spacing.sm))
-            Text("${stringResource(R.string.current)}: $title", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
+            Text(stringResource(R.string.provider_value, stringResource(R.string.current), title), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
         if (stage == FloppyBootstrapStage.SYNCING) {
             Spacer(Modifier.height(Spacing.sm))

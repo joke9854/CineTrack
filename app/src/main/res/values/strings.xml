@@ -29,8 +29,8 @@
     <string name="popular_movies">Popular movies</string>
     <string name="upcoming">Upcoming</string>
     <string name="watch_trailer">Watch trailer</string>
-    <string name="add_to_library">Add to Library</string>
-    <string name="in_library">In Library</string>
+    <string name="add_to_library">Add to library</string>
+    <string name="in_library">In library</string>
     <string name="watched">Watched</string>
     <string name="watched_movie">Watched</string>
     <string name="watched_tv">Watched</string>
@@ -67,7 +67,7 @@
     <string name="artwork_refresh_failed">Library refresh failed</string>
     <string name="artwork_refresh_count">%1$d of %2$d</string>
     <string name="sync_now">Sync now</string>
-    <string name="syncing">Synchronizing</string>
+    <string name="syncing">Syncing</string>
     <string name="sync_stage_auth">Checking authentication</string>
     <string name="sync_stage_activity">Checking activity</string>
     <string name="sync_stage_playback">Updating playback</string>
@@ -86,7 +86,7 @@
     <string name="history">History</string>
     <string name="calendar">Calendar</string>
     <string name="upcoming_episodes">Upcoming episodes</string>
-    <string name="your_tv_list">TV shows in your list</string>
+    <string name="your_tv_list">TV shows in your library</string>
     <string name="your_movie_list">Movies in your list</string>
     <string name="collapse">Show less</string>
     <string name="all">All</string>
@@ -113,7 +113,7 @@
     <string name="full_cast">Full cast &amp; crew</string>
     <string name="previous_episodes_title">Previous episodes are unwatched</string>
     <string name="digital_release">Digital release</string>
-    <string name="mark_show_watched_title">Mark the whole series as watched?</string>
+    <string name="mark_show_watched_title">Mark the whole show as watched?</string>
     <string name="unmark_show_title">Unmark this series?</string>
     <string name="unmark_show_confirm">Remove and unmark</string>
     <plurals name="unmark_show_message">
@@ -139,14 +139,14 @@
     <string name="production_companies">Production companies</string>
     <string name="production_countries">Production countries</string>
     <string name="previous_episode">Previous</string>
-    <string name="sync_activity">Synchronization activity</string>
+    <string name="sync_activity">Sync activity</string>
     <string name="downloaded">Downloaded</string>
     <string name="uploaded">Uploaded</string>
     <string name="added_removed">Added / removed</string>
-    <string name="pending_local_changes">Pending local changes</string>
-    <string name="failed_operations">Failed operations</string>
+    <string name="pending_local_changes">Pending changes</string>
+    <string name="failed_operations">Failed changes</string>
     <string name="sync_conflicts">Conflicts</string>
-    <string name="last_full_sync">Last full synchronization</string>
+    <string name="last_full_sync">Last full sync</string>
     <string name="exclude_specials">Exclude specials</string>
     <string name="hide_adult_titles">Hide adult titles</string>
     <string name="hide_adult_titles_sub">Keeps 18+ titles out of search, Discover and filmographies, including Japanese adult videos that TMDB leaves unflagged</string>
@@ -183,11 +183,11 @@
     <string name="decade">Decade</string>
     <string name="visibility">Visibility</string>
     <string name="hide_watched">Hide watched</string>
-    <string name="hide_abandoned">Hide abandoned</string>
+    <string name="hide_abandoned">Hide dropped</string>
     <string name="subscription">Subscription</string>
     <string name="rent">Rent</string>
     <string name="buy">Buy</string>
-    <string name="preferred_providers">Preferred providers</string>
+    <string name="preferred_providers">Favorite services</string>
     <string name="bulk_edit">Bulk edit</string>
     <string name="edit_selected_count">Edit selected (%1$d)</string>
     <string name="bulk_edit_count">Change %1$d selected titles</string>
@@ -379,11 +379,11 @@
     <string name="intro_progress_title">Progress that stays useful</string>
     <string name="intro_progress_body">Track watched episodes, upcoming releases, viewing history and statistics. Simkl adds optional two-way synchronization.</string>
     <string name="intro_api_title">Connect your services</string>
-    <string name="intro_api_body">TMDB supplies the catalogue and artwork, MDBList adds ratings, and Simkl synchronizes your library. Would you like to configure them now?</string>
+    <string name="intro_api_body">TMDB supplies the catalog and artwork, MDBList adds ratings, and Simkl syncs your library. Would you like to set them up now?</string>
     <string name="intro_next">Next</string>
     <string name="intro_open_settings">Configure services</string>
     <string name="intro_later">Not now</string>
-    <string name="retry_failed_sync">Retry failed operations</string>
+    <string name="retry_failed_sync">Retry failed changes</string>
     <string name="mark_unwatched">Mark as unwatched</string>
     <string name="show_episode_info">Show information for %1$s</string>
     <string name="hide_episode_info">Hide information for %1$s</string>
@@ -396,9 +396,9 @@
     <string name="runtime_hours_minutes_short">%1$d h %2$d min</string>
     <string name="sync_operations">Sync operations</string>
     <string name="sync_operations_summary">Review queued writes, failures and conflicts</string>
-    <string name="pending_writes">Pending writes</string>
-    <string name="failed_actions">Failed actions</string>
-    <string name="conflicts_to_resolve">Conflicts to resolve</string>
+    <string name="pending_writes">Pending changes</string>
+    <string name="failed_actions">Failed changes</string>
+    <string name="conflicts_to_resolve">Conflicts</string>
     <string name="sync_library_change">Library status change</string>
     <string name="sync_episode_watched">Episode marked as watched</string>
     <string name="sync_episode_unwatched">Episode marked as unwatched</string>
@@ -437,13 +437,13 @@
     <string name="visible_offer_types_description">Choose which availability types appear in Where to watch.</string>
     <string name="provider_free">Free</string>
     <string name="provider_ads">With ads</string>
-    <string name="streaming_providers">Streaming providers</string>
+    <string name="streaming_providers">Streaming services</string>
     <string name="provider_country">Country</string>
     <string name="change">Change</string>
     <string name="search_providers">Search services</string>
     <string name="available_services">Available services</string>
     <string name="clear_selection">Clear</string>
-    <string name="providers_require_tmdb">Connect TMDB in Integrations to load streaming services.</string>
+    <string name="providers_require_tmdb">Connect TMDB in Connected services to load streaming services.</string>
     <string name="providers_load_failed">Unable to load services. Your favorites are saved.</string>
     <string name="no_providers_in_country">No services available for this country.</string>
     <string name="no_provider_matches">No matching services.</string>
@@ -506,7 +506,7 @@
     <string name="floppy_move_same">Same server</string>
     <string name="floppy_move_new">Different server</string>
     <string name="floppy_reconnect">Reconnect</string>
-    <string name="floppy_disconnect">Disconnect</string>
+    <string name="floppy_disconnect">Disconnect account</string>
     <string name="floppy_connected">Connected</string>
     <string name="floppy_server_version">Server version</string>
     <string name="floppy_role_secondary">Secondary</string>
@@ -558,7 +558,7 @@
     <string name="floppy_error_network">CineTrack couldn’t reach this Floppy server.</string>
     <string name="floppy_error_wrong_api">A Floppy API wasn’t found at this address.</string>
     <string name="floppy_error_invalid_response">The server responded, but CineTrack couldn’t recognize its Floppy API.</string>
-    <string name="initial_synchronization">Initial synchronization</string>
+    <string name="initial_synchronization">Initial sync</string>
     <string name="floppy_building_sync_plan">Building synchronization plan…</string>
     <string name="floppy_preparing_sync_queue">Preparing sync queue</string>
     <string name="floppy_checking_existing_history">Checking existing Floppy history…</string>
@@ -631,8 +631,8 @@
     <string name="preview_example">Sample values, to show the layout.</string>
     <string name="simkl_connected_as">Connected as %1$s</string>
     <string name="floppy_connected_as">Connected as %1$s</string>
-    <string name="stat_shows">Shows</string>
-    <string name="stat_movies">Films</string>
+    <string name="stat_shows">TV shows</string>
+    <string name="stat_movies">Movies</string>
     <string name="stat_last_sync">Last sync</string>
     <string name="never">Never</string>
     <string name="disconnect_account">Disconnect account</string>
@@ -654,14 +654,14 @@
     <string name="notif_permission_body">Let CineTrack send you notifications.</string>
     <string name="allow">Allow</string>
     <string name="notif_episodes_sub">When a show you follow airs a new episode</string>
-    <string name="notif_movies_sub">When a film in your collection comes out</string>
+    <string name="notif_movies_sub">When a movie in your library comes out</string>
     <string name="notif_sync_sub">If a sync does not go through</string>
     <string name="quiet_hours_sub">No alerts at night</string>
     <string name="exclude_specials_sub">Hides specials from Upcoming</string>
     <string name="section_actions">Actions</string>
     <string name="export_calendar_sub">An .ics file for your calendar app</string>
     <string name="section_contents">Contents</string>
-    <string name="export_library_sub">Shows and films with their status</string>
+    <string name="export_library_sub">TV shows and movies with their status</string>
     <string name="export_history_sub">Every watch with date and time</string>
     <string name="export_progress_sub">What you are in the middle of</string>
     <string name="export_settings_sub">App preferences, never credentials</string>
@@ -734,10 +734,10 @@
         <item quantity="one">Watched %1$d time · last %2$s</item>
         <item quantity="other">Watched %1$d times · last %2$s</item>
     </plurals>
-    <string name="poster_accent_title">Poster colours</string>
-    <string name="poster_accent_subtitle">Detail pages take their colour from the cover</string>
+    <string name="poster_accent_title">Poster colors</string>
+    <string name="poster_accent_subtitle">Detail pages take their color from the cover</string>
     <string name="year_review_title">Your %1$d</string>
-    <string name="year_top_show">Most-watched series</string>
+    <string name="year_top_show">Most-watched TV show</string>
     <string name="year_longest_streak">Longest streak</string>
     <string name="year_busiest_month">Busiest month</string>
     <string name="widget_up_next_title">Up next</string>
@@ -761,5 +761,11 @@
     <string name="simkl_replace_confirm_title">Use Simkl\'s library?</string>
     <string name="simkl_replace_confirm_message">Titles that are not on Simkl will be removed from this device, with their watch history. This can\'t be undone.</string>
     <string name="not_in_library">Not in library</string>
+    <string name="status_watching">Watching</string>
+    <string name="update_check_failed">Couldn\'t check for updates</string>
+    <string name="update_download_failed">The update couldn\'t be downloaded or verified</string>
+    <string name="installer_open_failed">Couldn\'t open the Android installer</string>
+    <string name="changelog_failed">Couldn\'t load the changelog</string>
+    <string name="verification_failed">Verification failed</string>
 </resources>
 

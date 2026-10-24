@@ -119,7 +119,12 @@ data class EpisodeCard(
 ) {
     val label: String get() = "S${season.toString().padStart(2, '0')} · E${number.toString().padStart(2, '0')}"
     val scheduleKey: String get() = "$showId:$season:$number"
+    /** What the UI shows, the same everywhere ("S01 E05"); [label] stays as recorded in sync operations. */
+    val code: String get() = episodeCode(season, number)
 }
+
+/** The one on-screen episode code: "S01 E05". */
+fun episodeCode(season: Int, number: Int): String = "S%02d E%02d".format(java.util.Locale.ROOT, season, number)
 
 @Immutable
 data class PersonCard(

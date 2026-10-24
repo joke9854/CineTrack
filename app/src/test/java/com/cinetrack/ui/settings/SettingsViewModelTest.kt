@@ -163,7 +163,7 @@ class SettingsViewModelTest {
 
         val failing = viewModel(updater = FakeUpdater(checkResult = Result.failure(RuntimeException("offline"))))
         failing.checkForAppUpdate()
-        assertEquals(AppUpdateState.Error("offline"), failing.appUpdateState.value)
+        assertEquals("offline", (failing.appUpdateState.value as AppUpdateState.Error).message)
     }
 
     @Test fun aSecondCheckWhileCheckingIsIgnored() {

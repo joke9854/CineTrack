@@ -116,7 +116,7 @@ internal fun UpcomingEpisodesRail(
                         }
                         Text(showTitle, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.align(Alignment.BottomStart).padding(Spacing.md))
                     }
-                    Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.sm))
+                    Text("${episode.code} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.sm))
                 }
             }
         }
@@ -126,7 +126,7 @@ internal fun UpcomingEpisodesRail(
             Column(Modifier.padding(Spacing.lg)) {
                 Text(stringResource(R.string.hide_upcoming_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(7.dp))
-                Text(stringResource(R.string.hide_upcoming_message, episode.label.replace(" · ", " "), episode.title), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.hide_upcoming_message, episode.code, episode.title), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
                 Spacer(Modifier.height(16.dp))
                 PrimaryAction(
                     stringResource(R.string.hide_upcoming_episode),

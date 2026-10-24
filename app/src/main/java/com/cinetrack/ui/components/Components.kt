@@ -106,7 +106,7 @@ fun libraryStatusIcon(status: LibraryStatus): ImageVector = when (status) {
 
 /** The name of a library status, the same in every sheet, tab, badge and conflict row. */
 fun libraryStatusLabel(status: LibraryStatus): Int = when (status) {
-    LibraryStatus.WATCHING -> R.string.in_progress
+    LibraryStatus.WATCHING -> R.string.status_watching
     LibraryStatus.PLAN_TO_WATCH -> R.string.plan_to_watch
     LibraryStatus.PAUSED -> R.string.paused
     LibraryStatus.COMPLETED -> R.string.completed

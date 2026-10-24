@@ -465,6 +465,7 @@ internal fun ApiCredentialSettings(
     var revealNewValue by remember(service) { mutableStateOf(false) }
     var validating by remember(service) { mutableStateOf(false) }
     var validationError by remember(service) { mutableStateOf<String?>(null) }
+    val verificationFailed = stringResource(R.string.verification_failed)
     LaunchedEffect(configured) {
         if (configured && !validating) {
             value = SavedCredentialMask
@@ -579,7 +580,7 @@ internal fun ApiCredentialSettings(
                         revealNewValue = false
                         onSaved()
                     }.onFailure { error ->
-                        validationError = error.message ?: "Verification failed"
+                        validationError = error.message ?: verificationFailed
                     }
                 }
             }
@@ -692,7 +693,7 @@ private fun NotificationSettings(state: AppUiState, controls: com.cinetrack.ui.s
                 ) {
                     Column(Modifier.weight(1f)) {
                         Text(showTitle.ifBlank { episode.title }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
-                        Text("${episode.label.replace(" · ", " ")} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text("${episode.code} · ${episode.title}", color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                     IconButton(onClick = { controls.onRestoreHiddenUpcomingEpisode(episode) }) {
                         Icon(Icons.Filled.Visibility, stringResource(R.string.restore_upcoming_episode, episode.title), tint = AccentLight)
@@ -966,7 +967,7 @@ private fun AboutSettings(viewModel: SettingsViewModel) {
         AppUpdateState.UpToDate -> stringResource(R.string.app_is_up_to_date)
         is AppUpdateState.Available -> stringResource(R.string.update_available, current.update.version)
         is AppUpdateState.Downloading -> stringResource(R.string.downloading_update, (current.progress * 100).toInt())
-        is AppUpdateState.Error -> current.message
+        is AppUpdateState.Error -> stringResource(current.reason)
     }
     val updateAvailable = updateState is AppUpdateState.Available
     val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
@@ -1060,7 +1061,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 )
                 is AppChangelogState.Error -> Text(
-                    state.message,
+                    stringResource(state.reason),
                     color = androidx.compose.material3.MaterialTheme.colorScheme.error,
                     style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 )

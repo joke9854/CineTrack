@@ -113,7 +113,7 @@ internal fun relativeDayLabel(date: LocalDate, today: LocalDate): String {
 }
 
 private fun episodeCode(season: Int?, number: Int?): String? =
-    if (season != null && number != null) "S%02dE%02d".format(season, number) else null
+    if (season != null && number != null) com.cinetrack.domain.episodeCode(season, number) else null
 
 private fun TimelineCard.toEpisode(): EpisodeCard? {
     val season = season ?: return null

@@ -14,13 +14,13 @@ class UiDateFormattersTest {
             val english = UiDateFormatters.current
             assertSame(english, UiDateFormatters.current)
             val date = LocalDate.of(2026, 1, 5)
-            assertEquals("05/01/2026", date.format(english.date))
+            assertEquals("1/5/26", date.format(english.date))
             assertEquals("05\nJan", date.format(english.dayMonth))
             Locale.setDefault(Locale.ITALY)
             val italian = UiDateFormatters.current
             assertNotSame(english, italian)
             assertEquals("gen", date.format(italian.month))
-            assertEquals("05/01/2026", date.format(italian.date))
+            assertEquals("05/01/26", date.format(italian.date))
         } finally {
             Locale.setDefault(previous)
         }

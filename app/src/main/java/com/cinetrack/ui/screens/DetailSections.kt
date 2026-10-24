@@ -620,8 +620,9 @@ private fun formatUsd(amount: Long?): String {
     val value = amount?.takeIf { it > 0L } ?: return ""
     fun compact(divisor: Double, suffix: String): String {
         val number = value / divisor
-        val formatted = if (number >= 100 || number % 1.0 == 0.0) "%.0f".format(java.util.Locale.US, number)
-        else "%.1f".format(java.util.Locale.US, number)
+        // Device-language decimals, like every other score ("7,8" in Italian).
+        val formatted = if (number >= 100 || number % 1.0 == 0.0) "%.0f".format(java.util.Locale.getDefault(), number)
+        else "%.1f".format(java.util.Locale.getDefault(), number)
         return "\$$formatted$suffix"
     }
     return when {

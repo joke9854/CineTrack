@@ -406,7 +406,7 @@ internal fun ReleaseCountdown(media: MediaCard, release: String, episode: Episod
         1 -> stringResource(R.string.release_tomorrow)
         else -> androidx.compose.ui.res.pluralStringResource(R.plurals.release_in_days, days, days)
     }
-    val label = if (episode != null) "S${episode.season} E${episode.number} · $whenText" else "$whenText · ${formatFullDate(release)}"
+    val label = if (episode != null) "${episode.code} · $whenText" else "$whenText · ${formatFullDate(release)}"
     Row(
         Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(16.dp))
             .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -668,7 +668,7 @@ internal fun SeasonInfoSheet(
                         AsyncImage(url, season.title, Modifier.width(80.dp).height(120.dp).clip(RoundedCornerShape(Radius.Small)), contentScale = ContentScale.Crop)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("TMDB " + (season.score?.let { "%.1f".format(it) } ?: "—"), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                        Text("TMDB " + (season.score?.let { String.format(com.cinetrack.ui.currentLocale(), "%.1f", it) } ?: "—"), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text(formatFullDate(season.airDate), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2)
                     }
                 }
