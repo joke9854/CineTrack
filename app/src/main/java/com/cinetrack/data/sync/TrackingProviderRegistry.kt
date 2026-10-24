@@ -6,7 +6,6 @@ interface TrackingProviderRegistry {
     fun getProvider(id: TrackingProviderId): TrackingProvider?
     suspend fun configuration(): TrackingConfiguration
     suspend fun getMainProvider(): TrackingProvider? = configuration().mainProvider?.let(::getProvider)
-    suspend fun getSecondaryProvider(): TrackingProvider? = configuration().secondaryProvider?.let(::getProvider)
 }
 
 class DefaultTrackingProviderRegistry(

@@ -633,7 +633,7 @@ class FloppyBootstrapWorker(
                     completedBatches++
                     val batchLine = "Floppy bootstrap batch complete: run=$runId size=${batch.size} type=${first.type} media=${first.mediaType}:${first.mediaId} durationMs=$batchMs processed=$processed total=$total"
                     // The in-app log is capped, so only slow batches and a periodic
-                    // summary go there; every batch still reaches logcat.
+                    // summary go there; debug builds also log every batch to logcat.
                     if (batchMs >= SLOW_BATCH_MS || completedBatches % BATCH_LOG_EVERY == 0) report(batchLine) else if (com.cinetrack.BuildConfig.DEBUG) Log.i(TAG, batchLine)
                     setProgress(progressData(current!!))
                     if (total > 100) setForeground(createForegroundInfo(current!!))

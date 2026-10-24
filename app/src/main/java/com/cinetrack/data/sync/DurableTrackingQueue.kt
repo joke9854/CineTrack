@@ -27,18 +27,6 @@ class DurableTrackingQueue(
     suspend fun snapshot(operation: SyncOperation): List<SyncOperationDelivery> =
         routingMutex.withLock { snapshotUnlocked(operation) }
 
-    /**
-     * Captures an explicit provider target set. This is used for remote-only
-     * MAIN reconciliation mirrors: they must be delivered to SECONDARY only
-     * and must never become a new MAIN intent.
-     */
-    suspend fun snapshotForProviders(
-        operation: SyncOperation,
-        providers: Set<TrackingProviderId>,
-    ): List<SyncOperationDelivery> = routingMutex.withLock {
-        snapshotForProvidersUnlocked(operation, providers)
-    }
-
     internal suspend fun snapshotForProvidersUnlocked(
         operation: SyncOperation,
         providers: Set<TrackingProviderId>,
@@ -150,11 +138,6 @@ class DurableSyncOperationWriter(
     private val durableQueue: DurableTrackingQueue,
     private val routingMutex: TrackingRoutingMutex,
 ) {
-    /** Repairs one current operation using an atomic provider-target snapshot. */
-    suspend fun repairCurrentOperation(operation: SyncOperation) = routingMutex.withLock {
-        repairCurrentOperationUnlocked(operation)
-    }
-
     /** Caller already holds TrackingRoutingMutex. */
     internal suspend fun repairCurrentOperationUnlocked(operation: SyncOperation) {
         val targets = durableQueue.snapshotUnlocked(operation)

@@ -108,9 +108,6 @@ interface SyncDao {
     @Query("SELECT * FROM sync_operations WHERE operationId = :operationId LIMIT 1")
     suspend fun syncOperation(operationId: String): SyncOperationEntity?
 
-    @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId")
-    suspend fun markOperationFailed(operationId: String, message: String, updatedAt: Long = System.currentTimeMillis())
-
     @Query("UPDATE sync_operations SET status = 'FAILED', message = :message, updatedAt = :updatedAt, attemptCount = attemptCount + 1 WHERE operationId = :operationId AND createdAt = :operationVersion")
     suspend fun markOperationFailedIfGeneration(operationId: String, operationVersion: Long, message: String, updatedAt: Long = System.currentTimeMillis()): Int
 

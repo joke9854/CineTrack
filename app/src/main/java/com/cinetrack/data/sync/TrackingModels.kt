@@ -7,9 +7,6 @@ import com.cinetrack.domain.SyncReport
 /** Stable identifiers used by CineTrack configuration and persisted sync state. */
 enum class TrackingProviderId { SIMKL, FLOPPY }
 
-/** MAIN is bidirectional; SECONDARY is deliberately outbound-only. */
-enum class TrackingDirection { BIDIRECTIONAL, OUTBOUND_ONLY }
-
 /** Readiness contract for a provider added as a SECONDARY before promotion. */
 enum class ProviderBootstrapState { NOT_STARTED, RUNNING, READY, FAILED }
 

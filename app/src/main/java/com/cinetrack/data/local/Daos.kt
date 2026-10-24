@@ -159,9 +159,6 @@ interface MediaDao {
     @Query("SELECT * FROM media")
     suspend fun mediaSnapshot(): List<MediaEntity>
 
-    @Query("SELECT * FROM media_rails ORDER BY railId, position")
-    suspend fun railSnapshot(): List<MediaRailEntity>
-
     @Query("SELECT * FROM episodes ORDER BY showId, season, number")
     suspend fun episodeSnapshot(): List<EpisodeEntity>
 
@@ -297,14 +294,6 @@ interface UpNextDao {
     @Query("SELECT * FROM up_next ORDER BY showId")
     suspend fun snapshot(): List<UpNextEntity>
 
-    @Query(
-        """SELECT up_next.* FROM up_next
-           INNER JOIN user_media_state ON user_media_state.mediaType = 'TV' AND user_media_state.mediaId = up_next.showId
-           WHERE user_media_state.status NOT IN ('NONE', 'DROPPED')
-           ORDER BY user_media_state.updatedAt DESC LIMIT 1""",
-    )
-    suspend fun firstForWidget(): UpNextEntity?
-
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAll(items: List<UpNextEntity>)
 
@@ -334,19 +323,4 @@ interface EpisodeNumberingDao {
 
     @Query("SELECT * FROM episode_numbering WHERE showId = :showId AND scheme = :scheme AND tmdbSeason = :tmdbSeason AND tmdbEpisode = :tmdbEpisode")
     suspend fun byTmdb(showId: Int, scheme: String, tmdbSeason: Int, tmdbEpisode: Int): List<EpisodeNumberingEntity>
-}
-
-@Dao
-interface PeopleDao {
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertPerson(person: PersonEntity)
-
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun upsertCredits(credits: List<PersonMovieCreditEntity>)
-
-    @Query("SELECT * FROM people WHERE tmdbId = :id LIMIT 1")
-    suspend fun person(id: Int): PersonEntity?
-
-    @Query("SELECT * FROM person_movie_credits WHERE personId = :id ORDER BY releaseDate DESC")
-    suspend fun credits(id: Int): List<PersonMovieCreditEntity>
 }

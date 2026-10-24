@@ -122,10 +122,6 @@ class FloppyRemoteDataSource(
         factory.invalidate(baseUrl, apiKey)
     }
 
-    fun clearClients() {
-        factory.clear()
-    }
-
     suspend fun inspect(baseUrl: String, allowInsecureLocalHttp: Boolean = false): FloppyInfoDto = try {
         factory.get(baseUrl, null, allowInsecureLocalHttp).info()
     } catch (error: Throwable) {

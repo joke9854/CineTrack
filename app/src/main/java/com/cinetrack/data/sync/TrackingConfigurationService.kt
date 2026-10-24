@@ -93,9 +93,6 @@ class TrackingConfigurationService(
     suspend fun bootstrapState(provider: TrackingProviderId): ProviderBootstrapState =
         preferences.providerBootstrapStateNow(provider)
 
-    suspend fun setBootstrapState(provider: TrackingProviderId, state: ProviderBootstrapState) =
-        routingMutex.withLock { preferences.setProviderBootstrapState(provider, state) }
-
     /**
      * Removes a provider from roles before its credentials are discarded. When
      * MAIN goes, a bootstrapped SECONDARY takes over as MAIN; otherwise sync

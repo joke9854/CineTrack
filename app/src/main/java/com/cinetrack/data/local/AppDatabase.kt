@@ -259,7 +259,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun timelineDao(): TimelineDao
     abstract fun upNextDao(): UpNextDao
     abstract fun syncDao(): SyncDao
-    abstract fun peopleDao(): PeopleDao
     abstract fun episodeNumberingDao(): EpisodeNumberingDao
 
     companion object {

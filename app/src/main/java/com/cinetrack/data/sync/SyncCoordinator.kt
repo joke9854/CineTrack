@@ -254,14 +254,8 @@ class SyncCoordinator(
     /** Returns the current durable operations for an exact bootstrap unit. */
     suspend fun pendingOperations(operationIds: Set<String>): List<SyncOperation> = operations.pending(operationIds)
 
-    suspend fun pendingOperationCount(operationIds: Set<String>): Int =
-        pendingOperationIds(operationIds).size
-
     suspend fun pendingBootstrapOperations(connectionId: String, limit: Int): List<SyncOperation> =
         operations.bootstrapPending(connectionId, limit)
-
-    suspend fun pendingBootstrapEpisodeOperations(connectionId: String, limit: Int): List<SyncOperation> =
-        operations.bootstrapEpisodePending(connectionId, limit)
 
     suspend fun pendingBootstrapShowEpisodes(connectionId: String, showId: Int): List<SyncOperation> =
         operations.bootstrapShowEpisodesPending(connectionId, showId)
@@ -307,15 +301,6 @@ class SyncCoordinator(
             operations.failDelivery(TrackingProviderId.FLOPPY, current, error)
         }
     }
-
-    /**
-     * Dispatches pending work while the caller already owns providerIoMutex.
-     * Connection activation uses this boundary so it can keep activation,
-     * bootstrap and the first queue pass atomic without recursively locking
-     * the non-reentrant provider mutex.
-     */
-    internal suspend fun pushPendingWhileProviderIoQuiesced(operationIds: Set<String>? = null): Result<Unit> =
-        pushPendingAcrossProviders(operationIds, heldProvider = TrackingProviderId.FLOPPY)
 
     private suspend fun pushPendingAcrossProviders(
         operationIds: Set<String>? = null,

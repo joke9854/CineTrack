@@ -66,13 +66,6 @@ class PendingDeliveryWorker(
     }
 }
 
-/** Keeps old callers/source compatibility while scheduling the generic worker path. */
-@Deprecated("Use TrackingWorkScheduler")
-object SimklWorkScheduler {
-    fun update(context: Context, enabled: Boolean, wifiOnly: Boolean) =
-        TrackingWorkScheduler.update(context, enabled, wifiOnly)
-}
-
 open class TrackingSyncWorker(
     appContext: Context,
     params: WorkerParameters,

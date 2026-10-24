@@ -631,27 +631,12 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         context.cineTrackDataStore.edit { it[providerBootstrapKey(provider)] = state.name }
     }
 
-    suspend fun floppyBootstrapPlanNow(): Pair<String, Int>? {
-        val raw = context.cineTrackDataStore.data.first()[Keys.floppyBootstrapPlan] ?: return null
-        val separator = raw.lastIndexOf('|')
-        if (separator <= 0) return null
-        val instance = raw.substring(0, separator).takeIf(String::isNotBlank) ?: return null
-        val count = raw.substring(separator + 1).toIntOrNull()?.takeIf { it >= 0 } ?: return null
-        return instance to count
-    }
-
     suspend fun floppyBootstrapPlanRawNow(): String? =
         context.cineTrackDataStore.data.first()[Keys.floppyBootstrapPlan]
 
     suspend fun setFloppyBootstrapPlanRaw(raw: String) {
         require(raw.isNotBlank()) { "Floppy bootstrap plan cannot be blank" }
         context.cineTrackDataStore.edit { it[Keys.floppyBootstrapPlan] = raw }
-    }
-
-    suspend fun setFloppyBootstrapPlan(instanceId: String, operationCount: Int) {
-        require(instanceId.isNotBlank()) { "Floppy bootstrap instance is required" }
-        require(operationCount >= 0) { "Floppy bootstrap operation count cannot be negative" }
-        context.cineTrackDataStore.edit { it[Keys.floppyBootstrapPlan] = "$instanceId|$operationCount" }
     }
 
     suspend fun clearFloppyBootstrapPlan() {
