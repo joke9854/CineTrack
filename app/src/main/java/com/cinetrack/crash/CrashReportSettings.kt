@@ -17,7 +17,8 @@ object CrashReportSettings {
         // MULTI_PROCESS makes the other process's edits visible without a restart.
         context.getSharedPreferences(FILE, Context.MODE_PRIVATE or Context.MODE_MULTI_PROCESS)
 
-    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, true)
+    /** Off until the user turns it on in Floppy settings: reports leave the device. */
+    fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).commit()
