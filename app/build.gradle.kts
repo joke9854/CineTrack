@@ -140,7 +140,6 @@ dependencies {
     coreLibraryDesugaring(libs.desugar.jdk.libs)
     implementation(libs.androidx.profileinstaller)
     baselineProfile(project(":baselineprofile"))
-    // Matches the Compose BOM PrismalAGSL 1.0.4 exposes (needs compileSdk 37, AGP 9).
     val composeBom = platform(libs.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -180,10 +179,10 @@ dependencies {
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
     implementation(libs.androidx.glance.appwidget)
-    // Stable Haze API compatible with the app's current Compose toolchain.
+    // Haze 2: live blur (haze-blur) and liquid glass (haze-glass) from one capture model.
     implementation(libs.haze)
-    // Liquid glass (AGSL refraction, specular rim) for compact controls.
-    implementation(libs.prismal.agsl)
+    implementation(libs.haze.blur)
+    implementation(libs.haze.glass)
     implementation(libs.youtube.player.core)
 
     testImplementation(libs.junit)

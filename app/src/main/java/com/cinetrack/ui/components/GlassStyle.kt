@@ -20,46 +20,28 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.ExperimentalHazeApi
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.blur.HazeBlurStyle
+import dev.chrisbanes.haze.blur.HazeColorEffect
+import dev.chrisbanes.haze.blur.hazeBlur
+import dev.chrisbanes.haze.glass.hazeGlass
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.platform.LocalContext
 import dev.chrisbanes.haze.HazeState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.unit.dp
 import com.cinetrack.ui.theme.Background0
-import dev.chrisbanes.haze.HazeStyle
-import dev.chrisbanes.haze.HazeTint
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
-import com.styropyr0.prismal.PrismalGlassEffectProvider
-import com.styropyr0.prismal.PrismalBackdrop
-import androidx.compose.runtime.Stable
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.snapshots.Snapshot
-import androidx.compose.ui.draw.drawWithContent
-import androidx.compose.ui.graphics.GraphicsLayerScope
 import androidx.compose.ui.graphics.isSpecified
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.layer.GraphicsLayer
-import androidx.compose.ui.graphics.layer.drawLayer
-import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionOnScreen
-import androidx.compose.ui.unit.Density
-import com.styropyr0.prismal.drawPrismalGlass
-import com.styropyr0.prismal.effects.applyPrismalGlassEffects
-import com.styropyr0.prismal.shapes.PrismalCapsule
-import com.styropyr0.prismal.specular.PrismalSpecular
-import com.styropyr0.prismal.sources.PrismalGlassLayer
-import com.styropyr0.prismal.sources.rememberPrismalGlassLayer
 import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Success
@@ -76,16 +58,19 @@ internal object GlassMaterial {
 }
 
 // Shared live material for navigation and floating sheets/dialogs.
-internal val NavGlassStyle = HazeStyle(
-    backgroundColor = Background0,
-    tint = HazeTint(Background0.copy(alpha = .58f)),
-    blurRadius = 16.dp,
-    noiseFactor = .03f,
-    fallbackTint = HazeTint(GlassMaterial.OverlayFallback),
-)
+internal val NavGlassStyle = blurStyle(tint = Background0.copy(alpha = .58f), fallback = GlassMaterial.OverlayFallback)
 
-// Cards can't take Prismal's specular, so their border imitates it (0.9 dp, 20% peak, like
-// LiquidRim): light catches the top edge, the sides stay faint but hold the card's shape on
+/** Haze blur over an opaque [background], with [fallback] where blur is off. */
+internal fun blurStyle(tint: Color, fallback: Color, radius: Dp = 16.dp, background: Color = Background0): HazeBlurStyle = HazeBlurStyle {
+    backgroundColor(background)
+    colorEffects(listOf(HazeColorEffect.tint(tint)))
+    blurRadius(radius)
+    noiseFactor(.03f)
+    fallbackColorEffect(HazeColorEffect.tint(fallback))
+}
+
+// Cards don't take the glass specular, so their border imitates the controls' rim (0.9 dp,
+// 20% peak): light catches the top edge, the sides stay faint but hold the card's shape on
 // near-black, and the bottom picks up a little bounce light.
 internal val GlassEdgeBrush = Brush.verticalGradient(
     0f to Color.White.copy(alpha = .20f),
@@ -102,54 +87,52 @@ internal val ControlEdgeBrush = Brush.verticalGradient(
     1f to Color.White.copy(alpha = .059f),
 )
 
-private class FloatingGlassCapture(val state: HazeState?, val page: PageGlassBackdrop?) {
+private class FloatingGlassCapture(val state: HazeState?, val glass: Boolean) {
     var users by mutableIntStateOf(0)
-    var pageUsers by mutableIntStateOf(0)
 }
 
 private val LocalFloatingGlass = staticCompositionLocalOf<FloatingGlassCapture?> { null }
 
 /**
- * Capture the page only while navigation or a floating surface needs it. With [page]
- * (liquid glass) the bottom bar and sheets refract it; Haze then serves only popups.
+ * Capture the page into [state] only while navigation or a floating surface needs it. With
+ * [glass] the bottom bar and sheets refract it as liquid glass; otherwise they blur it.
  */
 @Composable
 internal fun FloatingGlassHost(
     state: HazeState?,
-    page: PageGlassBackdrop?,
+    glass: Boolean,
     navigationVisible: Boolean,
     content: @Composable (Modifier) -> Unit,
 ) {
-    val capture = remember(state, page) { FloatingGlassCapture(state, page) }
+    val capture = remember(state, glass) { FloatingGlassCapture(state, glass) }
     CompositionLocalProvider(LocalFloatingGlass provides capture) {
-        val hazeNeeded = state != null && (capture.users > 0 || (navigationVisible && page == null))
-        val pageNeeded = page != null && (navigationVisible || capture.pageUsers > 0)
-        content(
-            (if (hazeNeeded && state != null) Modifier.hazeSource(state) else Modifier)
-                .pageGlassSource(if (pageNeeded) page else null),
-        )
+        val needed = state != null && (navigationVisible || capture.users > 0)
+        content(if (needed && state != null) Modifier.hazeSource(state) else Modifier)
     }
 }
 
-/** The recorded page for a floating sheet or dialog; null keeps the Haze blur. */
+/** The page for a floating sheet or dialog to refract as liquid glass; null keeps the blur. */
 @Composable
-internal fun rememberFloatingPageBackdrop(): PageGlassBackdrop? {
+internal fun rememberFloatingPageBackdrop(): HazeState? {
     val capture = LocalFloatingGlass.current
-    DisposableEffect(capture) {
-        if (capture?.page != null) capture.pageUsers++
-        onDispose { if (capture?.page != null) capture.pageUsers-- }
+    val page = capture?.state?.takeIf { capture.glass }
+    DisposableEffect(page) {
+        if (page != null) capture.users++
+        onDispose { if (page != null) capture.users-- }
     }
-    return capture?.page
+    return page
 }
 
+/** The page for a floating surface to blur, when liquid glass is off. */
 @Composable
 internal fun rememberFloatingGlassState(): HazeState? {
     val capture = LocalFloatingGlass.current
-    DisposableEffect(capture) {
-        if (capture?.state != null) capture.users++
-        onDispose { if (capture?.state != null) capture.users-- }
+    val state = capture?.state?.takeIf { !capture.glass }
+    DisposableEffect(state) {
+        if (state != null) capture.users++
+        onDispose { if (state != null) capture.users-- }
     }
-    return capture?.state
+    return state
 }
 
 /** Match the navigation blur device policy; null retains the existing surface. */
@@ -162,83 +145,21 @@ internal fun rememberDetailGlassState(): HazeState? {
     }
 }
 
-/** The backdrop that liquid-glass controls refract; null keeps the flat material. */
-internal val LocalGlassBackdrop = staticCompositionLocalOf<PrismalBackdrop?> { null }
+/** The background that liquid-glass controls refract; null keeps the flat material. */
+internal val LocalGlassBackdrop = staticCompositionLocalOf<HazeState?> { null }
 
-/** Same device policy as the live blur: Android 12+ and not low-RAM, otherwise null. */
+/** A background capture for liquid glass; null where Haze glass can't refract. */
 @Composable
-internal fun rememberGlassBackdrop(): PrismalGlassLayer? {
+internal fun rememberGlassBackdrop(): HazeState? {
     val context = LocalContext.current
-    val layer = rememberPrismalGlassLayer()
-    val eligible = remember(context) { liquidGlassEligible(context) }
-    return layer.takeIf { eligible }
+    return remember(context) { if (liquidGlassEligible(context)) HazeState() else null }
 }
 
+/** Haze glass refracts and blurs only with RuntimeShader (Android 13+); older or low-RAM devices keep the flat material. */
 internal fun liquidGlassEligible(context: android.content.Context): Boolean {
     val manager = context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
-    return android.os.Build.VERSION.SDK_INT >= 31 && !manager.isLowRamDevice
+    return android.os.Build.VERSION.SDK_INT >= 33 && !manager.isLowRamDevice
 }
-
-/**
- * The page under the bottom bar and floating sheets, recorded once per frame and drawn
- * from that recording (a PrismalGlassLayer would draw the whole page twice). Offsets use
- * screen positions so sheets and dialogs in their own windows sample the right spot.
- */
-@Stable
-internal class PageGlassBackdrop : PrismalBackdrop {
-    internal var layer: GraphicsLayer? = null
-    internal var layerCoordinates: LayoutCoordinates? by mutableStateOf(null)
-    private var contentVersion by mutableIntStateOf(0)
-
-    override val isCoordinatesDependent: Boolean = true
-
-    override fun readSamplingState() {
-        layerCoordinates
-    }
-
-    /** Android 12 glass has no live render-node link to the page; redraw it after each recording. */
-    internal fun notifyRecorded() {
-        if (android.os.Build.VERSION.SDK_INT < 33) Snapshot.withoutReadObservation { contentVersion++ }
-    }
-
-    override fun DrawScope.drawPrismalGlass(
-        density: Density,
-        coordinates: LayoutCoordinates?,
-        layerBlock: (GraphicsLayerScope.() -> Unit)?,
-    ) {
-        if (android.os.Build.VERSION.SDK_INT < 33) contentVersion
-        val layer = layer ?: return
-        val target = coordinates?.takeIf { it.isAttached } ?: return
-        val source = layerCoordinates?.takeIf { it.isAttached } ?: return
-        val offset = target.positionOnScreen() - source.positionOnScreen()
-        translate(-offset.x, -offset.y) { drawLayer(layer) }
-    }
-}
-
-/** Records the page for [backdrop] (null: no recording). */
-@Composable
-internal fun Modifier.pageGlassSource(backdrop: PageGlassBackdrop?): Modifier {
-    if (backdrop == null) return this
-    val layer = rememberGraphicsLayer()
-    DisposableEffect(backdrop, layer) {
-        backdrop.layer = layer
-        onDispose {
-            if (backdrop.layer === layer) backdrop.layer = null
-            backdrop.layerCoordinates = null
-        }
-    }
-    return onGloballyPositioned { backdrop.layerCoordinates = it }
-        .drawWithContent {
-            layer.record { this@drawWithContent.drawContent() }
-            drawLayer(layer)
-            backdrop.notifyRecorded()
-        }
-}
-
-private val LiquidCapsule = PrismalCapsule()
-private val LiquidShape = { LiquidCapsule }
-private val LiquidRim = PrismalSpecular(width = .9.dp, alpha = .20f)
-private val LiquidRimProvider = { LiquidRim }
 
 /** The same two-step lift as [glass], drawn outside the clipped glass. */
 private fun Modifier.capsuleDepth(): Modifier = drawWithCache {
@@ -251,74 +172,53 @@ private fun Modifier.capsuleDepth(): Modifier = drawWithCache {
     }
 }
 
-@Composable
-private fun rememberLiquidEffects(blur: Dp, refraction: Dp): PrismalGlassEffectProvider.() -> Unit {
-    val density = LocalDensity.current
-    return remember(density, blur, refraction) {
-        {
-            applyPrismalGlassEffects(
-                density = density,
-                adaptiveLuminance = false,
-                luminance = .5f,
-                blurRadiusPx = with(density) { blur.toPx() },
-                refractionHeightPx = with(density) { refraction.toPx() },
-                refractionAmountPx = with(density) { (refraction * 2).toPx() },
-                saturation = 1.4f,
-            )
-        }
-    }
-}
-
 /**
  * Liquid glass for compact controls (pills, progress tracks, round buttons) and floating
- * bars: refracts [backdrop] through a capsule with a specular rim. [surface] is the
- * material drawn on the glass so text keeps its contrast; [under] redraws the material
- * the control sits on (a card), since the backdrop is what lies behind that card.
- * Without a backdrop (older or low-RAM devices) [fallback] keeps the flat material.
+ * bars: refracts [backdrop] through a capsule with a specular rim, with the [kind]'s
+ * settings ([GlassTuning]). [surface] is the tint laid on the glass so text keeps its
+ * contrast; [under] is the material the control sits on (a card), since the backdrop is what
+ * lies behind that card. Without a backdrop (older or low-RAM devices) [fallback] keeps the
+ * flat material.
  */
+@OptIn(ExperimentalHazeApi::class)
 @Composable
 internal fun Modifier.liquidGlass(
+    kind: GlassSurface,
     surface: Color,
-    refraction: Dp,
     under: Color = Color.Unspecified,
-    blur: Dp = 4.dp,
     shadow: Boolean = true,
-    backdrop: PrismalBackdrop? = LocalGlassBackdrop.current,
+    backdrop: HazeState? = LocalGlassBackdrop.current,
     fallback: Modifier.() -> Modifier,
 ): Modifier {
     if (backdrop == null) return fallback()
-    val effects = rememberLiquidEffects(blur, refraction)
-    val drawSurface: DrawScope.() -> Unit = remember(under, surface) {
-        {
-            if (under.isSpecified) drawRect(under)
-            drawRect(surface)
-        }
+    val params = GlassTuning.params(kind)
+    val style = remember(params, surface, under) {
+        params.style(if (under.isSpecified) surface.compositeOver(under) else surface)
     }
-    // Prismal draws the blurred backdrop a few dp past the shape; clip it, or on a card
-    // that margin shows the page colour as a halo (a hard disc inside an IconButton).
     return (if (shadow) capsuleDepth() else this)
+        .then(if (params.lift > 0f) Modifier.shadow(params.lift.dp, CircleShape, clip = false) else Modifier)
         .clip(CircleShape)
-        .drawPrismalGlass(
-            backdrop = backdrop,
-            shape = LiquidShape,
-            effects = effects,
-            specular = LiquidRimProvider,
-            depthShadow = null,
-            onDrawSurface = drawSurface,
-        )
+        .hazeGlass(input = HazeInput.Sources(backdrop), style = style, performanceMode = params.performanceMode)
 }
+
+/**
+ * Page controls share the bottom bar's glass: the same dark tint and frost, with the
+ * refraction band scaled to the control (the bar bends 16 dp of its 54 dp height). The
+ * lighter control fill made the rim read as a flat grey stroke on small buttons.
+ */
+internal val ControlGlassTint = Background0.copy(alpha = .50f)
 
 /** A page-level pill ([glass] with a pill shape) as liquid glass. */
 @Composable
 internal fun Modifier.liquidGlassPill(under: Color = Color.Unspecified): Modifier =
-    liquidGlass(surface = GlassMaterial.Content, refraction = 8.dp, under = under) {
+    liquidGlass(GlassSurface.Pill, surface = ControlGlassTint, under = under) {
         glass(RoundedCornerShape(Radius.Pill), fill = GlassMaterial.Content)
     }
 
-/** [glassIcon] as liquid glass: same 6dp inset and circular control material; no lift, the IconButton clips it. */
+/** [glassIcon] as liquid glass: same 6dp inset, the bar's material and a soft lift inside the IconButton's bounds. */
 @Composable
 internal fun Modifier.liquidGlassIcon(under: Color = Color.Unspecified): Modifier =
-    padding(4.dp).liquidGlass(surface = GlassMaterial.Control, refraction = 6.dp, under = under, shadow = false) {
+    padding(4.dp).liquidGlass(GlassSurface.IconButton, surface = ControlGlassTint, under = under, shadow = false) {
         shadow(8.dp, CircleShape, clip = false)
             .clip(CircleShape)
             .background(GlassMaterial.Control)
@@ -338,38 +238,26 @@ internal fun Modifier.tonalPill(selected: Boolean, tint: Color = Accent): Modifi
 }
 
 /** A large floating surface (sheet, dialog) as liquid glass over the page, with its own [shape]. */
+@OptIn(ExperimentalHazeApi::class)
 @Composable
-internal fun Modifier.liquidGlassPanel(backdrop: PrismalBackdrop, shape: androidx.compose.ui.graphics.Shape): Modifier {
-    val effects = rememberLiquidEffects(blur = 16.dp, refraction = 18.dp)
-    val shapeProvider = remember(shape) { { shape } }
-    return clip(shape).drawPrismalGlass(
-        backdrop = backdrop,
-        shape = shapeProvider,
-        effects = effects,
-        specular = LiquidRimProvider,
-        depthShadow = null,
-        onDrawSurface = PanelSurface,
-    )
+internal fun Modifier.liquidGlassPanel(backdrop: HazeState, shape: RoundedCornerShape): Modifier {
+    val params = GlassTuning.params(GlassSurface.Panel)
+    val style = remember(params, shape) { params.style(Background0.copy(alpha = .58f), shape) }
+    return clip(shape).hazeGlass(input = HazeInput.Sources(backdrop), style = style, performanceMode = params.performanceMode)
 }
-
-private val PanelSurface: DrawScope.() -> Unit = { drawRect(Background0.copy(alpha = .58f)) }
 
 /** The popup material, clipped to an action. Capture only the separate artwork/backdrop. */
 @Composable
 internal fun Modifier.liveActionGlass(state: HazeState?, completed: Boolean = false): Modifier {
     val shape = RoundedCornerShape(Radius.Pill)
-    val style = if (!completed) NavGlassStyle else HazeStyle(
-        backgroundColor = Background0,
-        tint = HazeTint(Success.copy(alpha = .45f)),
-        blurRadius = 16.dp,
-        noiseFactor = .03f,
-        fallbackTint = HazeTint(Success.copy(alpha = .82f)),
-    )
+    val style = if (!completed) NavGlassStyle else CompletedActionGlass
     return clip(shape)
-        .then(if (state != null) Modifier.hazeEffect(state, style = style)
+        .then(if (state != null) Modifier.hazeBlur(input = HazeInput.Sources(state), style = style)
             else Modifier.background(if (completed) Success.copy(alpha = .82f) else GlassMaterial.OverlayFallback))
         .border(.7.dp, ControlEdgeBrush, shape)
 }
+
+private val CompletedActionGlass = blurStyle(tint = Success.copy(alpha = .45f), fallback = Success.copy(alpha = .82f))
 
 /**
  * Header whose title row ([titlePx] tall) scrolls away with the list while the rest stays

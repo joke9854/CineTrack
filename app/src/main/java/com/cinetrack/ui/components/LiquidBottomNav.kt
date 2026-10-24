@@ -49,7 +49,8 @@ import com.cinetrack.ui.theme.Accent
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.Background0
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.blur.hazeBlur
 import com.cinetrack.ui.theme.Motion
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
@@ -71,7 +72,7 @@ fun LiquidBottomNav(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     /** The recorded page: liquid glass bar and a glass droplet on the selected tab. */
-    glassBackdrop: com.styropyr0.prismal.PrismalBackdrop? = null,
+    glassBackdrop: HazeState? = null,
 ) {
     val motionEnabled = remember { Build.VERSION.SDK_INT < Build.VERSION_CODES.O || ValueAnimator.areAnimatorsEnabled() }
     val labelFraction by animateFloatAsState(
@@ -99,14 +100,13 @@ fun LiquidBottomNav(
             .heightOf { height }
             .shadow(15.dp, RoundedCornerShape(Radius.Pill), clip = false)
             .liquidGlass(
+                GlassSurface.NavBar,
                 surface = Background0.copy(alpha = .50f),
-                refraction = 16.dp,
-                blur = 14.dp,
                 shadow = false,
                 backdrop = glassBackdrop,
             ) {
                 clip(RoundedCornerShape(Radius.Pill))
-                    .then(if (hazeState != null) Modifier.hazeEffect(hazeState, style = NavGlassStyle) else Modifier.background(GlassMaterial.OverlayFallback))
+                    .then(if (hazeState != null) Modifier.hazeBlur(input = HazeInput.Sources(hazeState), style = NavGlassStyle) else Modifier.background(GlassMaterial.OverlayFallback))
                     .border(.6.dp, ControlEdgeBrush, RoundedCornerShape(Radius.Pill))
             }
             .padding(horizontal = Spacing.sm, vertical = Spacing.xs),
@@ -125,10 +125,9 @@ fun LiquidBottomNav(
                     .width(itemWidth)
                     .fillMaxHeight()
                     .liquidGlass(
+                        GlassSurface.NavDroplet,
                         surface = Accent.copy(alpha = .24f),
-                        refraction = 10.dp,
                         under = Background0.copy(alpha = .38f),
-                        blur = 2.dp,
                         shadow = false,
                         backdrop = glassBackdrop,
                     ) { clip(RoundedCornerShape(Radius.Pill)).background(Accent.copy(alpha = .18f)) },

@@ -4,7 +4,7 @@ package com.cinetrack.ui.screens
 
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.animateContentSize
-import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.blur.hazeBlur
 import dev.chrisbanes.haze.hazeSource
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawBehind
@@ -65,6 +65,8 @@ import com.cinetrack.domain.PersonCard
 import com.cinetrack.domain.TimelineCard
 import com.cinetrack.ui.CineTrackViewModel
 import com.cinetrack.ui.components.AdaptiveBackground
+import com.cinetrack.ui.components.BlurSurface
+import com.cinetrack.ui.components.tunedBlur
 import com.cinetrack.ui.components.GlassBackButton
 import com.cinetrack.ui.components.LoadingPane
 import com.cinetrack.ui.components.LibraryStatusSheet
@@ -626,13 +628,7 @@ internal fun Modifier.shelfFeather(fade: androidx.compose.ui.unit.Dp = 112.dp): 
     )
 }
 
-private val DetailHeaderGlass = dev.chrisbanes.haze.HazeStyle(
-    backgroundColor = Color(0xFF080A0C),
-    tint = dev.chrisbanes.haze.HazeTint(Color(0xFF080A0C).copy(alpha = .66f)),
-    blurRadius = 22.dp,
-    noiseFactor = .03f,
-    fallbackTint = dev.chrisbanes.haze.HazeTint(Color(0xF7080A0C)),
-)
+
 
 /** 0 while the hero is visible, rising to 1 as the content passes under the top bar. */
 @Composable
@@ -670,8 +666,10 @@ internal fun DetailTopBar(
     Box(Modifier.fillMaxWidth()) {
         Box(
             Modifier.matchParentSize()
-                // Frosted: the page scrolling underneath is blurred into the bar.
-                .hazeEffect(haze, style = DetailHeaderGlass) { alpha = progress() }
+                // Frosted: the page scrolling underneath is blurred into the bar. The fade is a
+                // layer alpha, so scrolling doesn't rebuild the blur style every frame.
+                .graphicsLayer { alpha = progress() }
+                .tunedBlur(BlurSurface.DetailHeader, haze, tint = Color(0xFF080A0C), fallback = Color(0xF7080A0C), background = Color(0xFF080A0C))
                 .drawWithContent {
                     drawContent()
                     drawLine(

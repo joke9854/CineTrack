@@ -40,7 +40,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
-import com.styropyr0.prismal.sources.prismalGlassLayer
 import com.cinetrack.ui.theme.Motion
 
 private val artworkColorCache = LruCache<String, Pair<Color, Color>>(24)
@@ -128,12 +127,14 @@ fun AdaptiveBackground(
                 // Faint film grain.
                 drawRect(GrainBrush, alpha = .07f, blendMode = androidx.compose.ui.graphics.BlendMode.Overlay)
             }
-    val glassBackdrop = if (liquidGlass) rememberGlassBackdrop() else null
+    val glassCapture = if (liquidGlass) rememberGlassBackdrop() else null
+    // One capture serves both: a page's live blur state doubles as the liquid-glass backdrop.
+    val glassBackdrop = if (glassCapture != null) hazeState ?: glassCapture else null
     androidx.compose.runtime.CompositionLocalProvider(LocalPageTint provides pageTint) {
     if (glassBackdrop != null && hazeState == null) {
         Box(modifier.fillMaxSize()) {
             // Sibling layer: the glass controls sample only the background, never themselves.
-            Box(Modifier.matchParentSize().prismalGlassLayer(glassBackdrop).then(CachedBackground).then(backgroundModifier))
+            Box(Modifier.matchParentSize().hazeSource(glassBackdrop).then(CachedBackground).then(backgroundModifier))
             androidx.compose.runtime.CompositionLocalProvider(LocalGlassBackdrop provides glassBackdrop) { content() }
         }
     } else if (hazeState == null) {
@@ -147,7 +148,6 @@ fun AdaptiveBackground(
             // Sibling source/effect layers avoid recursive blur and stay viewport-sized.
             Box(
                 Modifier.matchParentSize().hazeSource(hazeState)
-                    .then(if (glassBackdrop != null) Modifier.prismalGlassLayer(glassBackdrop) else Modifier)
                     .then(CachedBackground)
                     .then(backgroundModifier),
             )

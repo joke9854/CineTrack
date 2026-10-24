@@ -46,7 +46,8 @@ import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
 import com.cinetrack.ui.theme.TextPrimary
 import com.cinetrack.ui.theme.TextSecondary
-import dev.chrisbanes.haze.hazeEffect
+import dev.chrisbanes.haze.HazeInput
+import dev.chrisbanes.haze.blur.hazeBlur
 import com.cinetrack.ui.theme.Radius
 
 @Composable
@@ -64,7 +65,7 @@ fun SharedGlassDialog(onDismiss: () -> Unit, content: @Composable () -> Unit) {
             .then(if (appBlur) Modifier.clip(shape).background(PopupMaterial.Panel).border(.5.dp, ControlEdgeBrush, shape)
             else if (page != null) Modifier.liquidGlassPanel(page, shape)
                 else Modifier.clip(shape)
-                    .then(if (state != null) Modifier.hazeEffect(state, style = NavGlassStyle)
+                    .then(if (state != null) Modifier.hazeBlur(input = HazeInput.Sources(state), style = NavGlassStyle)
                         else Modifier.background(GlassMaterial.OverlayFallback))
                     .border(.5.dp, ControlEdgeBrush, shape))) {
             // Controls inside sit on the panel, not on the page the panel refracts.
@@ -106,7 +107,7 @@ fun SharedGlassSheet(
         val material = when {
             appBlur -> Modifier.clip(shape).background(PopupMaterial.Panel)
             page != null -> Modifier.liquidGlassPanel(page, shape)
-            hazeState != null -> Modifier.clip(shape).hazeEffect(hazeState, style = NavGlassStyle)
+            hazeState != null -> Modifier.clip(shape).hazeBlur(input = HazeInput.Sources(hazeState), style = NavGlassStyle)
             else -> Modifier.clip(shape).background(GlassMaterial.OverlayFallback)
         }
         Column(

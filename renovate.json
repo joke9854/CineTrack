@@ -8,15 +8,9 @@
   "schedule": ["before 6am on monday"],
   "packageRules": [
     {
-      "description": "The Compose BOM follows PrismalAGSL: bump it by hand to the BOM in PrismalAGSL's POM.",
-      "matchPackageNames": ["androidx.compose:compose-bom"],
-      "enabled": false
-    },
-    {
-      "description": "A PrismalAGSL update may need a Compose BOM bump in the same PR.",
-      "matchPackageNames": ["com.github.styropyr0:PrismalAGSL"],
-      "groupName": "PrismalAGSL and Compose BOM",
-      "prBodyNotes": ["Check the Compose BOM in the new PrismalAGSL POM and set `compose-bom` in gradle/libs.versions.toml to match."]
+      "description": "Haze artifacts share one version.",
+      "matchPackageNames": ["dev.chrisbanes.haze:**"],
+      "groupName": "Haze"
     },
     {
       "description": "KSP and the Kotlin compiler plugins must move together.",

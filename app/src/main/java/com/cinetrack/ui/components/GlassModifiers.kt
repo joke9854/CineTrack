@@ -155,7 +155,7 @@ fun GlassIconButton(
             Modifier
                 .size(42.dp)
                 .scale(buttonScale)
-                .liquidGlass(surface = GlassMaterial.Control, refraction = 6.dp) {
+                .liquidGlass(GlassSurface.BackButton, surface = ControlGlassTint) {
                     shadow(8.dp, CircleShape, clip = false)
                         .clip(CircleShape)
                         .background(GlassMaterial.Control)

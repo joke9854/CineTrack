@@ -196,8 +196,8 @@ fun PrimaryAction(
         modifier
             .then(if (compact) Modifier.heightIn(min = 52.dp) else Modifier.height(52.dp))
             .then(if (liveGlass) Modifier.liquidGlass(
+                com.cinetrack.ui.components.GlassSurface.ActionButton,
                 surface = if (containerColor == Success) Success.copy(alpha = .50f) else (LocalDetailAccent.current?.value ?: Accent).copy(alpha = .42f),
-                refraction = 10.dp,
                 under = GlassMaterial.DetailSurface,
             ) { then(liveFallback) } else Modifier
             .glass(RoundedCornerShape(Radius.Pill))

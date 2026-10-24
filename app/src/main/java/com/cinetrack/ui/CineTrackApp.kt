@@ -158,8 +158,8 @@ fun CineTrackApp(
         android.os.Build.VERSION.SDK_INT >= 31 &&
             !(context.getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager).isLowRamDevice
     }
-    // Liquid glass bottom bar and sheets refract this recording of the page.
-    val pageGlass = remember(navBlurEnabled) { if (navBlurEnabled) com.cinetrack.ui.components.PageGlassBackdrop() else null }
+    // Liquid glass bottom bar and sheets refract the page capture (Android 13+); older devices blur it.
+    val pageGlass = remember(navBlurEnabled) { navBlurEnabled && com.cinetrack.ui.components.liquidGlassEligible(context) }
     val viewModel: CineTrackViewModel = viewModel(
         factory = CineTrackViewModel.Factory(
             application.container.syncHost,
@@ -657,7 +657,7 @@ fun CineTrackApp(
         ) {
             LiquidBottomNav(
                 hazeState = if (navBlurEnabled) navHazeState else null,
-                glassBackdrop = pageGlass,
+                glassBackdrop = if (pageGlass) navHazeState else null,
                 items = navItems,
                 selectedIndex = selectedIndex,
                 compact = true,
@@ -673,6 +673,8 @@ fun CineTrackApp(
                 modifier = Modifier.navigationBarsPadding().padding(bottom = Spacing.lg),
             )
         }
+        // Debug and preview builds: live Haze settings for every glass surface.
+        com.cinetrack.ui.components.GlassLabHost()
 
         // Backup creation and restore report their stage in a pill at the top.
         var shownBackup by remember { mutableStateOf<com.cinetrack.domain.BackupProgress?>(null) }

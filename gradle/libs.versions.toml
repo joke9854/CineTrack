@@ -1,11 +1,12 @@
 [versions]
 agp = "9.4.1"
-kotlin = "2.2.20"
+kotlin = "2.4.20"
 ksp = "2.3.4"
 baselineprofile = "1.5.0"
 roborazzi = "1.75.0"
-# Keep equal to the BOM PrismalAGSL is built against (its POM pulls 2026.06.01); renovate.json pins it.
-compose-bom = "2026.06.01"
+# Compose 1.12.1: the minimum Haze 2 is built against.
+compose-bom = "2026.09.00"
+haze = "2.0.1"
 lifecycle = "2.10.0"
 room = "2.8.4"
 work = "2.11.2"
@@ -57,8 +58,9 @@ kotlinx-coroutines-android = { module = "org.jetbrains.kotlinx:kotlinx-coroutine
 kotlinx-coroutines-test = { module = "org.jetbrains.kotlinx:kotlinx-coroutines-test", version.ref = "coroutines" }
 coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" }
 coil-network-okhttp = { module = "io.coil-kt.coil3:coil-network-okhttp", version.ref = "coil" }
-haze = "dev.chrisbanes.haze:haze:1.6.10"
-prismal-agsl = "com.github.styropyr0:PrismalAGSL:1.0.4"
+haze = { module = "dev.chrisbanes.haze:haze", version.ref = "haze" }
+haze-blur = { module = "dev.chrisbanes.haze:haze-blur", version.ref = "haze" }
+haze-glass = { module = "dev.chrisbanes.haze:haze-glass", version.ref = "haze" }
 youtube-player-core = "com.pierfrancescosoffritti.androidyoutubeplayer:core:13.0.0"
 
 junit = "junit:junit:4.13.2"

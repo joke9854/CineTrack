@@ -53,8 +53,8 @@ demo titles.
 4. Run the `app` configuration.
 
 Dependencies live in [gradle/libs.versions.toml](gradle/libs.versions.toml), and Renovate
-keeps them current. The Compose BOM is pinned to the one
-[PrismalAGSL](https://github.com/styropyr0/PrismalAGSL) (the glass effects) is built against.
+keeps them current. Blur and liquid glass come from [Haze](https://github.com/chrisbanes/haze)
+(`haze-blur`, `haze-glass`); its Compose and Kotlin versions are the minimum the app can use.
 
 Build types: `debug`; `preview` (release with R8 and the baseline profile, signed with the
 debug key, id `com.cinetrack.debug`, tagged `<version>-preview.<commit count>+<sha>`); and

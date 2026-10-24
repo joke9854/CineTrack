@@ -111,8 +111,8 @@ private fun CompactSwitch(checked: Boolean) {
         Box(
             Modifier.offset { androidx.compose.ui.unit.IntOffset(knobOffset.roundToPx(), 3.dp.roundToPx()) }.size(26.dp)
                 .liquidGlass(
+                    com.cinetrack.ui.components.GlassSurface.Toggle,
                     surface = if (checked) Color.White.copy(alpha = .78f) else TextMuted.copy(alpha = .45f),
-                    refraction = 6.dp,
                     under = track.compositeOver(com.cinetrack.ui.components.GlassMaterial.Content),
                     shadow = false,
                 ) { clip(CircleShape).background(if (checked) Color.White else TextMuted.copy(alpha = .55f)) },
