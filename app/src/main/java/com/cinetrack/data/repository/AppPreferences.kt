@@ -61,6 +61,25 @@ import com.cinetrack.data.remote.AppJson
 private val Context.cineTrackDataStore by preferencesDataStore("cinetrack_preferences")
 private const val SEARCH_HISTORY_SEPARATOR = "\u001F"
 private const val ERROR_LOG_LINES = 500
+private const val AUTO_BACKUP_FOLDER_PREFIX = "cinetrack-auto-backup-"
+private const val AUTO_BACKUP_FOLDER_KEEP = 7
+
+/** How often the automatic backup is also copied into the user's folder. */
+enum class BackupFolderFrequency {
+    DAILY, WEEKLY, MONTHLY;
+
+    /** Due once the calendar day, week or month after the last copy has started. */
+    fun isDue(lastCopyMillis: Long, nowMillis: Long, zone: java.time.ZoneId = java.time.ZoneId.systemDefault()): Boolean {
+        val last = java.time.Instant.ofEpochMilli(lastCopyMillis).atZone(zone).toLocalDate()
+        val today = java.time.Instant.ofEpochMilli(nowMillis).atZone(zone).toLocalDate()
+        val next = when (this) {
+            DAILY -> last.plusDays(1)
+            WEEKLY -> last.plusWeeks(1)
+            MONTHLY -> last.plusMonths(1)
+        }
+        return !today.isBefore(next)
+    }
+}
 
 /** One read of the DataStore values the cached AppUiState is built from. */
 data class AppStatePreferences(
@@ -125,6 +144,9 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val floppyPkceState = stringPreferencesKey("floppy_pkce_state")
         val floppyPendingBaseUrl = stringPreferencesKey("floppy_pending_base_url")
         val floppyPendingAllowHttp = booleanPreferencesKey("floppy_pending_allow_http")
+        val autoBackupFolder = stringPreferencesKey("auto_backup_folder")
+        val autoBackupFolderCopiedAt = longPreferencesKey("auto_backup_folder_copied_at")
+        val autoBackupFolderFrequency = stringPreferencesKey("auto_backup_folder_frequency")
         val pkceVerifier = stringPreferencesKey("simkl_pkce_verifier")
         val pkceState = stringPreferencesKey("simkl_pkce_state")
         val backgroundSync = booleanPreferencesKey("background_sync")
@@ -133,6 +155,9 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val notifyEpisodes = booleanPreferencesKey("notify_episodes")
         val notifyMovies = booleanPreferencesKey("notify_movies")
         val notifySync = booleanPreferencesKey("notify_sync")
+        val notifyStreaming = booleanPreferencesKey("notify_streaming")
+        val streamingSeen = stringPreferencesKey("streaming_seen")
+        val streamingBaseline = booleanPreferencesKey("streaming_baseline_done")
         val quietHoursEnabled = booleanPreferencesKey("quiet_hours_enabled")
         val quietHoursStart = intPreferencesKey("quiet_hours_start")
         val quietHoursEnd = intPreferencesKey("quiet_hours_end")
@@ -164,6 +189,11 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val posterFormat = stringPreferencesKey("poster_format")
         val castPhotoShape = stringPreferencesKey("cast_photo_shape")
         val posterTitles = booleanPreferencesKey("poster_titles")
+        val hideSpoilers = booleanPreferencesKey("hide_spoilers")
+        val profileName = stringPreferencesKey("profile_name")
+        val profileAvatar = stringPreferencesKey("profile_avatar")
+        val profileBanner = stringPreferencesKey("profile_banner")
+        val tvmazeAirTimes = booleanPreferencesKey("tvmaze_air_times")
         val posterSize = stringPreferencesKey("poster_size")
         val cardDensity = stringPreferencesKey("card_density")
         val notifiedReleases = stringPreferencesKey("notified_releases")
@@ -233,7 +263,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
     val metadataRegion: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataRegion] ?: "system" }
     val metadataTimezone: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.metadataTimezone] ?: "system" }
     /** Which provider's episode air dates are shown (see AirDateSource). */
-    val airDateSource: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.airDateSource] ?: com.cinetrack.data.schedule.AirDateSource.DEFAULT }
+    val airDateSource: Flow<String> = context.cineTrackDataStore.data.map { com.cinetrack.data.schedule.AirDateSource.normalize(it[Keys.airDateSource]) }
     val excludeSpecials: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.excludeSpecials] ?: true }
     val hideAdultTitles: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.hideAdultTitles] ?: true }
     /** Detail pages take their accent from the poster; on unless turned off in Aspetto. */
@@ -304,6 +334,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             episodes = it[Keys.notifyEpisodes] ?: true,
             movies = it[Keys.notifyMovies] ?: true,
             sync = it[Keys.notifySync] ?: true,
+            streaming = it[Keys.notifyStreaming] ?: true,
             quietHoursEnabled = it[Keys.quietHoursEnabled] ?: true,
             quietHoursStart = it[Keys.quietHoursStart] ?: 23,
             quietHoursEnd = it[Keys.quietHoursEnd] ?: 8,
@@ -340,6 +371,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             cardDensity = it[Keys.cardDensity] ?: "standard",
             castPhotoShape = com.cinetrack.domain.CardAppearance.normalizeCastShape(it[Keys.castPhotoShape] ?: "circle"),
             posterTitles = it[Keys.posterTitles] ?: true,
+            hideSpoilers = it[Keys.hideSpoilers] ?: false,
         )
     }
     val hiddenUpcoming: Flow<Set<String>> = context.cineTrackDataStore.data.map {
@@ -413,11 +445,56 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         return BuildConfig.TMDB_API_TOKEN
     }
 
-    /** Trakt client ID (public API key) used only to read exact air times. */
-    suspend fun traktClientIdNow(): String = secureCredential("trakt_client_id").orEmpty()
+    /** Fanart.tv personal API key, used only to read title logos. */
+    suspend fun fanartApiKeyNow(): String = secureCredential("fanart_api_key").orEmpty()
 
-    suspend fun setTraktClientId(value: String?) {
-        setSecureCredential("trakt_client_id", value?.trim()?.takeIf(String::isNotBlank))
+    suspend fun setFanartApiKey(value: String?) {
+        setSecureCredential("fanart_api_key", value?.trim()?.takeIf(String::isNotBlank))
+    }
+
+    /** Optional TVmaze premium credentials (username and API key) for TVmaze's user API. */
+    suspend fun tvmazeUserNow(): Pair<String, String>? {
+        val user = secureCredential("tvmaze_username")?.takeIf(String::isNotBlank) ?: return null
+        val key = secureCredential("tvmaze_api_key")?.takeIf(String::isNotBlank) ?: return null
+        return user to key
+    }
+
+    suspend fun setTvmazeUser(username: String?, apiKey: String?) {
+        setSecureCredential("tvmaze_username", username?.trim()?.takeIf(String::isNotBlank))
+        setSecureCredential("tvmaze_api_key", apiKey?.trim()?.takeIf(String::isNotBlank))
+    }
+
+    /** The user's own TVDB v4 key and, for user-supported keys, their subscriber PIN. */
+    suspend fun tvdbApiKeyNow(): String = secureCredential("tvdb_api_key").orEmpty()
+    suspend fun tvdbPinNow(): String = secureCredential("tvdb_pin").orEmpty()
+
+    suspend fun setTvdbCredentials(apiKey: String?, pin: String?) {
+        setSecureCredential("tvdb_api_key", apiKey?.trim()?.takeIf(String::isNotBlank))
+        setSecureCredential("tvdb_pin", pin?.trim()?.takeIf(String::isNotBlank))
+    }
+
+    /** TVmaze air times (no key); on by default. */
+    val tvmazeEnabled: Flow<Boolean> = context.cineTrackDataStore.data.map { it[Keys.tvmazeAirTimes] ?: true }
+
+    suspend fun setTvmazeEnabled(enabled: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.tvmazeAirTimes] = enabled }
+    }
+
+    /**
+     * Trakt was removed in 0.99.78 (TVmaze gives the same exact air times): forgets its client ID and
+     * moves a saved "Trakt" air-date choice to TVmaze. Returns true the one time something was left.
+     */
+    suspend fun retireTrakt(): Boolean {
+        val hadKey = !secureCredential("trakt_client_id").isNullOrBlank()
+        if (hadKey) setSecureCredential("trakt_client_id", null)
+        var hadChoice = false
+        context.cineTrackDataStore.edit { prefs ->
+            if (prefs[Keys.airDateSource] == com.cinetrack.data.schedule.AirDateSource.RETIRED_TRAKT) {
+                prefs[Keys.airDateSource] = com.cinetrack.data.schedule.AirDateSource.TVMAZE
+                hadChoice = true
+            }
+        }
+        return hadKey || hadChoice
     }
 
     suspend fun mdbListApiKeyNow(): String {
@@ -766,6 +843,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         val key = when (kind) {
             "episodes" -> Keys.notifyEpisodes
             "movies" -> Keys.notifyMovies
+            "streaming" -> Keys.notifyStreaming
             else -> Keys.notifySync
         }
         context.cineTrackDataStore.edit { it[key] = enabled }
@@ -895,12 +973,69 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
         context.cineTrackDataStore.edit { it[Keys.posterTitles] = enabled }
     }
 
+    override val profileName: Flow<String> = context.cineTrackDataStore.data.map { it[Keys.profileName].orEmpty() }
+
+    override suspend fun setProfileName(value: String) {
+        context.cineTrackDataStore.edit { it[Keys.profileName] = value.trim().take(40) }
+    }
+
+    private val profileImageStore by lazy { ProfileImageStore(File(context.filesDir, "profile")) }
+    private fun profileImageKey(kind: ProfileImageKind) = if (kind == ProfileImageKind.AVATAR) Keys.profileAvatar else Keys.profileBanner
+
+    override val profileImages: Flow<ProfileImages> = context.cineTrackDataStore.data.map { prefs ->
+        ProfileImages(profileImageStore.path(prefs[Keys.profileAvatar]), profileImageStore.path(prefs[Keys.profileBanner]))
+    }
+
+    /** Saves the picked image (downscaled, in app storage), or removes it when [source] is null. */
+    override suspend fun setProfileImage(kind: ProfileImageKind, source: android.net.Uri?): Boolean = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        try {
+            val name = source?.let { profileImageStore.import(context.contentResolver, it, kind) }
+            if (name == null) profileImageStore.removeExcept(kind, null)
+            context.cineTrackDataStore.edit { if (name != null) it[profileImageKey(kind)] = name else it.remove(profileImageKey(kind)) }
+            true
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** The saved image's JPEG bytes, for the backup. */
+    suspend fun profileImageBytes(kind: ProfileImageKind): ByteArray? = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        profileImageStore.read(context.cineTrackDataStore.data.first()[profileImageKey(kind)])
+    }
+
+    /** Restores an image from a backup; null or empty bytes remove it. */
+    suspend fun restoreProfileImage(kind: ProfileImageKind, bytes: ByteArray?) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+        val name = bytes?.takeIf { it.isNotEmpty() }?.let { profileImageStore.write(kind, it) }
+        if (name == null) profileImageStore.removeExcept(kind, null)
+        context.cineTrackDataStore.edit { if (name != null) it[profileImageKey(kind)] = name else it.remove(profileImageKey(kind)) }
+    }
+
+    override suspend fun setHideSpoilers(enabled: Boolean) {
+        context.cineTrackDataStore.edit { it[Keys.hideSpoilers] = enabled }
+    }
+
     override suspend fun setPosterSize(value: String) {
         context.cineTrackDataStore.edit { it[Keys.posterSize] = com.cinetrack.domain.CardAppearance.normalizeSize(value) }
     }
 
     override suspend fun setCardDensity(value: String) {
         context.cineTrackDataStore.edit { it[Keys.cardDensity] = value }
+    }
+
+    /** "TYPE:id:Provider" for every Plan-to-watch title already seen on one of your services. */
+    suspend fun streamingSeen(): Set<String> = context.cineTrackDataStore.data.first()[Keys.streamingSeen]
+        .orEmpty().split('\n').filter(String::isNotBlank).toSet()
+
+    suspend fun setStreamingSeen(values: Set<String>) {
+        context.cineTrackDataStore.edit { it[Keys.streamingSeen] = values.joinToString("\n") }
+    }
+
+    suspend fun streamingBaselineDone(): Boolean = context.cineTrackDataStore.data.first()[Keys.streamingBaseline] == true
+
+    suspend fun setStreamingBaselineDone() {
+        context.cineTrackDataStore.edit { it[Keys.streamingBaseline] = true }
     }
 
     suspend fun notifiedReleaseKeys(): Set<String> = context.cineTrackDataStore.data.first()[Keys.notifiedReleases]
@@ -1018,6 +1153,88 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
             if (target.exists()) target.delete()
             check(temporary.renameTo(target)) { "Could not publish automatic backup" }
         }.onFailure { appendErrorLog("${java.time.Instant.now()}  Automatic backup: ${it.message}") }
+    }
+
+    /** A folder the user picked (Storage Access Framework tree) that also receives the automatic backup. */
+    val autoBackupFolder: Flow<String?> = context.cineTrackDataStore.data.map { it[Keys.autoBackupFolder] }
+
+    /** How often the folder gets a new copy. */
+    val autoBackupFolderFrequency: Flow<BackupFolderFrequency> = context.cineTrackDataStore.data.map { values ->
+        values[Keys.autoBackupFolderFrequency]?.let { runCatching { BackupFolderFrequency.valueOf(it) }.getOrNull() } ?: BackupFolderFrequency.WEEKLY
+    }
+
+    suspend fun setAutoBackupFolderFrequency(frequency: BackupFolderFrequency) {
+        context.cineTrackDataStore.edit { it[Keys.autoBackupFolderFrequency] = frequency.name }
+    }
+
+    suspend fun setAutoBackupFolder(uri: String?) {
+        val previous = context.cineTrackDataStore.data.first()[Keys.autoBackupFolder]
+        if (previous != null && previous != uri) {
+            runCatching {
+                context.contentResolver.releasePersistableUriPermission(
+                    Uri.parse(previous),
+                    android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                )
+            }
+        }
+        context.cineTrackDataStore.edit {
+            if (uri == null) it.remove(Keys.autoBackupFolder) else it[Keys.autoBackupFolder] = uri
+            it.remove(Keys.autoBackupFolderCopiedAt)
+        }
+        if (uri != null) copyAutomaticBackupToFolder(force = true)
+    }
+
+    /** The picked folder's name as the file manager shows it, or null when it can't be read. */
+    fun autoBackupFolderName(uri: String): String? = runCatching {
+        val tree = Uri.parse(uri)
+        val folder = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, android.provider.DocumentsContract.getTreeDocumentId(tree))
+        context.contentResolver.query(folder, arrayOf(android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }.getOrNull()
+
+    /**
+     * Copies the automatic backup into the picked folder as a dated zip once per day, week or
+     * month ([BackupFolderFrequency]) and keeps the newest [AUTO_BACKUP_FOLDER_KEEP]. The app's
+     * own copy is excluded from cloud backup, so this is the copy that survives a lost phone.
+     */
+    suspend fun copyAutomaticBackupToFolder(force: Boolean = false) {
+        val values = context.cineTrackDataStore.data.first()
+        val folder = values[Keys.autoBackupFolder] ?: return
+        val now = System.currentTimeMillis()
+        val frequency = values[Keys.autoBackupFolderFrequency]?.let { runCatching { BackupFolderFrequency.valueOf(it) }.getOrNull() } ?: BackupFolderFrequency.WEEKLY
+        val lastCopy = values[Keys.autoBackupFolderCopiedAt]
+        if (!force && lastCopy != null && !frequency.isDue(lastCopy, now)) return
+        val source = File(context.filesDir, "backups/cinetrack-auto-backup.zip")
+        if (!source.exists()) return
+        runCatching {
+            val resolver = context.contentResolver
+            val tree = Uri.parse(folder)
+            val treeId = android.provider.DocumentsContract.getTreeDocumentId(tree)
+            val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, treeId)
+            val existing = mutableMapOf<String, String>()
+            resolver.query(
+                android.provider.DocumentsContract.buildChildDocumentsUriUsingTree(tree, treeId),
+                arrayOf(android.provider.DocumentsContract.Document.COLUMN_DOCUMENT_ID, android.provider.DocumentsContract.Document.COLUMN_DISPLAY_NAME),
+                null, null, null,
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val name = cursor.getString(1).orEmpty()
+                    if (name.startsWith(AUTO_BACKUP_FOLDER_PREFIX) && name.endsWith(".zip")) existing[name] = cursor.getString(0)
+                }
+            }
+            val name = "$AUTO_BACKUP_FOLDER_PREFIX${java.time.LocalDate.now()}.zip"
+            val target = existing[name]?.let { android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, it) }
+                ?: android.provider.DocumentsContract.createDocument(resolver, parent, "application/zip", name)
+                ?: error("Could not create the backup file")
+            checkNotNull(resolver.openOutputStream(target, "wt")) { "Could not write to the backup folder" }.use { output ->
+                source.inputStream().use { it.copyTo(output) }
+            }
+            // Only CineTrack's own dated files are rotated; nothing else in the folder is touched.
+            (existing.keys + name).sortedDescending().drop(AUTO_BACKUP_FOLDER_KEEP).forEach { old ->
+                existing[old]?.let { id -> android.provider.DocumentsContract.deleteDocument(resolver, android.provider.DocumentsContract.buildDocumentUriUsingTree(tree, id)) }
+            }
+            context.cineTrackDataStore.edit { it[Keys.autoBackupFolderCopiedAt] = now }
+        }.onFailure { appendErrorLog("${java.time.Instant.now()}  Backup folder copy: ${it.message}") }
     }
 
     fun readAutomaticBackup(): Map<String, String> {

@@ -58,6 +58,16 @@
         </receiver>
         <receiver android:name=".data.sync.MarkEpisodeWatchedReceiver" android:exported="false" />
         <receiver android:name=".data.sync.QuietHoursEndReceiver" android:exported="false" />
+        <service
+            android:name=".NextEpisodeTileService"
+            android:exported="true"
+            android:icon="@drawable/ic_notification_cinetrack"
+            android:label="@string/tile_next_episode"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+        </service>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

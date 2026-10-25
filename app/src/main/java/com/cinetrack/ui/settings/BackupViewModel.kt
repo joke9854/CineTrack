@@ -34,6 +34,12 @@ interface BackupStore {
     suspend fun restoreBackupFiles(files: Map<String, String>, onStage: (String) -> Unit): Int
     suspend fun restoreAutomaticBackup(): Int
     suspend fun refreshProgressCache()
+    /** The folder that also receives the automatic backup, as a document tree URI. */
+    val backupFolder: kotlinx.coroutines.flow.Flow<String?> get() = kotlinx.coroutines.flow.flowOf(null)
+    suspend fun setBackupFolder(uri: String?) {}
+    suspend fun backupFolderName(uri: String): String? = null
+    val backupFolderFrequency: kotlinx.coroutines.flow.Flow<com.cinetrack.data.repository.BackupFolderFrequency> get() = kotlinx.coroutines.flow.flowOf(com.cinetrack.data.repository.BackupFolderFrequency.WEEKLY)
+    suspend fun setBackupFolderFrequency(frequency: com.cinetrack.data.repository.BackupFolderFrequency) {}
 }
 
 /**
@@ -49,6 +55,20 @@ class BackupViewModel(
     private val _restored = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     /** A restore finished; CineTrackViewModel reloads its state from the database. */
     val restored: SharedFlow<Unit> = _restored.asSharedFlow()
+
+    val backupFolder: kotlinx.coroutines.flow.Flow<String?> = store.backupFolder
+
+    fun setBackupFolder(uri: String?) {
+        viewModelScope.launch { store.setBackupFolder(uri) }
+    }
+
+    suspend fun backupFolderName(uri: String): String? = store.backupFolderName(uri)
+
+    val backupFolderFrequency: kotlinx.coroutines.flow.Flow<com.cinetrack.data.repository.BackupFolderFrequency> = store.backupFolderFrequency
+
+    fun setBackupFolderFrequency(frequency: com.cinetrack.data.repository.BackupFolderFrequency) {
+        viewModelScope.launch { store.setBackupFolderFrequency(frequency) }
+    }
 
     private val _backupProgress = MutableStateFlow<BackupProgress?>(null)
     val backupProgress: StateFlow<BackupProgress?> = _backupProgress.asStateFlow()

@@ -28,6 +28,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.TextButton
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Lan
+import androidx.compose.material.icons.filled.Sync
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandLess
@@ -98,7 +104,6 @@ internal fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
     SettingsSection(stringResource(R.string.integrations)) {
         ProviderRow("TMDB", stringResource(R.string.tmdb_description), state.tmdbApiConfigured) { onPage(SettingsPages.ServiceTmdb) }
         ProviderRow("MDBList", stringResource(R.string.mdblist_description), state.mdbListApiConfigured) { onPage(SettingsPages.ServiceMdblist) }
-        ProviderRow("Trakt", stringResource(R.string.trakt_description), state.traktConfigured) { onPage(SettingsPages.ServiceTrakt) }
         ProviderRow("Simkl", stringResource(R.string.simkl_description), state.simklConnected) { onPage(SettingsPages.ServiceSimkl) }
         ProviderRow("Floppy", floppyIntegrationSubtitle(state), state.floppyConnected) { onPage(SettingsPages.ServiceFloppy) }
     }
@@ -142,23 +147,23 @@ internal fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMo
     if (state.floppyConnected || state.floppyUiState == FloppyUiState.NEEDS_ATTENTION) SettingsSection(stringResource(R.string.floppy_status)) {
         // Whether it's connected; the role and the initial sync have their own rows.
         val attention = state.floppyUiState == FloppyUiState.NEEDS_ATTENTION
-        ValueRow(
+        KitRow(
+            if (attention) Icons.Filled.ErrorOutline else Icons.Filled.CloudDone,
             stringResource(R.string.floppy_status),
-            stringResource(when {
+            value = stringResource(when {
                 attention -> R.string.floppy_needs_attention
                 state.floppyConnected -> R.string.floppy_connected
                 else -> R.string.floppy_not_connected
             }),
-            state.floppyConnected && !attention,
         )
         if (state.floppyConnected) {
-            ValueRow(stringResource(R.string.floppy_role), when {
+            KitRow(Icons.Filled.SwapHoriz, stringResource(R.string.floppy_role), value = when {
                 state.floppyIsMain -> stringResource(R.string.floppy_role_main)
                 state.floppyUiState == FloppyUiState.CONNECTED_INACTIVE -> stringResource(R.string.floppy_role_connected_inactive)
                 else -> stringResource(R.string.floppy_role_secondary)
             })
-            state.floppyServerVersion?.let { ValueRow(stringResource(R.string.floppy_server_version), it) }
-            ValueRow(stringResource(R.string.floppy_initial_sync), when (state.floppyUiState) {
+            state.floppyServerVersion?.let { KitRow(Icons.Filled.Dns, stringResource(R.string.floppy_server_version), value = it) }
+            KitRow(Icons.Filled.Sync, stringResource(R.string.floppy_initial_sync), value = when (state.floppyUiState) {
                 FloppyUiState.READY -> stringResource(R.string.floppy_ready_short)
                 FloppyUiState.NEEDS_ATTENTION -> stringResource(R.string.floppy_initial_sync_failed)
                 else -> stringResource(R.string.floppy_setting_up)
@@ -194,11 +199,11 @@ internal fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMo
         }
         val retryableStage = observedBootstrapProgress?.stage?.allowsRetry() == true
         if (state.floppyUiState == FloppyUiState.NEEDS_ATTENTION || retryableStage) {
-            TextButton(onClick = viewModel::retryFloppyInitialSync, modifier = Modifier.padding(horizontal = Spacing.lg)) {
-                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(Spacing.xs))
-                Text(if (retryableStage && observedBootstrapProgress?.stage != FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry_now) else stringResource(R.string.retry))
-            }
+            KitRow(
+                Icons.Filled.Refresh,
+                if (retryableStage && observedBootstrapProgress?.stage != FloppyBootstrapStage.NEEDS_ATTENTION) stringResource(R.string.retry_now) else stringResource(R.string.retry),
+                onClick = viewModel::retryFloppyInitialSync,
+            )
         }
     }
     MainTrackerSection(state, controls)
@@ -232,8 +237,28 @@ internal fun FloppySettingsHost(state: AppUiState, viewModel: SyncSettingsViewMo
     if (state.floppyConnected) {
         val crashContext = LocalContext.current
         var sendCrashReports by remember { mutableStateOf(com.cinetrack.crash.CrashReportSettings.isEnabled(crashContext)) }
-        SettingsSection(stringResource(R.string.floppy_send_crash_reports)) {
-            ToggleRow(stringResource(R.string.floppy_send_crash_reports), sendCrashReports) {
+        // Reports are off until chosen: ask once after Floppy connects, so the choice is explicit.
+        var askCrashReports by remember { mutableStateOf(!com.cinetrack.crash.CrashReportSettings.hasChoice(crashContext)) }
+        if (askCrashReports) {
+            com.cinetrack.ui.components.ConfirmPrompt(
+                title = stringResource(R.string.crash_reports_prompt_title),
+                message = stringResource(R.string.crash_reports_prompt_message),
+                confirmLabel = stringResource(R.string.crash_reports_prompt_send),
+                icon = Icons.Filled.BugReport,
+                destructive = false,
+                onDismiss = {
+                    askCrashReports = false
+                    sendCrashReports = false
+                    com.cinetrack.crash.CrashReporting.setEnabled(crashContext, false)
+                },
+            ) {
+                askCrashReports = false
+                sendCrashReports = true
+                com.cinetrack.crash.CrashReporting.setEnabled(crashContext, true)
+            }
+        }
+        SettingsSection(stringResource(R.string.section_diagnostics)) {
+            KitToggleRow(Icons.Filled.BugReport, stringResource(R.string.floppy_send_crash_reports), stringResource(R.string.crash_reports_toggle_sub), sendCrashReports) {
                 sendCrashReports = it
                 com.cinetrack.crash.CrashReporting.setEnabled(crashContext, it)
             }
@@ -397,7 +422,7 @@ private fun FloppyUnplacedCard(
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            IconButton(onClick = onDismiss, modifier = Modifier.size(32.dp)) {
+            IconButton(onClick = onDismiss) {
                 Icon(Icons.Filled.Close, contentDescription = stringResource(R.string.floppy_unplaced_dismiss), tint = TextMuted, modifier = Modifier.size(18.dp))
             }
         }
@@ -487,19 +512,16 @@ internal fun FloppyConnectionSettingsForm(
             if (signInFlow) {
                 Spacer(Modifier.height(Spacing.md))
                 // Like Simkl: sign in on Floppy's own page, no key to create or paste.
-                Button(
-                    onClick = {
-                        focusManager.clearFocus()
-                        onSignInRequested(fullUrl, allowLocalHttp)
-                    },
+                KitPrimaryButton(
+                    stringResource(R.string.floppy_sign_in),
+                    Icons.Filled.Link,
+                    FloppyButton,
                     enabled = validUrl && !connectionUiState.running,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sign_in_button"),
-                    shape = RoundedCornerShape(Radius.Pill),
-                    colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
+                    modifier = Modifier.testTag("floppy_sign_in_button"),
+                    padded = false,
                 ) {
-                    Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                    Text(stringResource(R.string.floppy_sign_in), fontWeight = FontWeight.ExtraBold)
+                    focusManager.clearFocus()
+                    onSignInRequested(fullUrl, allowLocalHttp)
                 }
             }
             if (keyFlow) {
@@ -533,8 +555,7 @@ internal fun FloppyConnectionSettingsForm(
                 Icon(if (advancedExpanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextMuted)
             }
             if (advancedExpanded) {
-                ToggleRow(stringResource(R.string.floppy_allow_http_local_network), allowLocalHttp) { allowLocalHttp = it }
-                Text(stringResource(R.string.floppy_http_local_supporting), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, modifier = Modifier.padding(bottom = Spacing.sm))
+                KitToggleRow(Icons.Filled.Lan, stringResource(R.string.floppy_allow_http_local_network), stringResource(R.string.floppy_http_local_supporting), allowLocalHttp) { allowLocalHttp = it }
             }
             if (connectionUiState.stage != FloppyConnectionStage.IDLE) {
                 Text(
@@ -555,41 +576,27 @@ internal fun FloppyConnectionSettingsForm(
             // Connected to this address, the button syncs (like Simkl's); a changed
             // address turns it back into Reconnect.
             val syncAction = editing && onSyncRequested != null && fullUrl == state.floppyBaseUrl.orEmpty().trim()
-            if (syncAction) Button(
-                onClick = { onSyncRequested?.invoke() },
+            if (syncAction) KitPrimaryButton(
+                stringResource(R.string.sync_now),
+                Icons.Filled.Refresh,
+                FloppyButton,
                 enabled = !syncing && !connectionUiState.running,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sync_button"),
-                shape = RoundedCornerShape(Radius.Pill),
-                colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
-            ) {
-                if (syncing) {
-                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(Spacing.sm))
-                } else {
-                    Icon(Icons.Filled.Refresh, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                }
-                Text(stringResource(R.string.sync_now), fontWeight = FontWeight.ExtraBold)
-            }
+                modifier = Modifier.testTag("floppy_sync_button"),
+                loading = syncing,
+                padded = false,
+            ) { onSyncRequested?.invoke() }
             // Signing in is the connect action until a connection exists.
-            else if (!signInFlow) Button(
-                onClick = {
-                    focusManager.clearFocus()
-                    onConnectRequested(fullUrl, apiKey.trim(), allowLocalHttp)
-                },
+            else if (!signInFlow) KitPrimaryButton(
+                stringResource(if (editing) R.string.floppy_reconnect else R.string.floppy_connect),
+                Icons.Filled.Link,
+                FloppyButton,
                 enabled = canSubmit,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_connect_button"),
-                shape = RoundedCornerShape(Radius.Pill),
-                colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
+                modifier = Modifier.testTag("floppy_connect_button"),
+                loading = connectionUiState.running,
+                padded = false,
             ) {
-                if (connectionUiState.running) {
-                    CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(Spacing.sm))
-                } else {
-                    Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.width(7.dp))
-                }
-                Text(stringResource(if (editing) R.string.floppy_reconnect else R.string.floppy_connect), fontWeight = FontWeight.ExtraBold)
+                focusManager.clearFocus()
+                onConnectRequested(fullUrl, apiKey.trim(), allowLocalHttp)
             }
         }
     }

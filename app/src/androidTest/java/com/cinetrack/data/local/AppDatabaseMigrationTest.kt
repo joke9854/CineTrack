@@ -100,6 +100,22 @@ class AppDatabaseMigrationTest {
     }
 
     @Test
+    fun migration14To15AddsPersonalTablesAndKeepsHistory() {
+        helper.createDatabase("migration-14-personal", 14).use { db ->
+            db.execSQL("INSERT INTO watch_history(mediaType,mediaId,episodeId,season,episodeNumber,episodeTitle,watchedAt) VALUES ('MOVIE',603,NULL,NULL,NULL,NULL,'2020-01-01T20:15:30.123Z')")
+        }
+        helper.runMigrationsAndValidate("migration-14-personal", 15, true, AppDatabase.migration14To15).use { migrated ->
+            assertEquals(1, count(migrated, "watch_history"))
+            assertEquals(0, count(migrated, "user_ratings"))
+            migrated.execSQL("INSERT INTO custom_lists(name,createdAt) VALUES ('Halloween',1)")
+            migrated.execSQL("INSERT INTO custom_list_items(listId,mediaType,mediaId,addedAt) VALUES (1,'MOVIE',603,1)")
+            migrated.execSQL("INSERT INTO user_ratings(mediaType,mediaId,score,note,updatedAt) VALUES ('MOVIE',603,9,'',1)")
+            assertEquals(1, count(migrated, "custom_list_items"))
+            assertEquals(1, count(migrated, "user_ratings"))
+        }
+    }
+
+    @Test
     fun migration11To12CancelsUnknownLegacyFloppyDelivery() {
         helper.createDatabase("migration-11-floppy", 11).use { db ->
             db.execSQL("INSERT INTO sync_operation_deliveries(operationId,operationVersion,providerId,status,required,roleAtEnqueue,attemptCount,lastError,createdAt,updatedAt) VALUES ('legacy-floppy',1,'FLOPPY','PENDING',1,'SECONDARY',0,NULL,1,1)")

@@ -1,0 +1,46 @@
+name: Macrobenchmarks
+
+# Startup and scroll benchmarks on an emulator. Emulator numbers are noisy, so this is a
+# manual check for big regressions (compare the JSON between runs), not a release gate.
+# Exact timings come from the S23 (see .trail learnings on running journeys with adb).
+on:
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4.9.1
+        with:
+          distribution: temurin
+          java-version: "17"
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4.4.3
+      - name: Enable KVM acceleration
+        run: |
+          if [ ! -e /dev/kvm ]; then
+            echo "::error::This runner does not expose /dev/kvm; refusing to run the Android emulator in slow software-emulation mode."
+            exit 1
+          fi
+          sudo chmod 0666 /dev/kvm
+      - name: Run startup and scroll benchmarks
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -no-metrics
+          script: >-
+            ./gradlew :baselineprofile:connectedBenchmarkReleaseAndroidTest
+            -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.enabledRules=Macrobenchmark
+            -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: CineTrack-macrobenchmarks
+          path: baselineprofile/build/outputs/connected_android_test_additional_output
+          if-no-files-found: warn
+          retention-days: 30

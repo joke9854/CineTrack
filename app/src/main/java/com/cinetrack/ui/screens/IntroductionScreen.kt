@@ -20,6 +20,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.QueryStats
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -62,12 +63,23 @@ fun IntroductionScreen(
     onOpenSettings: () -> Unit,
     onFinish: () -> Unit,
 ) {
-    val pages = listOf(
+    val context = androidx.compose.ui.platform.LocalContext.current
+    // Android 13+ asks for notifications; the step is skipped when they are already allowed.
+    val askNotifications = remember {
+        android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
+    }
+    val notificationsPage = IntroductionPage(R.string.intro_notifications_title, R.string.intro_notifications_body, Icons.Filled.Notifications)
+    val pages = listOfNotNull(
         IntroductionPage(R.string.intro_welcome_title, R.string.intro_welcome_body, Icons.Filled.Explore),
         IntroductionPage(R.string.intro_progress_title, R.string.intro_progress_body, Icons.Filled.QueryStats),
+        notificationsPage.takeIf { askNotifications },
         IntroductionPage(R.string.intro_api_title, R.string.intro_api_body, Icons.Filled.Link),
     )
     var pageIndex by remember { mutableIntStateOf(0) }
+    val notificationPermission = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission(),
+    ) { pageIndex = (pageIndex + 1).coerceAtMost(pages.lastIndex) }
     // Back steps through the intro instead of reaching the page underneath it.
     androidx.activity.compose.BackHandler(enabled = pageIndex > 0) { pageIndex-- }
     val page = pages[pageIndex]
@@ -111,7 +123,21 @@ fun IntroductionScreen(
                     )
                 }
             }
-            if (pageIndex < pages.lastIndex) {
+            if (page == notificationsPage) {
+                PrimaryAction(
+                    text = stringResource(R.string.intro_notifications_allow),
+                    icon = Icons.Filled.Notifications,
+                    modifier = Modifier.fillMaxWidth(),
+                ) { notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS) }
+                Text(
+                    stringResource(R.string.intro_notifications_skip),
+                    color = TextSecondary,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth().height(48.dp).clickable { pageIndex++ }.padding(top = Spacing.lg),
+                )
+            } else if (pageIndex < pages.lastIndex) {
                 PrimaryAction(
                     text = stringResource(R.string.intro_next),
                     icon = Icons.AutoMirrored.Filled.ArrowForward,

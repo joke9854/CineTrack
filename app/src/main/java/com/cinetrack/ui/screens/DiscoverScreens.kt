@@ -907,7 +907,7 @@ fun DiscoverListScreen(
         Box(Modifier.fillMaxSize()) {
             LazyVerticalGrid(
                 state = gridState,
-                columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
+                columns = GridCells.Fixed(gridColumnsFor(state.cardDensity)),
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp),
                 horizontalArrangement = Arrangement.spacedBy(Spacing.md),

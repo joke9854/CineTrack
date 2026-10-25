@@ -73,16 +73,21 @@ import java.time.ZoneId
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 
+/** Today in the metadata timezone (Settings > Metadata), which dates the statistics. */
 @Composable
-internal fun StatisticsSection(state: com.cinetrack.ui.progress.ProgressUiState, people: ViewingPeopleInsights) {
-    val now = remember(state.metadataTimezone) {
-        val zone = if (state.metadataTimezone == "system") ZoneId.systemDefault()
-        else runCatching { ZoneId.of(state.metadataTimezone) }.getOrDefault(ZoneId.systemDefault())
-        LocalDate.now(zone)
-    }
-    // Thousands of history timestamps are parsed off the main thread, once per change;
-    // re-entering the tab reuses the last summary instead of stalling the first frame.
-    val inputs = StatsInputs(state.history, state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty(), now)
+private fun rememberStatsToday(timezone: String): LocalDate = remember(timezone) {
+    val zone = if (timezone == "system") ZoneId.systemDefault()
+    else runCatching { ZoneId.of(timezone) }.getOrDefault(ZoneId.systemDefault())
+    LocalDate.now(zone)
+}
+
+/**
+ * The statistics summary, computed off the main thread once per change of history or library.
+ * Shared by the Profile page and the Settings Profile card; returning reuses the last summary.
+ */
+@Composable
+private fun rememberStatsSummary(history: List<TimelineCard>, library: List<MediaCard>, timezone: String): StatsSummary? {
+    val inputs = StatsInputs(history, library, rememberStatsToday(timezone))
     val stats by produceState(initialValue = StatsCache.result.takeIf { StatsCache.inputs == inputs }, inputs) {
         if (value == null || StatsCache.inputs != inputs) {
             val computed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) { computeStats(inputs) }
@@ -91,26 +96,30 @@ internal fun StatisticsSection(state: com.cinetrack.ui.progress.ProgressUiState,
             value = computed
         }
     }
-    val summary = stats ?: run {
+    return stats
+}
+
+/** Minutes watched this year, from the same summary as the Profile statistics; null while it is computed. */
+@Composable
+internal fun rememberYearMinutes(history: List<TimelineCard>, library: List<MediaCard>, timezone: String): Int? =
+    rememberStatsSummary(history, library, timezone)?.year?.minutes
+
+/** The Profile page's statistics: the year, this week and completion side by side, genres, then people. */
+@Composable
+internal fun StatisticsSection(state: com.cinetrack.ui.progress.ProgressUiState, people: ViewingPeopleInsights) {
+    val now = rememberStatsToday(state.metadataTimezone)
+    val summary = rememberStatsSummary(state.history, state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty(), state.metadataTimezone) ?: run {
         LoadingPane(Modifier.height(320.dp))
         return
     }
-    val completed = summary.completed
-    val abandoned = summary.abandoned
-    val finishedTotal = completed + abandoned
-    val completionRate = if (finishedTotal == 0) 0 else completed * 100 / finishedTotal
     var yearSheet by rememberSaveable { mutableStateOf(false) }
-    // Headline first: the year in one number, four facts, then the detail.
     Column(Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
         YearHero(summary, now) { yearSheet = true }
-        StatsFacts(summary)
-        ThisWeekCard(summary.week, now)
-        GenreBars(summary.genreShares)
         Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-            StatisticTile(stringResource(R.string.completion_rate), "$completionRate%", Modifier.weight(1f))
-            StatisticTile(stringResource(R.string.completed), completed.toString(), Modifier.weight(1f))
-            StatisticTile(stringResource(R.string.dropped), abandoned.toString(), Modifier.weight(1f))
+            ThisWeekCard(summary.week, now, Modifier.weight(1f).fillMaxHeight())
+            CompletionCard(summary.completed, summary.abandoned, Modifier.weight(1f).fillMaxHeight())
         }
+        GenreBars(summary.genreShares)
         Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(Spacing.md)) {
             Text(stringResource(R.string.most_watched_people), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(9.dp))
@@ -200,47 +209,39 @@ private fun MonthCurve(months: List<Int>, upToMonth: Int, modifier: Modifier) {
     }
 }
 
+/** Half-width: this week's time, its plays and a bar per day. */
 @Composable
-private fun StatsFacts(summary: StatsSummary) {
-    val year = summary.year
-    val usual = summary.usualSlot?.let { (day, hour) ->
-        day.getDisplayName(java.time.format.TextStyle.SHORT, com.cinetrack.ui.currentLocale()).replaceFirstChar { it.titlecase(com.cinetrack.ui.currentLocale()) } + " " + "%02d:00".format(hour)
-    } ?: "—"
-    val facts = listOf(
-        pluralStringResource(R.plurals.episodes_count, year.episodes, year.episodes) to pluralStringResource(R.plurals.shows_count, summary.yearShows, summary.yearShows),
-        pluralStringResource(R.plurals.movies_count, year.movies, year.movies) to stringResource(R.string.this_year),
-        pluralStringResource(R.plurals.days_count, year.longestStreak, year.longestStreak) to stringResource(R.string.year_longest_streak),
-        usual to stringResource(R.string.stats_usual_time),
-    )
-    Column(verticalArrangement = Arrangement.spacedBy(9.dp)) {
-        facts.chunked(2).forEach { row ->
-            Row(Modifier.fillMaxWidth().height(androidx.compose.foundation.layout.IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                row.forEach { (value, label) ->
-                    Column(Modifier.weight(1f).fillMaxHeight().glass(RoundedCornerShape(Radius.Medium)).padding(horizontal = 14.dp, vertical = Spacing.md)) {
-                        Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
+private fun ThisWeekCard(week: WeekActivity, now: LocalDate, modifier: Modifier) {
+    Column(modifier.glass(RoundedCornerShape(Radius.Medium)).padding(14.dp)) {
+        TrackedLabel(stringResource(R.string.this_week))
+        Text(formatWatchedDurationMinutes(week.minutes).ifBlank { "0m" }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.padding(top = Spacing.xs))
+        Text(
+            pluralStringResource(R.plurals.episodes_count, week.episodes, week.episodes) + " · " + pluralStringResource(R.plurals.movies_count, week.movies, week.movies),
+            color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(Spacing.md))
+        Spacer(Modifier.weight(1f))
+        WeekBars(week, now, 12.dp, 34.dp, labels = true)
     }
 }
 
+/** Half-width: the share of finished titles completed rather than dropped. */
 @Composable
-private fun ThisWeekCard(week: WeekActivity, now: LocalDate) {
-    Row(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(14.dp),
-        verticalAlignment = Alignment.Bottom,
-    ) {
-        Column(Modifier.weight(1f)) {
-            TrackedLabel(stringResource(R.string.this_week))
-            Text(formatWatchedDurationMinutes(week.minutes).ifBlank { "0m" }, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(top = Spacing.xs))
-            Text(
-                pluralStringResource(R.plurals.episodes_count, week.episodes, week.episodes) + " · " + pluralStringResource(R.plurals.movies_count, week.movies, week.movies),
-                color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-            )
+private fun CompletionCard(completed: Int, abandoned: Int, modifier: Modifier) {
+    val finished = completed + abandoned
+    val rate = if (finished == 0) 0 else completed * 100 / finished
+    Column(modifier.glass(RoundedCornerShape(Radius.Medium)).padding(14.dp)) {
+        TrackedLabel(stringResource(R.string.completion_rate))
+        Text("$rate%", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1, modifier = Modifier.padding(top = Spacing.xs))
+        Text(
+            stringResource(R.string.completed) + " " + completed + " · " + stringResource(R.string.dropped) + " " + abandoned,
+            color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        )
+        Spacer(Modifier.height(Spacing.md))
+        Spacer(Modifier.weight(1f))
+        Box(Modifier.fillMaxWidth().height(7.dp).clip(CircleShape).background(Color.White.copy(alpha = .06f))) {
+            Box(Modifier.fillMaxWidth(rate / 100f).fillMaxHeight().clip(CircleShape).background(Brush.horizontalGradient(listOf(Accent, Info))))
         }
-        WeekBars(week, now, 12.dp, 46.dp, labels = true)
     }
 }
 
@@ -337,23 +338,6 @@ private fun ActivityHeatmap(summary: StatsSummary, now: LocalDate) {
             Spacer(Modifier.width(5.dp))
             Text(stringResource(R.string.more_activity), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall)
         }
-    }
-}
-
-@Composable
-private fun StatisticTile(label: String, value: String, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxHeight().glass(RoundedCornerShape(Radius.Medium)).padding(horizontal = Spacing.sm, vertical = Spacing.md), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Text(
-            value.ifBlank { "—" },
-            color = TextPrimary,
-            style = MaterialTheme.typography.titleSmall,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 4,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-        )
-        Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
     }
 }
 

@@ -331,7 +331,7 @@ class MediaMetadataRepository(
                     number = episode.number,
                     title = episode.name,
                     overview = episode.overview,
-                    // The chosen provider's date (TMDB, Trakt or Simkl), with fallback.
+                    // The chosen provider's date (TMDB, TVmaze or Simkl), with fallback.
                     airDate = shownDates[com.cinetrack.data.schedule.EpisodeKey(show.id, episode.season, episode.number)] ?: episode.airDate,
                     stillUrl = tmdbImageUrl(episode.stillPath, "w780"),
                     runtimeMinutes = episode.runtime,

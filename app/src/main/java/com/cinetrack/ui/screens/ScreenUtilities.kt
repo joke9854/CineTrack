@@ -17,6 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.ui.res.stringResource
 import com.cinetrack.R
 import com.cinetrack.domain.releaseDateTime
@@ -188,3 +191,11 @@ internal fun NavCollapseGridEffect(gridState: LazyGridState, onCompact: (Boolean
         }
     }
 }
+
+/** Pages of text and settings stay a readable width on tablets and unfolded foldables. */
+internal fun Modifier.readableWidth(): Modifier = fillMaxWidth().wrapContentWidth(Alignment.CenterHorizontally).widthIn(max = 760.dp)
+
+/** Poster grid columns for the current screen width (see CardAppearance.gridColumns). */
+@Composable
+internal fun gridColumnsFor(density: String): Int =
+    com.cinetrack.domain.CardAppearance.gridColumns(density, androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp)

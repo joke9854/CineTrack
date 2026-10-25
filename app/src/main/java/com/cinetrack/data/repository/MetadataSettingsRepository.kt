@@ -4,6 +4,7 @@ import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.remote.ApiServices
 import com.cinetrack.data.remote.NetworkFactory
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.flow.first
 
 /**
  * Metadata settings and API credentials: each write saves the preference and then updates
@@ -21,6 +22,12 @@ class MetadataSettingsRepository(
     private val onMetadataTimezoneChanged: (String) -> Unit = {},
     /** Drops metadata cached in the previous language (ProgressCacheRepository.clearEpisodeTitleCache). */
     private val clearLanguageCaches: () -> Unit = {},
+    /** The direct TVDB client the character pictures use (shared, so a new key drops its token). */
+    private val tvdbCharacters: com.cinetrack.data.media.TvdbCharacterSource = com.cinetrack.data.media.TvdbCharacterSource(
+        tvdb = { com.cinetrack.data.remote.ExtraMetadataClients.tvdb },
+        tmdb = { services.tmdb },
+        credentials = { preferences.tvdbApiKeyNow() to preferences.tvdbPinNow() },
+    ),
 ) {
     private suspend fun <T> cancellableResult(block: suspend () -> T): Result<T> = try {
         Result.success(block())
@@ -52,13 +59,57 @@ class MetadataSettingsRepository(
         onMdbListApiKeyChanged(candidate)
     }
 
-    /** Checks the client ID against Trakt's public calendar before saving it. */
-    suspend fun verifyAndSetTraktClientId(value: String): Result<Unit> = cancellableResult {
+    /** Checks the key against a well-known movie before saving it. */
+    suspend fun verifyAndSetFanartApiKey(value: String): Result<Unit> = cancellableResult {
         val candidate = value.trim()
-        require(candidate.isNotBlank()) { "Trakt client ID cannot be empty" }
-        val service = checkNotNull(services.traktCalendar) { "Trakt is unavailable" }
-        service.shows(candidate, java.time.LocalDate.now(java.time.ZoneOffset.UTC).toString(), 1)
-        preferences.setTraktClientId(candidate)
+        require(candidate.isNotBlank()) { "Fanart.tv API key cannot be empty" }
+        com.cinetrack.data.remote.ExtraMetadataClients.fanart.movie(550, candidate)
+        preferences.setFanartApiKey(candidate)
+    }
+
+    /** Checks the premium credentials with TVmaze's user API before saving them. */
+    suspend fun verifyAndSetTvmazeUser(username: String, apiKey: String): Result<Unit> = cancellableResult {
+        val user = username.trim()
+        val key = apiKey.trim()
+        require(user.isNotBlank()) { "TVmaze username cannot be empty" }
+        require(key.isNotBlank()) { "TVmaze API key cannot be empty" }
+        val premium = try {
+            com.cinetrack.data.remote.ExtraMetadataClients.tvmaze.validate(com.cinetrack.data.remote.tvmazeBasicAuth(user, key)).premium
+        } catch (error: retrofit2.HttpException) {
+            throw IllegalArgumentException(if (error.code() == 401) "TVmaze did not accept this username and key" else "TVmaze answered ${error.code()}")
+        }
+        require(premium > 0) { "This TVmaze account has no premium plan" }
+        preferences.setTvmazeUser(user, key)
+    }
+
+    suspend fun clearTvmazeUser() = preferences.setTvmazeUser(null, null)
+
+    /** Logs in to TVDB with the key (and PIN) before saving them. */
+    suspend fun verifyAndSetTvdbKey(apiKey: String, pin: String): Result<Unit> = cancellableResult {
+        val key = apiKey.trim()
+        require(key.isNotBlank()) { "TVDB API key cannot be empty" }
+        tvdbCharacters.verify(key, pin.trim())
+        preferences.setTvdbCredentials(key, pin)
+        tvdbCharacters.clear()
+    }
+
+    suspend fun clearTvdbKey() {
+        preferences.setTvdbCredentials(null, null)
+        tvdbCharacters.clear()
+    }
+
+    /** Once after the update that removed Trakt: its key, its choice and its stored air dates go. */
+    suspend fun retireTrakt() {
+        if (!preferences.retireTrakt()) return
+        database.mediaDao().deleteAirDatesFrom(com.cinetrack.data.schedule.AirDateSource.RETIRED_TRAKT)
+        com.cinetrack.data.schedule.reapplyAirDates(database, preferences.airDateSource.first())
+    }
+
+    /** Turns TVmaze air times on or off and shows the dates that are then left. */
+    suspend fun setTvmazeEnabled(enabled: Boolean) {
+        preferences.setTvmazeEnabled(enabled)
+        if (!enabled) database.mediaDao().deleteAirDatesFrom(com.cinetrack.data.schedule.AirDateSource.TVMAZE)
+        com.cinetrack.data.schedule.reapplyAirDates(database, preferences.airDateSource.first())
     }
 
     suspend fun setMetadataLanguage(value: String) {

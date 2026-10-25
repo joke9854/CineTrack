@@ -79,7 +79,7 @@ class MetadataSettingsRepositoryTest {
         assertTrue(repository.verifyAndSetMdbListApiKey("   ").isFailure)
         // The check request fails (no network here): nothing is saved or applied.
         assertTrue(repository.verifyAndSetMdbListApiKey("new-key").isFailure)
-        assertTrue(repository.verifyAndSetTraktClientId("").isFailure)
+        assertTrue(repository.verifyAndSetFanartApiKey("").isFailure)
 
         assertEquals(before, preferences.mdbListApiKeyNow())
         assertTrue(calls.isEmpty())

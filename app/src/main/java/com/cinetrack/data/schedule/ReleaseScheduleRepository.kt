@@ -18,15 +18,15 @@ interface ReleaseScheduleRepository {
 /**
  * Schedule sources are intentionally selected independently from tracking roles.
  *
- * Air times come from Trakt when a Trakt client ID is configured (exact first
- * air instants, including streaming release times), with Simkl's public
- * calendar as the fallback.
+ * Air times come from TVmaze when it is on (exact air instants), with Simkl's
+ * public calendar as the fallback.
  */
 class DefaultReleaseScheduleRepository(
     private val database: AppDatabase,
     private val services: ApiServices,
-    private val traktClientId: suspend () -> String = { "" },
     private val airDateSource: suspend () -> String = { AirDateSource.DEFAULT },
+    private val tvmazeEnabled: suspend () -> Boolean = { false },
+    private val tvmaze: () -> com.cinetrack.data.remote.TvmazeService? = { null },
 ) : ReleaseScheduleRepository {
     override suspend fun refresh(shows: List<MediaCard>, force: Boolean): Boolean {
         val now = System.currentTimeMillis()
@@ -40,37 +40,24 @@ class DefaultReleaseScheduleRepository(
             return true
         }
 
-        val traktKey = traktClientId().trim()
-        val (simkl, trakt) = coroutineScope {
+        val (tvResult, animeResult) = coroutineScope {
             val tv = async { runCatching { services.simklCalendar.tv() } }
             val anime = async { runCatching { services.simklCalendar.anime() } }
-            val trakt = async {
-                val service = services.traktCalendar
-                if (traktKey.isBlank() || service == null) null
-                else runCatching {
-                    service.shows(traktKey, LocalDate.now(ZoneOffset.UTC).minusDays(1).toString(), TRAKT_CALENDAR_DAYS)
-                }
-            }
-            (tv.await() to anime.await()) to trakt.await()
+            tv.await() to anime.await()
         }
-        val (tvResult, animeResult) = simkl
         val complete = tvResult.isSuccess && animeResult.isSuccess
         val tracked = shows.map(MediaCard::id).toSet()
         val snapshot = database.mediaDao().episodeSnapshot()
         val existing = snapshot.associateBy { Triple(it.showId, it.season, it.number) }
-        val existingByEpisodeId = snapshot.filter { it.tmdbId != null }.associateBy { it.showId to it.tmdbId }
 
-        val (simklTimes, traktTimes) = airTimesBySource(
-            simkl = tvResult.getOrDefault(emptyList()) + animeResult.getOrDefault(emptyList()),
-            trakt = trakt?.getOrNull().orEmpty(),
-            tracked = tracked,
-            localByEpisodeId = existingByEpisodeId.mapValues { (_, row) -> Triple(row.showId, row.season, row.number) },
-        )
+        val simklTimes = simklAirTimes(tvResult.getOrDefault(emptyList()) + animeResult.getOrDefault(emptyList()), tracked)
+        val tvmazeTimes = if (tvmazeEnabled()) runCatching { tvmazeAirTimes(tracked, snapshot, now) }.getOrDefault(emptyMap()) else emptyMap()
         // Each provider's dates are kept; the episode shows the chosen provider's.
-        val preferred = airDateSource()
-        val legacy = (simklTimes.keys + traktTimes.keys).associateWith { existing[it]?.airDate }
+        val preferred = AirDateSource.normalize(airDateSource())
+        val legacy = (simklTimes.keys + tvmazeTimes.keys).associateWith { existing[it]?.airDate }
         recordAirDates(database, AirDateSource.SIMKL, simklTimes, preferred, legacy)
-        val airTimes = recordAirDates(database, AirDateSource.TRAKT, traktTimes + simklTimes.keys.filter { it !in traktTimes }.associateWith { null }, preferred, legacy)
+        // The last call resolves every key, so it covers the Simkl-only episodes as well.
+        val airTimes = recordAirDates(database, AirDateSource.TVMAZE, tvmazeTimes + simklTimes.keys.filter { it !in tvmazeTimes }.associateWith { null }, preferred, legacy)
             .mapNotNull { (key, date) -> date?.let { key to it } }.toMap()
         val calendarRows = airTimes.map { (key, airDate) ->
             val (showId, season, number) = key
@@ -101,35 +88,62 @@ class DefaultReleaseScheduleRepository(
         return complete
     }
 
+    /**
+     * TVmaze's exact air instants for tracked shows with an episode from yesterday to the
+     * coming week. Show ids are looked up once (TVDB, then IMDb, through TMDB's external
+     * ids) and kept in sync_state; a show TVmaze doesn't know is retried after a week.
+     */
+    private suspend fun tvmazeAirTimes(tracked: Set<Int>, snapshot: List<EpisodeEntity>, now: Long): Map<Triple<Int, Int, Int>, String> {
+        val service = tvmaze() ?: return emptyMap()
+        val today = LocalDate.now(ZoneOffset.UTC)
+        val window = today.minusDays(1)..today.plusDays(TVMAZE_WINDOW_DAYS.toLong())
+        val byShow = snapshot.filter { it.showId in tracked }.groupBy(EpisodeEntity::showId)
+        val due = byShow.filterValues { episodes ->
+            episodes.any { episode -> episode.airDate?.take(10)?.let { runCatching { LocalDate.parse(it) }.getOrNull() }?.let { it in window } == true }
+        }.keys.take(TVMAZE_MAX_SHOWS)
+        val times = linkedMapOf<Triple<Int, Int, Int>, String>()
+        for (showId in due) {
+            val mazeId = tvmazeId(service, showId, now) ?: continue
+            val local = byShow[showId].orEmpty().associateBy { it.season to it.number }
+            runCatching { service.episodes(mazeId) }.getOrNull().orEmpty().forEach { episode ->
+                val number = episode.number ?: return@forEach
+                val stamp = episode.airstamp?.takeIf(String::isNotBlank) ?: return@forEach
+                val row = local[episode.season to number] ?: return@forEach
+                // Numbering can differ (anime, specials): only trust TVmaze when its day matches TMDB's within one.
+                if (tvmazeMatchesTmdb(row.airDate, episode.airdate)) times[Triple(showId, episode.season, number)] = stamp
+            }
+        }
+        return times
+    }
+
+    private suspend fun tvmazeId(service: com.cinetrack.data.remote.TvmazeService, showId: Int, now: Long): Int? {
+        val cacheKey = "tvmaze:$showId"
+        database.syncDao().get(cacheKey)?.let { cached ->
+            val id = cached.remoteTimestamp?.toIntOrNull()
+            if (id != null && id > 0) return id
+            if (now - cached.lastSuccessfulSync < 7L * 24 * 60 * 60 * 1000) return null
+        }
+        val ids = runCatching { services.tmdb.tvExternalIds(showId) }.getOrNull() ?: return null
+        val found = ids.tvdbId?.let { runCatching { service.lookup(tvdb = it) }.getOrNull() }
+            ?: ids.imdbId?.takeIf(String::isNotBlank)?.let { runCatching { service.lookup(imdb = it) }.getOrNull() }
+        database.syncDao().upsertAll(listOf(SyncStateEntity(cacheKey, (found?.id ?: 0).toString(), now)))
+        return found?.id
+    }
+
     private companion object {
         /** Yesterday plus the coming week: where an exact time decides
          * whether an episode is out yet. Simkl covers the longer horizon. */
-        const val TRAKT_CALENDAR_DAYS = 9
+        const val TVMAZE_WINDOW_DAYS = 9
+        /** TVmaze allows 20 calls per 10 s; a refresh stays well under it. */
+        const val TVMAZE_MAX_SHOWS = 12
     }
 }
 
-/**
- * Air time per (TMDB show, season, episode): Trakt's exact first-air instant
- * wherever Trakt knows the episode, otherwise Simkl's calendar time. A Trakt
- * episode's TMDB id finds the local row even when Trakt numbers it differently.
- */
-/** Simkl's and Trakt's air time per (TMDB show, season, episode), kept apart. */
-internal fun airTimesBySource(
-    simkl: List<com.cinetrack.data.remote.SimklCalendarItem>,
-    trakt: List<com.cinetrack.data.remote.TraktCalendarItem>,
-    tracked: Set<Int>,
-    localByEpisodeId: Map<Pair<Int, Int?>, Triple<Int, Int, Int>> = emptyMap(),
-): Pair<Map<Triple<Int, Int, Int>, String>, Map<Triple<Int, Int, Int>, String>> {
-    val simklTimes = mergeAirTimes(simkl, emptyList(), tracked, localByEpisodeId)
-    val traktTimes = mergeAirTimes(emptyList(), trakt, tracked, localByEpisodeId)
-    return simklTimes to traktTimes
-}
 
-internal fun mergeAirTimes(
+/** Simkl's calendar time per tracked (TMDB show, season, episode); the first listing wins. */
+internal fun simklAirTimes(
     simkl: List<com.cinetrack.data.remote.SimklCalendarItem>,
-    trakt: List<com.cinetrack.data.remote.TraktCalendarItem>,
     tracked: Set<Int>,
-    localByEpisodeId: Map<Pair<Int, Int?>, Triple<Int, Int, Int>> = emptyMap(),
 ): Map<Triple<Int, Int, Int>, String> {
     val airTimes = linkedMapOf<Triple<Int, Int, Int>, String>()
     simkl.forEach { item ->
@@ -142,13 +156,12 @@ internal fun mergeAirTimes(
             ?: return@forEach
         airTimes.putIfAbsent(Triple(showId, season, number), date)
     }
-    trakt.forEach { item ->
-        val showId = item.show.ids.tmdb?.takeIf(tracked::contains) ?: return@forEach
-        val aired = item.firstAired?.takeIf { it.length > 10 } ?: return@forEach
-        val key = item.episode.ids.tmdb?.let { localByEpisodeId[showId to it] }
-            ?: Triple(showId, item.episode.season, item.episode.number).takeIf { it.second >= 0 && it.third > 0 }
-            ?: return@forEach
-        airTimes[key] = aired
-    }
     return airTimes
+}
+
+/** True when TVmaze's air day is within one day of TMDB's (either may be in another zone). */
+internal fun tvmazeMatchesTmdb(tmdbAirDate: String?, tvmazeAirDate: String?): Boolean {
+    val tmdb = tmdbAirDate?.take(10)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+    val maze = tvmazeAirDate?.take(10)?.let { runCatching { LocalDate.parse(it) }.getOrNull() } ?: return false
+    return kotlin.math.abs(java.time.temporal.ChronoUnit.DAYS.between(tmdb, maze)) <= 1
 }

@@ -109,9 +109,12 @@ class CineTrackApplication : Application(), SingletonImageLoader.Factory {
             container.preferences.hideAdultTitles.collect { com.cinetrack.data.remote.TmdbContentFilter.hideAdult = it }
         }
         ReleaseNotifier.createChannel(this)
+        com.cinetrack.data.sync.StreamingAlerts.createChannel(this)
+        com.cinetrack.data.sync.StreamingAlerts.schedule(this)
         applicationScope.launch(Dispatchers.IO) {
             val connected = runCatching { container.preferences.floppySettingsNow() != null }.getOrDefault(false)
             runCatching { CrashReporting.startup(this@CineTrackApplication, connected) }
+            runCatching { container.metadataSettings.retireTrakt() }
             // Shared exports (backup zip with watch history, logs, calendar) only need to live
             // while the share sheet reads them; drop anything older than a day.
             runCatching {
@@ -188,6 +191,14 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
     lateinit var libraryArtworkRefreshManager: LibraryArtworkRefreshManager
     lateinit var floppyBootstrapWorkManager: FloppyBootstrapWorkManager
     val crashReportUploader: CrashReportUploader
+    /** TVDB character pictures with the user's own key, when Floppy has none to give. */
+    private val tvdbCharacters by lazy {
+        com.cinetrack.data.media.TvdbCharacterSource(
+            tvdb = { com.cinetrack.data.remote.ExtraMetadataClients.tvdb },
+            tmdb = { services.tmdb },
+            credentials = { preferences.tvdbApiKeyNow() to preferences.tvdbPinNow() },
+        )
+    }
     /** Metadata settings and API keys; updates the live values the network clients read. */
     val metadataSettings by lazy {
         MetadataSettingsRepository(
@@ -203,6 +214,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
                 progressCache.clearEpisodeTitleCache()
                 mediaMetadata.clearLanguageCaches()
             },
+            tvdbCharacters = tvdbCharacters,
         )
     }
     /** Export, restore and the automatic backup after library changes. */
@@ -213,6 +225,54 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             metadataSettings = { metadataSettings },
             loadState = appState::loadCachedState,
             rebuildLibraryRail = syncHost::rebuildLibraryRailInTransaction,
+        )
+    }
+    /** Your ratings, notes and lists (local, in backups). */
+    val personalRepository by lazy { com.cinetrack.data.personal.PersonalRepository(database) }
+    private var logoPrefetch: kotlinx.coroutines.Job? = null
+    private val logoApplication = application
+    private val logoScope = applicationScope
+
+    /** Fetches the Fanart.tv logos (and their pictures) of [titles] in the background; a newer call replaces an older one. */
+    fun prefetchLogos(titles: List<com.cinetrack.domain.MediaCard>) {
+        logoPrefetch?.cancel()
+        logoPrefetch = logoScope.launch(Dispatchers.IO) {
+            runCatching {
+                val loader = coil3.SingletonImageLoader.get(logoApplication)
+                fanartRepository.prefetch(titles) { url ->
+                    // Into the disk cache only: the page decodes it when it opens.
+                    loader.execute(coil3.request.ImageRequest.Builder(logoApplication).data(url).memoryCachePolicy(coil3.request.CachePolicy.DISABLED).build())
+                }
+            }
+        }
+    }
+    /** Title logos for the Detail page (needs the user's Fanart.tv key). */
+    val fanartRepository by lazy {
+        com.cinetrack.data.media.FanartRepository(
+            fanart = { com.cinetrack.data.remote.ExtraMetadataClients.fanart },
+            tmdb = { services.tmdb },
+            apiKey = { preferences.fanartApiKeyNow() },
+            language = { metadataLanguage.get().takeUnless { it == "system" }?.take(2) ?: java.util.Locale.getDefault().language },
+            persisted = { application.getSharedPreferences("fanart_logos", android.content.Context.MODE_PRIVATE) },
+        ).also { repository -> applicationScope.launch(Dispatchers.IO) { runCatching { repository.warm() } } }
+    }
+    /** Plan-to-watch titles arriving on your streaming services. */
+    val streamingAvailability by lazy {
+        com.cinetrack.data.sync.StreamingAvailabilityChecker(
+            tmdb = { services.tmdb },
+            tmdbConfigured = { tmdbApiKey.get().isNotBlank() },
+            database = database,
+            preferences = preferences,
+        )
+    }
+    /** Letterboxd and IMDb exports into the library and your ratings. */
+    val externalImporter by lazy {
+        com.cinetrack.data.importer.ExternalImporter(
+            tmdb = { services.tmdb },
+            tmdbConfigured = { tmdbApiKey.get().isNotBlank() },
+            database = database,
+            library = { libraryRepository },
+            personal = personalRepository,
         )
     }
     /** Shared by CineTrackViewModel (watched marks) and DetailViewModel (loads). */
@@ -356,7 +416,7 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             trackingProviderRegistry,
             trackingRoutingMutex,
         )
-        val releaseSchedule = DefaultReleaseScheduleRepository(database, services, traktClientId = { preferences.traktClientIdNow() }, airDateSource = { preferences.airDateSource.first() })
+        val releaseSchedule = DefaultReleaseScheduleRepository(database, services, airDateSource = { preferences.airDateSource.first() }, tvmazeEnabled = { preferences.tvmazeEnabled.first() }, tvmaze = { com.cinetrack.data.remote.ExtraMetadataClients.tvmaze })
         mediaMetadata = MediaMetadataRepository(
             database = database,
             services = services,
@@ -365,8 +425,19 @@ class AppContainer(application: Application, applicationScope: CoroutineScope) {
             tmdbApiKey = tmdbApiKey::get,
             mdbListApiKey = mdbListApiKey::get,
             characterImages = { type, tmdbId ->
-                floppy.characterImages(if (type == com.cinetrack.domain.MediaType.MOVIE) "movie" else "tv", tmdbId)
+                // The user's own TVDB key first, even with Floppy connected; Floppy fills in when TVDB has none.
+                val direct = try {
+                    tvdbCharacters.characters(type, tmdbId)
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    null // TVDB unreachable: Floppy may still answer; with neither, nothing is cached.
+                }
+                if (!direct.isNullOrEmpty()) direct
+                else floppy.characterImages(if (type == com.cinetrack.domain.MediaType.MOVIE) "movie" else "tv", tmdbId)
                     ?.map { com.cinetrack.domain.CharacterImage(it.name, it.personName, it.characterImage) }
+                    // Neither source set up: fail, so nothing is remembered and a key added later applies.
+                    ?: direct ?: error("No character picture source")
             },
         )
         appState = com.cinetrack.data.repository.AppStateRepository(

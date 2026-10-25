@@ -12,7 +12,10 @@ class RepositoryDetailStore(
     private val media: MediaRepository,
     private val people: PeopleRepository,
     override val renumberedShows: Flow<Int>,
+    private val fanart: com.cinetrack.data.media.FanartRepository? = null,
 ) : DetailStore {
+    override suspend fun loadLogo(media: MediaCard) = fanart?.logo(media)
+    override fun cachedLogo(media: MediaCard) = fanart?.cached(media)
     override suspend fun loadTagline(media: MediaCard) = this.media.loadTagline(media)
     override suspend fun loadSeasonDetails(show: MediaCard, number: Int) = media.loadSeasonDetails(show, number)
     override suspend fun loadDetails(media: MediaCard) = this.media.loadDetails(media)

@@ -31,6 +31,8 @@ data class NotificationSettings(
     val episodes: Boolean = true,
     val movies: Boolean = true,
     val sync: Boolean = true,
+    /** A Plan-to-watch title arrives on one of your streaming services. */
+    val streaming: Boolean = true,
     val quietHoursEnabled: Boolean = true,
     val quietHoursStart: Int = 23,
     val quietHoursEnd: Int = 8,
@@ -47,6 +49,7 @@ data class AppearanceSettings(
     val cardDensity: String = "standard",
     val castPhotoShape: String = "circle",
     val posterTitles: Boolean = true,
+    val hideSpoilers: Boolean = false,
 )
 
 /** The preferences the Settings pages owned by [SettingsViewModel] read and write. */
@@ -71,6 +74,14 @@ interface SettingsPreferences {
     suspend fun setCardDensity(value: String)
     suspend fun setCastPhotoShape(value: String)
     suspend fun setPosterTitles(enabled: Boolean)
+    suspend fun setHideSpoilers(enabled: Boolean) {}
+    /** The name on the Profile card; blank uses the tracker account's name. */
+    val profileName: Flow<String> get() = kotlinx.coroutines.flow.flowOf("")
+    suspend fun setProfileName(value: String) {}
+    /** Your own profile photo and banner; none shows the initial and the recent posters. */
+    val profileImages: Flow<com.cinetrack.data.repository.ProfileImages> get() = kotlinx.coroutines.flow.flowOf(com.cinetrack.data.repository.ProfileImages())
+    /** Saves the picked image, or removes it when [source] is null; false when it could not be read. */
+    suspend fun setProfileImage(kind: com.cinetrack.data.repository.ProfileImageKind, source: android.net.Uri?): Boolean = false
 }
 
 /** The in-app updater, behind an interface so tests don't reach GitHub. */
@@ -185,6 +196,14 @@ class SettingsViewModel(
     fun setCardDensity(value: String) = save { preferences.setCardDensity(value) }
     fun setCastPhotoShape(value: String) = save { preferences.setCastPhotoShape(value) }
     fun setPosterTitles(enabled: Boolean) = save { preferences.setPosterTitles(enabled) }
+    fun setHideSpoilers(enabled: Boolean) = save { preferences.setHideSpoilers(enabled) }
+    val profileName: StateFlow<String> = preferences.profileName.stateIn(viewModelScope, SharingStarted.Eagerly, "")
+    fun setProfileName(value: String) = save { preferences.setProfileName(value) }
+    val profileImages: StateFlow<com.cinetrack.data.repository.ProfileImages> =
+        preferences.profileImages.stateIn(viewModelScope, SharingStarted.Eagerly, com.cinetrack.data.repository.ProfileImages())
+    fun setProfileImage(kind: com.cinetrack.data.repository.ProfileImageKind, source: android.net.Uri?, onResult: (Boolean) -> Unit = {}) {
+        viewModelScope.launch { onResult(withContext(io) { preferences.setProfileImage(kind, source) }) }
+    }
 
     private fun save(write: suspend () -> Unit) {
         viewModelScope.launch { write() }

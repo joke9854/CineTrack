@@ -14,7 +14,7 @@ object SharedHttp {
 
     /**
      * The manifest allows cleartext so a LAN Floppy can work over HTTP. Everything else
-     * (TMDB, Simkl, Trakt, MDBList and images from any server) never goes out in the
+     * (TMDB, Simkl, MDBList, TVmaze, Fanart.tv, TVDB and images from any server) never goes out in the
      * clear: plain HTTP to a non-private host is upgraded to HTTPS.
      */
     val upgradeInsecure = Interceptor { chain ->
@@ -27,6 +27,6 @@ object SharedHttp {
         if (url.scheme != "http" || FloppyUrlNormalizer.isPrivateHost(url.host)) url
         else url.newBuilder().scheme("https").build()
 
-    /** [client] for public web traffic: TMDB/Simkl/Trakt/MDBList and Coil. */
+    /** [client] for public web traffic: TMDB/Simkl/MDBList and Coil. */
     val webClient: OkHttpClient by lazy { client.newBuilder().addInterceptor(upgradeInsecure).build() }
 }

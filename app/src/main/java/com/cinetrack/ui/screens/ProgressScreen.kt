@@ -104,7 +104,7 @@ import com.cinetrack.ui.theme.Motion
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 
-private enum class ProgressTab { IN_PROGRESS, CALENDAR, HISTORY, STATISTICS }
+private enum class ProgressTab { IN_PROGRESS, CALENDAR, HISTORY }
 internal enum class PlaybackOrder { RECENT, TITLE, TOP_RATED, REMAINING, RANDOM }
 
 @Composable
@@ -132,17 +132,12 @@ fun ProgressScreen(
     val progressListState = rememberLazyListState()
     val calendarListState = rememberLazyListState()
     val historyListState = rememberLazyListState()
-    val statisticsListState = rememberLazyListState()
     val activeListState = when (tab) {
         ProgressTab.IN_PROGRESS -> progressListState
         ProgressTab.CALENDAR -> calendarListState
         ProgressTab.HISTORY -> historyListState
-        ProgressTab.STATISTICS -> statisticsListState
     }
     NavCollapseEffect(activeListState, onCompactNav)
-    LaunchedEffect(tab) {
-        if (tab == ProgressTab.STATISTICS) onLoadViewingInsights()
-    }
     val artwork = state.playbackTv.firstOrNull()?.media?.posterUrl
         ?: state.playbackMovies.firstOrNull()?.media?.posterUrl
         ?: state.episodes.firstOrNull()?.stillUrl
@@ -262,7 +257,6 @@ fun ProgressScreen(
                         ProgressTab.IN_PROGRESS -> progressListState
                         ProgressTab.CALENDAR -> calendarListState
                         ProgressTab.HISTORY -> historyListState
-                        ProgressTab.STATISTICS -> statisticsListState
                     },
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(top = headerHeight, bottom = 116.dp),
@@ -317,7 +311,6 @@ fun ProgressScreen(
                         if (calendarDays.isEmpty()) item { ProgressEmpty(stringResource(R.string.no_calendar_items)) }
                         else calendarTimeline(calendarDays, today, releaseZone, calendarListState, timelineScope, isReminderOn, onReminder, onMedia, onEpisode)
                     }
-                    ProgressTab.STATISTICS -> item { StatisticsSection(state, viewingInsights) }
                 }
             }
             }
@@ -401,13 +394,12 @@ private fun syncStageLabel(stage: SyncStage): String = when (stage) {
 
 @Composable
 private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Unit) {
-    // Underlined sub-tabs: the accent line slides in under the active section.
+    // Underlined sub-tabs sharing the row equally: the accent line slides in under the active section.
     val indicator = rememberTabIndicator()
     Column(Modifier.fillMaxWidth().padding(bottom = Spacing.sm)) {
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.xl)
+            Modifier.fillMaxWidth().padding(horizontal = Spacing.xl)
                 .slidingTabIndicator(indicator, selected.ordinal),
-            horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
             ProgressTab.entries.forEach { tab ->
                 val active = tab == selected
@@ -418,13 +410,15 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
                         ProgressTab.IN_PROGRESS -> stringResource(R.string.in_progress)
                         ProgressTab.CALENDAR -> stringResource(R.string.calendar)
                         ProgressTab.HISTORY -> stringResource(R.string.history)
-                        ProgressTab.STATISTICS -> stringResource(R.string.statistics)
                     },
                     color = contentColor,
                     style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.SemiBold,
                     maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                     modifier = Modifier
+                        .weight(1f)
                         .tabSpan(indicator, tab.ordinal)
                         .softTab(active, selectAction)
                         .heightIn(min = 44.dp)

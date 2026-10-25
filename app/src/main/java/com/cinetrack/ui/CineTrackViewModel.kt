@@ -39,6 +39,7 @@ import com.cinetrack.domain.hasExplicitReleaseTime
 import com.cinetrack.domain.releaseDateTime
 import com.cinetrack.domain.appendPage
 import kotlinx.coroutines.flow.MutableSharedFlow
+import com.cinetrack.domain.ManualSyncResult
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -115,6 +116,9 @@ class CineTrackViewModel(
     private val _floppyBootstrapProgress = MutableStateFlow<com.cinetrack.domain.FloppyBootstrapProgress?>(null)
     val floppyBootstrapProgress: StateFlow<com.cinetrack.domain.FloppyBootstrapProgress?> = _floppyBootstrapProgress.asStateFlow()
     private val _libraryStatusChanges = MutableSharedFlow<Pair<MediaCard, LibraryStatus>>(extraBufferCapacity = 16)
+    private val _manualSyncDone = MutableSharedFlow<ManualSyncResult>(extraBufferCapacity = 1)
+    /** A sync the user started finished; the app answers with a pill, like backup and updates. */
+    val manualSyncDone: SharedFlow<ManualSyncResult> = _manualSyncDone.asSharedFlow()
     /** A status write committed; DiscoverViewModel updates its paged rail lists from it. */
     val libraryStatusChanges: SharedFlow<Pair<MediaCard, LibraryStatus>> = _libraryStatusChanges.asSharedFlow()
 
@@ -634,7 +638,13 @@ class CineTrackViewModel(
         )
         _syncProgress.value = starting
         _state.update { it.copy(sync = starting) }
-        viewModelScope.launch { performTrackingSync(force = true) }
+        viewModelScope.launch {
+            // Failures already reach the error banner; a finished run gets its own pill.
+            performTrackingSync(force = true).onSuccess {
+                val report = _syncProgress.value.report
+                _manualSyncDone.tryEmit(ManualSyncResult(report.downloaded + report.uploaded + report.added + report.removed, report.failedOperations))
+            }
+        }
     }
 
     private suspend fun performTrackingSync(
@@ -883,10 +893,21 @@ class CineTrackViewModel(
             com.cinetrack.ui.settings.ContentChange.MdbListKey -> {
                 _state.value = _state.value.copy(mdbListApiConfigured = true, error = null)
             }
-            com.cinetrack.ui.settings.ContentChange.TraktClientId -> {
-                _state.value = _state.value.copy(traktConfigured = true, error = null)
-                // Pull exact air times now rather than at the next schedule refresh.
-                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true))
+            com.cinetrack.ui.settings.ContentChange.FanartKey -> {
+                _state.value = _state.value.copy(fanartConfigured = true, error = null)
+            }
+            com.cinetrack.ui.settings.ContentChange.TvmazeKey,
+            com.cinetrack.ui.settings.ContentChange.TvmazeKeyRemoved -> {
+                _state.value = _state.value.copy(tvmazeKeyConfigured = change == com.cinetrack.ui.settings.ContentChange.TvmazeKey, error = null)
+            }
+            com.cinetrack.ui.settings.ContentChange.TvdbKey,
+            com.cinetrack.ui.settings.ContentChange.TvdbKeyRemoved -> {
+                _state.value = _state.value.copy(tvdbConfigured = change == com.cinetrack.ui.settings.ContentChange.TvdbKey, error = null)
+            }
+            com.cinetrack.ui.settings.ContentChange.TvmazeOn,
+            com.cinetrack.ui.settings.ContentChange.TvmazeOff -> {
+                _state.value = _state.value.copy(tvmazeEnabled = change == com.cinetrack.ui.settings.ContentChange.TvmazeOn)
+                scheduleProgressCacheRefresh(ProgressRefreshRequest(force = true), republish = true)
             }
             com.cinetrack.ui.settings.ContentChange.TmdbKey -> viewModelScope.launch {
                 _state.value = _state.value.copy(tmdbApiConfigured = true, error = null)

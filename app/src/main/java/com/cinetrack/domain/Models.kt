@@ -193,6 +193,10 @@ data class SyncProgress(
     val report: SyncReport = SyncReport(),
 )
 
+/** What a sync the user started changed, for the "Synced" pill. */
+@Immutable
+data class ManualSyncResult(val changes: Int, val failed: Int)
+
 @Immutable
 data class SyncReport(
     val downloaded: Int = 0,
@@ -429,12 +433,18 @@ data class AppUiState(
     val uiAccent: String = "watching",
     val tmdbApiConfigured: Boolean = false,
     val mdbListApiConfigured: Boolean = false,
-    val traktConfigured: Boolean = false,
+    /** Exact local air times from TVmaze (no key needed). */
+    val tvmazeEnabled: Boolean = true,
+    val fanartConfigured: Boolean = false,
+    /** Optional TVmaze premium credentials are saved. */
+    val tvmazeKeyConfigured: Boolean = false,
+    /** The user's own TVDB key is saved (character pictures without Floppy). */
+    val tvdbConfigured: Boolean = false,
     val metadataLanguage: String = "system",
     val metadataRegion: String = "system",
     val providerRegion: String = "system",
     val metadataTimezone: String = "system",
-    val airDateSource: String = "trakt",
+    val airDateSource: String = "tvmaze",
     val excludeSpecials: Boolean = true,
     val hideAdultTitles: Boolean = true,
     val preferredProviders: Set<String> = emptySet(),

@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Replay
 import com.cinetrack.domain.watchSummary
 import androidx.compose.ui.text.withStyle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -212,10 +213,11 @@ fun EpisodeDetailScreen(
             var watched by remember(displayedEpisode.season, displayedEpisode.number, displayedEpisode.watched) {
                 mutableStateOf(displayedEpisode.watched)
             }
+            val hideSpoilers = com.cinetrack.ui.theme.LocalCardAppearance.current.hideSpoilers
             val pageListState = remember(displayedEpisode.season, displayedEpisode.number) { androidx.compose.foundation.lazy.LazyListState() }
             if (page == pagerState.currentPage) androidx.compose.runtime.SideEffect { activeListState = pageListState }
             LazyColumn(
-                Modifier.fillMaxSize(),
+                Modifier.fillMaxSize().readableWidth(),
                 state = pageListState,
                 contentPadding = PaddingValues(bottom = 0.dp),
             ) {
@@ -230,7 +232,7 @@ fun EpisodeDetailScreen(
                         Box(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, top = 74.dp, bottom = 46.dp).aspectRatio(16f / 9f)
                             .sharedBackdrop("ep:${displayedEpisode.showId}:${displayedEpisode.season}:${displayedEpisode.number}", slot = null)
                             .shadow(22.dp, RoundedCornerShape(Radius.Large), clip = false).clip(RoundedCornerShape(Radius.Large)).background(Brush.linearGradient(listOf(SurfacePalette.EpisodeTeal, SurfacePalette.EpisodeSurface)))) {
-                            if (!displayedEpisode.stillUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(displayedEpisode.stillUrl, displayedEpisode.title, "ep:${displayedEpisode.showId}:${displayedEpisode.season}:${displayedEpisode.number}", Modifier.fillMaxSize(), ContentScale.Crop)
+                            if (!displayedEpisode.stillUrl.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterTargetImage(displayedEpisode.stillUrl, displayedEpisode.title, "ep:${displayedEpisode.showId}:${displayedEpisode.season}:${displayedEpisode.number}", Modifier.fillMaxSize().spoilerBlur(hideSpoilers && !watched), ContentScale.Crop)
                             Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .54f)))))
                         }
                     }
@@ -309,6 +311,21 @@ fun EpisodeDetailScreen(
                             remember(history, show.stableKey, displayedEpisode.season, displayedEpisode.number) {
                                 watchSummary(history, show.stableKey, displayedEpisode.season, displayedEpisode.number)
                             }?.let { WatchSummaryLine(it) }
+                            // A rewatch is its own play with its own time; it never replaces the first one.
+                            val rewatchHaptics = com.cinetrack.ui.components.rememberAppHaptics()
+                            androidx.compose.foundation.layout.Row(
+                                Modifier.align(Alignment.CenterHorizontally).clip(RoundedCornerShape(Radius.Pill))
+                                    .clickable(role = androidx.compose.ui.semantics.Role.Button) {
+                                        rewatchHaptics.confirm()
+                                        viewModel.markEpisodeWatched(displayedEpisode)
+                                    }
+                                    .padding(horizontal = Spacing.md, vertical = Spacing.sm),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(Icons.Filled.Replay, null, tint = AccentLight, modifier = Modifier.size(16.dp))
+                                Spacer(Modifier.width(Spacing.xs))
+                                Text(stringResource(R.string.watch_again), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                            }
                         }
                         val airDate = displayedEpisode.airDate
                         if (show != null && !watched && airDate != null && daysUntil(airDate)?.let { it >= 0 } == true) {
@@ -318,7 +335,7 @@ fun EpisodeDetailScreen(
                         val episodeKey = displayedEpisode.season to displayedEpisode.number
                         val pageCast = castByEpisode[episodeKey]
                         LoadedSection(displayedEpisode.overview.isNotBlank() || overviewFor == episodeKey || pageCast != null, { OverviewSkeleton() }) {
-                            if (displayedEpisode.overview.isNotBlank()) PlotSection(displayedEpisode.overview)
+                            if (displayedEpisode.overview.isNotBlank()) SpoilerSafePlot(displayedEpisode.overview, hidden = hideSpoilers && !watched)
                         }
                         LoadedSection(pageCast != null, { CastSkeleton() }) {
                             if (!pageCast.isNullOrEmpty()) CastSection(pageCast, showCharacters, { showCharacters = it }, onViewAll = { showFullCast = true }) { selectedPerson = it }

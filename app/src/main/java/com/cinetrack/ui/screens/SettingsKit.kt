@@ -74,6 +74,8 @@ import com.cinetrack.ui.theme.Glass
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 import com.cinetrack.ui.theme.SurfacePalette
+import androidx.compose.runtime.remember
+import androidx.compose.material3.OutlinedTextField
 
 @Composable
 internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
@@ -150,7 +152,11 @@ internal fun ServiceLogo(name: String, siteUrl: String? = null, size: androidx.c
         "mdblist" -> Triple(R.drawable.ic_service_mdblist, SurfacePalette.CoolText, 24.dp)
         // Floppy's own app icon, full bleed.
         "floppy" -> Triple(R.drawable.floppy_app_icon, Color.Transparent, 38.dp)
-        "trakt" -> Triple(R.drawable.ic_service_trakt, androidx.compose.ui.graphics.Color(0xFFED1C24), 26.dp)
+        // Official marks (drawable-nodpi/ic_service_tvmaze.png is TVmaze's own app icon from tvmaze.com,
+        // ic_service_fanart.png Fanart.tv's TV-in-a-circle): on their sites' white and charcoal.
+        "tvmaze" -> Triple(R.drawable.ic_service_tvmaze, Color.White, 30.dp)
+        "fanart.tv" -> Triple(R.drawable.ic_service_fanart, Color(0xFF1E1E1E), 26.dp)
+        "tvdb" -> Triple(R.drawable.ic_service_tvdb, Color(0xFF0F171C), 30.dp)
         else -> Triple(R.drawable.ic_service_simkl, SurfacePalette.WarmText, 24.dp)
     }
     Box(
@@ -201,7 +207,10 @@ internal fun serviceBrand(page: String): ServiceBrand? = when (page) {
     SettingsPages.ServiceTmdb -> ServiceBrand("TMDB", Brush.linearGradient(listOf(Color(0xFF0D253F), Color(0xFF0B5C7A), Color(0xFF01B4E4))), Color(0xFF0B7FA6), R.drawable.ic_service_tmdb)
     SettingsPages.ServiceSimkl -> ServiceBrand("Simkl", Brush.linearGradient(listOf(Color(0xFF151515), Color(0xFF2A2A2A), Color(0xFF141414))), Color(0xFF3B8F5A), R.drawable.ic_service_simkl)
     SettingsPages.ServiceFloppy -> ServiceBrand("Floppy", Brush.linearGradient(listOf(Color(0xFF0E1B33), Color(0xFF1C2F5C), Color(0xFF14204A))), Color(0xFF185FA5), R.drawable.floppy_app_icon, R.drawable.floppy_wordmark)
-    SettingsPages.ServiceTrakt -> ServiceBrand("Trakt", Brush.linearGradient(listOf(Color(0xFF7D2C92), Color(0xFFC2185B), Color(0xFFED1C24))), Color(0xFFC2185B), R.drawable.ic_service_trakt)
+    // TVmaze's teal, Fanart.tv's charcoal and TVDB's green, as on their own sites.
+    SettingsPages.ServiceTvmaze -> ServiceBrand("TVmaze", Brush.linearGradient(listOf(Color(0xFF0B1F1D), Color(0xFF1C5A54), Color(0xFF3C948B))), Color(0xFF2F7C74), R.drawable.ic_service_tvmaze)
+    SettingsPages.ServiceFanart -> ServiceBrand("Fanart.tv", Brush.linearGradient(listOf(Color(0xFF121212), Color(0xFF2A2A2A), Color(0xFF3A3A3A))), Color(0xFF5A5A5A), R.drawable.ic_service_fanart)
+    SettingsPages.ServiceTvdb -> ServiceBrand("TVDB", Brush.linearGradient(listOf(Color(0xFF0D171C), Color(0xFF15372A), Color(0xFF3E8F5F))), Color(0xFF3E8F5F), R.drawable.ic_service_tvdb)
     SettingsPages.ServiceMdblist -> ServiceBrand("MDBList", Brush.linearGradient(listOf(Color(0xFF0C447C), Color(0xFF2A6FB5))), Color(0xFF2A6FB5), R.drawable.ic_service_mdblist)
     else -> null
 }
@@ -213,13 +222,16 @@ internal fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> U
         "TMDB" -> state.tmdbApiConfigured
         "Simkl" -> state.simklConnected
         "Floppy" -> state.floppyConnected
-        "Trakt" -> state.traktConfigured
+        "TVmaze" -> state.tvmazeEnabled
+        "Fanart.tv" -> state.fanartConfigured
+        "TVDB" -> state.tvdbConfigured
         else -> state.mdbListApiConfigured
     }
     val status = when {
         brand.name == "Simkl" && active && !state.simklUsername.isNullOrBlank() -> stringResource(R.string.simkl_connected_as, state.simklUsername.orEmpty())
         brand.name == "Floppy" && active -> floppyConnectedLabel(state)
         brand.name in setOf("Simkl", "Floppy") -> stringResource(if (active) R.string.connected else R.string.not_connected)
+        brand.name == "TVmaze" -> stringResource(if (active) R.string.service_on else R.string.service_off)
         else -> stringResource(if (active) R.string.configured else R.string.not_configured)
     }
     val description = stringResource(
@@ -227,7 +239,9 @@ internal fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> U
             "TMDB" -> R.string.tmdb_description
             "Simkl" -> R.string.simkl_description
             "Floppy" -> R.string.floppy_self_hosted_description
-            "Trakt" -> R.string.trakt_description
+            "TVmaze" -> R.string.tvmaze_description
+            "Fanart.tv" -> R.string.fanart_description
+            "TVDB" -> R.string.tvdb_description
             else -> R.string.mdblist_description
         },
     )
@@ -348,20 +362,32 @@ internal fun KitStatTiles(stats: List<Pair<String, String>>) {
 }
 
 @Composable
-internal fun KitPrimaryButton(text: String, icon: ImageVector, color: Color, enabled: Boolean = true, onClick: () -> Unit) {
+internal fun KitPrimaryButton(
+    text: String,
+    icon: ImageVector,
+    color: Color,
+    enabled: Boolean = true,
+    modifier: Modifier = Modifier,
+    /** Shows a spinner in place of the icon while the action runs. */
+    loading: Boolean = false,
+    /** False inside a form that already has its own side padding. */
+    padded: Boolean = true,
+    onClick: () -> Unit,
+) {
     val clickAction = rememberUiAction(onClick)
     val shape = RoundedCornerShape(Radius.Pill)
     Row(
-        Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth().height(52.dp)
+        modifier.then(if (padded) Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm) else Modifier).fillMaxWidth().height(52.dp)
             .clip(shape).background(if (enabled) color.copy(alpha = .9f) else Color.White.copy(alpha = .08f))
             .border(.6.dp, Color.White.copy(alpha = .14f), shape)
             .clickable(enabled = enabled, onClick = clickAction),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
+        if (loading) androidx.compose.material3.CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
+        else Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
         Spacer(Modifier.width(Spacing.sm))
-        Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
+        Text(text, color = if (enabled || loading) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
     }
 }
 
@@ -497,7 +523,7 @@ internal fun CredentialBlock(service: String, configured: Boolean, onSave: (Stri
     val uriHandler = LocalUriHandler.current
     val showForm = editing || !configured
     if (configured && !editing) {
-        SettingsSection(stringResource(if (service == "Trakt") R.string.client_id_label else R.string.api_credential)) {
+        SettingsSection(stringResource(R.string.api_credential)) {
             KitRow(Icons.Filled.Key, stringResource(R.string.credential_saved_verified), trailing = {
                 Text(
                     stringResource(R.string.credential_edit),
@@ -513,16 +539,105 @@ internal fun CredentialBlock(service: String, configured: Boolean, onSave: (Stri
         ApiCredentialSettings(service, configured, onSave, compact = true, onSaved = { editing = false })
         val steps = when (service) {
             "TMDB" -> listOf(R.string.tmdb_step_1, R.string.tmdb_step_2, R.string.tmdb_step_3)
-            "Trakt" -> listOf(R.string.trakt_step_1, R.string.trakt_step_2, R.string.trakt_step_3)
+            "Fanart.tv" -> listOf(R.string.fanart_step_1, R.string.fanart_step_2, R.string.fanart_step_3)
             else -> listOf(R.string.mdblist_step_1, R.string.mdblist_step_2, R.string.mdblist_step_3)
         }.map { stringResource(it) }
         val (url, link) = when (service) {
             "TMDB" -> TMDB_API_KEY_URL to R.string.get_tmdb_api_key
-            "Trakt" -> TRAKT_API_APPS_URL to R.string.get_trakt_client_id
+            "Fanart.tv" -> FANART_API_KEY_URL to R.string.get_fanart_api_key
             else -> MDBLIST_API_KEY_URL to R.string.get_mdblist_api_key
         }
-        KitSteps(stringResource(if (service == "Trakt") R.string.how_to_get_client_id else R.string.how_to_get_key), steps, stringResource(link)) {
+        KitSteps(stringResource(R.string.how_to_get_key), steps, stringResource(link)) {
             runCatching { uriHandler.openUri(url) }
         }
     }
+}
+
+/**
+ * A credential made of two fields (TVmaze username and key, TVDB key and PIN), checked with the
+ * service before it is saved. Saved, it is one row with Edit and Remove; no saved value is shown.
+ */
+@Composable
+internal fun PairedCredentialBlock(
+    service: String,
+    configured: Boolean,
+    first: Pair<String, Boolean>,
+    second: Pair<String, Boolean>,
+    steps: List<String>,
+    link: Pair<String, String>,
+    onSave: (String, String, (Result<Unit>) -> Unit) -> Unit,
+    onRemove: () -> Unit,
+) {
+    var editing by rememberSaveable(service) { mutableStateOf(false) }
+    var firstValue by remember(service) { mutableStateOf("") }
+    var secondValue by remember(service) { mutableStateOf("") }
+    var validating by remember(service) { mutableStateOf(false) }
+    var error by remember(service) { mutableStateOf<String?>(null) }
+    val uriHandler = LocalUriHandler.current
+    val verificationFailed = stringResource(R.string.verification_failed)
+    if (configured && !editing) {
+        SettingsSection(stringResource(R.string.api_credential)) {
+            KitRow(Icons.Filled.Key, stringResource(R.string.credential_saved_verified), trailing = {
+                Row {
+                    listOf(stringResource(R.string.credential_edit) to { editing = true }, stringResource(R.string.credential_remove) to onRemove).forEach { (label, action) ->
+                        Text(
+                            label,
+                            color = AccentLight,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable(onClick = action).padding(horizontal = 10.dp, vertical = 6.dp),
+                        )
+                    }
+                }
+            })
+        }
+        return
+    }
+    SettingsSection(stringResource(R.string.api_credential)) {
+        Column(Modifier.padding(Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            listOf(Triple(first, firstValue, { value: String -> firstValue = value }), Triple(second, secondValue, { value: String -> secondValue = value }))
+                .forEach { (field, value, onChange) ->
+                    val (label, secret) = field
+                    OutlinedTextField(
+                        value = value,
+                        onValueChange = { onChange(it); error = null },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true,
+                        enabled = !validating,
+                        label = { Text(label) },
+                        visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                            keyboardType = if (secret) androidx.compose.ui.text.input.KeyboardType.Password else androidx.compose.ui.text.input.KeyboardType.Text,
+                            autoCorrectEnabled = false,
+                        ),
+                        colors = credentialFieldColors(),
+                    )
+                }
+            error?.let { message ->
+                Text(
+                    stringResource(R.string.api_credential_invalid, service, message),
+                    color = androidx.compose.material3.MaterialTheme.colorScheme.error,
+                    style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                )
+            }
+            KitPrimaryButton(
+                stringResource(R.string.save_and_verify), Icons.Filled.Key, Accent,
+                enabled = !validating && firstValue.isNotBlank() && (!second.second || secondValue.isNotBlank() || service == "TVDB"),
+                loading = validating, padded = false,
+            ) {
+                validating = true
+                error = null
+                onSave(firstValue, secondValue) { result ->
+                    validating = false
+                    result.onSuccess {
+                        firstValue = ""
+                        secondValue = ""
+                        editing = false
+                    }.onFailure { error = it.message ?: verificationFailed }
+                }
+            }
+            if (validating) Text(stringResource(R.string.api_credential_verifying, service), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
+        }
+    }
+    KitSteps(stringResource(R.string.how_to_get_key), steps, link.first) { runCatching { uriHandler.openUri(link.second) } }
 }

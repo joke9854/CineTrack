@@ -23,5 +23,10 @@ class RepositoryContentSettings(
     override suspend fun availableProviders(region: String) = watchProviders.getAvailableProviders(region)
     override suspend fun verifyAndSetTmdbApiKey(value: String) = metadata.verifyAndSetTmdbApiKey(value)
     override suspend fun verifyAndSetMdbListApiKey(value: String) = metadata.verifyAndSetMdbListApiKey(value)
-    override suspend fun verifyAndSetTraktClientId(value: String) = metadata.verifyAndSetTraktClientId(value)
+    override suspend fun verifyAndSetFanartApiKey(value: String) = metadata.verifyAndSetFanartApiKey(value)
+    override suspend fun setTvmazeEnabled(enabled: Boolean) = metadata.setTvmazeEnabled(enabled)
+    override suspend fun verifyAndSetTvmazeUser(username: String, apiKey: String) = metadata.verifyAndSetTvmazeUser(username, apiKey)
+    override suspend fun clearTvmazeUser() = metadata.clearTvmazeUser()
+    override suspend fun verifyAndSetTvdbKey(apiKey: String, pin: String) = metadata.verifyAndSetTvdbKey(apiKey, pin)
+    override suspend fun clearTvdbKey() = metadata.clearTvdbKey()
 }

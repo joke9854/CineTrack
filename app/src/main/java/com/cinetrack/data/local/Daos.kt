@@ -190,6 +190,9 @@ interface MediaDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertEpisodes(items: List<EpisodeEntity>)
 
+    @Query("DELETE FROM episode_air_dates WHERE source = :source")
+    suspend fun deleteAirDatesFrom(source: String)
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun upsertAirDates(items: List<EpisodeAirDateEntity>)
 

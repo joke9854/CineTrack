@@ -57,7 +57,7 @@ class ContentSettingsViewModelTest {
         var tmdbResult: Result<Unit> = Result.success(Unit)
         override suspend fun verifyAndSetTmdbApiKey(value: String) = tmdbResult
         override suspend fun verifyAndSetMdbListApiKey(value: String) = Result.failure<Unit>(IllegalStateException("bad key"))
-        override suspend fun verifyAndSetTraktClientId(value: String) = Result.success(Unit)
+        override suspend fun verifyAndSetFanartApiKey(value: String) = Result.success(Unit)
     }
 
     private fun collectChanges(model: ContentSettingsViewModel, into: MutableList<ContentChange>) =
@@ -157,10 +157,10 @@ class ContentSettingsViewModelTest {
         val results = mutableListOf<Result<Unit>>()
         model.verifyAndSetTmdbApiKey("good") { results += it }
         model.verifyAndSetMdbListApiKey("bad") { results += it }
-        model.verifyAndSetTraktClientId("id") { results += it }
+        model.verifyAndSetFanartApiKey("id") { results += it }
         assertEquals(listOf(true, false, true), results.map { it.isSuccess })
         assertEquals("bad key", results[1].exceptionOrNull()?.message)
-        assertEquals(listOf(ContentChange.TmdbKey, ContentChange.TraktClientId), changes)
+        assertEquals(listOf(ContentChange.TmdbKey, ContentChange.FanartKey), changes)
         job.cancel()
     }
 

@@ -9,10 +9,10 @@ source = "\n".join(
     path.read_text() for path in [local_dir / "AppDatabase.kt", *sorted(p for p in local_dir.glob("*.kt") if p.name != "AppDatabase.kt")]
 )
 schema_dir = Path(__file__).resolve().parents[1] / "app/schemas/com.cinetrack.data.local.AppDatabase"
-for version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14):
+for version in (5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15):
     assert (schema_dir / f"{version}.json").exists(), f"Missing exported Room schema {version}.json"
-assert "version = 14" in source, "Room database version must be 14"
-for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12", "migration12To13", "migration13To14"):
+assert "version = 15" in source, "Room database version must be 15"
+for migration in ("migration5To6", "migration6To7", "migration7To8", "migration8To9", "migration9To10", "migration10To11", "migration11To12", "migration12To13", "migration13To14", "migration14To15"):
     assert re.search(rf"(?:private|internal)?\s*val\s+{migration}\b", source), f"Missing {migration}"
 migration = source.split("object : Migration(4, 5) {", 1)[1].split("val migration5To6", 1)[0]
 statements = re.findall(r'database\.execSQL\("([^"\n]+)"\)', migration)
@@ -126,5 +126,8 @@ assert "Migration(12, 13)" in source, "13 must have an explicit 12->13 migration
 assert "CREATE TABLE IF NOT EXISTS `episode_air_dates`" in source, "12->13 must create the per-provider air date table"
 assert "Migration(13, 14)" in source, "14 must have an explicit 13->14 migration"
 assert "CREATE TABLE IF NOT EXISTS `episode_numbering`" in source, "13->14 must create the episode numbering table"
+assert "Migration(14, 15)" in source, "15 must have an explicit 14->15 migration"
+for table in ("user_ratings", "custom_lists", "custom_list_items"):
+    assert f"CREATE TABLE IF NOT EXISTS `{table}`" in source, f"14->15 must create {table}"
 print("PASS: static schema, delivery indexes, migration declarations, and 5-11 fixtures verified; MigrationTestHelper remains authoritative for execution.")
 

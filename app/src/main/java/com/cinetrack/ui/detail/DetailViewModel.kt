@@ -40,6 +40,10 @@ interface DetailStore {
     suspend fun loadCollection(media: MediaCard): List<MediaCard>
     suspend fun loadRecommendations(media: MediaCard): List<MediaCard>
     suspend fun loadTrailerKey(media: MediaCard): String?
+    /** Fanart.tv title logo; null without a key or a logo. */
+    suspend fun loadLogo(media: MediaCard): String? = null
+    /** The logo already known, without a request. */
+    fun cachedLogo(media: MediaCard): String? = null
 }
 
 /**
@@ -137,6 +141,8 @@ class DetailViewModel(
     fun openedMedia(type: MediaType, id: Int): MediaCard? =
         openedMediaCache["${type.name}:$id"] ?: mediaCache["${type.name}:$id"]
     suspend fun loadTrailerKey(media: MediaCard): String? = withContext(io) { store.loadTrailerKey(media) }
+    suspend fun loadLogo(media: MediaCard): String? = withContext(io) { store.loadLogo(media) }
+    fun cachedLogo(media: MediaCard): String? = store.cachedLogo(media)
 
     /** Clears the watched marks of a show's cached episodes (its history was removed). */
     fun forgetWatchedEpisodes(showId: Int) = episodeCache.forgetWatched(showId)

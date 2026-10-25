@@ -9,6 +9,8 @@ data class CardAppearance(
     val castPhotoShape: String = "circle",
     /** Titles under the posters in classic Discover and the Library grid. */
     val posterTitles: Boolean = true,
+    /** Blurs stills and hides plots of episodes not watched yet. */
+    val hideSpoilers: Boolean = false,
 ) {
     val heroAspectRatio: Float? get() = when (heroLayout) {
         "landscape" -> 16f / 9f
@@ -31,5 +33,14 @@ data class CardAppearance(
         fun normalizeCastShape(value: String) = value.takeIf { it in setOf("circle", "poster") } ?: "circle"
         fun normalizeSize(value: String) = value.takeIf { it in setOf("small", "standard", "large") } ?: "standard"
         fun gridColumns(density: String) = when (density) { "compact" -> 4; "large" -> 2; else -> 3 }
+
+        /** Phones keep [gridColumns]; tablets and unfolded foldables add columns instead of stretching posters. */
+        fun gridColumns(density: String, widthDp: Int): Int {
+            val base = gridColumns(density)
+            return if (widthDp < WIDE_WIDTH_DP) base else (base * widthDp / PHONE_WIDTH_DP).coerceAtLeast(base)
+        }
+
+        const val WIDE_WIDTH_DP = 600
+        private const val PHONE_WIDTH_DP = 400
     }
 }

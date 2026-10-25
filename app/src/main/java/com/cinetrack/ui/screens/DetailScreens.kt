@@ -31,6 +31,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Check
 import com.cinetrack.domain.watchSummary
@@ -229,11 +230,21 @@ fun DetailScreen(
         val detailListState = rememberLazyListState()
         val headerHaze = remember { dev.chrisbanes.haze.HazeState() }
         Box(Modifier.fillMaxSize()) {
-        LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize().hazeSource(headerHaze), contentPadding = PaddingValues(bottom = 0.dp)) {
+        LazyColumn(state = detailListState, modifier = Modifier.fillMaxSize().hazeSource(headerHaze).readableWidth(), contentPadding = PaddingValues(bottom = 0.dp)) {
             item { DetailHero(detail) }
             item(key = "detail_identity") {
                 DetailSectionSurface(first = true) {
-                    DetailIdentity(detail, loaded = detailLoaded)
+                    // A known logo (usually fetched ahead) shows at once. Otherwise the text title stays until
+                    // the logo's picture is decoded, then crossfades: the title space is never empty.
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    var logoUrl by remember(detail.stableKey) { mutableStateOf(detailViewModel.cachedLogo(detail)) }
+                    LaunchedEffect(detail.stableKey) {
+                        if (logoUrl != null) return@LaunchedEffect
+                        val url = detailViewModel.loadLogo(detail) ?: return@LaunchedEffect
+                        val decoded = coil3.SingletonImageLoader.get(context).execute(coil3.request.ImageRequest.Builder(context).data(url).build())
+                        if (decoded is coil3.request.SuccessResult) logoUrl = url
+                    }
+                    DetailIdentity(detail, loaded = detailLoaded, logoUrl = logoUrl)
                 }
             }
             val tmdbScore = detail.score?.takeIf { it > 0 }
@@ -331,6 +342,7 @@ fun DetailScreen(
                         if (detail.type == MediaType.MOVIE) {
                             remember(history, detail.stableKey) { watchSummary(history, detail.stableKey) }?.let { WatchSummaryLine(it) }
                         }
+                        PersonalRow(detail, Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth())
                     }
                 }
             }
@@ -436,6 +448,7 @@ fun DetailScreen(
                     .navigationBarsPadding().height(72.dp))
             }
         }
+        val shareContext = androidx.compose.ui.platform.LocalContext.current
         DetailTopBar(
             title = detail.title,
             subtitle = listOf(detail.year, detail.genres.firstOrNull().orEmpty()).filter(String::isNotBlank).joinToString(" · "),
@@ -455,6 +468,7 @@ fun DetailScreen(
                     refreshing = false
                 }
             },
+            onShare = { shareTitle(shareContext, detail) },
         )
         }
     }
@@ -711,6 +725,7 @@ internal fun DetailTopBar(
     onBack: () -> Unit,
     refreshing: Boolean = false,
     onRefresh: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
 ) {
     Box(Modifier.fillMaxWidth()) {
         Box(
@@ -762,11 +777,27 @@ internal fun DetailTopBar(
                             leadingIcon = { Icon(Icons.Filled.Refresh, null, tint = TextSecondary) },
                             onClick = { menuOpen = false; onRefresh() },
                         )
+                        if (onShare != null) androidx.compose.material3.DropdownMenuItem(
+                            text = { Text(stringResource(R.string.share), color = TextPrimary, fontWeight = FontWeight.Bold) },
+                            leadingIcon = { Icon(Icons.Filled.Share, null, tint = TextSecondary) },
+                            onClick = { menuOpen = false; onShare() },
+                        )
                     }
                 }
             }
         }
     }
+}
+
+/** Shares a title as its name, year and TMDB page through the system share sheet. */
+internal fun shareTitle(context: android.content.Context, media: MediaCard) {
+    val kind = if (media.type == MediaType.TV) "tv" else "movie"
+    val heading = listOf(media.title, media.year.takeIf(String::isNotBlank)?.let { "($it)" }).filterNotNull().joinToString(" ")
+    val send = android.content.Intent(android.content.Intent.ACTION_SEND)
+        .setType("text/plain")
+        .putExtra(android.content.Intent.EXTRA_SUBJECT, media.title)
+        .putExtra(android.content.Intent.EXTRA_TEXT, "$heading\nhttps://www.themoviedb.org/$kind/${media.id}")
+    runCatching { context.startActivity(android.content.Intent.createChooser(send, context.getString(R.string.share)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)) }
 }
 
 internal object DetailLayout {
@@ -777,3 +808,4 @@ internal object DetailLayout {
     val CastWidth = 96.dp
     val CastPhoto = 84.dp
 }
+

@@ -15,6 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -39,6 +40,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -207,22 +209,34 @@ internal fun DetailHero(media: MediaCard) {
 }
 
 @Composable
-internal fun DetailIdentity(media: MediaCard, loaded: Boolean = true) {
+internal fun DetailIdentity(media: MediaCard, loaded: Boolean = true, logoUrl: String? = null) {
     Column(
         Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            media.title,
-            color = TextPrimary,
-            style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
-            lineHeight = 33.sp,
-            fontWeight = FontWeight.ExtraBold,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth(),
-        )
+        var logoFailed by remember(logoUrl) { mutableStateOf(false) }
+        // The text keeps its own height; when a logo replaces it the space grows smoothly instead of jumping.
+        androidx.compose.animation.Crossfade(logoUrl?.takeUnless { logoFailed }, label = "detailLogo", modifier = Modifier.fillMaxWidth().animateContentSize(com.cinetrack.ui.theme.Motion.snappy())) { logo ->
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                if (logo != null) AsyncImage(
+                    logo,
+                    media.title,
+                    Modifier.fillMaxWidth(.72f).height(76.dp),
+                    contentScale = ContentScale.Fit,
+                    onError = { logoFailed = true },
+                ) else Text(
+                    media.title,
+                    color = TextPrimary,
+                    style = androidx.compose.material3.MaterialTheme.typography.displaySmall,
+                    lineHeight = 33.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
         Spacer(Modifier.height(Spacing.sm))
         // Year, runtime and the first genres on one line; details that sharpen once loaded crossfade in place.
         val facts = listOfNotNull(
@@ -257,6 +271,29 @@ private fun SeriesStatusChip(status: String) {
         modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(tint.copy(alpha = .18f))
             .padding(horizontal = 9.dp, vertical = 3.dp),
     )
+}
+
+/** An episode's plot; hidden behind a tap while it is not watched and spoilers are hidden. */
+@Composable
+internal fun SpoilerSafePlot(text: String, hidden: Boolean) {
+    var revealed by rememberSaveable(text) { mutableStateOf(false) }
+    if (!hidden || revealed) {
+        PlotSection(text)
+        return
+    }
+    Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth()) {
+        SectionHeader(stringResource(R.string.overview))
+        Spacer(Modifier.height(Spacing.sm))
+        androidx.compose.foundation.layout.Row(
+            Modifier.clip(RoundedCornerShape(Radius.Small)).clickable(role = androidx.compose.ui.semantics.Role.Button) { revealed = true }
+                .padding(vertical = Spacing.sm, horizontal = Spacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(androidx.compose.material.icons.Icons.Filled.VisibilityOff, null, tint = TextMuted, modifier = Modifier.size(16.dp))
+            Spacer(Modifier.width(Spacing.sm))
+            Text(stringResource(R.string.spoiler_plot_hidden), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
+        }
+    }
 }
 
 @Composable

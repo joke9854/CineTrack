@@ -270,6 +270,8 @@ interface TmdbService {
         @Query("external_source") externalSource: String,
     ): TmdbFindResponse
     @GET("3/movie/{id}") suspend fun movie(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
+    @GET("3/tv/{id}/external_ids") suspend fun tvExternalIds(@Path("id") id: Int): TmdbExternalIdsDto
+    @GET("3/movie/{id}/external_ids") suspend fun movieExternalIds(@Path("id") id: Int): TmdbExternalIdsDto
     @GET("3/tv/{id}") suspend fun show(@Path("id") id: Int, @Query("append_to_response") append: String = "credits,recommendations,watch/providers,videos", @Query("language") language: String? = null): TmdbMediaDto
     @GET("3/tv/{id}/season/{season}") suspend fun season(@Path("id") id: Int, @Path("season") season: Int, @Query("language") language: String? = null, @Query("append_to_response") append: String? = null): TmdbSeasonDto
     @GET("3/tv/{id}/season/{season}/episode/{episode}") suspend fun episode(@Path("id") id: Int, @Path("season") season: Int, @Path("episode") episode: Int, @Query("append_to_response") append: String = "credits", @Query("language") language: String? = null): TmdbEpisodeDto
@@ -432,30 +434,6 @@ interface SimklCalendarService {
     @GET("calendar/anime.json") suspend fun anime(): List<SimklCalendarItem>
 }
 
-/** Trakt public calendar: exact first-air instants (including streaming
- * release times) for every show, read with a client ID only (no sign-in). */
-interface TraktCalendarService {
-    @GET("calendars/all/shows/{start}/{days}")
-    suspend fun shows(
-        @retrofit2.http.Header("trakt-api-key") clientId: String,
-        @retrofit2.http.Path("start") start: String,
-        @retrofit2.http.Path("days") days: Int,
-    ): List<TraktCalendarItem>
-}
-
-@Serializable data class TraktCalendarItem(
-    @SerialName("first_aired") val firstAired: String? = null,
-    val episode: TraktCalendarEpisode = TraktCalendarEpisode(),
-    val show: TraktCalendarShow = TraktCalendarShow(),
-)
-@Serializable data class TraktCalendarEpisode(
-    val season: Int = 0,
-    val number: Int = 0,
-    val ids: TraktIds = TraktIds(),
-)
-@Serializable data class TraktCalendarShow(val ids: TraktIds = TraktIds())
-@Serializable data class TraktIds(val tmdb: Int? = null)
-
 /** The Retrofit services. NetworkFactory builds each one, and its OkHttp client, on first use. */
 class ApiServices private constructor(
     tmdb: Lazy<TmdbService>,
@@ -463,7 +441,6 @@ class ApiServices private constructor(
     simklAuth: Lazy<SimklAuthService>,
     simklSync: Lazy<SimklSyncService>,
     simklCalendar: Lazy<SimklCalendarService>,
-    traktCalendar: Lazy<TraktCalendarService?>,
     @Suppress("UNUSED_PARAMETER") lazily: Unit,
 ) {
     constructor(
@@ -472,15 +449,13 @@ class ApiServices private constructor(
         simklAuth: SimklAuthService,
         simklSync: SimklSyncService,
         simklCalendar: SimklCalendarService,
-        traktCalendar: TraktCalendarService? = null,
-    ) : this(lazyOf(tmdb), lazyOf(mdbList), lazyOf(simklAuth), lazyOf(simklSync), lazyOf(simklCalendar), lazyOf(traktCalendar), Unit)
+    ) : this(lazyOf(tmdb), lazyOf(mdbList), lazyOf(simklAuth), lazyOf(simklSync), lazyOf(simklCalendar), Unit)
 
     val tmdb: TmdbService by tmdb
     val mdbList: MdbListService by mdbList
     val simklAuth: SimklAuthService by simklAuth
     val simklSync: SimklSyncService by simklSync
     val simklCalendar: SimklCalendarService by simklCalendar
-    val traktCalendar: TraktCalendarService? by traktCalendar
 
     internal companion object {
         fun lazily(
@@ -489,8 +464,7 @@ class ApiServices private constructor(
             simklAuth: () -> SimklAuthService,
             simklSync: () -> SimklSyncService,
             simklCalendar: () -> SimklCalendarService,
-            traktCalendar: () -> TraktCalendarService?,
-        ) = ApiServices(lazy(tmdb), lazy(mdbList), lazy(simklAuth), lazy(simklSync), lazy(simklCalendar), lazy(traktCalendar), Unit)
+        ) = ApiServices(lazy(tmdb), lazy(mdbList), lazy(simklAuth), lazy(simklSync), lazy(simklCalendar), Unit)
     }
 }
 
@@ -606,18 +580,6 @@ object NetworkFactory {
             simklAuth = { retrofit("https://api.simkl.com/", simklAuthClient).create(SimklAuthService::class.java) },
             simklSync = { retrofit("https://api.simkl.com/", simklClient).create(SimklSyncService::class.java) },
             simklCalendar = { retrofit("https://data.simkl.in/", common.newBuilder().build()).create(SimklCalendarService::class.java) },
-            traktCalendar = { retrofit(
-                "https://api.trakt.tv/",
-                common.newBuilder().addInterceptor { chain ->
-                    chain.proceed(
-                        chain.request().newBuilder()
-                            .header("Content-Type", "application/json")
-                            .header("trakt-api-version", "2")
-                            .header("User-Agent", "CineTrack/${BuildConfig.VERSION_NAME} (Android)")
-                            .build(),
-                    )
-                }.build(),
-            ).create(TraktCalendarService::class.java) },
         )
     }
 }

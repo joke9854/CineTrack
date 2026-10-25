@@ -247,8 +247,11 @@ data class SyncOperationDeliveryEntity(
         SyncOperationDeliveryEntity::class,
         EpisodeAirDateEntity::class,
         EpisodeNumberingEntity::class,
+        UserRatingEntity::class,
+        CustomListEntity::class,
+        CustomListItemEntity::class,
     ],
-    version = 14,
+    version = 15,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -260,6 +263,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun upNextDao(): UpNextDao
     abstract fun syncDao(): SyncDao
     abstract fun episodeNumberingDao(): EpisodeNumberingDao
+    abstract fun personalDao(): PersonalDao
 
     companion object {
         @Volatile private var instance: AppDatabase? = null
@@ -404,12 +408,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /** Your ratings, notes and lists; no existing data changes. */
+        val migration14To15 = object : Migration(14, 15) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("CREATE TABLE IF NOT EXISTS `user_ratings` (`mediaType` TEXT NOT NULL, `mediaId` INTEGER NOT NULL, `score` INTEGER, `note` TEXT NOT NULL, `updatedAt` INTEGER NOT NULL, PRIMARY KEY(`mediaType`, `mediaId`))")
+                database.execSQL("CREATE TABLE IF NOT EXISTS `custom_lists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `createdAt` INTEGER NOT NULL)")
+                database.execSQL("CREATE TABLE IF NOT EXISTS `custom_list_items` (`listId` INTEGER NOT NULL, `mediaType` TEXT NOT NULL, `mediaId` INTEGER NOT NULL, `addedAt` INTEGER NOT NULL, PRIMARY KEY(`listId`, `mediaType`, `mediaId`))")
+                database.execSQL("CREATE INDEX IF NOT EXISTS `index_custom_list_items_mediaType_mediaId` ON `custom_list_items` (`mediaType`, `mediaId`)")
+            }
+        }
+
         fun create(context: Context): AppDatabase = instance ?: synchronized(this) {
             instance ?: Room.databaseBuilder(
                 context.applicationContext,
                 AppDatabase::class.java,
                 "cinetrack-v27.db",
-            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13, migration13To14).build().also { instance = it }
+            ).addMigrations(migration3To4, migration4To5, migration5To6, migration6To7, migration7To8, migration8To9, migration9To10, migration10To11, migration11To12, migration12To13, migration13To14, migration14To15).build().also { instance = it }
         }
     }
 }

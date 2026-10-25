@@ -20,6 +20,9 @@ object CrashReportSettings {
     /** Off until the user turns it on in Floppy settings: reports leave the device. */
     fun isEnabled(context: Context): Boolean = prefs(context).getBoolean(KEY_ENABLED, false)
 
+    /** True once the user has turned reports on or off (or answered the prompt). */
+    fun hasChoice(context: Context): Boolean = prefs(context).contains(KEY_ENABLED)
+
     fun setEnabled(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_ENABLED, enabled).commit()
     }

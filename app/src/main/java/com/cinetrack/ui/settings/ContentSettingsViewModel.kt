@@ -44,7 +44,7 @@ data class ContentSettings(
  * A finished content-setting write that CineTrackViewModel still has to act on: its detail
  * caches, the progress cache and Discover are built from these settings.
  */
-enum class ContentChange { Providers, Ratings, Language, Region, AirDates, Timezone, ContentRegions, TmdbKey, MdbListKey, TraktClientId }
+enum class ContentChange { Providers, Ratings, Language, Region, AirDates, Timezone, ContentRegions, TmdbKey, MdbListKey, FanartKey, TvmazeOn, TvmazeOff, TvmazeKey, TvmazeKeyRemoved, TvdbKey, TvdbKeyRemoved }
 
 /** The writes behind the content pages. The metadata ones do more than save a preference. */
 interface ContentSettingsStore {
@@ -63,10 +63,15 @@ interface ContentSettingsStore {
     /** Each checks the credential against its service and saves it only when it works. */
     suspend fun verifyAndSetTmdbApiKey(value: String): Result<Unit>
     suspend fun verifyAndSetMdbListApiKey(value: String): Result<Unit>
-    suspend fun verifyAndSetTraktClientId(value: String): Result<Unit>
+    suspend fun verifyAndSetFanartApiKey(value: String): Result<Unit> = Result.failure(UnsupportedOperationException())
+    suspend fun setTvmazeEnabled(enabled: Boolean) {}
+    suspend fun verifyAndSetTvmazeUser(username: String, apiKey: String): Result<Unit> = Result.failure(UnsupportedOperationException())
+    suspend fun clearTvmazeUser() {}
+    suspend fun verifyAndSetTvdbKey(apiKey: String, pin: String): Result<Unit> = Result.failure(UnsupportedOperationException())
+    suspend fun clearTvdbKey() {}
 }
 
-/** TMDB metadata, content regions, rating sources, streaming providers and the TMDB, MDBList and Trakt credentials. Activity-scoped. */
+/** TMDB metadata, content regions, rating sources, streaming providers and the TMDB, MDBList, Fanart.tv, TVmaze and TVDB credentials. Activity-scoped. */
 class ContentSettingsViewModel(
     private val store: ContentSettingsStore,
     private val io: CoroutineDispatcher = Dispatchers.IO,
@@ -148,8 +153,16 @@ class ContentSettingsViewModel(
         verify(ContentChange.TmdbKey, onResult) { store.verifyAndSetTmdbApiKey(value) }
     fun verifyAndSetMdbListApiKey(value: String, onResult: (Result<Unit>) -> Unit) =
         verify(ContentChange.MdbListKey, onResult) { store.verifyAndSetMdbListApiKey(value) }
-    fun verifyAndSetTraktClientId(value: String, onResult: (Result<Unit>) -> Unit) =
-        verify(ContentChange.TraktClientId, onResult) { store.verifyAndSetTraktClientId(value) }
+    fun verifyAndSetFanartApiKey(value: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.FanartKey, onResult) { store.verifyAndSetFanartApiKey(value) }
+    fun verifyAndSetTvmazeUser(username: String, apiKey: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.TvmazeKey, onResult) { store.verifyAndSetTvmazeUser(username, apiKey) }
+    fun clearTvmazeUser() = write(ContentChange.TvmazeKeyRemoved) { withContext(io) { store.clearTvmazeUser() } }
+    fun verifyAndSetTvdbKey(apiKey: String, pin: String, onResult: (Result<Unit>) -> Unit) =
+        verify(ContentChange.TvdbKey, onResult) { store.verifyAndSetTvdbKey(apiKey, pin) }
+    fun clearTvdbKey() = write(ContentChange.TvdbKeyRemoved) { withContext(io) { store.clearTvdbKey() } }
+    fun setTvmazeEnabled(enabled: Boolean) =
+        write(if (enabled) ContentChange.TvmazeOn else ContentChange.TvmazeOff) { withContext(io) { store.setTvmazeEnabled(enabled) } }
 
     private fun verify(change: ContentChange, onResult: (Result<Unit>) -> Unit, check: suspend () -> Result<Unit>) {
         viewModelScope.launch {

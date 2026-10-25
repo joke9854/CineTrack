@@ -109,6 +109,9 @@ private object Routes {
     const val Detail = "detail/{type}/{id}"
     const val Episode = "episode/{showId}/{season}/{number}"
     const val SettingsDetail = "settings-detail/{page}"
+    const val Lists = "lists"
+    const val Profile = "profile"
+    const val ListDetail = "list/{listId}"
 }
 
 /** A destination that exposes its enter/exit scope to shared elements inside it. */
@@ -180,6 +183,12 @@ fun CineTrackApp(
         ),
     )
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Logos of the titles you watched last and your library, fetched ahead so Detail opens with them.
+    val logoTitles = remember(state.history, state.rails) {
+        (state.history.asSequence().map { it.media } + state.rails[com.cinetrack.domain.RailIds.LIBRARY].orEmpty().asSequence())
+            .distinctBy { it.stableKey }.take(60).toList()
+    }
+    LaunchedEffect(logoTitles.map { it.stableKey }) { if (logoTitles.isNotEmpty()) application.container.prefetchLogos(logoTitles) }
     // What the settings pages still run on CineTrackViewModel (sync mutex, AppUiState and Progress).
     val syncControls = remember(viewModel) {
         com.cinetrack.ui.settings.TrackingSyncControls(viewModel.syncProgress, viewModel::sync, viewModel.mainTrackerSwap, viewModel::swapMainTracker, viewModel.floppyBootstrapProgress)
@@ -236,6 +245,7 @@ fun CineTrackApp(
                 application.container.mediaRepository,
                 application.container.peopleRepository,
                 application.container.syncHost.renumberedShows,
+                application.container.fanartRepository,
             ),
             application.container.detailEpisodeCache,
         ),
@@ -269,6 +279,9 @@ fun CineTrackApp(
         factory = com.cinetrack.ui.settings.BackupViewModel.Factory(com.cinetrack.data.repository.RepositoryBackupStore(application.container.backupRepository, application.container.progressCache)),
     )
     LaunchedEffect(backupViewModel) { backupViewModel.errors.collect(viewModel::showError) }
+    val personalViewModel: com.cinetrack.ui.personal.PersonalViewModel = viewModel(
+        factory = com.cinetrack.ui.personal.PersonalViewModel.Factory(application.container.personalRepository, application.container.externalImporter),
+    )
     LaunchedEffect(backupViewModel) { backupViewModel.restored.collect { viewModel.onBackupRestored() } }
     val backupProgress by backupViewModel.backupProgress.collectAsStateWithLifecycle()
     val syncSettingsViewModel: com.cinetrack.ui.settings.SyncSettingsViewModel = viewModel(
@@ -398,8 +411,9 @@ fun CineTrackApp(
     Box(Modifier.fillMaxSize().imePadding().popupBackdropBlur(popupBlur)) {
         com.cinetrack.ui.components.FloatingGlassHost(if (navBlurEnabled) navHazeState else null, pageGlass, navShown) { captureModifier ->
         androidx.compose.runtime.CompositionLocalProvider(
-            LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, appearance.castPhotoShape, appearance.posterTitles),
+            LocalCardAppearance provides com.cinetrack.domain.CardAppearance(state.heroLayout, state.posterFormat, state.posterSize, appearance.castPhotoShape, appearance.posterTitles, appearance.hideSpoilers),
             com.cinetrack.ui.components.LocalPopupBlur provides popupBlur,
+            com.cinetrack.ui.personal.LocalPersonal provides personalViewModel,
         ) {
         // Shared elements (the tapped poster flying into the detail page) need one scope
         // around every destination.
@@ -492,13 +506,36 @@ fun CineTrackApp(
                 )
             }
             screen(Routes.Library) {
-                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = setStatus, onBulkStatus = setStatuses, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it })
+                LibraryScreen(state = state.libraryUiState(), artwork = libraryArtwork, onSearch = { navController.navigate("search/library") }, onMedia = openMedia, onStatus = setStatus, onBulkStatus = setStatuses, onRefreshArtwork = { libraryViewModel.refreshArtwork(state.tmdbApiConfigured) }, onCompactNav = { compactNav = it }, onLists = { navController.navigate(Routes.Lists) })
+            }
+            screen(Routes.Lists) {
+                com.cinetrack.ui.screens.ListsScreen(onBack = { navController.popBackStack() }, onList = { navController.navigate("list/$it") })
+            }
+            screen(Routes.ListDetail, arguments = listOf(navArgument("listId") { type = NavType.LongType })) { entry ->
+                com.cinetrack.ui.screens.ListDetailScreen(entry.arguments?.getLong("listId") ?: 0L, onBack = { navController.popBackStack() }, onMedia = openMedia)
             }
             screen(Routes.Settings) {
+                val profileName by settingsViewModel.profileName.collectAsStateWithLifecycle()
+                val profileImages by settingsViewModel.profileImages.collectAsStateWithLifecycle()
                 SettingsScreen(
                     state = state.settingsUiState(),
                     onPage = { navController.navigate("settings-detail/$it") },
                     onCompactNav = { compactNav = it },
+                    profileName = profileName,
+                    profileImages = profileImages,
+                    onProfile = { navController.navigate(Routes.Profile) },
+                )
+            }
+            screen(Routes.Profile) {
+                com.cinetrack.ui.screens.ProfileScreen(
+                    state = state,
+                    progressState = state.progressUiState(),
+                    viewingInsights = viewingInsights,
+                    onLoadViewingInsights = { progressViewModel.loadViewingInsights(state.history) },
+                    settingsViewModel = settingsViewModel,
+                    onBack = { navController.popBackStack() },
+                    onPage = { navController.navigate("settings-detail/$it") },
+                    onLists = { navController.navigate(Routes.Lists) },
                 )
             }
             screen(
@@ -746,6 +783,35 @@ fun CineTrackApp(
                     actionLabel = if (downloading == null) stringResource(com.cinetrack.R.string.update_install) else null,
                     onAction = { settingsViewModel.openAppUpdate(context) },
                     onDismiss = { updateDismissed = update.version },
+                )
+            }
+        }
+        var syncPill by remember { mutableStateOf<com.cinetrack.domain.ManualSyncResult?>(null) }
+        LaunchedEffect(viewModel) {
+            viewModel.manualSyncDone.collect { result ->
+                syncPill = result
+                kotlinx.coroutines.delay(4000)
+                syncPill = null
+            }
+        }
+        var shownSync by remember { mutableStateOf<com.cinetrack.domain.ManualSyncResult?>(null) }
+        if (syncPill != null) shownSync = syncPill
+        AnimatedVisibility(
+            visible = syncPill != null && backupProgress == null && !libraryArtwork.progressVisible && state.error.isNullOrBlank(),
+            enter = Motion.PillEnter,
+            exit = Motion.PillExit,
+            modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = Spacing.sm),
+        ) {
+            shownSync?.let { result ->
+                com.cinetrack.ui.components.StatusPill(
+                    title = stringResource(com.cinetrack.R.string.sync_pill_done),
+                    detail = when {
+                        result.failed > 0 -> androidx.compose.ui.res.pluralStringResource(com.cinetrack.R.plurals.sync_pill_failed, result.failed, result.failed)
+                        result.changes > 0 -> androidx.compose.ui.res.pluralStringResource(com.cinetrack.R.plurals.sync_pill_changes, result.changes, result.changes)
+                        else -> stringResource(com.cinetrack.R.string.sync_pill_nothing)
+                    },
+                    tone = if (result.failed > 0) com.cinetrack.ui.components.PillTone.FAILED else com.cinetrack.ui.components.PillTone.DONE,
+                    onDismiss = { syncPill = null },
                 )
             }
         }

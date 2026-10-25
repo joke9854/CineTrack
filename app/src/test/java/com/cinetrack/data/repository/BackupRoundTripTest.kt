@@ -244,6 +244,21 @@ class BackupRoundTripTest {
         assertEquals(1, restored.appState.loadCachedState().history.size)
     }
 
+    @Test fun profilePhotoAndBannerComeBackFromTheBackup() = runBlocking {
+        val source = store()
+        preferences.restoreProfileImage(ProfileImageKind.AVATAR, byteArrayOf(1, 2, 3))
+        preferences.restoreProfileImage(ProfileImageKind.BANNER, null)
+        val backup = source.backup.exportBackupFiles(emptySet())
+        // Changed after the backup: a banner added, the photo removed.
+        preferences.restoreProfileImage(ProfileImageKind.AVATAR, null)
+        preferences.restoreProfileImage(ProfileImageKind.BANNER, byteArrayOf(9))
+
+        store().backup.restoreBackupFiles(backup)
+
+        org.junit.Assert.assertArrayEquals(byteArrayOf(1, 2, 3), preferences.profileImageBytes(ProfileImageKind.AVATAR))
+        org.junit.Assert.assertNull(preferences.profileImageBytes(ProfileImageKind.BANNER))
+    }
+
     @Test fun restoringTheSameBackupTwiceAddsNothing() = runBlocking {
         val source = store()
         seed(source)

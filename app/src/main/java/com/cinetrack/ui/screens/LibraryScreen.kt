@@ -21,6 +21,7 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Checklist
+import androidx.compose.material.icons.filled.CollectionsBookmark
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.graphics.Brush
 import com.cinetrack.ui.components.liquidGlassIcon
@@ -66,7 +67,6 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.PlaylistAddCheck
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -123,6 +123,7 @@ fun LibraryScreen(
     onBulkStatus: (List<MediaCard>, LibraryStatus) -> Unit,
     onRefreshArtwork: () -> Unit,
     onCompactNav: (Boolean) -> Unit,
+    onLists: () -> Unit = {},
 ) {
     var type by rememberSaveable { mutableStateOf(MediaType.TV) }
     var status by rememberSaveable { mutableStateOf<LibraryStatus?>(null) }
@@ -185,7 +186,7 @@ fun LibraryScreen(
             // shows artwork straight away instead of popping it in.
             val prefetchContext = LocalContext.current
             val posterPx = with(androidx.compose.ui.platform.LocalDensity.current) {
-                val columns = com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)
+                val columns = gridColumnsFor(state.cardDensity)
                 ((androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp.dp - 40.dp - 12.dp * (columns - 1)) / columns).roundToPx()
             }
             LaunchedEffect(typeItems, posterPx) {
@@ -293,7 +294,7 @@ fun LibraryScreen(
                 }
             }
             Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .08f)))
-            // Sort chip, search, artwork refresh and bulk edit.
+            // Sort chip, lists, search and bulk edit; artwork refreshes with a long pull.
             Row(
                 Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.lg, top = Spacing.md, bottom = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
@@ -308,13 +309,11 @@ fun LibraryScreen(
                     Icon(Icons.Filled.ExpandMore, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
                 Spacer(Modifier.weight(1f))
+                IconButton(onClick = rememberUiAction(onLists), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
+                    Icon(Icons.Filled.CollectionsBookmark, stringResource(R.string.your_lists), tint = TextSecondary, modifier = Modifier.size(19.dp))
+                }
                 IconButton(onClick = rememberUiAction(onSearch), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
                     Icon(Icons.Filled.Search, stringResource(R.string.accessibility_search), tint = TextSecondary, modifier = Modifier.size(19.dp))
-                }
-                if (artwork.progress != null && !artwork.progressVisible) {
-                    IconButton(onClick = rememberUiAction(onRefreshArtwork), modifier = Modifier.size(48.dp).liquidGlassIcon()) {
-                        Icon(Icons.Filled.Refresh, stringResource(R.string.refresh), tint = AccentLight, modifier = Modifier.size(19.dp))
-                    }
                 }
                 IconButton(onClick = { bulkMode = !bulkMode; selectedKeys = emptySet() }, modifier = Modifier.size(48.dp).liquidGlassIcon()) {
                     Icon(
@@ -381,7 +380,7 @@ fun LibraryScreen(
                 }
             } else {
                 LazyVerticalGrid(
-                    columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
+                    columns = GridCells.Fixed(gridColumnsFor(state.cardDensity)),
                     state = tabGrid,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = headerHeight + 12.dp, bottom = 112.dp),
                     horizontalArrangement = Arrangement.spacedBy(Spacing.md),

@@ -66,6 +66,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -532,6 +534,7 @@ internal fun EpisodeRow(
     // The still grows into the episode page's large still when the row is opened.
     val stillSlot = com.cinetrack.ui.components.rememberPosterSlot()
     val sharedKey = "ep:${episode.showId}:${episode.season}:${episode.number}"
+    val spoiler = com.cinetrack.ui.theme.LocalCardAppearance.current.hideSpoilers && !episode.watched
     Column(Modifier.fillMaxWidth()) {
     Row(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(Radius.Small))
@@ -548,7 +551,7 @@ internal fun EpisodeRow(
                 .clip(stillShape).background(SurfacePalette.ArtworkBackdrop)
                 .then(if (highlight != null) Modifier.border(1.6.dp, highlight, stillShape) else Modifier),
         ) {
-            episode.stillUrl?.let { com.cinetrack.ui.components.SharedPosterImage(it, episode.title, stillSlot, Modifier.fillMaxSize(), ContentScale.Crop) }
+            episode.stillUrl?.let { com.cinetrack.ui.components.SharedPosterImage(it, episode.title, stillSlot, Modifier.fillMaxSize().spoilerBlur(spoiler), ContentScale.Crop) }
         }
         Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
@@ -560,7 +563,7 @@ internal fun EpisodeRow(
                     fontWeight = if (subtitleAccent) FontWeight.Bold else FontWeight.Normal, maxLines = 1)
             }
         }
-        if (episode.overview.isNotBlank()) {
+        if (episode.overview.isNotBlank() && !spoiler) {
             Box(
                 Modifier.size(40.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button) { infoVisible = !infoVisible },
                 contentAlignment = Alignment.Center,
@@ -594,6 +597,10 @@ internal fun EpisodeRow(
     }
     }
 }
+
+/** Blurs a still that could spoil an episode not watched yet (no blur before Android 12, so it is also dimmed). */
+internal fun Modifier.spoilerBlur(active: Boolean): Modifier =
+    if (!active) this else this.blur(14.dp).drawWithContent { drawContent(); drawRect(Color.Black.copy(alpha = .35f)) }
 
 @Composable
 private fun WatchedCircle(watched: Boolean, description: String) {

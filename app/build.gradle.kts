@@ -132,6 +132,11 @@ roborazzi {
     outputDir.set(layout.projectDirectory.dir("src/test/screenshots"))
 }
 
+composeCompiler {
+    // Read-only collections and java.time values in UI state count as stable (see the file).
+    stabilityConfigurationFiles.add(layout.projectDirectory.file("compose_stability.conf"))
+}
+
 baselineProfile {
     automaticGenerationDuringBuild = false
 }

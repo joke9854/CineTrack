@@ -4,33 +4,40 @@ import com.cinetrack.data.local.AppDatabase
 import com.cinetrack.data.local.EpisodeAirDateEntity
 
 /**
- * Air dates are kept per provider (TMDB, Trakt, Simkl) so the one the user
+ * Air dates are kept per provider (TMDB, TVmaze, Simkl) so the one the user
  * picks in Settings can be shown, and switching providers later needs no
  * new download: each episode's shown date is recomputed from what is kept.
  */
 object AirDateSource {
     const val TMDB = "tmdb"
-    const val TRAKT = "trakt"
     const val SIMKL = "simkl"
-    const val DEFAULT = TRAKT
+    const val TVMAZE = "tvmaze"
+    const val DEFAULT = TVMAZE
+    /** Removed in 0.99.78 (TVmaze gives the same exact times): a saved choice reads as TVmaze, stored rows are ignored. */
+    const val RETIRED_TRAKT = "trakt"
 
-    /** Most precise first: Trakt has exact air instants, Simkl calendar times, TMDB dates. */
-    val all = listOf(TRAKT, SIMKL, TMDB)
+    /** Most precise first: TVmaze has exact air instants, Simkl calendar times, TMDB dates. */
+    val all = listOf(TVMAZE, SIMKL, TMDB)
+
+    /** A saved choice that is no longer offered (Trakt, or anything unknown) becomes the default. */
+    fun normalize(value: String?): String = value?.takeIf { it in all } ?: DEFAULT
 }
 
 /**
  * The date to show: the chosen provider's, else the next provider that has
  * one. [legacy] is the date already stored before per-provider dates existed
- * (its provider is unknown); it ranks after Trakt and Simkl and before TMDB,
+ * (its provider is unknown); it ranks after TVmaze and Simkl and before TMDB,
  * so updating never swaps a calendar time for a bare TMDB date, unless TMDB
  * is the chosen provider.
  */
 internal fun resolveAirDate(dates: Map<String, String>, preferred: String, legacy: String? = null): String? {
-    fun of(source: String) = dates[source]?.takeIf(String::isNotBlank)
+    // Rows from a retired provider (Trakt) are never shown.
+    fun of(source: String) = dates[source]?.takeIf { it.isNotBlank() && source in AirDateSource.all }
     if (preferred == AirDateSource.TMDB) {
-        return of(AirDateSource.TMDB) ?: of(AirDateSource.TRAKT) ?: of(AirDateSource.SIMKL) ?: legacy
+        return of(AirDateSource.TMDB) ?: of(AirDateSource.TVMAZE) ?: of(AirDateSource.SIMKL) ?: legacy
     }
-    val calendar = listOf(preferred) + listOf(AirDateSource.TRAKT, AirDateSource.SIMKL).filter { it != preferred }
+    val first = AirDateSource.normalize(preferred)
+    val calendar = listOf(first) + listOf(AirDateSource.TVMAZE, AirDateSource.SIMKL).filter { it != first }
     return calendar.firstNotNullOfOrNull(::of) ?: legacy?.takeIf(String::isNotBlank) ?: of(AirDateSource.TMDB)
 }
 
