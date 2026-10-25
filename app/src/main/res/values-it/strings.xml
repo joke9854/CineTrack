@@ -767,5 +767,6 @@
     <string name="installer_open_failed">Impossibile aprire l\'installazione di Android</string>
     <string name="changelog_failed">Impossibile caricare le novità</string>
     <string name="verification_failed">Verifica non riuscita</string>
+    <string name="floppy_description">Il tuo tracker self-hosted: raccolta, cronologia e sincronizzazione</string>
 </resources>
 

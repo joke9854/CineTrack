@@ -767,5 +767,6 @@
     <string name="installer_open_failed">Couldn\'t open the Android installer</string>
     <string name="changelog_failed">Couldn\'t load the changelog</string>
     <string name="verification_failed">Verification failed</string>
+    <string name="floppy_description">Your self-hosted tracker: library, history and sync</string>
 </resources>
 

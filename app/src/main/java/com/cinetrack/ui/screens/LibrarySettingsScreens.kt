@@ -1005,6 +1005,7 @@ private fun AboutSettings(viewModel: SettingsViewModel) {
             Triple("Simkl", "https://simkl.com/", R.string.simkl_description),
             Triple("Trakt", "https://trakt.tv/", R.string.trakt_description),
             Triple("MDBList", "https://mdblist.com/", R.string.mdblist_description),
+            Triple("Floppy", "https://github.com/joke9854/Floppy", R.string.floppy_description),
         ).forEach { (name, url, description) ->
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable { runCatching { uriHandler.openUri(url) } }
