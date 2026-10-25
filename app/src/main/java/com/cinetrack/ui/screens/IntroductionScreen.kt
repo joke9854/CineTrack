@@ -17,7 +17,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowForward
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Explore
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.QueryStats
@@ -103,7 +103,7 @@ fun IntroductionScreen(
                 modifier = Modifier.padding(top = Spacing.md),
             )
             Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(bottom = Spacing.xl)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm), modifier = Modifier.padding(bottom = Spacing.xl)) {
                 pages.indices.forEach { index ->
                     Box(
                         Modifier.size(if (index == pageIndex) 20.dp else 8.dp, 8.dp)
@@ -114,7 +114,7 @@ fun IntroductionScreen(
             if (pageIndex < pages.lastIndex) {
                 PrimaryAction(
                     text = stringResource(R.string.intro_next),
-                    icon = Icons.Filled.ArrowForward,
+                    icon = Icons.AutoMirrored.Filled.ArrowForward,
                     modifier = Modifier.fillMaxWidth(),
                 ) { pageIndex++ }
             } else {

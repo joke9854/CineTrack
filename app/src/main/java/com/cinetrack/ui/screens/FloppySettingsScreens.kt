@@ -90,6 +90,9 @@ import com.cinetrack.ui.theme.GlassStrong
 import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.Spacing
 
+/** Floppy's brand button colour, from the one service-brand table. */
+private val FloppyButton: Color get() = serviceBrand(SettingsPages.ServiceFloppy)?.button ?: Accent
+
 @Composable
 internal fun IntegrationsSettings(state: AppUiState, onPage: (String) -> Unit) {
     SettingsSection(stringResource(R.string.integrations)) {
@@ -269,8 +272,8 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
             // other asks first, so Floppy becomes main only by the user's choice.
             val shape = RoundedCornerShape(Radius.Pill)
             Row(
-                Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = .06f)).border(.6.dp, Color.White.copy(alpha = .10f), shape).padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                Modifier.fillMaxWidth().clip(shape).background(Color.White.copy(alpha = .06f)).border(.6.dp, Color.White.copy(alpha = .10f), shape).padding(Spacing.xs),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 listOf(false to "Simkl", true to "Floppy").forEach { (floppy, name) ->
                     val current = state.floppyIsMain == floppy
@@ -314,7 +317,7 @@ private fun MainTrackerSection(state: AppUiState, controls: TrackingSyncControls
                 ),
                 color = TextSecondary,
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
-                modifier = Modifier.padding(start = 4.dp, end = 4.dp, top = Spacing.md),
+                modifier = Modifier.padding(start = Spacing.xs, end = Spacing.xs, top = Spacing.md),
             )
         }
         swap.error?.let { KitNotice(it) }
@@ -463,7 +466,7 @@ internal fun FloppyConnectionSettingsForm(
                 ),
                 color = TextSecondary,
                 style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
-                modifier = Modifier.padding(top = 8.dp, bottom = 12.dp),
+                modifier = Modifier.padding(top = Spacing.sm, bottom = Spacing.md),
             )
             }
             OutlinedTextField(
@@ -492,7 +495,7 @@ internal fun FloppyConnectionSettingsForm(
                     enabled = validUrl && !connectionUiState.running,
                     modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sign_in_button"),
                     shape = RoundedCornerShape(Radius.Pill),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
+                    colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
                 ) {
                     Icon(Icons.Filled.Link, null, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(7.dp))
@@ -557,7 +560,7 @@ internal fun FloppyConnectionSettingsForm(
                 enabled = !syncing && !connectionUiState.running,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_sync_button"),
                 shape = RoundedCornerShape(Radius.Pill),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
+                colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
             ) {
                 if (syncing) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))
@@ -577,7 +580,7 @@ internal fun FloppyConnectionSettingsForm(
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).testTag("floppy_connect_button"),
                 shape = RoundedCornerShape(Radius.Pill),
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF185FA5), disabledContainerColor = Color.White.copy(alpha = .08f)),
+                colors = ButtonDefaults.buttonColors(containerColor = FloppyButton, disabledContainerColor = Color.White.copy(alpha = .08f)),
             ) {
                 if (connectionUiState.running) {
                     CircularProgressIndicator(color = Color.White, strokeWidth = 2.dp, modifier = Modifier.size(18.dp))

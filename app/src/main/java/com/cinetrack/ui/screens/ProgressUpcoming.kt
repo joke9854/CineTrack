@@ -79,7 +79,7 @@ internal fun UpcomingEpisodesRail(
     Column(Modifier.padding(top = Spacing.sm, bottom = Spacing.lg)) {
         SectionHeader(title, Modifier.padding(horizontal = Spacing.xl))
         Spacer(Modifier.height(13.dp))
-        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        LazyRow(contentPadding = PaddingValues(horizontal = 20.dp), horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
             items(episodes.distinctBy(EpisodeCard::scheduleKey), key = EpisodeCard::scheduleKey) { episode ->
                 val showTitle = shows.firstOrNull { it.id == episode.showId && it.type == com.cinetrack.domain.MediaType.TV }?.title.orEmpty()
                 val interaction = remember(episode.showId, episode.season, episode.number) { MutableInteractionSource() }
@@ -103,7 +103,7 @@ internal fun UpcomingEpisodesRail(
                             modifier = Modifier.align(Alignment.TopEnd).padding(2.dp).size(40.dp),
                         ) {
                             Box(
-                                Modifier.size(26.dp).glass(RoundedCornerShape(8.dp)),
+                                Modifier.size(26.dp).glass(RoundedCornerShape(Radius.Compact)),
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
@@ -127,7 +127,7 @@ internal fun UpcomingEpisodesRail(
                 Text(stringResource(R.string.hide_upcoming_title), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
                 Spacer(Modifier.height(7.dp))
                 Text(stringResource(R.string.hide_upcoming_message, episode.code, episode.title), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(Spacing.lg))
                 PrimaryAction(
                     stringResource(R.string.hide_upcoming_episode),
                     Icons.Filled.VisibilityOff,

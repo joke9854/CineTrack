@@ -22,6 +22,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.Spacer
+import com.cinetrack.ui.components.tonalPill
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
@@ -69,12 +73,19 @@ internal fun StreamingSettings(viewModel: ContentSettingsViewModel, onPage: (Str
                 Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     row.forEach { (key, label) ->
                         val selected = key in state.visibleProviderTypes
-                        FilterChip(selected = selected, onClick = {
-                            viewModel.toggleVisibleProviderType(key)
-                        }, label = { Text(stringResource(label)) }, modifier = Modifier.weight(1f),
-                            leadingIcon = if (selected) ({ Icon(Icons.Filled.Check, null, Modifier.size(16.dp)) }) else null,
-                            colors = FilterChipDefaults.filterChipColors(labelColor = TextSecondary, selectedLabelColor = TextPrimary,
-                                selectedContainerColor = Accent.copy(alpha = .22f), selectedLeadingIconColor = AccentLight))
+                        // The app's pill toggle, like the rating sources, not a stock FilterChip.
+                        Row(
+                            Modifier.weight(1f).heightIn(min = 40.dp).tonalPill(selected)
+                                .toggleable(value = selected, role = androidx.compose.ui.semantics.Role.Checkbox) { viewModel.toggleVisibleProviderType(key) }
+                                .padding(horizontal = 14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (selected) {
+                                Icon(Icons.Filled.Check, null, tint = AccentLight, modifier = Modifier.size(15.dp))
+                                Spacer(Modifier.width(6.dp))
+                            }
+                            Text(stringResource(label), color = if (selected) TextPrimary else TextSecondary, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                        }
                     }
                     if (row.size == 1) Spacer(Modifier.weight(1f))
                 }

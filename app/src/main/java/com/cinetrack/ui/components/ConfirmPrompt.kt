@@ -45,7 +45,7 @@ fun ConfirmPrompt(
             Text(title, color = TextPrimary, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
             Spacer(Modifier.height(7.dp))
             Text(message, color = TextSecondary, style = MaterialTheme.typography.bodySmall, lineHeight = 18.sp)
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Spacing.lg))
             PrimaryAction(
                 confirmLabel,
                 icon,
@@ -53,7 +53,7 @@ fun ConfirmPrompt(
                 containerColor = if (destructive) SurfacePalette.DangerAction else Accent,
                 onClick = onConfirm,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(Radius.Pill)) {
                 Text(stringResource(R.string.cancel), color = TextPrimary, fontWeight = FontWeight.Bold)
             }

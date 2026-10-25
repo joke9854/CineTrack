@@ -1,5 +1,7 @@
 package com.cinetrack.ui.components
 
+import com.cinetrack.ui.theme.Spacing
+
 import kotlinx.coroutines.launch
 import androidx.compose.ui.layout.positionInParent
 import androidx.compose.foundation.selection.selectable
@@ -218,7 +220,7 @@ internal fun Modifier.liquidGlassPill(under: Color = Color.Unspecified): Modifie
 /** [glassIcon] as liquid glass: same 6dp inset, the bar's material and a soft lift inside the IconButton's bounds. */
 @Composable
 internal fun Modifier.liquidGlassIcon(under: Color = Color.Unspecified): Modifier =
-    padding(4.dp).liquidGlass(GlassSurface.IconButton, surface = ControlGlassTint, under = under, shadow = false) {
+    padding(Spacing.xs).liquidGlass(GlassSurface.IconButton, surface = ControlGlassTint, under = under, shadow = false) {
         shadow(8.dp, CircleShape, clip = false)
             .clip(CircleShape)
             .background(GlassMaterial.Control)
@@ -302,12 +304,13 @@ internal fun Modifier.collapsingTitle(titlePx: () -> Int, scrolled: () -> Int): 
  */
 @Composable
 internal fun Modifier.softTab(selected: Boolean, onClick: () -> Unit): Modifier {
+    val haptics = rememberAppHaptics()
     val interaction = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val focused by interaction.collectIsFocusedAsState()
     val press by androidx.compose.animation.core.animateFloatAsState(
         if (pressed) 1f else if (focused) .6f else 0f,
-        androidx.compose.animation.core.tween(if (pressed) 90 else 280),
+        androidx.compose.animation.core.tween(if (pressed) com.cinetrack.ui.theme.Motion.Quick else com.cinetrack.ui.theme.Motion.Medium),
         label = "tabPress",
     )
     return selectable(
@@ -315,7 +318,8 @@ internal fun Modifier.softTab(selected: Boolean, onClick: () -> Unit): Modifier 
         interactionSource = interaction,
         indication = null,
         role = androidx.compose.ui.semantics.Role.Tab,
-        onClick = onClick,
+        // Every tab and segment ticks when it changes, like the bottom bar.
+        onClick = { if (!selected) haptics.tick(); onClick() },
     ).drawBehind {
         if (press > 0f) {
             val inset = 6.dp.toPx()

@@ -19,6 +19,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogProperties
 import com.cinetrack.R
+import com.cinetrack.ui.theme.Spacing
+import com.cinetrack.ui.theme.Radius
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.material.icons.filled.CloudDownload
@@ -74,12 +76,12 @@ private fun FirstSyncChoice(title: String, body: String, highlighted: Boolean, o
     val accent = MaterialTheme.colorScheme.primary
     Surface(
         onClick = onClick,
-        shape = RoundedCornerShape(16.dp),
+        shape = RoundedCornerShape(Radius.Medium),
         color = if (highlighted) accent.copy(alpha = .16f) else Color.White.copy(alpha = .05f),
         border = BorderStroke(1.dp, if (highlighted) accent.copy(alpha = .7f) else Color.White.copy(alpha = .12f)),
         modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
             Text(body, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

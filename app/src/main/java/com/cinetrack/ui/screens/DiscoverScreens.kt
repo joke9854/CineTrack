@@ -285,14 +285,14 @@ fun DiscoverScreen(
                     com.cinetrack.ui.components.LoadingPane(Modifier.fillMaxWidth().height(360.dp))
                 }
                 if (mosaic && !mosaicLoading && mosaicItems.isEmpty() && state.allMedia.isNotEmpty()) item {
-                    Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xxl))
+                    com.cinetrack.ui.components.EmptyState(Icons.Filled.Tune, stringResource(R.string.no_filter_results))
                 }
                 if (mosaic) mosaicGrid(mosaicItems, MosaicActions(onMedia, onStatus, onNotInterested), mosaicSlide)
                 // Reaching the end asks for the next batch while TMDB has more.
                 if (mosaic && mosaicItems.isNotEmpty() && mosaicCanLoadMore && mosaicResults?.first == mosaicQuery) item(key = "mosaic_more") {
                     LaunchedEffect(mosaicItems.size) { onMosaicMore() }
                     Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator(Modifier.size(24.dp), color = TextMuted, strokeWidth = 2.dp)
+                        com.cinetrack.ui.components.InlineLoader()
                     }
                 }
                 if (!mosaic && heroes.isNotEmpty()) item { HeroCarousel(heroes, heroIndex, { heroIndex = it }, onMedia, onStatus, onNotInterested, loadTagline, state.metadataLanguage) }
@@ -424,7 +424,7 @@ private fun LazyListScope.mosaicHeader(
         }
         Row(
             Modifier.fillMaxWidth().horizontalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = Spacing.xl),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             MosaicDropdownChip(stringResource(choice.kind.label), active = choice.kind != MosaicKind.TRENDING) { sheet = 1 }
             MosaicDropdownChip(stringResource(choice.window.label), active = choice.window != choice.kind.defaultWindow) { sheet = 2 }
@@ -467,7 +467,7 @@ private fun LazyListScope.mosaicHeader(
             }
         }
     }
-    item { Spacer(Modifier.height(12.dp)) }
+    item { Spacer(Modifier.height(Spacing.md)) }
 }
 
 @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
@@ -480,7 +480,7 @@ private fun <T> MosaicOptionSheet(
     onSelect: (T) -> Unit,
 ) {
     com.cinetrack.ui.components.SharedGlassSheet(onDismiss = onDismiss) {
-        Column(Modifier.padding(horizontal = 12.dp)) {
+        Column(Modifier.padding(horizontal = Spacing.md)) {
             com.cinetrack.ui.components.SheetTitle(title)
             // Long lists scroll inside the rounded group, so its corners stay rounded.
             com.cinetrack.ui.components.GlassMenuGroup(maxHeight = (androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp * .5f).dp) {
@@ -504,14 +504,14 @@ private fun MosaicDropdownChip(label: String, active: Boolean, onClick: () -> Un
     Row(
         Modifier.height(40.dp).tonalPill(active)
             .clickable(onClick = rememberUiAction(onClick))
-            .padding(start = 12.dp, end = 10.dp),
+            .padding(start = Spacing.md, end = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.Tune, null, tint = TextSecondary, modifier = Modifier.size(16.dp))
         Spacer(Modifier.width(7.dp))
         Text(label, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
         if (dropdown) {
-            Spacer(Modifier.width(4.dp))
+            Spacer(Modifier.width(Spacing.xs))
             Icon(Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
     }
@@ -578,7 +578,7 @@ private fun LazyListScope.mosaicGrid(items: List<MediaCard>, actions: MosaicActi
 @Composable
 private fun MosaicBlock(row: MosaicRow, actions: MosaicActions) {
     val block = row.items
-    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)) {
+    androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = Spacing.md, vertical = Spacing.xs)) {
         val gap = 8.dp
         val column = (maxWidth - gap * 2) / 3
         val posterHeight = column * 1.5f
@@ -607,7 +607,7 @@ private fun MosaicTile(media: MediaCard, wide: Boolean, modifier: Modifier, acti
     val posterSlot = com.cinetrack.ui.components.rememberPosterSlot()
     val pressScale by animateFloatAsState(
         if (pressed || statusPopup) .96f else 1f,
-        spring(dampingRatio = .7f, stiffness = Spring.StiffnessMediumLow),
+        com.cinetrack.ui.theme.Motion.press(),
         label = "mosaicPress",
     )
     Box(
@@ -641,7 +641,7 @@ private fun MosaicTile(media: MediaCard, wide: Boolean, modifier: Modifier, acti
             else com.cinetrack.ui.components.SharedPosterImage(art, media.title, posterSlot, Modifier.fillMaxSize(), ContentScale.Crop)
         }
         if (wide) {
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to Color(0xE6080A0C))))
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0.4f to Color.Transparent, 1f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .9f))))
             Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
                 Text(
                     listOfNotNull(
@@ -651,13 +651,13 @@ private fun MosaicTile(media: MediaCard, wide: Boolean, modifier: Modifier, acti
                     color = TextSecondary,
                     style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.2.sp,
+                    letterSpacing = com.cinetrack.ui.theme.EyebrowLetterSpacing,
                 )
                 Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 media.score?.takeIf { it > 0 }?.let { score ->
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(Icons.Filled.Star, null, tint = Gold, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(4.dp))
+                        Spacer(Modifier.width(Spacing.xs))
                         Text(String.format(com.cinetrack.ui.currentLocale(), "%.1f", score), color = Gold, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold)
                     }
                 }
@@ -689,7 +689,7 @@ private fun LazyListScope.railSection(
     if (items.isEmpty()) return
     item(contentType = "discover:header") { SectionHeader(title, Modifier.padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.xl, bottom = Spacing.md), seeAll, { onSeeAll(railId) }) }
     item(contentType = "discover:rail") { MediaRail(items, onMedia, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, showAirDate = railId == RailIds.UPCOMING, onStatus = onStatus, onNotInterested = onNotInterested) }
-    item(contentType = "discover:spacer") { Spacer(Modifier.height(4.dp)) }
+    item(contentType = "discover:spacer") { Spacer(Modifier.height(Spacing.xs)) }
 }
 
 @Composable
@@ -765,6 +765,7 @@ internal fun HeroCard(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
+    val heroHaptics = com.cinetrack.ui.components.rememberAppHaptics()
     val coverSlot = com.cinetrack.ui.components.rememberPosterSlot()
     var tagline by remember(media.stableKey, metadataLanguage) { mutableStateOf<String?>(null) }
     LaunchedEffect(media.stableKey, metadataLanguage, preview, previewTagline) {
@@ -789,7 +790,6 @@ internal fun HeroCard(
             .sharedBackdrop(media.stableKey, coverSlot)
             .clip(RoundedCornerShape(Radius.Large))
             .background(Brush.linearGradient(listOf(SurfacePalette.PosterBrown, SurfacePalette.SeaSurface, SurfacePalette.PosterShadow)))
-            .glass(RoundedCornerShape(Radius.Large))
             .border(if (pressed || statusPopup) 2.dp else .5.dp, if (pressed || statusPopup) Accent else Color.Transparent, RoundedCornerShape(Radius.Large))
             .combinedClickable(
                 enabled = !preview,
@@ -800,6 +800,7 @@ internal fun HeroCard(
                     onMedia(media)
                 },
                 onLongClick = {
+                    heroHaptics.longPress()
                     statusPopup = true
                 },
             ),
@@ -811,7 +812,7 @@ internal fun HeroCard(
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(listOf(Color.Black.copy(alpha = .76f), Color.Black.copy(alpha = .34f), Color.Transparent))))
         Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .58f)))))
         }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (compact) 12.dp else Spacing.xl)) {
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(if (compact) Spacing.md else Spacing.xl)) {
             val type = if (media.type == MediaType.TV) stringResource(R.string.tv_shows) else stringResource(R.string.movies)
             val genre = media.genres.firstOrNull().orEmpty()
             val metadata = listOf(type, genre, media.year).filter(String::isNotBlank).joinToString(" · ").uppercase()
@@ -909,13 +910,13 @@ fun DiscoverListScreen(
                 columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                 modifier = Modifier.fillMaxSize().statusBarsPadding(),
                 contentPadding = PaddingValues(start = 20.dp, end = 20.dp, bottom = 112.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                verticalArrangement = Arrangement.spacedBy(Spacing.lg),
             ) {
                 // Same place as the old fixed row: beside the 52dp back button, then 28dp to the posters.
                 item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
                     Box(
-                        Modifier.fillMaxWidth().padding(top = Spacing.lg, bottom = 12.dp).height(52.dp),
+                        Modifier.fillMaxWidth().padding(top = Spacing.lg, bottom = Spacing.md).height(52.dp),
                         contentAlignment = Alignment.CenterStart,
                     ) {
                         PageTitle(title, Modifier.padding(start = 52.dp + Spacing.md))
@@ -935,13 +936,10 @@ fun DiscoverListScreen(
                     }
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
-                    Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Column(Modifier.fillMaxWidth().padding(vertical = Spacing.lg), horizontalAlignment = Alignment.CenterHorizontally) {
                         when {
-                            browse == null || browse.loading -> CircularProgressIndicator(color = Accent, modifier = Modifier.size(28.dp))
-                            browse.failed -> {
-                                Text(stringResource(R.string.discover_more_failed), color = TextSecondary)
-                                androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId, state) }) { Text(stringResource(R.string.retry)) }
-                            }
+                            browse == null || browse.loading -> com.cinetrack.ui.components.InlineLoader()
+                            browse.failed -> com.cinetrack.ui.components.ErrorRetry(stringResource(R.string.discover_more_failed), onRetry = { viewModel.loadDiscoverMore(railId, state) })
                             browse.hasMore -> androidx.compose.material3.TextButton(onClick = { viewModel.loadDiscoverMore(railId, state) }) { Text(stringResource(R.string.discover_load_more)) }
                             else -> Text(stringResource(if (items.isEmpty()) R.string.choice_no_results else R.string.discover_list_end), color = TextSecondary)
                         }
@@ -1047,7 +1045,7 @@ fun SearchScreen(
             }
             if (remoteSearch) {
                 Row(
-                    Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 6.dp),
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = 6.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     SearchCategoryPill(
@@ -1073,7 +1071,7 @@ fun SearchScreen(
             if (query.isBlank() && history.isNotEmpty()) {
                 LazyColumn(
                     contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
                     item {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -1120,7 +1118,7 @@ fun SearchScreen(
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(2),
                     contentPadding = PaddingValues(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     items(visiblePeople, key = PersonCard::id) { person ->
@@ -1143,7 +1141,7 @@ fun SearchScreen(
                     columns = GridCells.Fixed(3),
                     contentPadding = PaddingValues(16.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 ) {
                     items(visibleResults, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth().animateItem(fadeInSpec = Motion.enter(Motion.Medium), placementSpec = Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold), fadeOutSpec = Motion.exit())) {

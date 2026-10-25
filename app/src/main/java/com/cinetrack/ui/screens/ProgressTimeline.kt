@@ -147,7 +147,7 @@ private fun PosterThumb(media: MediaCard, width: androidx.compose.ui.unit.Dp, he
 @Composable
 private fun DayHeader(title: String, detail: String?, modifier: Modifier = Modifier) {
     Row(
-        modifier.fillMaxWidth().padding(start = Spacing.xl + 4.dp, end = Spacing.xl + 4.dp, top = Spacing.md, bottom = Spacing.sm),
+        modifier.fillMaxWidth().padding(start = Spacing.xl + Spacing.xs, end = Spacing.xl + Spacing.xs, top = Spacing.md, bottom = Spacing.sm),
         verticalAlignment = Alignment.Bottom,
     ) {
         Text(title, color = TextPrimary, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, modifier = Modifier.weight(1f))
@@ -224,16 +224,17 @@ internal fun LazyListScope.calendarTimeline(
 
 @Composable
 private fun WeekStrip(today: LocalDate, withReleases: Set<LocalDate>, onPick: (LocalDate) -> Unit) {
+    val haptics = com.cinetrack.ui.components.rememberAppHaptics()
     var selected by remember(today) { mutableStateOf(today) }
     val locale = com.cinetrack.ui.currentLocale()
-    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.sm), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.xl, vertical = Spacing.sm), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
         (0L until 7L).map(today::plusDays).forEach { date ->
             val chosen = date == selected
             val fill by androidx.compose.animation.animateColorAsState(if (chosen) Accent else Color.Transparent, label = "weekDay")
             Column(
                 Modifier.weight(1f).clip(RoundedCornerShape(14.dp)).drawBehind { drawRect(fill) }
-                    .clickable(role = Role.Tab) { selected = date; onPick(date) }
-                    .padding(vertical = 8.dp),
+                    .clickable(role = Role.Tab) { if (selected != date) haptics.tick(); selected = date; onPick(date) }
+                    .padding(vertical = Spacing.sm),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
@@ -350,7 +351,7 @@ private fun FeaturedRelease(group: List<TimelineCard>, reminderOn: Boolean, onRe
             val clock = if (com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
             if (clock.isNotBlank()) Text(
                 clock, color = TextPrimary, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.ExtraBold,
-                modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(Radius.Compact)).padding(horizontal = 9.dp, vertical = 4.dp),
+                modifier = Modifier.padding(10.dp).glass(RoundedCornerShape(Radius.Compact)).padding(horizontal = 9.dp, vertical = Spacing.xs),
             )
             Box(Modifier.align(Alignment.TopEnd).padding(2.dp)) { ReminderBell(reminderOn, onReminder, onArt = true) }
             Column(Modifier.align(Alignment.BottomStart).padding(14.dp)) {
@@ -371,11 +372,11 @@ private fun CompactRelease(group: List<TimelineCard>, released: Boolean, reminde
             Row(
                 Modifier.fillMaxWidth()
                     .clickable { if (several) expanded = !expanded else onOpen(item) }
-                    .padding(start = 8.dp, top = 8.dp, bottom = 8.dp, end = 2.dp),
+                    .padding(start = Spacing.sm, top = Spacing.sm, bottom = Spacing.sm, end = 2.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 PosterThumb(item.media, 38.dp, 56.dp)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
                 Column(Modifier.weight(1f)) {
                     Text(item.media.title, color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     val clock = if (!released && com.cinetrack.domain.hasExplicitReleaseTime(item.timestamp)) timelineClock(item.timestamp) else ""
@@ -384,14 +385,14 @@ private fun CompactRelease(group: List<TimelineCard>, released: Boolean, reminde
                         color = TextMuted, style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (several) ExpandChevron(expanded, Modifier.padding(end = 4.dp))
+                if (several) ExpandChevron(expanded, Modifier.padding(end = Spacing.xs))
                 if (released) ReleasedMark(item) else ReminderBell(reminderOn, onReminder)
             }
             AnimatedVisibility(expanded, enter = fadeIn(Motion.enter(Motion.Medium, delay = 60)), exit = fadeOut(Motion.exit())) {
-                Column(Modifier.padding(start = 58.dp, end = 12.dp, bottom = 6.dp)) {
+                Column(Modifier.padding(start = 58.dp, end = Spacing.md, bottom = 6.dp)) {
                     group.forEach { episode ->
                         Row(
-                            Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(8.dp))
+                            Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(Radius.Compact))
                                 .clickable { onOpen(episode) }.padding(vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -485,7 +486,7 @@ private fun Milestone(text: String, color: Color) {
     Text(
         text, color = color, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.ExtraBold, maxLines = 1,
         modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(color.copy(alpha = .16f))
-            .padding(horizontal = 8.dp, vertical = 3.dp),
+            .padding(horizontal = Spacing.sm, vertical = 3.dp),
     )
 }
 
@@ -502,11 +503,11 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
         Row(
             Modifier.fillMaxWidth()
                 .clickable { if (several) expanded = !expanded else open(first, onMedia, onEpisode) }
-                .padding(start = 9.dp, top = 9.dp, bottom = 9.dp, end = 12.dp),
+                .padding(start = 9.dp, top = 9.dp, bottom = 9.dp, end = Spacing.md),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             PosterThumb(first.media, 46.dp, 68.dp)
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Spacing.md))
             Column(Modifier.weight(1f)) {
                 val start = timelineClock(first.timestamp)
                 val end = timelineClock(last.timestamp)
@@ -532,16 +533,16 @@ private fun HistorySession(session: HistoryEntry.Session, onMedia: (MediaCard) -
             else Icon(Icons.Filled.Check, null, tint = Success, modifier = Modifier.size(22.dp))
         }
         AnimatedVisibility(expanded, enter = fadeIn(Motion.enter(Motion.Medium, delay = 60)), exit = fadeOut(Motion.exit())) {
-            Column(Modifier.padding(start = 67.dp, end = 12.dp, bottom = 6.dp)) {
+            Column(Modifier.padding(start = 67.dp, end = Spacing.md, bottom = 6.dp)) {
                 events.forEach { event ->
                     Row(
-                        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(8.dp))
+                        Modifier.fillMaxWidth().heightIn(min = 40.dp).clip(RoundedCornerShape(Radius.Compact))
                             .clickable { open(event, onMedia, onEpisode) }.padding(vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(releaseTitle(event), color = TextPrimary, style = MaterialTheme.typography.labelLarge, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         Text(timelineClock(event.timestamp), color = TextMuted, style = MaterialTheme.typography.labelMedium)
-                        Spacer(Modifier.width(8.dp))
+                        Spacer(Modifier.width(Spacing.sm))
                         Icon(Icons.Filled.Check, null, tint = Success, modifier = Modifier.size(16.dp))
                     }
                 }

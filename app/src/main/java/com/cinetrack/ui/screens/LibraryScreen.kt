@@ -236,7 +236,7 @@ fun LibraryScreen(
                     val selected = item == type
                     val headlineColor by androidx.compose.animation.animateColorAsState(
                         if (selected) TextPrimary else TextPrimary.copy(alpha = .42f),
-                        tween(Motion.Extended),
+                        tween(Motion.Long),
                         label = "libraryHeadline",
                     )
                     Text(
@@ -250,12 +250,13 @@ fun LibraryScreen(
                     )
                 }
                 Spacer(Modifier.weight(1f))
+                val layoutHaptics = com.cinetrack.ui.components.rememberAppHaptics()
                 Row(Modifier.height(44.dp).liquidGlassPill().padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
                     listOf(true to Icons.Filled.ViewList, false to Icons.Filled.GridView).forEach { (list, icon) ->
                         val active = listView == list
                         Box(
                             Modifier.size(38.dp).clip(CircleShape).background(if (active) Accent.copy(alpha = .30f) else Color.Transparent)
-                                .selectable(selected = active, role = Role.RadioButton) { listView = list },
+                                .selectable(selected = active, role = Role.RadioButton) { if (!active) layoutHaptics.tick(); listView = list },
                             contentAlignment = Alignment.Center,
                         ) {
                             Icon(icon, stringResource(if (list) R.string.view_list else R.string.view_grid), tint = if (active) TextPrimary else TextMuted, modifier = Modifier.size(18.dp))
@@ -268,7 +269,7 @@ fun LibraryScreen(
             Row(
                 Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.xl)
                     .slidingTabIndicator(indicator, statusIndex),
-                horizontalArrangement = Arrangement.spacedBy(20.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xl),
             ) {
                 filterChoices.forEachIndexed { index, (value, label, _) ->
                     val selected = status == value
@@ -282,7 +283,7 @@ fun LibraryScreen(
                         Modifier.tabSpan(indicator, index)
                             .softTab(selected) { if (selected) scrollToTop() else status = value }
                             .heightIn(min = 44.dp)
-                            .padding(vertical = 12.dp),
+                            .padding(vertical = Spacing.md),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(label, color = labelColor, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1)
@@ -296,14 +297,14 @@ fun LibraryScreen(
             Row(
                 Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.lg, top = Spacing.md, bottom = Spacing.xs),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
             ) {
                 Row(
                     Modifier.height(40.dp).liquidGlassPill().clickable(onClick = rememberUiAction { showOrderSheet = true }).padding(start = 14.dp, end = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(libraryOrderLabel(order), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1)
-                    Spacer(Modifier.width(4.dp))
+                    Spacer(Modifier.width(Spacing.xs))
                     Icon(Icons.Filled.ExpandMore, stringResource(R.string.sort_by), tint = TextSecondary, modifier = Modifier.size(16.dp))
                 }
                 Spacer(Modifier.weight(1f))
@@ -365,13 +366,13 @@ fun LibraryScreen(
             androidx.compose.animation.Crossfade(layoutMode, animationSpec = tween(Motion.Medium), label = "libraryLayout") { mode ->
             if (mode == 0) {
                 Box(Modifier.fillMaxSize().padding(top = headerHeight), contentAlignment = Alignment.Center) {
-                    Column(Modifier.padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(Icons.Filled.AutoAwesome, null, tint = AccentLight, modifier = Modifier.size(40.dp))
-                        Text(stringResource(if (tab.status != null) R.string.library_no_matches else R.string.empty_library), color = TextPrimary, fontWeight = FontWeight.Bold, style = androidx.compose.material3.MaterialTheme.typography.titleMedium)
-                        Text(stringResource(if (tab.status != null) R.string.library_no_matches_description else R.string.empty_library_description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
-                        if (tab.status != null) TextButton(onClick = { status = null }) { Text(stringResource(R.string.clear_filters), color = TextPrimary) }
-                        else TextButton(onClick = onSearch) { Text(stringResource(R.string.accessibility_search), color = TextPrimary) }
-                    }
+                    com.cinetrack.ui.components.EmptyState(
+                        icon = Icons.Filled.AutoAwesome,
+                        title = stringResource(if (tab.status != null) R.string.library_no_matches else R.string.empty_library),
+                        body = stringResource(if (tab.status != null) R.string.library_no_matches_description else R.string.empty_library_description),
+                        actionLabel = stringResource(if (tab.status != null) R.string.clear_filters else R.string.accessibility_search),
+                        onAction = if (tab.status != null) { { status = null } } else onSearch,
+                    )
                 }
             } else if (mode == 1) {
                 val statusLabels = filterChoices.mapNotNull { (value, label, _) -> value?.let { it to label } }.toMap()
@@ -383,8 +384,8 @@ fun LibraryScreen(
                     columns = GridCells.Fixed(com.cinetrack.domain.CardAppearance.gridColumns(state.cardDensity)),
                     state = tabGrid,
                     contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = headerHeight + 12.dp, bottom = 112.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.lg),
                 ) {
                     items(items, key = MediaCard::stableKey) { media ->
                         BoxWithConstraints(Modifier.fillMaxWidth().animateItem(fadeInSpec = if (itemMotion) Motion.enter(Motion.Medium) else null, placementSpec = if (itemMotion) Motion.gentle(androidx.compose.ui.unit.IntOffset.VisibilityThreshold) else null, fadeOutSpec = if (itemMotion) Motion.exit() else null)) {
@@ -468,7 +469,7 @@ private fun LibraryList(
                             onMedia(media)
                         }
                     }
-                    .padding(horizontal = 4.dp, vertical = 10.dp),
+                    .padding(horizontal = Spacing.xs, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Box(
@@ -480,13 +481,13 @@ private fun LibraryList(
                     if (!art.isNullOrBlank()) com.cinetrack.ui.components.SharedPosterImage(art, media.title, posterSlot, Modifier.fillMaxSize(), androidx.compose.ui.layout.ContentScale.Crop)
                     else Text(media.title.take(1).uppercase(), color = TextPrimary.copy(alpha = .8f), style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
                 }
-                Spacer(Modifier.width(16.dp))
+                Spacer(Modifier.width(Spacing.lg))
                 Column(Modifier.weight(1f)) {
                     val meta = listOfNotNull(media.year.takeIf(String::isNotBlank), media.genres.firstOrNull()).joinToString(" · ")
-                    if (meta.isNotBlank()) Text(meta.uppercase(com.cinetrack.ui.currentLocale()), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp, maxLines = 1)
-                    Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+                    if (meta.isNotBlank()) Text(meta.uppercase(com.cinetrack.ui.currentLocale()), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = com.cinetrack.ui.theme.EyebrowLetterSpacing, maxLines = 1)
+                    Text(media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.xs))
                     statusLabels[media.status]?.let { label ->
-                        Row(Modifier.padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.padding(top = Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.size(7.dp).clip(CircleShape).background(libraryStatusColor(media.status)))
                             Spacer(Modifier.width(7.dp))
                             Text(label, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
@@ -509,7 +510,7 @@ private fun BulkStatusSheet(selectedCount: Int, onDismiss: () -> Unit, onApply: 
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg)) {
             Text(stringResource(R.string.bulk_edit_count, selectedCount), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, fontWeight = FontWeight.ExtraBold)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
             (listOf(
                 LibraryStatus.WATCHING, LibraryStatus.PLAN_TO_WATCH, LibraryStatus.PAUSED, LibraryStatus.COMPLETED, LibraryStatus.DROPPED,
             ).map { it to stringResource(com.cinetrack.ui.components.libraryStatusLabel(it)) } +
@@ -549,7 +550,7 @@ private fun LibraryOrderSheet(
     SharedGlassSheet(onDismiss) {
         Column(Modifier.padding(horizontal = Spacing.lg)) {
             com.cinetrack.ui.components.SectionHeader(stringResource(R.string.sort_by))
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
             LibraryOrder.entries.forEach { option ->
                 val active = selected == option
                 Row(

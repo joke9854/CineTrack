@@ -108,7 +108,7 @@ private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsView
         Triple("blue", stringResource(R.string.color_blue), AccentPalette.Blue),
     )
     val selectedAccent = AccentPalette.normalize(state.uiAccent)
-    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).selectableGroup().padding(vertical = Spacing.sm)) {
+    Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).selectableGroup().padding(vertical = Spacing.sm)) {
         choices.forEach { (key, label, color) ->
             val selected = selectedAccent == key
             Column(
@@ -121,7 +121,7 @@ private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsView
                 Box(
                     Modifier.size(44.dp)
                         .border(2.dp, if (selected) Color.White else Color.Transparent, CircleShape)
-                        .padding(4.dp)
+                        .padding(Spacing.xs)
                         .background(color, CircleShape),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -134,20 +134,18 @@ private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsView
     }
     Spacer(Modifier.height(Spacing.sm))
     Row(
-        Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp))
+        Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium))
             .selectable(selected = state.posterAccent, role = Role.Switch) { viewModel.setPosterAccent(!state.posterAccent) }
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = Spacing.lg, vertical = Spacing.md),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
             Text(stringResource(R.string.poster_accent_title), color = TextPrimary, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             Text(stringResource(R.string.poster_accent_subtitle), color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
-        Spacer(Modifier.width(12.dp))
-        androidx.compose.material3.Switch(
-            checked = state.posterAccent, onCheckedChange = null,
-            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = Accent, checkedThumbColor = Color.White),
-        )
+        Spacer(Modifier.width(Spacing.md))
+        // The same switch as every other settings toggle.
+        CompactSwitch(state.posterAccent)
     }
 
     AppearanceLabel(stringResource(R.string.appearance_discover_short))
@@ -197,10 +195,10 @@ private fun AppearanceChoices(state: AppearanceSettings, viewModel: SettingsView
 
 @Composable
 private fun AppearanceLabel(text: String, note: String? = null) {
-    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = Spacing.lg, bottom = Spacing.sm), verticalAlignment = Alignment.Bottom) {
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.xs, end = Spacing.xs, top = Spacing.lg, bottom = Spacing.sm), verticalAlignment = Alignment.Bottom) {
         Text(
             text.uppercase(com.cinetrack.ui.currentLocale()), color = TextMuted,
-            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp,
+            style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, letterSpacing = com.cinetrack.ui.theme.EyebrowLetterSpacing,
         )
         if (note != null) {
             Spacer(Modifier.weight(1f))
@@ -222,17 +220,18 @@ private fun SegmentedChoice(
     val onAccent = if (Accent.luminance() > .6f) Color.Black else Color.White
     BoxWithConstraints(
         Modifier.fillMaxWidth().height(46.dp).alpha(if (enabled) 1f else .42f)
-            .glass(shape).padding(4.dp),
+            .glass(shape).padding(Spacing.xs),
     ) {
         val segment = maxWidth / choices.size
         val offset by animateDpAsState(segment * index, Motion.snappy(), label = "segmentThumb")
         Box(Modifier.offset { androidx.compose.ui.unit.IntOffset(offset.roundToPx(), 0) }.width(segment).fillMaxHeight().clip(shape).background(Accent.copy(alpha = .9f)))
+        val segmentHaptics = com.cinetrack.ui.components.rememberAppHaptics()
         Row(Modifier.fillMaxSize().selectableGroup()) {
             choices.forEach { (key, label) ->
                 val chosen = key == selected
                 Box(
                     Modifier.weight(1f).fillMaxHeight().clip(shape)
-                        .selectable(selected = chosen, enabled = enabled, role = Role.RadioButton) { onSelected(key) },
+                        .selectable(selected = chosen, enabled = enabled, role = Role.RadioButton) { if (!chosen) segmentHaptics.tick(); onSelected(key) },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -255,7 +254,7 @@ private fun AppearancePreview(state: AppUiState, posterMode: String, modifier: M
         }
     }
     Row(
-        modifier.fillMaxWidth().glass(RoundedCornerShape(22.dp)).padding(10.dp).clearAndSetSemantics { },
+        modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Large)).padding(10.dp).clearAndSetSemantics { },
         horizontalArrangement = Arrangement.spacedBy(10.dp),
     ) {
         MiniScreen(Modifier.weight(1f)) { DiscoverMiniature(state, samples) }
@@ -267,9 +266,9 @@ private fun AppearancePreview(state: AppUiState, posterMode: String, modifier: M
 private fun MiniScreen(modifier: Modifier, content: @Composable () -> Unit) {
     BoxWithConstraints(
         modifier.aspectRatio(MiniatureWidth / MiniatureHeight)
-            .clip(RoundedCornerShape(16.dp))
+            .clip(RoundedCornerShape(Radius.Medium))
             .background(Background0)
-            .border(.5.dp, GlassStrokeMedium, RoundedCornerShape(16.dp)),
+            .border(.5.dp, GlassStrokeMedium, RoundedCornerShape(Radius.Medium)),
     ) {
         val scale = maxWidth / MiniatureWidth
         Box(Modifier.layout { measurable, _ ->
@@ -288,9 +287,9 @@ private fun MiniScreen(modifier: Modifier, content: @Composable () -> Unit) {
 
 @Composable
 private fun MiniHeader(title: String, tabs: List<String>) {
-    Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, top = 22.dp, bottom = 14.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(title, color = TextPrimary, fontSize = 30.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-        Row(Modifier.glass(RoundedCornerShape(Radius.Pill)).padding(4.dp)) {
+        Row(Modifier.glass(RoundedCornerShape(Radius.Pill)).padding(Spacing.xs)) {
             tabs.forEachIndexed { index, tab ->
                 Text(
                     tab, color = if (index == 0) (if (Accent.luminance() > .6f) Color.Black else Color.White) else TextSecondary,
@@ -309,20 +308,20 @@ private fun DiscoverMiniature(state: AppUiState, samples: List<MediaCard>) {
     Column(Modifier.fillMaxSize()) {
         MiniHeader(stringResource(R.string.appearance_discover_short), listOf(stringResource(R.string.movies), stringResource(R.string.tv_shows)))
         if (state.discoverLayout == "b") {
-            Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.padding(horizontal = Spacing.md), verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 MiniArt(samples[0], wide = true, Modifier.fillMaxWidth().aspectRatio(16f / 10f))
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                     MiniArt(samples[1 % samples.size], wide = false, Modifier.weight(1f).aspectRatio(2f / 3f))
                     MiniArt(samples[2 % samples.size], wide = false, Modifier.weight(1f).aspectRatio(2f / 3f))
                 }
             }
         } else {
-            Box(Modifier.padding(horizontal = 20.dp)) {
+            Box(Modifier.padding(horizontal = Spacing.xl)) {
                 HeroCard(samples.first(), {}, { _, _ -> }, {}, { null }, state.metadataLanguage,
                     preview = true, previewTagline = stringResource(R.string.appearance_sample_tagline), onInteraction = {})
             }
             Spacer(Modifier.height(18.dp))
-            Text(stringResource(R.string.popular_movies), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = 20.dp))
+            Text(stringResource(R.string.popular_movies), color = TextPrimary, fontSize = 20.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(horizontal = Spacing.xl))
             Spacer(Modifier.height(10.dp))
             PosterRow(samples.drop(1))
         }
@@ -336,9 +335,9 @@ private fun PosterMiniature(state: AppUiState, samples: List<MediaCard>, posterM
         if (posterMode == "grid") {
             val columns = CardAppearance.gridColumns(state.cardDensity)
             val width = (MiniatureWidth - 40.dp - 12.dp * (columns - 1)) / columns
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.padding(horizontal = Spacing.xl), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                 repeat(3) { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         repeat(columns) { MediaPoster(samples[(row * columns + it) % samples.size], width = width, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, onClick = {}) }
                     }
                 }
@@ -354,8 +353,8 @@ private fun PosterMiniature(state: AppUiState, samples: List<MediaCard>, posterM
 @Composable
 private fun PosterRow(items: List<MediaCard>) {
     Row(
-        Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = 20.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        Modifier.horizontalScroll(rememberScrollState(), enabled = false).padding(horizontal = Spacing.xl),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.md),
     ) {
         items.take(4).forEach { MediaPoster(it, showTitle = LocalCardAppearance.current.posterTitles, showYear = false, onClick = {}) }
     }

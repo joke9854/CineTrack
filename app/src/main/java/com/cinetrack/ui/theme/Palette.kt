@@ -47,6 +47,20 @@ object SurfacePalette {
     val Negative = Color(0xFFFF5C5C)
     /** Filled destructive actions (remove, unmark, replace). */
     val DangerAction = Color(0xFFB3423F)
+    /** Destructive text and icons on dark surfaces (Disconnect, error banner icon). */
+    val DangerText = Color(0xFFF09595)
+    /** Body text inside a danger notice. */
+    val DangerSoftText = Color(0xFFF7C1C1)
+    /** Tinted fill behind a danger notice. */
+    val DangerContainer = Color(0x33E24B4A)
+    /** The error banner's fill (used at partial alpha over glass). */
+    val DangerBanner = Color(0xFF5A2028)
+    /** Bright success for dots, checks and all-clear cards. */
+    val SuccessBright = Color(0xFF5DCAA5)
+    /** Problem tint on a status card. */
+    val WarningSoft = Color(0xFFF0997B)
+    /** Page scrim colour; fades use it at the alpha they need. */
+    val Scrim = Color(0xFF080A0C)
     val WarningLight = Color(0xFFFFD37A)
 }
 

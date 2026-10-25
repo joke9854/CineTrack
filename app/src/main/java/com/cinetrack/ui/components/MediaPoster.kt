@@ -95,6 +95,7 @@ fun MediaPoster(
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
     var statusPopup by remember(media.stableKey) { mutableStateOf(false) }
+    val haptics = rememberAppHaptics()
     val posterSlot = rememberPosterSlot()
     val edgeAlpha by animateFloatAsState(if (pressed || statusPopup) .95f else 0f, tween(Motion.Short), label = "posterEdge")
     RevealOnMount(media.stableKey, modifier.width(width)) {
@@ -113,6 +114,7 @@ fun MediaPoster(
             },
             onLongClick = {
                 if (onStatus != null || onNotInterested != null) {
+                    haptics.longPress()
                     statusPopup = true
                 }
             },
@@ -235,7 +237,7 @@ fun MediaRail(
     onStatus: ((MediaCard, LibraryStatus) -> Unit)? = null,
     onNotInterested: ((MediaCard) -> Unit)? = null,
 ) {
-    LazyRow(contentPadding = contentPadding, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+    LazyRow(contentPadding = contentPadding, horizontalArrangement = Arrangement.spacedBy(Spacing.md)) {
         items(items.distinctBy(MediaCard::stableKey), key = MediaCard::stableKey) {
             MediaPoster(
                 it,

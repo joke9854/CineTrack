@@ -173,10 +173,10 @@ internal fun EpisodesSection(
                 color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold,
                 modifier = Modifier.glass(RoundedCornerShape(Radius.Pill))
                     .clickable(role = androidx.compose.ui.semantics.Role.Switch) { onPosterPicker(!posterPicker) }
-                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                    .padding(horizontal = Spacing.md, vertical = 6.dp),
             )
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(Spacing.md))
         // Switching style: the old row fades out and the new row fades and grows in. The
         // height snaps here; the section surface animates it once, so the list below moves once.
         androidx.compose.animation.AnimatedContent(
@@ -192,7 +192,7 @@ internal fun EpisodesSection(
             },
             label = "seasonPickerStyle",
         ) { covers ->
-            LazyRow(state = if (covers) coverState else pillState, contentPadding = PaddingValues(horizontal = DetailLayout.Gutter), horizontalArrangement = Arrangement.spacedBy(if (covers) 10.dp else 8.dp)) {
+            LazyRow(state = if (covers) coverState else pillState, contentPadding = PaddingValues(horizontal = DetailLayout.Gutter), horizontalArrangement = Arrangement.spacedBy(if (covers) 10.dp else Spacing.sm)) {
                 items(seasonKeys, key = { it }) { number ->
                     val chosen = number == season
                     // The accent fades between choices instead of jumping.
@@ -234,18 +234,18 @@ internal fun EpisodesSection(
                             fontWeight = if (chosen) FontWeight.Bold else FontWeight.Medium,
                             modifier = Modifier.glass(pill).drawBehind { drawRect(accent.copy(alpha = fill)) }
                                 .clickable(role = androidx.compose.ui.semantics.Role.Tab) { selectedSeason = number }
-                                .padding(horizontal = 16.dp, vertical = 9.dp),
+                                .padding(horizontal = Spacing.lg, vertical = 9.dp),
                         )
                     }
                 }
             }
         }
         Spacer(Modifier.height(10.dp))
-        Row(Modifier.fillMaxWidth().padding(start = DetailLayout.Gutter, end = DetailLayout.Gutter - 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().padding(start = DetailLayout.Gutter, end = DetailLayout.Gutter - Spacing.sm), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.animation.Crossfade(stringResource(R.string.season_progress, watched, total), label = "seasonCount") { label ->
                 Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
             }
-            Spacer(Modifier.width(12.dp))
+            Spacer(Modifier.width(Spacing.md))
             Box(Modifier.weight(1f).height(4.dp).clip(CircleShape).background(SurfacePalette.ProgressTrack)) {
                 Box(Modifier.fillMaxWidthOf { progress.value }.fillMaxHeight().clip(CircleShape).background(Accent))
             }
@@ -254,7 +254,8 @@ internal fun EpisodesSection(
                 Icon(Icons.Filled.Info, stringResource(R.string.show_season_info, season), tint = TextSecondary, modifier = Modifier.size(19.dp))
             }
             Box(Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = rememberUiAction {
-                haptics.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm)
+                // The same two-state control as the episode circle, so the same toggle feedback.
+                haptics.performHapticFeedback(if (allWatched) androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOff else androidx.compose.ui.hapticfeedback.HapticFeedbackType.ToggleOn)
                 onSeasonWatched(seasonEpisodes, !allWatched)
             }), contentAlignment = Alignment.Center) {
                 WatchedCircle(allWatched, stringResource(if (allWatched) R.string.mark_unwatched else R.string.mark_watched))
@@ -325,8 +326,8 @@ internal fun EpisodesSection(
                     Text(
                         stringResource(R.string.show_all_episodes, shownEpisodes.size), color = AccentLight,
                         style = androidx.compose.material3.MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = DetailLayout.Gutter - 8.dp).clip(RoundedCornerShape(Radius.Pill))
-                            .clickable { showAll = true }.padding(horizontal = 8.dp, vertical = 10.dp),
+                        modifier = Modifier.padding(horizontal = DetailLayout.Gutter - Spacing.sm).clip(RoundedCornerShape(Radius.Pill))
+                            .clickable { showAll = true }.padding(horizontal = Spacing.sm, vertical = 10.dp),
                     )
                 }
             }
@@ -401,6 +402,7 @@ internal fun ReleaseCountdown(media: MediaCard, release: String, episode: Episod
     }.collectAsStateWithLifecycle(initialValue = false)
     val reminderOn = progressViewModel.isReleaseReminderOn(reminders, media, release, episode?.season, episode?.number, byDefault)
     val permission = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { }
+    val bellHaptics = com.cinetrack.ui.components.rememberAppHaptics()
     val whenText = when (days) {
         0 -> stringResource(R.string.release_today)
         1 -> stringResource(R.string.release_tomorrow)
@@ -408,8 +410,8 @@ internal fun ReleaseCountdown(media: MediaCard, release: String, episode: Episod
     }
     val label = if (episode != null) "${episode.code} · $whenText" else "$whenText · ${formatFullDate(release)}"
     Row(
-        Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(16.dp))
-            .padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+        Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(Radius.Medium))
+            .padding(start = 14.dp, end = Spacing.xs, top = Spacing.xs, bottom = Spacing.xs),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(Icons.Filled.CalendarMonth, null, tint = AccentLight, modifier = Modifier.size(18.dp))
@@ -419,6 +421,7 @@ internal fun ReleaseCountdown(media: MediaCard, release: String, episode: Episod
         Box(
             Modifier.size(44.dp).clip(CircleShape).clickable(role = androidx.compose.ui.semantics.Role.Switch) {
                 val enable = !reminderOn
+                bellHaptics.toggle(enable)
                 if (enable && android.os.Build.VERSION.SDK_INT >= 33 &&
                     androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED
                 ) permission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
@@ -483,7 +486,7 @@ internal fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, n
     val total = media.seasons.filter { it.number > 0 }.sumOf { it.episodeCount }.coerceAtLeast(regular.size).coerceAtLeast(1)
     val watched = regular.count(EpisodeCard::watched)
     val progress = androidx.compose.animation.core.animateFloatAsState(watched.toFloat() / total, label = "seriesProgress")
-    Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(16.dp)).padding(horizontal = 14.dp, vertical = 12.dp)) {
+    Column(Modifier.padding(horizontal = DetailLayout.Gutter).fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(horizontal = 14.dp, vertical = Spacing.md)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(stringResource(R.string.series_progress_season, focusSeason, inSeason.count(EpisodeCard::watched), seasonTotal),
                 color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
@@ -494,11 +497,12 @@ internal fun SeriesProgressCard(media: MediaCard, episodes: List<EpisodeCard>, n
             Box(Modifier.fillMaxWidthOf { progress.value }.fillMaxHeight().clip(CircleShape).background(Accent))
         }
         if (onMarkAll != null) {
+            val haptics = com.cinetrack.ui.components.rememberAppHaptics()
             Row(
                 Modifier.padding(top = 10.dp).align(Alignment.End).clip(RoundedCornerShape(Radius.Pill))
-                    .clickable(role = androidx.compose.ui.semantics.Role.Button, onClick = onMarkAll)
+                    .clickable(role = androidx.compose.ui.semantics.Role.Button) { haptics.confirm(); onMarkAll() }
                     .glass(RoundedCornerShape(Radius.Pill))
-                    .heightIn(min = 36.dp).padding(horizontal = 12.dp),
+                    .heightIn(min = 36.dp).padding(horizontal = Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Icon(Icons.Filled.DoneAll, null, tint = AccentLight, modifier = Modifier.size(16.dp))
@@ -535,7 +539,7 @@ internal fun EpisodeRow(
                 com.cinetrack.ui.components.SharedPosterSource.select(stillSlot, sharedKey)
                 onClick()
             }
-            .padding(vertical = 8.dp),
+            .padding(vertical = Spacing.sm),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
@@ -546,7 +550,7 @@ internal fun EpisodeRow(
         ) {
             episode.stillUrl?.let { com.cinetrack.ui.components.SharedPosterImage(it, episode.title, stillSlot, Modifier.fillMaxSize(), ContentScale.Crop) }
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text("${episode.number} · ${episode.title}", color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -585,7 +589,7 @@ internal fun EpisodeRow(
     AnimatedVisibility(infoVisible) {
         Text(
             episode.overview, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, lineHeight = 18.sp,
-            modifier = Modifier.padding(start = 108.dp, end = 8.dp, bottom = 10.dp),
+            modifier = Modifier.padding(start = 108.dp, end = Spacing.sm, bottom = 10.dp),
         )
     }
     }
@@ -645,7 +649,7 @@ internal fun SeasonInfoSheet(
             Modifier.fillMaxWidth().fillMaxHeight(.72f)
                 .padding(horizontal = DetailLayout.Gutter)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.lg),
         ) {
             Column {
                 SectionHeader(details?.title?.takeIf(String::isNotBlank) ?: stringResource(R.string.season_number, number))
@@ -653,28 +657,25 @@ internal fun SeasonInfoSheet(
             }
             if (loading) {
                 Box(Modifier.fillMaxWidth().height(80.dp), contentAlignment = Alignment.Center) {
-                    androidx.compose.material3.CircularProgressIndicator(color = AccentLight)
+                    com.cinetrack.ui.components.InlineLoader()
                 }
             }
             if (failed) {
-                Column {
-                    Text(stringResource(R.string.season_info_error), color = TextSecondary)
-                    androidx.compose.material3.TextButton(onClick = { attempt++ }) { Text(stringResource(R.string.retry), color = TextPrimary) }
-                }
+                com.cinetrack.ui.components.ErrorRetry(stringResource(R.string.season_info_error), onRetry = { attempt++ })
             }
             details?.let { season ->
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                     season.posterUrl?.let { url ->
                         AsyncImage(url, season.title, Modifier.width(80.dp).height(120.dp).clip(RoundedCornerShape(Radius.Small)), contentScale = ContentScale.Crop)
                     }
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         Text("TMDB " + (season.score?.let { String.format(com.cinetrack.ui.currentLocale(), "%.1f", it) } ?: "—"), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                         Text(formatFullDate(season.airDate), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, maxLines = 2)
                     }
                 }
                 Column {
                     SectionHeader(stringResource(R.string.overview))
-                    Spacer(Modifier.height(8.dp))
+                    Spacer(Modifier.height(Spacing.sm))
                     Text(season.overview.ifBlank { stringResource(R.string.season_no_description) }, color = TextSecondary,
                         style = androidx.compose.material3.MaterialTheme.typography.bodyMedium)
                 }
@@ -685,7 +686,7 @@ internal fun SeasonInfoSheet(
                 SectionHeader(stringResource(R.string.season_cast))
                 if (season.cast.isEmpty()) Text(stringResource(R.string.season_no_cast), color = TextSecondary)
                 else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
                         items(season.cast, key = PersonCard::id) { CastAvatar(it, onPerson) }
                     }
                 }
@@ -711,14 +712,14 @@ internal fun MarkShowWatchedPrompt(
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 lineHeight = 18.sp,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Spacing.lg))
             PrimaryAction(
                 androidx.compose.ui.res.pluralStringResource(R.plurals.mark_show_watched_confirm, episodeCount, episodeCount),
                 Icons.Filled.Check,
                 Modifier.fillMaxWidth(),
                 onClick = onConfirm,
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(Radius.Pill)) {
                 Text(stringResource(R.string.cancel), color = TextPrimary, fontWeight = FontWeight.Bold)
             }
@@ -760,9 +761,9 @@ internal fun PreviousEpisodesPrompt(
                 style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
                 lineHeight = 18.sp,
             )
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(Spacing.lg))
             PrimaryAction(stringResource(R.string.mark_previous_too), Icons.Filled.Check, Modifier.fillMaxWidth(), onClick = onIncludePrevious)
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
             OutlinedButton(onClick = onOnlyThis, modifier = Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(Radius.Pill)) {
                 Text(stringResource(R.string.only_this_episode), color = TextPrimary, fontWeight = FontWeight.Bold)
             }

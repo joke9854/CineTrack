@@ -147,7 +147,7 @@ fun GlassIconButton(
     val pressed by interactionSource.collectIsPressedAsState()
     val buttonScale by animateFloatAsState(
         targetValue = if (pressed) .91f else 1f,
-        animationSpec = spring(dampingRatio = .68f, stiffness = Spring.StiffnessMediumLow),
+        animationSpec = com.cinetrack.ui.theme.Motion.press(),
         label = "backButtonPress",
     )
     Box(modifier.size(52.dp), contentAlignment = Alignment.Center) {

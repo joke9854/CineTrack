@@ -405,7 +405,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
     val indicator = rememberTabIndicator()
     Column(Modifier.fillMaxWidth().padding(bottom = Spacing.sm)) {
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 20.dp)
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.xl)
                 .slidingTabIndicator(indicator, selected.ordinal),
             horizontalArrangement = Arrangement.spacedBy(22.dp),
         ) {
@@ -428,7 +428,7 @@ private fun ProgressTabs(selected: ProgressTab, onSelected: (ProgressTab) -> Uni
                         .tabSpan(indicator, tab.ordinal)
                         .softTab(active, selectAction)
                         .heightIn(min = 44.dp)
-                        .padding(vertical = 12.dp),
+                        .padding(vertical = Spacing.md),
                 )
             }
         }

@@ -80,7 +80,7 @@ internal fun SettingsSection(title: String, content: @Composable () -> Unit) {
     Column(Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
         SettingsGroupLabel(title)
         Spacer(Modifier.height(Spacing.sm))
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) { content() }
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(vertical = Spacing.xs)) { content() }
     }
 }
 
@@ -100,8 +100,8 @@ internal fun ToggleRow(title: String, checked: Boolean, onChecked: (Boolean) -> 
 }
 
 @Composable
-private fun CompactSwitch(checked: Boolean) {
-    val knobOffset by animateDpAsState(if (checked) 22.dp else 3.dp, label = "switchKnob")
+internal fun CompactSwitch(checked: Boolean) {
+    val knobOffset by animateDpAsState(if (checked) 22.dp else 3.dp, com.cinetrack.ui.theme.Motion.snappy(), label = "switchKnob")
     Box(
         Modifier.width(52.dp).height(32.dp).clip(CircleShape)
             .background(if (checked) Accent else Glass)
@@ -137,7 +137,7 @@ internal fun ProviderRow(name: String, subtitle: String, configured: Boolean, on
         Spacer(Modifier.size(12.dp))
         Column(Modifier.weight(1f)) { Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold); Text(subtitle, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         StatusDot(configured)
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(Spacing.sm))
         Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp))
     }
 }
@@ -233,7 +233,7 @@ internal fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> U
     )
     val shape = RoundedCornerShape(28.dp)
     Box(
-        Modifier.padding(start = 12.dp, end = 12.dp, top = 8.dp, bottom = 6.dp).fillMaxWidth().clip(shape)
+        Modifier.padding(start = Spacing.md, end = Spacing.md, top = Spacing.sm, bottom = 6.dp).fillMaxWidth().clip(shape)
             .background(brand.brush).border(.6.dp, Color.White.copy(alpha = .10f), shape),
     ) {
         Image(
@@ -241,20 +241,20 @@ internal fun ServiceHero(brand: ServiceBrand, state: AppUiState, onBack: () -> U
             modifier = Modifier.align(Alignment.TopEnd).padding(top = 40.dp, end = 18.dp).size(96.dp)
                 .clip(RoundedCornerShape(26.dp)).graphicsLayer { alpha = .14f },
         )
-        Column(Modifier.padding(start = 10.dp, end = 18.dp, top = 10.dp, bottom = 20.dp)) {
+        Column(Modifier.padding(start = 10.dp, end = 18.dp, top = 10.dp, bottom = Spacing.xl)) {
             GlassBackButton(onClick = onBack)
             Spacer(Modifier.height(18.dp))
-            Column(Modifier.padding(start = 8.dp)) {
+            Column(Modifier.padding(start = Spacing.sm)) {
                 if (brand.wordmark != null) {
                     Image(painterResource(brand.wordmark), brand.name, modifier = Modifier.height(46.dp))
                 } else {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         ServiceLogo(brand.name, size = 40.dp)
-                        Spacer(Modifier.width(12.dp))
+                        Spacer(Modifier.width(Spacing.md))
                         Text(brand.name, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.ExtraBold)
                     }
                 }
-                KitStatusPill(active, status, Modifier.padding(top = 12.dp))
+                KitStatusPill(active, status, Modifier.padding(top = Spacing.md))
                 Text(description, color = Color.White.copy(alpha = .78f), style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(top = 10.dp))
             }
         }
@@ -294,18 +294,18 @@ internal fun KitRow(
         Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .07f)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (!subtitle.isNullOrBlank()) Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         if (value != null) {
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Spacing.sm))
             Text(value, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 150.dp))
         }
         when {
-            trailing != null -> { Spacer(Modifier.width(8.dp)); trailing() }
-            clickAction != null -> { Spacer(Modifier.width(4.dp)); Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp)) }
+            trailing != null -> { Spacer(Modifier.width(Spacing.sm)); trailing() }
+            clickAction != null -> { Spacer(Modifier.width(Spacing.xs)); Icon(Icons.Filled.ChevronRight, null, tint = TextMuted, modifier = Modifier.size(18.dp)) }
         }
     }
 }
@@ -320,7 +320,7 @@ internal fun KitToggleRow(icon: ImageVector, title: String, subtitle: String?, c
         Box(Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(Color.White.copy(alpha = .07f)), contentAlignment = Alignment.Center) {
             Icon(icon, null, tint = TextSecondary, modifier = Modifier.size(18.dp))
         }
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
             if (!subtitle.isNullOrBlank()) Text(subtitle, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -336,10 +336,10 @@ internal fun KitStatTiles(stats: List<Pair<String, String>>) {
     Row(
         Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
             .height(androidx.compose.foundation.layout.IntrinsicSize.Min),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
     ) {
         stats.forEach { (value, label) ->
-            Column(Modifier.weight(1f).fillMaxHeight().glass(RoundedCornerShape(18.dp)).padding(horizontal = 12.dp, vertical = 12.dp)) {
+            Column(Modifier.weight(1f).fillMaxHeight().glass(RoundedCornerShape(Radius.Medium)).padding(horizontal = Spacing.md, vertical = Spacing.md)) {
                 Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, maxLines = 2)
             }
@@ -360,7 +360,7 @@ internal fun KitPrimaryButton(text: String, icon: ImageVector, color: Color, ena
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = if (enabled) Color.White else TextMuted, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(Spacing.sm))
         Text(text, color = if (enabled) Color.White else TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
     }
 }
@@ -371,10 +371,10 @@ private fun KitDangerText(text: String, onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth().padding(top = Spacing.md), contentAlignment = Alignment.Center) {
         Text(
             text,
-            color = Color(0xFFF09595),
+            color = com.cinetrack.ui.theme.SurfacePalette.DangerText,
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = 12.dp),
+            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).clickable(onClick = clickAction).padding(horizontal = 18.dp, vertical = Spacing.md),
         )
     }
 }
@@ -409,20 +409,20 @@ internal fun KitFootnote(text: String) {
 internal fun KitNotice(text: String) {
     Text(
         text,
-        color = Color(0xFFF7C1C1),
+        color = com.cinetrack.ui.theme.SurfacePalette.DangerSoftText,
         style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
         modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xs).fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp)).background(Color(0x33E24B4A)).padding(14.dp),
+            .clip(RoundedCornerShape(Radius.Medium)).background(com.cinetrack.ui.theme.SurfacePalette.DangerContainer).padding(14.dp),
     )
 }
 
 /** All-clear or problem summary with a large icon. */
 @Composable
 internal fun KitStatusCard(ok: Boolean, title: String, subtitle: String) {
-    val tint = if (ok) Color(0xFF5DCAA5) else Color(0xFFF0997B)
+    val tint = if (ok) com.cinetrack.ui.theme.SurfacePalette.SuccessBright else com.cinetrack.ui.theme.SurfacePalette.WarningSoft
     Row(
         Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
-            .glass(RoundedCornerShape(20.dp)).padding(16.dp),
+            .glass(RoundedCornerShape(Radius.Medium)).padding(Spacing.lg),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(42.dp).clip(CircleShape).background(tint.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
@@ -442,19 +442,19 @@ internal fun KitCallout(icon: ImageVector, title: String, body: String, action: 
     val clickAction = rememberUiAction(onAction)
     Row(
         Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.sm).fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp)).background(Accent.copy(alpha = .16f))
-            .border(.6.dp, Accent.copy(alpha = .35f), RoundedCornerShape(20.dp)).padding(14.dp),
+            .clip(RoundedCornerShape(Radius.Medium)).background(Accent.copy(alpha = .16f))
+            .border(.6.dp, Accent.copy(alpha = .35f), RoundedCornerShape(Radius.Medium)).padding(14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, tint = AccentLight, modifier = Modifier.size(24.dp))
-        Spacer(Modifier.width(12.dp))
+        Spacer(Modifier.width(Spacing.md))
         Column(Modifier.weight(1f)) {
             Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
             Text(body, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
         }
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(Spacing.sm))
         Text(action, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.labelLarge, fontWeight = FontWeight.ExtraBold,
-            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(Accent).clickable(onClick = clickAction).padding(horizontal = 14.dp, vertical = 8.dp))
+            modifier = Modifier.clip(RoundedCornerShape(Radius.Pill)).background(Accent).clickable(onClick = clickAction).padding(horizontal = 14.dp, vertical = Spacing.sm))
     }
 }
 

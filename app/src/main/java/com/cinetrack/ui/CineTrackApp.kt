@@ -128,15 +128,15 @@ private fun isDetailRoute(route: String?): Boolean = route == Routes.Detail || r
 
 // Into and out of a detail page the pages swap in ~90 ms, so both are drawn only briefly;
 // the no-op slide keeps the transition alive while the poster or cover finishes flying.
-private val DetailEnter = fadeIn(tween(90)) + androidx.compose.animation.slideInVertically(tween(300)) { 0 }
+private val DetailEnter = fadeIn(tween(Motion.Quick)) + androidx.compose.animation.slideInVertically(tween(Motion.Medium)) { 0 }
 // The leaving page is gone after its 90 ms fade, so it cannot swallow the next tap.
-private val DetailExit = fadeOut(tween(90))
+private val DetailExit = fadeOut(tween(Motion.Quick))
 // Coming back, the poster waits for the rebuilt page before it flies, so the transition
 // lasts that much longer.
-private val DetailPopEnter = fadeIn(tween(90)) +
-    androidx.compose.animation.slideInVertically(tween(300 + com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS)) { 0 }
+private val DetailPopEnter = fadeIn(tween(Motion.Quick)) +
+    androidx.compose.animation.slideInVertically(tween(Motion.Medium + com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS)) { 0 }
 // The closing page fades out while its poster flies home, not at once.
-private val DetailPopExit = fadeOut(tween(300, delayMillis = com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS / 2))
+private val DetailPopExit = fadeOut(tween(Motion.Medium, delayMillis = com.cinetrack.ui.components.POSTER_RETURN_HOLD_MS / 2))
 
 
 private fun mainPageIndex(route: String?): Int? = when (route) {
@@ -750,16 +750,17 @@ fun CineTrackApp(
             }
         }
         AnimatedVisibility(
-            visible = minimumLaunchElapsed && !state.error.isNullOrBlank(),
+            // One message at the top at a time: the backup pill already says it failed.
+            visible = minimumLaunchElapsed && !state.error.isNullOrBlank() && backupProgress == null,
             enter = Motion.PillEnter,
             exit = Motion.PillExit,
             modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(horizontal = Spacing.lg, vertical = Spacing.sm),
         ) {
             Row(
-                Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).background(Color(0xFF5A2028).copy(alpha = .42f)).padding(Spacing.md),
+                Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).background(com.cinetrack.ui.theme.SurfacePalette.DangerBanner.copy(alpha = .42f)).padding(Spacing.md),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(Icons.Filled.Info, null, tint = Color(0xFFFF8C96), modifier = Modifier.size(20.dp))
+                Icon(Icons.Filled.Info, null, tint = com.cinetrack.ui.theme.SurfacePalette.DangerText, modifier = Modifier.size(20.dp))
                 Spacer(Modifier.size(10.dp))
                 Text(state.error.orEmpty(), color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f))
             }
@@ -768,7 +769,7 @@ fun CineTrackApp(
         AnimatedVisibility(
             visible = !minimumLaunchElapsed || state.loading,
             enter = fadeIn(tween(Motion.Short)),
-            exit = fadeOut(tween(Motion.Long, easing = FastOutSlowInEasing)),
+            exit = fadeOut(Motion.exit(Motion.Long)),
             modifier = Modifier.align(Alignment.Center),
         ) {
             Box(

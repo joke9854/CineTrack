@@ -12,6 +12,9 @@ import com.cinetrack.R
 
 /** Manrope (SIL OFL 1.1, docs/licenses/Manrope-OFL.txt), one variable file for every weight. */
 @OptIn(ExperimentalTextApi::class)
+/** Letter spacing for uppercase eyebrow labels (section names, card overlines). */
+val EyebrowLetterSpacing = 1.6.sp
+
 val Manrope = FontFamily(
     listOf(400, 500, 600, 700, 800).map { weight ->
         Font(R.font.manrope, FontWeight(weight), variationSettings = FontVariation.Settings(FontVariation.weight(weight)))

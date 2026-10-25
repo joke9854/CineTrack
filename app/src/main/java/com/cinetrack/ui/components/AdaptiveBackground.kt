@@ -174,7 +174,7 @@ fun rememberPosterAccent(url: String?, enabled: Boolean): State<Color?> {
     val target by produceState(url?.let { posterAccentCache.get(it) }, url, enabled) {
         value = if (!enabled || url == null) null else posterAccentCache.get(url) ?: extractPosterAccent(context, url)?.also { posterAccentCache.put(url, it) }
     }
-    val animated = animateColorAsState(target ?: Accent, androidx.compose.animation.core.tween(500), label = "posterAccent")
+    val animated = animateColorAsState(target ?: Accent, androidx.compose.animation.core.tween(Motion.Extended), label = "posterAccent")
     val enabledState = androidx.compose.runtime.rememberUpdatedState(enabled)
     // Read lazily, so the caller's composition doesn't follow every frame of the fade.
     return remember(animated) {

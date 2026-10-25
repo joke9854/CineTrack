@@ -141,7 +141,7 @@ internal fun TrailerPlayerSheet(
                     loading -> com.cinetrack.ui.components.SkeletonBox(Modifier.fillMaxSize(), description = stringResource(R.string.loading))
                     trailerKey.isNullOrBlank() -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(stringResource(R.string.trailer_unavailable), color = TextSecondary, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.height(12.dp))
+                        Spacer(Modifier.height(Spacing.md))
                         PrimaryAction(stringResource(R.string.retry), Icons.Filled.PlayArrow, Modifier.width(150.dp), onClick = onRetry)
                     }
                     else -> YouTubeTrailerPlayer(trailerKey)
@@ -192,10 +192,10 @@ internal fun DetailHero(media: MediaCard) {
         media.backdropUrl?.takeIf(String::isNotBlank)?.let { backdrop ->
             // matchParentSize: the hero now takes its height from the poster.
             AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(backdrop), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
-            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .2f), .55f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .3f), 1f to Color.Transparent)))
         }
         Box(
-            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp, bottom = 24.dp).fillMaxWidth(.68f).aspectRatio(PosterAspectRatio)
+            Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 64.dp, bottom = Spacing.xxl).fillMaxWidth(.68f).aspectRatio(PosterAspectRatio)
                 // The tapped poster flies into this slot.
                 .sharedPoster(media.stableKey, slot = null)
                 .shadow(18.dp, RoundedCornerShape(Radius.Large), clip = false)
@@ -223,14 +223,14 @@ internal fun DetailIdentity(media: MediaCard, loaded: Boolean = true) {
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth(),
         )
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         // Year, runtime and the first genres on one line; details that sharpen once loaded crossfade in place.
         val facts = listOfNotNull(
             media.year.takeIf(String::isNotBlank),
             formatDurationMinutes(media.runtimeMinutes).takeIf { media.type == MediaType.MOVIE && it.isNotBlank() },
             media.genres.take(2).joinToString(", ").takeIf(String::isNotBlank),
         ).joinToString(" · ")
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Spacing.sm, Alignment.CenterHorizontally), verticalAlignment = Alignment.CenterVertically) {
             androidx.compose.animation.Crossfade(facts, label = "detailFacts", modifier = Modifier.weight(1f, fill = false)) { text ->
                 Text(text, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, textAlign = TextAlign.Center, maxLines = 2)
             }
@@ -268,7 +268,7 @@ internal fun PlotSection(text: String) {
             .clickable(enabled = overflows || expanded, interactionSource = remember { MutableInteractionSource() }, indication = null) { expanded = !expanded },
     ) {
         SectionHeader(stringResource(R.string.overview))
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         Text(
             text, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, lineHeight = 22.sp,
             maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
@@ -368,10 +368,10 @@ internal fun CastSkeleton() {
     Column {
         // Same header as the loaded section, so the title doesn't move when the cast arrives.
         SectionHeader(stringResource(R.string.cast_title), Modifier.padding(horizontal = DetailLayout.Gutter), stringResource(R.string.see_all)) {}
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) { SkeletonPillGroup {
+        Spacer(Modifier.height(Spacing.md))
+        Row(Modifier.padding(horizontal = DetailLayout.Gutter - Spacing.xs), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) { SkeletonPillGroup {
             repeat(4) {
-                Column(Modifier.width(DetailLayout.CastWidth).padding(horizontal = 4.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                Column(Modifier.width(DetailLayout.CastWidth).padding(horizontal = Spacing.xs, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     SkeletonPill(Modifier.size(DetailLayout.CastPhoto), CircleShape)
                     Spacer(Modifier.height(10.dp))
                     SkeletonPill(Modifier.fillMaxWidth(.8f).height(11.dp))
@@ -425,17 +425,17 @@ internal fun WatchSection(media: MediaCard) {
         }
         val (provider, label) = best
         val others = order.flatMap { offers[it.first].orEmpty() }.distinct().filterNot { it == provider }
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp))) {
-            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium))) {
+            Row(Modifier.fillMaxWidth().padding(Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                 ProviderLogo(provider, media.providerLogos[provider], 44.dp)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
                 Column(Modifier.weight(1f)) {
                     Text(stringResource(R.string.watch_on, provider), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(stringResource(label), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
                 }
                 if (link != null) {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text(
                         stringResource(R.string.open_action),
                         color = if (Accent.luminance() > .6f) Color.Black else Color.White,
@@ -447,10 +447,10 @@ internal fun WatchSection(media: MediaCard) {
                 }
             }
             if (others.isNotEmpty()) {
-                Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(.5.dp).background(Color.White.copy(alpha = .08f)))
-                val turn by androidx.compose.animation.core.animateFloatAsState(if (expanded) 180f else 0f, label = "providersChevron")
+                Box(Modifier.fillMaxWidth().padding(horizontal = Spacing.md).height(.5.dp).background(Color.White.copy(alpha = .08f)))
+                val turn by androidx.compose.animation.core.animateFloatAsState(if (expanded) 180f else 0f, com.cinetrack.ui.theme.Motion.snappy(), label = "providersChevron")
                 Row(
-                    Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = 12.dp, vertical = 11.dp),
+                    Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(horizontal = Spacing.md, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     val names = others.take(3).joinToString(", ") + if (others.size > 3) " +${others.size - 3}" else ""
@@ -459,7 +459,7 @@ internal fun WatchSection(media: MediaCard) {
                     Icon(Icons.Filled.KeyboardArrowDown, null, tint = TextMuted, modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = turn })
                 }
                 AnimatedVisibility(expanded) {
-                    Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp)) {
+                    Column(Modifier.padding(start = Spacing.md, end = Spacing.md, bottom = Spacing.md)) {
                         listOf("flatrate" to R.string.subscription, "rent" to R.string.rent, "buy" to R.string.buy,
                             "free" to R.string.provider_free, "ads" to R.string.provider_ads).forEach { (type, category) ->
                             ProviderCategory(stringResource(category), offers[type].orEmpty(), media.providerLogos)
@@ -483,7 +483,7 @@ private fun ProviderLogo(provider: String, logo: String?, size: androidx.compose
 private fun ProviderCategory(label: String, providers: List<String>, logos: Map<String, String>) {
     if (providers.isEmpty()) return
     Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = Spacing.md, bottom = Spacing.sm))
-    LazyRow(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.lg)) {
         items(providers, key = { it }) { provider ->
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ProviderLogo(provider, logos[provider], 26.dp)
@@ -519,11 +519,11 @@ internal fun CollectionSection(current: MediaCard, related: List<MediaCard>, onM
             SectionHeader(stringResource(R.string.collection_title), Modifier.weight(1f))
             Text(stringResource(R.string.saga_seen, seen, collection.size), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelMedium)
         }
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(Spacing.md))
         LazyRow(
             state = collectionState,
             contentPadding = PaddingValues(horizontal = DetailLayout.Gutter),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             items(collection, key = MediaCard::stableKey) { item ->
                 val selected = item.stableKey == current.stableKey
@@ -604,11 +604,11 @@ internal fun UsefulInfoSection(media: MediaCard) {
 internal fun DetailsList(title: String, rows: List<Pair<String, String>>, inset: androidx.compose.ui.unit.Dp = DetailLayout.Gutter) {
     Column(Modifier.padding(horizontal = inset).fillMaxWidth()) {
         SectionHeader(title)
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(Spacing.xs))
         rows.forEachIndexed { index, (label, value) ->
             if (index > 0) Box(Modifier.fillMaxWidth().height(.5.dp).background(Color.White.copy(alpha = .08f)))
-            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp), verticalAlignment = Alignment.Top) {
-                Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = 16.dp))
+            Row(Modifier.fillMaxWidth().padding(vertical = Spacing.md), verticalAlignment = Alignment.Top) {
+                Text(label, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, modifier = Modifier.padding(end = Spacing.lg))
                 Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium,
                     textAlign = TextAlign.End, maxLines = 3, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }

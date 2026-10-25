@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.DialogWindowProvider
 import coil3.compose.AsyncImage
 import com.cinetrack.R
+import com.cinetrack.ui.theme.Spacing
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -143,7 +144,7 @@ internal fun DialogWindowDim(amount: Float = PopupMaterial.Dim) {
 internal fun SheetTitle(text: String, modifier: Modifier = Modifier) {
     Text(
         text,
-        modifier = modifier.fillMaxWidth().padding(start = 4.dp, top = 2.dp, bottom = 14.dp),
+        modifier = modifier.fillMaxWidth().padding(start = Spacing.xs, top = 2.dp, bottom = 14.dp),
         color = TextPrimary,
         style = MaterialTheme.typography.titleLarge,
         fontWeight = FontWeight.ExtraBold,
@@ -202,14 +203,14 @@ internal fun GlassMenuRow(
         Row(
             Modifier.fillMaxWidth().heightIn(min = 54.dp)
                 .clickable(onClick = clickAction)
-                .padding(horizontal = 16.dp, vertical = 9.dp),
+                .padding(horizontal = Spacing.lg, vertical = 9.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) {
                 Box(Modifier.size(32.dp).clip(CircleShape).background(tint.copy(alpha = .16f)), contentAlignment = Alignment.Center) {
                     Icon(icon, null, tint = tint, modifier = Modifier.size(17.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
             }
             Column(Modifier.weight(1f)) {
                 Text(
@@ -225,12 +226,12 @@ internal fun GlassMenuRow(
                 }
             }
             if (selected) {
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(Spacing.sm))
                 Icon(Icons.Filled.Check, null, tint = tint, modifier = Modifier.size(18.dp))
             }
         }
         if (divider) {
-            Box(Modifier.align(Alignment.BottomStart).padding(start = if (icon != null) 60.dp else 16.dp).fillMaxWidth().height(.6.dp).background(PopupMaterial.Hairline))
+            Box(Modifier.align(Alignment.BottomStart).padding(start = if (icon != null) 60.dp else Spacing.lg).fillMaxWidth().height(.6.dp).background(PopupMaterial.Hairline))
         }
     }
 }
@@ -250,10 +251,10 @@ internal fun MediaContextMenu(
 ) {
     if (!expanded) return
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = 12.dp)) {
+        Column(Modifier.padding(horizontal = Spacing.md)) {
             if (media != null) {
                 ContextMenuHeader(media)
-                Box(Modifier.padding(vertical = 16.dp).fillMaxWidth().height(.6.dp).background(PopupMaterial.Hairline))
+                Box(Modifier.padding(vertical = Spacing.lg).fillMaxWidth().height(.6.dp).background(PopupMaterial.Hairline))
             }
             val round = listOf(
                 LibraryStatus.PLAN_TO_WATCH, LibraryStatus.WATCHING, LibraryStatus.PAUSED, LibraryStatus.DROPPED,
@@ -293,9 +294,9 @@ internal fun MediaContextMenu(
 
 @Composable
 private fun ContextMenuHeader(media: MediaCard) {
-    Row(Modifier.fillMaxWidth().padding(top = 4.dp)) {
+    Row(Modifier.fillMaxWidth().padding(top = Spacing.xs)) {
         Box(
-            Modifier.width(72.dp).height(108.dp).clip(RoundedCornerShape(12.dp))
+            Modifier.width(72.dp).height(108.dp).clip(RoundedCornerShape(Radius.Small))
                 .background(Brush.linearGradient(listOf(SurfacePalette.PosterShadow, PopupMaterial.Scrim))),
         ) {
             val art = media.posterUrl ?: media.backdropUrl
@@ -337,7 +338,7 @@ private fun ContextMenuHeader(media: MediaCard) {
 private fun RoundAction(label: String, icon: ImageVector, tint: Color, selected: Boolean, onClick: () -> Unit) {
     val clickAction = rememberUiAction(onClick)
     Column(
-        Modifier.width(78.dp).clip(RoundedCornerShape(16.dp)).clickable(onClick = clickAction).padding(vertical = 4.dp),
+        Modifier.width(78.dp).clip(RoundedCornerShape(Radius.Medium)).clickable(onClick = clickAction).padding(vertical = Spacing.xs),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
@@ -386,7 +387,7 @@ internal fun TonalButton(
     ) {
         if (icon != null) {
             Icon(icon, null, tint = Color.White, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(Spacing.sm))
         }
         Text(text, color = Color.White, style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
@@ -443,7 +444,7 @@ fun StatusPill(
             .border(.6.dp, ControlEdgeBrush, shape)
             .semantics(mergeDescendants = false) { liveRegion = androidx.compose.ui.semantics.LiveRegionMode.Polite },
     ) {
-        Row(Modifier.padding(start = 14.dp, end = if (onDismiss != null) 4.dp else 18.dp, top = 8.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(start = 14.dp, end = if (onDismiss != null) Spacing.xs else 18.dp, top = Spacing.sm, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             // The spinner turns into a check or a cross: the new icon pops in on a bouncy spring.
             androidx.compose.animation.AnimatedContent(
                 tone,

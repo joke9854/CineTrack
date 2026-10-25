@@ -123,12 +123,12 @@ fun DiscoverFiltersScreen(
         LazyColumn(
             Modifier.fillMaxSize().statusBarsPadding(),
             contentPadding = PaddingValues(bottom = 40.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
             item {
                 Row(Modifier.fillMaxWidth().padding(start = Spacing.xl, end = Spacing.xl, top = Spacing.lg), verticalAlignment = Alignment.CenterVertically) {
                     GlassBackButton(onClick = onBack)
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(Spacing.md))
                     PageTitle(stringResource(R.string.content_filters), Modifier.weight(1f))
                 }
             }
@@ -213,7 +213,7 @@ fun DiscoverFiltersScreen(
                 }
             }
             if (!loading && results.isEmpty()) item {
-                Text(stringResource(R.string.no_filter_results), color = TextMuted, modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xxl))
+                com.cinetrack.ui.components.EmptyState(Icons.Filled.Tune, stringResource(R.string.no_filter_results))
             }
             items(results.chunked(3), key = { row -> row.joinToString("|") { it.stableKey } }) { row ->
                 Row(Modifier.fillMaxWidth().padding(horizontal = Spacing.lg), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -241,7 +241,7 @@ private fun FilterSection(title: String, content: @Composable RowScope.() -> Uni
         Text(title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold, modifier = Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.xs))
         Row(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Spacing.xl),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             content = content,
         )
     }

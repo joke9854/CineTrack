@@ -128,6 +128,7 @@ import com.cinetrack.ui.components.PrimaryAction
 import com.cinetrack.ui.components.glass
 import com.cinetrack.ui.components.rememberUiAction
 import com.cinetrack.ui.theme.Accent
+import com.cinetrack.ui.theme.Radius
 import com.cinetrack.ui.theme.AccentLight
 import com.cinetrack.ui.theme.StatusDropped
 import com.cinetrack.ui.theme.StatusPaused
@@ -241,13 +242,13 @@ private data class ServiceStatus(val name: String, val page: String, val active:
 
 @Composable
 private fun ServiceStatusCard(service: ServiceStatus, modifier: Modifier, onPage: (String) -> Unit) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(Radius.Medium)
     val clickAction = rememberUiAction { onPage(service.page) }
     val description = "${service.name}: ${service.status}"
     Column(
         modifier.glass(shape).clickable(onClick = clickAction)
             .semantics(mergeDescendants = true) { contentDescription = description }
-            .padding(12.dp),
+            .padding(Spacing.md),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             if (service.icon != null) {
@@ -270,11 +271,9 @@ private fun ServiceStatusCard(service: ServiceStatus, modifier: Modifier, onPage
 @Composable
 private fun ServiceBrandCard(service: ServiceStatus, onPage: (String) -> Unit) {
     val shape = RoundedCornerShape(26.dp)
-    val (brush, logo) = when (service.name) {
-        "TMDB" -> Brush.linearGradient(listOf(Color(0xFF0D253F), Color(0xFF0B5C7A), Color(0xFF01B4E4))) to R.drawable.ic_service_tmdb
-        "Simkl" -> Brush.linearGradient(listOf(Color(0xFF151515), Color(0xFF262626), Color(0xFF141414))) to R.drawable.ic_service_simkl
-        else -> Brush.linearGradient(listOf(Color(0xFF0E1B33), Color(0xFF1C2F5C), Color(0xFF14204A))) to R.drawable.floppy_app_icon
-    }
+    val brand = serviceBrand(service.page) ?: serviceBrand(SettingsPages.ServiceFloppy)!!
+    val brush = brand.brush
+    val logo = brand.logo
     val clickAction = rememberUiAction { onPage(service.page) }
     val description = "${service.name}: ${service.status}"
     Box(
@@ -290,14 +289,14 @@ private fun ServiceBrandCard(service: ServiceStatus, onPage: (String) -> Unit) {
             modifier = Modifier.align(Alignment.CenterEnd).padding(end = 44.dp).size(84.dp)
                 .clip(RoundedCornerShape(24.dp)).graphicsLayer { alpha = .13f },
         )
-        Column(Modifier.align(Alignment.CenterStart).padding(start = 20.dp, end = 120.dp)) {
+        Column(Modifier.align(Alignment.CenterStart).padding(start = Spacing.xl, end = 120.dp)) {
             if (service.name == "Floppy") {
                 // Floppy's official wordmark, mascot included.
                 Image(painterResource(R.drawable.floppy_wordmark), "Floppy", modifier = Modifier.height(42.dp))
             } else {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     ServiceLogo(service.name, size = 34.dp)
-                    Spacer(Modifier.width(12.dp))
+                    Spacer(Modifier.width(Spacing.md))
                     Text(service.name, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
                 }
             }
@@ -307,7 +306,7 @@ private fun ServiceBrandCard(service: ServiceStatus, onPage: (String) -> Unit) {
                 Text(service.status, color = Color.White.copy(alpha = .82f), style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
-        Icon(Icons.Filled.ChevronRight, null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.align(Alignment.CenterEnd).padding(end = 16.dp).size(24.dp))
+        Icon(Icons.Filled.ChevronRight, null, tint = Color.White.copy(alpha = .8f), modifier = Modifier.align(Alignment.CenterEnd).padding(end = Spacing.lg).size(24.dp))
     }
 }
 
@@ -315,7 +314,7 @@ private fun ServiceBrandCard(service: ServiceStatus, onPage: (String) -> Unit) {
 internal fun StatusDot(active: Boolean) {
     Box(
         Modifier.size(9.dp).clip(CircleShape)
-            .background(if (active) Color(0xFF5DCAA5) else TextMuted.copy(alpha = .45f)),
+            .background(if (active) com.cinetrack.ui.theme.SurfacePalette.SuccessBright else TextMuted.copy(alpha = .45f)),
     )
 }
 
@@ -326,8 +325,8 @@ internal fun SettingsGroupLabel(label: String) {
         color = TextMuted,
         style = androidx.compose.material3.MaterialTheme.typography.labelMedium,
         fontWeight = FontWeight.Bold,
-        letterSpacing = 1.6.sp,
-        modifier = Modifier.padding(start = 4.dp, top = Spacing.sm),
+        letterSpacing = com.cinetrack.ui.theme.EyebrowLetterSpacing,
+        modifier = Modifier.padding(start = Spacing.xs, top = Spacing.sm),
     )
 }
 
@@ -336,7 +335,7 @@ private fun SettingsGroup(label: String, items: List<SettingsItem>, onPage: (Str
     Column(Modifier.padding(horizontal = Spacing.xl, vertical = Spacing.md)) {
         SettingsGroupLabel(label)
         Spacer(Modifier.height(Spacing.sm))
-        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(18.dp)).padding(vertical = 4.dp)) {
+        Column(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Medium)).padding(vertical = Spacing.xs)) {
             items.forEach { item ->
                 SettingsRow(item, onPage)
             }
@@ -742,20 +741,20 @@ private fun RatingSettings(viewModel: ContentSettingsViewModel) {
     }
     SettingsSection(stringResource(R.string.section_sources_shown)) {
         androidx.compose.foundation.layout.FlowRow(
-            Modifier.fillMaxWidth().padding(12.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            Modifier.fillMaxWidth().padding(Spacing.md),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            verticalArrangement = Arrangement.spacedBy(Spacing.sm),
         ) {
             labels.forEach { label ->
                 val on = sourceKey(label) in state.ratingSources
                 Row(
-                    Modifier.heightIn(min = 40.dp).tonalPill(on, Color(0xFF5DCAA5))
+                    Modifier.heightIn(min = 40.dp).tonalPill(on, com.cinetrack.ui.theme.SurfacePalette.SuccessBright)
                         .toggleable(value = on, role = Role.Checkbox) { viewModel.setRatingSource(label, it) }
                         .padding(horizontal = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (on) {
-                        Icon(Icons.Filled.Check, null, tint = Color(0xFF5DCAA5), modifier = Modifier.size(15.dp))
+                        Icon(Icons.Filled.Check, null, tint = com.cinetrack.ui.theme.SurfacePalette.SuccessBright, modifier = Modifier.size(15.dp))
                         Spacer(Modifier.width(6.dp))
                     }
                     Text(label, color = if (on) TextPrimary else TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
@@ -768,9 +767,9 @@ private fun RatingSettings(viewModel: ContentSettingsViewModel) {
     val shown = labels.map(::sourceKey).filter { it in state.ratingSources }.mapNotNull { samples[it] }
     if (shown.isNotEmpty()) {
         SettingsSection(stringResource(R.string.section_preview)) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Spacing.md), horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 shown.forEach { (source, value) ->
-                    Row(Modifier.height(36.dp).tonalPill(false).padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(Modifier.height(36.dp).tonalPill(false).padding(horizontal = Spacing.md), verticalAlignment = Alignment.CenterVertically) {
                         Text(source, color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, letterSpacing = 1.sp)
                         Spacer(Modifier.width(6.dp))
                         Text(value, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.ExtraBold)
@@ -879,7 +878,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                 modifier = Modifier
                     .background(color.copy(alpha = .16f), androidx.compose.foundation.shape.RoundedCornerShape(50))
-                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                    .padding(horizontal = Spacing.sm, vertical = 2.dp),
             )
             Spacer(Modifier.width(Spacing.sm))
             entry.at?.let {
@@ -894,7 +893,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
             entry.summary,
             color = TextPrimary,
             style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = Spacing.xs),
         )
         if (expanded && entry.detail != entry.summary) {
             Text(
@@ -902,7 +901,7 @@ private fun LogEntryRow(entry: com.cinetrack.domain.LogEntry, zone: java.time.Zo
                 color = TextSecondary,
                 style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                 lineHeight = 14.sp,
-                modifier = Modifier.padding(top = 4.dp),
+                modifier = Modifier.padding(top = Spacing.xs),
             )
         }
     }
@@ -973,7 +972,7 @@ private fun AboutSettings(viewModel: SettingsViewModel) {
     val busy = updateState is AppUpdateState.Checking || updateState is AppUpdateState.Downloading
     // The app's own header, in the same style as the service pages.
     Box(
-        Modifier.padding(horizontal = 12.dp).fillMaxWidth().clip(RoundedCornerShape(28.dp))
+        Modifier.padding(horizontal = Spacing.md).fillMaxWidth().clip(RoundedCornerShape(28.dp))
             .background(Brush.linearGradient(listOf(Accent.copy(alpha = .38f), Color(0xFF10141A), Color(0xFF0B0D11))))
             .border(.6.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(28.dp))
             .padding(vertical = 26.dp),
@@ -981,7 +980,7 @@ private fun AboutSettings(viewModel: SettingsViewModel) {
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             BrandMark(76.dp)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
             Text("CineTrack", color = TextPrimary, fontWeight = FontWeight.ExtraBold, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall)
             Text(stringResource(R.string.version_label, BuildConfig.VERSION_NAME), color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall)
             KitStatusPill(active = updateState is AppUpdateState.UpToDate, text = statusText, modifier = Modifier.padding(top = 10.dp))
@@ -1009,11 +1008,11 @@ private fun AboutSettings(viewModel: SettingsViewModel) {
         ).forEach { (name, url, description) ->
             Row(
                 Modifier.fillMaxWidth().heightIn(min = 58.dp).clickable { runCatching { uriHandler.openUri(url) } }
-                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                    .padding(horizontal = 14.dp, vertical = Spacing.sm),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ServiceLogo(name, size = 32.dp)
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
                 Column(Modifier.weight(1f)) {
                     Text(name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
                     Text(stringResource(description), color = TextMuted, style = androidx.compose.material3.MaterialTheme.typography.labelSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -1076,7 +1075,7 @@ private fun ChangelogDialog(state: AppChangelogState, onDismiss: () -> Unit) {
                         style = androidx.compose.material3.MaterialTheme.typography.labelSmall,
                         fontWeight = FontWeight.Bold,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(Spacing.md))
                     Text(
                         state.update.notes.ifBlank { stringResource(R.string.changelog_empty) },
                         color = TextSecondary,

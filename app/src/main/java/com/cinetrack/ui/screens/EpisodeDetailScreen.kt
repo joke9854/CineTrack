@@ -223,7 +223,7 @@ fun EpisodeDetailScreen(
                     Box(Modifier.fillMaxWidth()) {
                         (displayedEpisode.stillUrl ?: show?.backdropUrl)?.takeIf(String::isNotBlank)?.let { art ->
                             AsyncImage(com.cinetrack.ui.components.rememberBlurredArtRequest(art), null, Modifier.matchParentSize(), contentScale = ContentScale.Crop)
-                            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color(0x33080A0C), .55f to Color(0x4D080A0C), 1f to Color.Transparent)))
+                            Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .2f), .55f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .3f), 1f to Color.Transparent)))
                         }
                     Box(Modifier.fillMaxWidth().statusBarsPadding().height(330.dp)) {
                         // The tapped Progress card grows into this still; its art stands in until the still loads.
@@ -242,24 +242,24 @@ fun EpisodeDetailScreen(
                             .shelfFeather()
                             .navigationBarsPadding()
                             .padding(top = Spacing.xxxl, bottom = 72.dp),
-                        verticalArrangement = Arrangement.spacedBy(24.dp),
+                        verticalArrangement = Arrangement.spacedBy(Spacing.xxl),
                     ) {
                         Column(Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter), horizontalAlignment = Alignment.CenterHorizontally) {
                             // The series as a small chip with its poster; it opens the series page.
                             Row(
-                                Modifier.clip(RoundedCornerShape(12.dp)).background(Color.White.copy(alpha = .08f))
-                                    .clickable(onClick = onSeries).padding(start = 4.dp, end = 14.dp, top = 4.dp, bottom = 4.dp),
+                                Modifier.clip(RoundedCornerShape(Radius.Small)).background(Color.White.copy(alpha = .08f))
+                                    .clickable(onClick = onSeries).padding(start = Spacing.xs, end = 14.dp, top = Spacing.xs, bottom = Spacing.xs),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 // A rounded chip, not a pill: its corners stay concentric with the poster's (12dp = 8dp + the 4dp inset).
                                 show?.posterUrl?.takeIf(String::isNotBlank)?.let {
-                                    AsyncImage(it, null, Modifier.width(24.dp).height(34.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Crop)
-                                    Spacer(Modifier.width(8.dp))
+                                    AsyncImage(it, null, Modifier.width(24.dp).height(34.dp).clip(RoundedCornerShape(Radius.Compact)), contentScale = ContentScale.Crop)
+                                    Spacer(Modifier.width(Spacing.sm))
                                 }
                                 Text(show?.title.orEmpty(), color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                 Icon(Icons.AutoMirrored.Filled.ArrowForward, null, tint = TextMuted, modifier = Modifier.padding(start = 6.dp).size(13.dp))
                             }
-                            Text(displayedEpisode.title, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))
+                            Text(displayedEpisode.title, color = Color.White, style = androidx.compose.material3.MaterialTheme.typography.displaySmall, lineHeight = 31.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center, modifier = Modifier.padding(top = Spacing.md))
                             val episodeFacts = listOfNotNull(
                                 formatFullDate(displayedEpisode.airDate).takeIf { it.isNotBlank() && it != "—" },
                                 formatDurationMinutes(displayedEpisode.runtimeMinutes).takeIf(String::isNotBlank),
@@ -284,6 +284,7 @@ fun EpisodeDetailScreen(
                             EpisodeStepButton(previous?.let { stepLabel(it, displayedEpisode) }, forward = false, description = stringResource(R.string.previous_episode)) {
                                 pagerScope.launch { pagerState.animateScrollToPage(page - 1) }
                             }
+                            val haptics = com.cinetrack.ui.components.rememberAppHaptics()
                             PrimaryAction(
                                 if (watched) stringResource(R.string.watched_tv) else stringResource(R.string.mark_watched),
                                 Icons.Filled.Check,
@@ -294,6 +295,7 @@ fun EpisodeDetailScreen(
                                 hazeState = detailGlassState,
                             ) {
                                 val newWatched = !watched
+                                if (newWatched) haptics.confirm() else haptics.toggle(false)
                                 watched = newWatched
                                 onWatched(displayedEpisode.copy(watched = newWatched), newWatched)
                             }

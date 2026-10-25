@@ -108,7 +108,7 @@ private fun SyncSettings(
             else -> stringResource(R.string.sync_now)
         },
         icon = if (state.simklConnected) Icons.Filled.Refresh else Icons.Filled.Link,
-        color = Color(0xFF3B8F5A),
+        color = serviceBrand(SettingsPages.ServiceSimkl)?.button ?: com.cinetrack.ui.theme.Accent,
         onClick = if (state.simklConnected) onSync else onConnect,
     )
     SettingsSection(stringResource(R.string.synchronization)) {

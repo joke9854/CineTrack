@@ -19,6 +19,8 @@ import androidx.compose.ui.unit.IntOffset
 
 object Motion {
     const val Instant = 0
+    /** Press-in and the detail routes' cross-fade: quick enough to feel immediate. */
+    const val Quick = 90
     const val Short = 180
     const val Medium = 300
     const val Long = 420
@@ -40,6 +42,10 @@ object Motion {
     /** Confirmations (the watched check): a small, playful overshoot. */
     fun <T> bouncy(visibilityThreshold: T? = null): SpringSpec<T> =
         spring(dampingRatio = .6f, stiffness = 380f, visibilityThreshold = visibilityThreshold)
+
+    /** Pressed controls shrinking and springing back. */
+    fun <T> press(visibilityThreshold: T? = null): SpringSpec<T> =
+        spring(dampingRatio = .7f, stiffness = Spring.StiffnessMediumLow, visibilityThreshold = visibilityThreshold)
 
     /** Sizes and placements that should glide: list items, expanding sections. */
     fun <T> gentle(visibilityThreshold: T? = null): SpringSpec<T> =

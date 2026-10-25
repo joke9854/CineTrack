@@ -217,7 +217,7 @@ fun PrimaryAction(
             )
             .border(.7.dp, if (enabled) containerColor.copy(alpha = .72f) else SurfacePalette.DisabledControl.copy(alpha = .22f), RoundedCornerShape(Radius.Pill)))
             .clickable(enabled = enabled, onClick = clickAction)
-            .padding(horizontal = if (compact) 8.dp else Spacing.lg, vertical = if (compact) 8.dp else 0.dp),
+            .padding(horizontal = if (compact) Spacing.sm else Spacing.lg, vertical = if (compact) Spacing.sm else 0.dp),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {

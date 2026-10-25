@@ -93,7 +93,7 @@ internal fun CastAvatar(person: PersonCard, onPerson: (PersonCard) -> Unit, show
         val poster = LocalCardAppearance.current.castPhotoShape == "poster"
         val shape = if (poster) RoundedCornerShape(Radius.Small) else CircleShape
         Box(
-            (if (poster) Modifier.padding(horizontal = 4.dp).fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(DetailLayout.CastPhoto))
+            (if (poster) Modifier.padding(horizontal = Spacing.xs).fillMaxWidth().aspectRatio(2f / 3f) else Modifier.size(DetailLayout.CastPhoto))
                 .clip(shape).background(GlassBare)
                 .border(.6.dp, Color.White.copy(alpha = .12f), shape),
             contentAlignment = Alignment.Center,
@@ -106,7 +106,7 @@ internal fun CastAvatar(person: PersonCard, onPerson: (PersonCard) -> Unit, show
                 Icon(Icons.Filled.Person, null, tint = TextSecondary, modifier = Modifier.size(32.dp))
             }
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(Spacing.sm))
         // Characters mode leads with the character, then the actor.
         // Character names only, never a crew job such as Executive Producer.
         val characterName = person.character.ifBlank { person.role }
@@ -136,8 +136,8 @@ internal fun CastSection(
         } else {
             SectionHeader(stringResource(R.string.cast_title), Modifier.padding(horizontal = DetailLayout.Gutter), stringResource(R.string.see_all), onViewAll)
         }
-        Spacer(Modifier.height(12.dp))
-        LazyRow(contentPadding = PaddingValues(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Spacer(Modifier.height(Spacing.md))
+        LazyRow(contentPadding = PaddingValues(horizontal = DetailLayout.Gutter - 4.dp), horizontalArrangement = Arrangement.spacedBy(Spacing.xs)) {
             // Directors, producers and other crew appear only under Cast.
             val shown = if (showCharacters && hasCharacters) people.filter(PersonCard::isCastMember) else people
             items(shown.take(18), key = PersonCard::id) { person ->
@@ -192,12 +192,12 @@ internal fun FullCastSheet(people: List<PersonCard>, showCharacters: Boolean = f
     SharedGlassSheet(onDismiss) {
         Column(Modifier.fillMaxWidth().padding(horizontal = DetailLayout.Gutter)) {
             SectionHeader(stringResource(R.string.full_cast), Modifier.padding(horizontal = DetailLayout.Inner))
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(DetailLayout.CastWidth),
                 modifier = Modifier.fillMaxWidth().heightIn(max = 560.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
                 contentPadding = PaddingValues(bottom = 20.dp),
             ) {
                 gridItems(if (showCharacters && hasCharacters) people.filter(PersonCard::isCastMember) else people, key = PersonCard::id) { person ->
@@ -226,7 +226,7 @@ internal fun ActorSheet(person: PersonCard, detailViewModel: com.cinetrack.ui.de
                     if (!details.profileUrl.isNullOrBlank()) AsyncImage(details.profileUrl, details.name, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
                     else Icon(Icons.Filled.Person, null, tint = Color.White, modifier = Modifier.align(Alignment.Center).size(32.dp))
                 }
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(Spacing.md))
                 Column(Modifier.weight(1f)) {
                     Text(details.name, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleMedium, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold)
                     Text(details.role, color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold)
@@ -261,8 +261,8 @@ internal fun ActorSheet(person: PersonCard, detailViewModel: com.cinetrack.ui.de
                 }
             }
             if (details.movieCredits.isNotEmpty()) {
-                Spacer(Modifier.height(16.dp)); SectionHeader(stringResource(R.string.recent_credits))
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(Spacing.lg)); SectionHeader(stringResource(R.string.recent_credits))
+                Spacer(Modifier.height(Spacing.sm))
                 Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     details.movieCredits.forEach { movie ->
                         Row(Modifier.fillMaxWidth().glass(RoundedCornerShape(Radius.Small))

@@ -247,7 +247,7 @@ fun DetailScreen(
             }
             item(key = "detail_actions") {
                 DetailSectionSurface {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                         val started = detail.type == MediaType.TV && detailEpisodes.any(EpisodeCard::watched)
                         val nextUp = remember(detailEpisodes) { if (detail.type == MediaType.TV) nextAiredEpisode(detailEpisodes) else null }
                         // What comes out next: the film itself, or the series' next unaired episode.
@@ -417,7 +417,7 @@ fun DetailScreen(
             if (moreLikeThis.isNotEmpty()) {
                 item(key = "detail_recommendations") {
                     DetailSectionSurface {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
                             if (moreLikeThis.isNotEmpty()) {
                                 SectionHeader(stringResource(R.string.more_like_this), Modifier.padding(horizontal = DetailLayout.Gutter))
                                 MediaRail(moreLikeThis.filterNot { it.stableKey == detail.stableKey }, onMedia, showYear = false)
@@ -575,12 +575,14 @@ fun DetailScreen(
             pendingSeasonUnmark = null
         }
     }
+    val promptHaptics = com.cinetrack.ui.components.rememberAppHaptics()
     pendingShowEpisodes?.let { episodes ->
         MarkShowWatchedPrompt(
             title = detail.title,
             episodeCount = episodes.size,
             onDismiss = { pendingShowEpisodes = null },
             onConfirm = {
+                promptHaptics.confirm()
                 val numbers = episodes.map { it.season to it.number }.toSet()
                 detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = true) else it }
                 viewModel.setEpisodesWatched(episodes, true)
@@ -598,6 +600,7 @@ fun DetailScreen(
             previousCount = previous.size,
             onDismiss = { pendingPreviousEpisodes = null },
             onOnlyThis = {
+                promptHaptics.confirm()
                 detailEpisodes = detailEpisodes.map {
                     if (it.season == episode.season && it.number == episode.number) it.copy(watched = true) else it
                 }
@@ -605,6 +608,7 @@ fun DetailScreen(
                 pendingPreviousEpisodes = null
             },
             onIncludePrevious = {
+                promptHaptics.confirm()
                 val affected = (previous + episode).distinctBy { it.season to it.number }
                 val numbers = affected.map { it.season to it.number }.toSet()
                 detailEpisodes = detailEpisodes.map { if ((it.season to it.number) in numbers) it.copy(watched = true) else it }
@@ -654,7 +658,7 @@ private fun androidx.compose.foundation.lazy.LazyItemScope.DetailSectionSurface(
         )
         .animateContentSize(Motion.gentle(androidx.compose.ui.unit.IntSize.VisibilityThreshold))
         .then(if (first) Modifier.shelfFeather() else Modifier.background(GlassMaterial.DetailSurface))
-        .padding(top = if (first) 32.dp else 0.dp, bottom = bottomGap)) { content() }
+        .padding(top = if (first) Spacing.xxxl else 0.dp, bottom = bottomGap)) { content() }
 }
 
 /**
@@ -714,7 +718,7 @@ internal fun DetailTopBar(
                 // Frosted: the page scrolling underneath is blurred into the bar. The fade is a
                 // layer alpha, so scrolling doesn't rebuild the blur style every frame.
                 .graphicsLayer { alpha = progress() }
-                .tunedBlur(BlurSurface.DetailHeader, haze, tint = Color(0xFF080A0C), fallback = Color(0xF7080A0C), background = Color(0xFF080A0C))
+                .tunedBlur(BlurSurface.DetailHeader, haze, tint = com.cinetrack.ui.theme.SurfacePalette.Scrim, fallback = com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .97f), background = com.cinetrack.ui.theme.SurfacePalette.Scrim)
                 .drawWithContent {
                     drawContent()
                     drawLine(

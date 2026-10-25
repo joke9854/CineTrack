@@ -41,6 +41,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import com.cinetrack.R
+import com.cinetrack.ui.theme.Spacing
 import com.cinetrack.domain.LibraryStatus
 import com.cinetrack.domain.MediaCard
 import com.cinetrack.domain.MediaType
@@ -88,7 +89,7 @@ fun SharedGlassSheet(
     val shape = PopupMaterial.FloatingShape
     val rim = Modifier.border(.6.dp, Brush.verticalGradient(0f to Color.White.copy(alpha = .12f), .18f to Color.White.copy(alpha = .05f), 1f to Color.White.copy(alpha = .03f)), shape)
     val handle: @Composable () -> Unit = {
-        Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 12.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().padding(top = 10.dp, bottom = Spacing.md), contentAlignment = Alignment.Center) {
             Box(Modifier.width(36.dp).height(4.dp).clip(CircleShape).background(Color.White.copy(alpha = .30f)))
         }
     }
@@ -132,7 +133,7 @@ fun LibraryStatusSheet(
 ) {
     val dismissAction = rememberUiAction(onDismiss)
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = 12.dp)) {
+        Column(Modifier.padding(horizontal = Spacing.md)) {
             SheetTitle(stringResource(R.string.add_to_library))
             val choices = listOf(
                 LibraryStatus.PLAN_TO_WATCH, LibraryStatus.WATCHING, LibraryStatus.PAUSED, LibraryStatus.COMPLETED, LibraryStatus.DROPPED,
@@ -157,7 +158,7 @@ fun LibraryStatusSheet(
                     ) { onStatus(if (selected) LibraryStatus.NONE else status) }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(Spacing.md))
             Row(
                 Modifier.fillMaxWidth().height(42.dp).glass(RoundedCornerShape(Radius.Pill)).clickable(onClick = dismissAction),
                 horizontalArrangement = Arrangement.Center,

@@ -241,7 +241,7 @@ internal fun ExpandablePlaybackSection(
                 Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = TextSecondary, modifier = Modifier.size(16.dp))
             }
         } else {
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(Spacing.sm))
         }
     }
     if (showOrderSheet) {
@@ -289,7 +289,7 @@ private fun PlaybackOrderSheet(
     var selected by remember(initialOrder) { mutableStateOf(initialOrder) }
     var ascending by remember(initialAscending) { mutableStateOf(initialAscending) }
     SharedGlassSheet(onDismiss) {
-        Column(Modifier.padding(horizontal = 12.dp)) {
+        Column(Modifier.padding(horizontal = Spacing.md)) {
             com.cinetrack.ui.components.SheetTitle(stringResource(R.string.sort_by))
             com.cinetrack.ui.components.GlassMenuGroup {
                 PlaybackOrder.entries.forEachIndexed { index, option ->
@@ -461,7 +461,7 @@ internal fun PlaybackRow(
             )
         }
         Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
-            0f to Color(0x40080A0C), .38f to Color(0xD1080A0C), 1f to Color(0xF0080A0C),
+            0f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .25f), .38f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .82f), 1f to com.cinetrack.ui.theme.SurfacePalette.Scrim.copy(alpha = .94f),
         )))
         Box(
             Modifier.padding(14.dp).width(82.dp).fillMaxHeight()
@@ -472,11 +472,11 @@ internal fun PlaybackRow(
         ) {
             if (!posterArt.isNullOrBlank()) AsyncImage(posterArt, item.media.title, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         }
-        Column(Modifier.fillMaxSize().padding(start = 112.dp, end = 12.dp, top = 16.dp, bottom = 14.dp)) {
+        Column(Modifier.fillMaxSize().padding(start = 112.dp, end = Spacing.md, top = Spacing.lg, bottom = 14.dp)) {
             Row(verticalAlignment = Alignment.Top) {
                 Text(item.media.title, color = TextPrimary, style = androidx.compose.material3.MaterialTheme.typography.titleSmall, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 remainingMinutes?.let {
-                    Spacer(Modifier.width(8.dp))
+                    Spacer(Modifier.width(Spacing.sm))
                     Text(formatDurationMinutes(it), color = AccentLight, style = androidx.compose.material3.MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, maxLines = 1)
                 }
             }
@@ -484,7 +484,7 @@ internal fun PlaybackRow(
                 val numbered = item.episodeLabel ?: item.season?.let { season -> item.episodeNumber?.let { com.cinetrack.domain.episodeCode(season, it) } } ?: listOfNotNull(item.season?.let { "S$it" }, item.episodeNumber?.let { "E$it" }).joinToString(" ")
                 listOfNotNull(numbered.takeIf(String::isNotBlank), item.episodeTitle?.takeIf(String::isNotBlank)).joinToString(" · ")
             } else stringResource(R.string.movies)
-            Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp))
+            Text(detail.ifBlank { stringResource(R.string.in_progress) }, color = TextSecondary, style = androidx.compose.material3.MaterialTheme.typography.bodySmall, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = Spacing.xs))
             Spacer(Modifier.weight(1f))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
