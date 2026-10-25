@@ -1,3 +1,24 @@
+# CineTrack 0.99.78 beta
+
+**New**
+- Profile: a card at the top of Settings with your recent posters as a banner, your photo, the accounts you use and your numbers. It opens one page with your statistics (moved here from Progress), your ratings and lists and your accounts. Choose your own photo and banner from the photo picker, or go back to the initial and the recent posters; both are kept in backups.
+- Your ratings, notes and custom lists, with a count on your Profile.
+- Import your history and ratings from Letterboxd or IMDb.
+- Spoiler protection for episodes you haven't watched yet, rewatches, sharing a title, alerts when a title on your list arrives on your streaming services, and notification choices during setup.
+- Backups can also be copied to a folder you choose. Crash reports ask before they are sent. A Quick Settings tile shows your next episode.
+- Wider screens (tablets, foldables, landscape) use the extra room.
+- TVmaze gives exact local air times for new episodes (on by default, no account needed); an optional TVmaze premium key can be saved but doesn't change the air times.
+- Fanart.tv logos on title pages with your own key. Logos of your recent and library titles are fetched ahead, so pages open with them; elsewhere the title fades into the logo once it has loaded.
+- Character pictures with your own TVDB key, also without Floppy. When a key is saved it is used first; Floppy fills in.
+
+**Changes**
+- Settings: services are grouped in Tracking (Simkl, Floppy) and Metadata (TMDB, MDBList, TVmaze, Fanart.tv, TVDB), each with its own page and the services' own logos. On each service page, What it adds comes first. About lists TVmaze, Fanart.tv and TVDB.
+- Trakt is gone: TVmaze gives the same exact times. If you chose Trakt for air dates, TVmaze is now used, and the saved Trakt client ID is deleted.
+- Appearance: a smaller preview and four labelled groups (Color, Discover, Posters, Detail pages) instead of a column of unlabelled controls.
+- Progress: In progress, Calendar and History share the whole tab row.
+- Library: the refresh button is gone; a long pull on the list still refreshes the artwork.
+- From the 1.0 review: security and network hardening, confirmations before data is removed, one name for each status, back cancels a selection, and clearer wording.
+
 # CineTrack 0.99.77 beta
 
 **Changes**
