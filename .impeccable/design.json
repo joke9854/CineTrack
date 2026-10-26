@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-26T00:00:00Z",
+  "title": "Design System: CineTrack",
+  "extensions": {
+    "colorMeta": {
+      "background-0": { "role": "neutral", "displayName": "Screening Room Black", "canonical": "#1C1B22", "tonalRamp": ["#08080B", "#121116", "#1C1B22", "#2A2932", "#3E3D48", "#5B5A66", "#8A8995", "#C9C8D1"] },
+      "background-1": { "role": "neutral", "displayName": "Aisle Grey", "canonical": "#2A2932" },
+      "glass-surface": { "role": "neutral", "displayName": "Glass Base", "canonical": "#171B21" },
+      "scrim": { "role": "neutral", "displayName": "Scrim", "canonical": "#080A0C" },
+      "text-primary": { "role": "neutral", "displayName": "Text Primary", "canonical": "#F8F9FB" },
+      "text-secondary": { "role": "neutral", "displayName": "Text Secondary", "canonical": "#D7DEE4" },
+      "text-muted": { "role": "neutral", "displayName": "Text Muted", "canonical": "#A2AEB8" },
+      "accent-blue": { "role": "primary", "displayName": "Projector Blue", "canonical": "#6AA8FF", "tonalRamp": ["#0B2447", "#123A70", "#1E549C", "#3172CC", "#4D8EEB", "#6AA8FF", "#9AC4FF", "#D3E5FF"] },
+      "accent-blue-light": { "role": "primary", "displayName": "Projector Haze", "canonical": "#9AC4FF" },
+      "accent-green": { "role": "primary", "displayName": "Ticket Green", "canonical": "#2E7B29" },
+      "accent-silver": { "role": "primary", "displayName": "Screen Silver", "canonical": "#D2DDE8" },
+      "accent-champagne": { "role": "primary", "displayName": "Velvet Champagne", "canonical": "#BC9A66" },
+      "info": { "role": "secondary", "displayName": "Marquee Cyan", "canonical": "#4FC7E8" },
+      "violet": { "role": "tertiary", "displayName": "Usher Violet", "canonical": "#9B7CF0" },
+      "gold": { "role": "tertiary", "displayName": "Award Gold", "canonical": "#F6B23E" },
+      "error": { "role": "error", "displayName": "Error", "canonical": "#FF7C83" },
+      "status-watching": { "role": "status", "displayName": "Watching", "canonical": "#1572B1" },
+      "status-planned": { "role": "status", "displayName": "Plan to watch", "canonical": "#FFC75D" },
+      "status-paused": { "role": "status", "displayName": "Paused", "canonical": "#D46F0F" },
+      "status-completed": { "role": "status", "displayName": "Completed", "canonical": "#06804B" },
+      "status-dropped": { "role": "status", "displayName": "Dropped", "canonical": "#BA1600" },
+      "success-bright": { "role": "status", "displayName": "Bright Success", "canonical": "#5DCAA5" },
+      "danger-action": { "role": "error", "displayName": "Danger Red", "canonical": "#B3423F" },
+      "danger-text": { "role": "error", "displayName": "Danger Rose", "canonical": "#F09595" },
+      "progress-track": { "role": "neutral", "displayName": "Progress Track", "canonical": "#4A4E57" },
+      "glass-fill": { "role": "neutral", "displayName": "Glass Fill", "canonical": "#1FFFFFFF (ARGB)" },
+      "glass-strong": { "role": "neutral", "displayName": "Glass Strong", "canonical": "#2BFFFFFF (ARGB)" },
+      "glass-border": { "role": "neutral", "displayName": "Glass Border", "canonical": "#34FFFFFF (ARGB)" }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "Title-page headings over artwork." },
+      "headline": { "displayName": "Headline", "purpose": "Screen and section headers." },
+      "title-large": { "displayName": "Title Large", "purpose": "Sheet and card titles." },
+      "title-medium": { "displayName": "Title Medium", "purpose": "Card titles and list rows." },
+      "title-small": { "displayName": "Title Small", "purpose": "Compact rows." },
+      "body-large": { "displayName": "Body Large", "purpose": "Overviews and descriptions." },
+      "body": { "displayName": "Body", "purpose": "Default text." },
+      "body-small": { "displayName": "Body Small", "purpose": "Supporting rows." },
+      "label": { "displayName": "Label", "purpose": "Buttons, pills, chips, metadata." },
+      "label-small": { "displayName": "Label Small", "purpose": "Tiny metadata." },
+      "eyebrow": { "displayName": "Eyebrow", "purpose": "Uppercase section names and card overlines." }
+    },
+    "shadows": [
+      { "name": "card-lift", "value": "0 2px 0 rgba(0,0,0,0.072), 0 7px 0 rgba(0,0,0,0.026)", "purpose": "Painted two-step lift behind glass cards (no hardware shadow)." },
+      { "name": "icon-lift", "value": "0 0 8px rgba(0,0,0,0.35)", "purpose": "Shadow around small circular glass controls, with 6px padding." },
+      { "name": "pill-float", "value": "0 8px 16px rgba(0,0,0,0.5)", "purpose": "Floating status pills." },
+      { "name": "card-rim", "value": "0.9px linear-gradient(to bottom, rgba(255,255,255,.20) 0%, rgba(255,255,255,.085) 30%, rgba(255,255,255,.055) 60%, rgba(255,255,255,.09) 100%)", "purpose": "Top-lit hairline border on cards." },
+      { "name": "control-rim", "value": "0.55px linear-gradient(to bottom, rgba(255,255,255,.13) 0%, rgba(255,255,255,.055) 30%, rgba(255,255,255,.036) 60%, rgba(255,255,255,.059) 100%)", "purpose": "Quieter rim for controls, nav bar and popups." },
+      { "name": "nav-blur", "value": "blur 16px, tint #1C1B22 at 58%, noise 3%, fallback #1C1B22 at 90%", "purpose": "Navigation and floating sheets over the page." }
+    ],
+    "motion": [
+      { "name": "quick", "value": "90ms", "purpose": "Exits and tiny fades." },
+      { "name": "short", "value": "180ms", "purpose": "Pressed rim, icon fades." },
+      { "name": "medium", "value": "300ms", "purpose": "Tint changes, pill fades." },
+      { "name": "long", "value": "420ms", "purpose": "Tab and page transitions, sheets." },
+      { "name": "extended", "value": "480ms", "purpose": "Artwork and progress interpolation." },
+      { "name": "watched-confirmation", "value": "720ms", "purpose": "Hold of the watched confirmation." },
+      { "name": "ease-emphasized", "value": "cubic-bezier(0.2, 0, 0, 1)", "purpose": "Default enter and page easing." },
+      { "name": "ease-emphasized-decelerate", "value": "cubic-bezier(0.05, 0.7, 0.1, 1)", "purpose": "Incoming elements." },
+      { "name": "ease-emphasized-accelerate", "value": "cubic-bezier(0.3, 0, 0.8, 0.15)", "purpose": "Outgoing elements." },
+      { "name": "ease-standard-accelerate", "value": "cubic-bezier(0.3, 0, 1, 1)", "purpose": "Exits." },
+      { "name": "spring-snappy", "value": "damping 0.9, stiffness 320", "purpose": "Selections, toggles, thumbs." },
+      { "name": "spring-bouncy", "value": "damping 0.6, stiffness 380", "purpose": "The watched check and pill icon." },
+      { "name": "spring-press", "value": "damping 0.7, stiffness MediumLow (400)", "purpose": "Pressed controls." },
+      { "name": "spring-gentle", "value": "damping 1.0, stiffness Low (200)", "purpose": "List items, expanding sections, progress fill." }
+    ],
+    "breakpoints": [
+      { "name": "compact", "value": "<600dp" },
+      { "name": "medium", "value": "600dp" },
+      { "name": "expanded", "value": "840dp" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Glass Card",
+      "kind": "card",
+      "refersTo": "card-glass",
+      "description": "Default raised container: card glass, top-lit rim, painted two-step lift.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-eyebrow\">UP NEXT</div><div class=\"ds-card-title\">Severance</div><div class=\"ds-card-meta\">S2 · E4 · 52 min left</div></div>",
+      "css": ".ds-card { width: 300px; padding: 16px; border-radius: 22px; background: rgba(23,27,33,0.30); background-image: linear-gradient(rgba(180,195,210,0.075), rgba(180,195,210,0.075)); border: 0.9px solid rgba(255,255,255,0.10); border-top-color: rgba(255,255,255,0.20); box-shadow: 0 2px 0 rgba(0,0,0,0.072), 0 7px 0 rgba(0,0,0,0.026); font-family: Manrope, sans-serif; color: #F8F9FB; transition: border-color 180ms cubic-bezier(0.2,0,0,1); } .ds-card:hover, .ds-card:focus-visible { border-color: #6AA8FF; outline: none; } .ds-eyebrow { font-size: 10px; letter-spacing: 1.6px; color: #A2AEB8; } .ds-card-title { font-size: 18px; letter-spacing: -0.2px; font-weight: 700; margin-top: 4px; } .ds-card-meta { font-size: 13px; color: #D7DEE4; margin-top: 4px; }"
+    },
+    {
+      "name": "Glass Icon Button",
+      "kind": "button",
+      "refersTo": "icon-button-glass",
+      "description": "Circular frosted control for back, search, filter, refresh and bulk edit.",
+      "html": "<button class=\"ds-icon-btn\" aria-label=\"Back\"><svg width=\"22\" height=\"22\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z\"/></svg></button>",
+      "css": ".ds-icon-btn { width: 48px; height: 48px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; background: rgba(23,27,33,0.58); color: #F8F9FB; border: 0.55px solid rgba(255,255,255,0.06); border-top-color: rgba(255,255,255,0.13); box-shadow: 0 0 8px rgba(0,0,0,0.35); cursor: pointer; transition: transform 180ms cubic-bezier(0.2,0,0,1); } .ds-icon-btn:active { transform: scale(0.92); } .ds-icon-btn:focus-visible { outline: 2px solid #9AC4FF; outline-offset: 2px; }"
+    },
+    {
+      "name": "Status Pill",
+      "kind": "custom",
+      "refersTo": "status-pill",
+      "description": "Floating sync/update pill: icon, title, detail, optional progress line.",
+      "html": "<div class=\"ds-pill\" role=\"status\"><svg class=\"ds-pill-icon\" width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z\"/></svg><div><div class=\"ds-pill-title\">Synced with Floppy</div><div class=\"ds-pill-detail\">12 episodes sent</div></div><div class=\"ds-pill-bar\"><span></span></div></div>",
+      "css": ".ds-pill { position: relative; min-width: 260px; max-width: 360px; display: flex; align-items: center; gap: 10px; padding: 8px 18px 10px 14px; border-radius: 999px; background: rgba(18,20,25,0.94); border: 0.6px solid rgba(255,255,255,0.06); border-top-color: rgba(255,255,255,0.13); box-shadow: 0 8px 16px rgba(0,0,0,0.5); font-family: Manrope, sans-serif; color: #F8F9FB; overflow: hidden; } .ds-pill-icon { color: #06804B; flex: none; } .ds-pill-title { font-size: 14px; font-weight: 600; } .ds-pill-detail { font-size: 12px; color: #A2AEB8; } .ds-pill-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; background: rgba(255,255,255,0.10); } .ds-pill-bar span { display: block; height: 100%; width: 100%; background: #06804B; transition: width 300ms cubic-bezier(0.2,0,0,1); }"
+    },
+    {
+      "name": "Glass Bottom Bar",
+      "kind": "nav",
+      "refersTo": "nav-blur",
+      "description": "Floating frosted tab bar with a clearer glass pill for the selected tab.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-nav-item\">Discover</a><a class=\"ds-nav-item ds-active\" aria-current=\"page\">Progress</a><a class=\"ds-nav-item\">Library</a><a class=\"ds-nav-item\">Settings</a></nav>",
+      "css": ".ds-nav { display: flex; gap: 4px; padding: 6px; border-radius: 999px; background: rgba(28,27,34,0.58); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border: 0.55px solid rgba(255,255,255,0.06); border-top-color: rgba(255,255,255,0.13); font-family: Manrope, sans-serif; } .ds-nav-item { padding: 10px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; color: #A2AEB8; cursor: pointer; transition: background 300ms cubic-bezier(0.2,0,0,1), color 300ms cubic-bezier(0.2,0,0,1); } .ds-nav-item:hover { color: #D7DEE4; } .ds-nav-item:focus-visible { outline: 2px solid #9AC4FF; } .ds-active { background: rgba(255,255,255,0.12); color: #9AC4FF; }"
+    },
+    {
+      "name": "Progress Card",
+      "kind": "card",
+      "refersTo": "progress-card-poster",
+      "description": "Approved 2026-10-11: art behind a dark fade, 82dp poster, remaining time beside the title, check button, progress line on the bottom edge.",
+      "html": "<div class=\"ds-progress\"><div class=\"ds-progress-poster\"></div><div class=\"ds-progress-body\"><div class=\"ds-progress-head\"><span class=\"ds-progress-title\">Severance</span><span class=\"ds-progress-time\">52m left</span></div><div class=\"ds-progress-ep\">S2 · E4 · Woe's Hollow</div></div><button class=\"ds-progress-check\" aria-label=\"Mark watched\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><path d=\"M9 16.17 4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z\"/></svg></button><div class=\"ds-progress-line\"><span></span></div></div>",
+      "css": ".ds-progress { position: relative; width: 340px; display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 22px; overflow: hidden; background: linear-gradient(90deg, rgba(8,10,12,0.92) 30%, rgba(8,10,12,0.55)), linear-gradient(135deg, #214C73, #573B66); font-family: Manrope, sans-serif; color: #F8F9FB; } .ds-progress-poster { width: 82px; aspect-ratio: 2/3; flex: none; border-radius: 12px; background: linear-gradient(160deg, #275D7C, #3A416E); } .ds-progress-body { flex: 1; min-width: 0; } .ds-progress-head { display: flex; gap: 8px; align-items: baseline; } .ds-progress-title { font-size: 18px; font-weight: 700; letter-spacing: -0.2px; } .ds-progress-time { font-size: 12px; color: #A2AEB8; } .ds-progress-ep { font-size: 13px; color: #D7DEE4; margin-top: 4px; } .ds-progress-check { width: 44px; height: 44px; border-radius: 50%; border: 0.55px solid rgba(255,255,255,0.13); background: rgba(23,27,33,0.58); color: #F8F9FB; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; transition: transform 180ms cubic-bezier(0.2,0,0,1), color 180ms; } .ds-progress-check:hover { color: #5DCAA5; } .ds-progress-check:active { transform: scale(0.9); } .ds-progress-check:focus-visible { outline: 2px solid #9AC4FF; } .ds-progress-line { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: #4A4E57; } .ds-progress-line span { display: block; width: 40%; height: 100%; background: #9AC4FF; }"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Filled destructive action (remove, unmark, replace), always behind a confirmation.",
+      "html": "<button class=\"ds-btn-danger\">Remove from library</button>",
+      "css": ".ds-btn-danger { padding: 12px 24px; border-radius: 999px; border: none; background: #B3423F; color: #F8F9FB; font-family: Manrope, sans-serif; font-size: 14px; font-weight: 600; cursor: pointer; transition: filter 180ms cubic-bezier(0.2,0,0,1), transform 180ms; } .ds-btn-danger:hover { filter: brightness(1.1); } .ds-btn-danger:active { transform: scale(0.97); } .ds-btn-danger:focus-visible { outline: 2px solid #F09595; outline-offset: 2px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Private Screening Room",
+    "overview": "CineTrack is a dark room where the films supply the light. The page is a near-black, faintly violet ground; posters, backdrops and logos are the brightest, most saturated things on screen, and they stay crisp. Everything the user touches (tab bar, back button, filters, status pills, the watch check) is frosted glass floating over that art: low contrast at rest, lit softly along its top edge, springing under the finger.\n\nThe system is dark-only by design: the theme always builds a dark color scheme and light system bars. Colour outside the artwork is rationed: one user-chosen accent, a fixed set of status colours, and semantic success/danger tones. Density is comfortable rather than compact; rails, mosaics and progress lists let artwork carry the hierarchy, with type kept quiet and slightly tight.\n\nGlass has two engines with one look. On Android 13+ controls and the bottom bar use Haze liquid glass refracting the page; below that, buttons fall back to a flat tinted fill and bars and sheets keep a Haze blur. Neither path may change layout.",
+    "keyCharacteristics": [
+      "Dark-only, near-black violet-grey ground; artwork is the light source.",
+      "Frosted glass on overlays and controls only, never as a full-card layer over posters.",
+      "One selectable accent (Blue default, Green, Silver, Champagne) plus fixed status colours.",
+      "Manrope throughout, slightly negative tracking on titles, tracked uppercase eyebrows.",
+      "Soft two-step lift and a top-lit hairline rim instead of Material elevation.",
+      "Spring-driven motion: snappy selections, a bouncy watched check, gentle list movement."
+    ],
+    "rules": [
+      { "name": "The Films Are the Light Rule", "body": "Saturated colour on a screen comes from artwork, the accent or a status. Chromatic gradients stay on the page background; glass fills stay neutral so artwork colour passes through.", "section": "colors" },
+      { "name": "The One Accent Rule", "body": "Read the accent from the theme (Accent / AccentLight / colorScheme.primary); never pick a second brand colour.", "section": "colors" },
+      { "name": "The Seven Sizes Rule", "body": "Use the theme's scale (29, 24, 22, 18, 16, 14, 13, plus 12/10 labels). Don't introduce one-off font sizes.", "section": "typography" },
+      { "name": "The Lit Rim Rule", "body": "Depth comes from a top-lit hairline and a faint lift. No heavy elevation, no grey rings around small buttons.", "section": "elevation" },
+      { "name": "The Glass on Controls Rule", "body": "Glass goes on overlays and controls (pills, progress indicators, buttons, bars, sheets), never as a full-card layer over poster art.", "section": "elevation" }
+    ],
+    "dos": [
+      "Do read colours from the theme and SurfacePalette; add a named token rather than an inline hex.",
+      "Do keep poster and backdrop art crisp and at 2:3 for posters.",
+      "Do put glass on controls and overlays, with the card or control rim.",
+      "Do keep the liquid-glass and blur fallbacks visually equivalent and layout-identical.",
+      "Do use the Motion springs and durations instead of ad-hoc animation specs.",
+      "Do show design changes on the phone before committing them."
+    ],
+    "donts": [
+      "Don't add a light theme or light system bars.",
+      "Don't lay glass over an entire poster card or blur the artwork itself.",
+      "Don't use hardware shadows on cards; use the painted lift.",
+      "Don't put grey rings around small glass buttons.",
+      "Don't introduce a second brand colour or hard-code the default blue where the user's accent belongs.",
+      "Don't change the approved Progress card layout unless the user asks."
+    ]
+  }
+}
