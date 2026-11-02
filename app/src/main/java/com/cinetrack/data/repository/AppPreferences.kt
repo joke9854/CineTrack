@@ -548,6 +548,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
                 canReadCompleteSnapshot = "complete_snapshot" in capabilities,
                 canEnsureEpisodeEvents = "ensure_episode_events" in capabilities,
                 canBootstrapV2 = "bootstrap_v2" in capabilities,
+                canBootstrapJobs = "bootstrap_jobs_v1" in capabilities,
                 canSyncItems = "sync_items" in capabilities,
                 canTranslateEpisodes = "translate_episodes" in capabilities,
                 canCrashReports = "crash_reports_v1" in capabilities,
@@ -626,6 +627,7 @@ class AppPreferences(private val context: Context) : SettingsPreferences, Search
                     if (settings.capabilities.canReadCompleteSnapshot) add("complete_snapshot")
                     if (settings.capabilities.canEnsureEpisodeEvents) add("ensure_episode_events")
                     if (settings.capabilities.canBootstrapV2) add("bootstrap_v2")
+                    if (settings.capabilities.canBootstrapJobs) add("bootstrap_jobs_v1")
                     if (settings.capabilities.canSyncItems) add("sync_items")
                     if (settings.capabilities.canTranslateEpisodes) add("translate_episodes")
                     if (settings.capabilities.canCrashReports) add("crash_reports_v1")

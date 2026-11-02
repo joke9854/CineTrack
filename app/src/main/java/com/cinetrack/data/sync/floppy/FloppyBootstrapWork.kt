@@ -18,6 +18,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkInfo
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.cinetrack.data.sync.floppy.network.BOOTSTRAP_JOB_POLL_BUDGET_MS
 import com.cinetrack.CineTrackApplication
 import com.cinetrack.R
 import com.cinetrack.data.sync.ProviderBootstrapState
@@ -79,6 +80,11 @@ internal fun Throwable.safeSummary(): String {
  * unresolved while the run continues with the rest of the plan, unless the
  * failures repeat back to back, which points at the server rather than items.
  */
+/** A job push polls for up to [BOOTSTRAP_JOB_POLL_BUDGET_MS] (twice if it
+ * expires and is resubmitted); a synchronous push gets 90 seconds. */
+internal fun bootstrapPushTimeoutMs(canBootstrapJobs: Boolean): Long =
+    if (canBootstrapJobs) 2 * BOOTSTRAP_JOB_POLL_BUDGET_MS + 90_000L else 90_000L
+
 internal fun shouldSkipFloppyBootstrapUnit(
     error: Throwable,
     canBootstrapV2: Boolean,
@@ -332,6 +338,22 @@ class FloppyBootstrapWorker(
         val skipped = linkedSetOf<String>()
         var consecutiveSkipped = 0
         var completedBatches = 0
+        // Each bootstrap job poll is a sign of life: the bar follows the job's
+        // own count, and a job Floppy has not started yet reads as waiting for
+        // the server rather than as stalled.
+        var jobBatchSize = 0
+        var jobBaseProcessed = 0
+        transport.context.onJobProgress = { status, jobProcessed, jobTotal ->
+            lastProgressAt = System.currentTimeMillis()
+            stalledPublished = false
+            val estimate = jobBaseProcessed + if (jobTotal > 0) jobBatchSize * jobProcessed.coerceAtMost(jobTotal) / jobTotal else 0
+            current = current?.copy(
+                stage = if (status == "queued") FloppyBootstrapStage.WAITING_FOR_SERVER else FloppyBootstrapStage.SYNCING,
+                processed = estimate.coerceIn(processed, total),
+                lastProgressAtMillis = lastProgressAt,
+            )
+            current?.let { setProgress(progressData(it)) }
+        }
         coroutineScope {
             val watchdog = launch {
                 while (isActive) {
@@ -360,7 +382,11 @@ class FloppyBootstrapWorker(
                         .filterNot { it.id in skipped }
                     if (fetchedBatch.isEmpty()) break
                     val movieWave = fetchedBatch.bootstrapMovieWave(
-                        if (transport.context.canBootstrapV2) BOOTSTRAP_V2_MAX else MAX_CONCURRENT_MOVIE_UNITS,
+                        when {
+                            transport.context.canBootstrapJobs -> BOOTSTRAP_JOB_MOVIES_MAX
+                            transport.context.canBootstrapV2 -> BOOTSTRAP_V2_MAX
+                            else -> MAX_CONCURRENT_MOVIE_UNITS
+                        },
                     )
                     if (movieWave.isNotEmpty()) {
                         if (!transport.context.canBootstrapV2 && !transport.context.movieHistoryLoaded && !transport.context.moviePreparationUnavailable) {
@@ -405,8 +431,10 @@ class FloppyBootstrapWorker(
 
                         if (transport.context.canBootstrapV2) {
                             val modernBatch = movieWave.flatten()
+                            jobBatchSize = modernBatch.size
+                            jobBaseProcessed = processed
                             val result: SyncResult<Unit> = try {
-                                withTimeout(90_000) {
+                                withTimeout(bootstrapPushTimeoutMs(transport.context.canBootstrapJobs)) {
                                     application.container.syncCoordinator.pushPendingForProvider(
                                         TrackingProviderId.FLOPPY,
                                         modernBatch.mapTo(linkedSetOf()) { it.id },
@@ -423,6 +451,15 @@ class FloppyBootstrapWorker(
                             }
                             if (result.isFailure) {
                                 val error = result.exceptionOrNull() ?: IllegalStateException("Floppy V2 movie batch failed")
+                                if (error is TrackingSyncError.PartiallyRejected) {
+                                    // A bootstrap job confirmed the rest; its unconfirmed
+                                    // entries stay unresolved and are sent on a later run.
+                                    failed += error.rejected.size
+                                    skipped += error.rejected.keys
+                                    if (error.rejected.size < modernBatch.size) consecutiveSkipped = 0 else consecutiveSkipped++
+                                    report(warn = true, message = "Floppy bootstrap movies not confirmed: run=$runId count=${error.rejected.size}")
+                                    continue
+                                }
                                 failed += modernBatch.size
                                 if (shouldSkipFloppyBootstrapUnit(error, true, consecutiveSkipped)) {
                                     skipped += modernBatch.map(SyncOperation::id)
@@ -541,8 +578,10 @@ class FloppyBootstrapWorker(
                     )
                     setProgress(progressData(current!!))
                     var pushed: ProviderPushResult? = null
+                    jobBatchSize = batch.size
+                    jobBaseProcessed = processed
                     val result: SyncResult<Unit> = try {
-                        withTimeout(90_000) {
+                        withTimeout(bootstrapPushTimeoutMs(transport.context.canBootstrapJobs)) {
                             application.container.syncCoordinator.pushPendingForProvider(
                                 TrackingProviderId.FLOPPY,
                                 batch.mapTo(linkedSetOf()) { it.id },
@@ -785,6 +824,8 @@ class FloppyBootstrapWorker(
         private const val BOOTSTRAP_FETCH_BATCH = 200
         internal const val MAX_CONCURRENT_MOVIE_UNITS = 4
         internal const val BOOTSTRAP_V2_MAX = 50
+        /** Movies per bootstrap job; bounded by the fetch window anyway. */
+        internal const val BOOTSTRAP_JOB_MOVIES_MAX = 200
         private const val MAX_RETRIES = 5
         private const val WATCHDOG_POLL_MS = 1_000L
         private const val NO_PROGRESS_TIMEOUT_MS = 60_000L

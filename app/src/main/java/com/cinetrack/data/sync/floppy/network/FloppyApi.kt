@@ -10,6 +10,7 @@ import com.cinetrack.data.sync.floppy.FloppyEpisodeTranslateResponse
 import com.cinetrack.data.sync.floppy.FloppyBootstrapMoviesRequest
 import com.cinetrack.data.sync.floppy.FloppyBootstrapShowsRequest
 import com.cinetrack.data.sync.floppy.FloppyBootstrapEnsureResponse
+import com.cinetrack.data.sync.floppy.FloppyBootstrapJob
 import com.cinetrack.data.sync.floppy.FloppyBulkTaskResponse
 import com.cinetrack.data.sync.floppy.FloppyTaskStatusResponse
 import com.cinetrack.data.sync.floppy.FloppyConnectionProbeDto
@@ -40,6 +41,17 @@ interface FloppyApi {
 
     @POST("api/v1/cinetrack/bootstrap/shows/ensure/")
     suspend fun ensureBootstrapShows(@Body request: FloppyBootstrapShowsRequest): FloppyBootstrapEnsureResponse
+
+    /** Queues up to 2000 movies as one background job (202); poll [bootstrapJob]. */
+    @POST("api/v1/cinetrack/bootstrap/jobs/")
+    suspend fun submitBootstrapMoviesJob(@Body request: FloppyBootstrapMoviesRequest): FloppyBootstrapJob
+
+    /** Queues up to 2000 shows as one background job (202); poll [bootstrapJob]. */
+    @POST("api/v1/cinetrack/bootstrap/jobs/")
+    suspend fun submitBootstrapShowsJob(@Body request: FloppyBootstrapShowsRequest): FloppyBootstrapJob
+
+    @GET("api/v1/cinetrack/bootstrap/jobs/{jobId}/")
+    suspend fun bootstrapJob(@Path("jobId") jobId: String): FloppyBootstrapJob
 
     @GET("api/v1/info/")
     suspend fun info(): FloppyInfoDto

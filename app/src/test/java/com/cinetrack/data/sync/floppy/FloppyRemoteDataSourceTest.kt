@@ -404,6 +404,117 @@ class FloppyRemoteDataSourceTest {
     }
 
     @Test
+    fun withoutTheJobsFlagMoviesStayOnTheSynchronousEnsure() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = false)
+        val operations = (1..2).map { v2Operation("m$it", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 40 + it, value = "PLAN_TO_WATCH") }
+        server.enqueue(json(results("41" to "created", "42" to "created")))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(1, server.requestCount)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/movies/ensure/", server.takeRequest().path)
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+    }
+
+    @Test
+    fun jobsFlagSubmitsOneJobAndPollsUntilDone() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = true)
+        val operations = listOf(
+            v2Operation("m42-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, value = "COMPLETED"),
+            v2Operation("m42-watch", SyncOperationType.MOVIE_WATCHED, MediaType.MOVIE, 42, payload = "2024-05-06T07:08:09.123Z"),
+            v2Operation("m43-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 43, value = "PLAN_TO_WATCH"),
+        )
+        server.enqueue(json(job("queued")).setResponseCode(202))
+        server.enqueue(json(job("running", processed = 1)))
+        server.enqueue(json(job("done", "42" to "created", "43" to "already_satisfied")))
+        val polls = mutableListOf<String>()
+        context.onJobProgress = { status, processed, _ -> polls += "$status:$processed" }
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(listOf("queued:0", "running:1"), polls)
+
+        val submit = server.takeRequest()
+        assertEquals("POST", submit.method)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/jobs/", submit.path)
+        val body = Json.parseToJsonElement(submit.body.readUtf8()).jsonObject
+        assertEquals(setOf("movies"), body.keys)
+        val watch = body["movies"]!!.jsonArray[0].jsonObject["watch"]!!.jsonObject
+        assertEquals(Instant.parse("2024-05-06T07:08:09.123Z"), Instant.parse(watch["watched_at"]!!.jsonPrimitive.content))
+        assertEquals("cinetrack:test-instance:m42-watch:7", watch["client_event_id"]!!.jsonPrimitive.content)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/jobs/$JOB_ID/", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/jobs/$JOB_ID/", server.takeRequest().path)
+        assertEquals(3, server.requestCount)
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+        assertTrue(result.rejectedOperationIds.isEmpty())
+    }
+
+    @Test
+    fun jobErrorEntriesStayUnresolvedWhileTheRestIsAcknowledged() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = true)
+        val operations = listOf(
+            v2Operation("m41-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 41, value = "PLAN_TO_WATCH"),
+            v2Operation("m42-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 42, value = "COMPLETED"),
+            v2Operation("m42-watch", SyncOperationType.MOVIE_WATCHED, MediaType.MOVIE, 42, payload = "2024-05-06T07:08:09Z"),
+            v2Operation("show-101", SyncOperationType.LIBRARY_STATUS, MediaType.TV, 101, value = "WATCHING"),
+            v2Operation("show-102", SyncOperationType.LIBRARY_STATUS, MediaType.TV, 102, value = "WATCHING"),
+        )
+        server.enqueue(json(job("done", "41" to "created", "42" to "error")).setResponseCode(202))
+        server.enqueue(json(job("done", "101" to "error", "102" to "already_satisfied")).setResponseCode(202))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals(setOf("m41-status", "show-102"), result.completedOperationIds)
+        assertEquals(setOf("m42-status", "m42-watch", "show-101"), result.rejectedOperationIds.keys)
+        assertEquals(setOf("movies"), Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject.keys)
+        assertEquals(setOf("shows"), Json.parseToJsonElement(server.takeRequest().body.readUtf8()).jsonObject.keys)
+    }
+
+    @Test
+    fun jobThatCannotBeQueuedFallsBackToSynchronousEnsure() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = true)
+        val operations = (1..2).map { v2Operation("show-$it", SyncOperationType.LIBRARY_STATUS, MediaType.TV, 100 + it, value = "WATCHING") }
+        server.enqueue(json("{\"detail\":\"The job could not be queued; retry later.\"}").setResponseCode(503))
+        server.enqueue(json(results("101" to "created", "102" to "already_satisfied")))
+
+        val result = remote.push(session, operations, context)
+
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/jobs/", server.takeRequest().path)
+        assertEquals("/proxy/api/v1/cinetrack/bootstrap/shows/ensure/", server.takeRequest().path)
+        assertEquals(operations.map(SyncOperation::id).toSet(), result.completedOperationIds)
+    }
+
+    @Test
+    fun expiredJobIsResubmittedOnceThenFailsWithoutAcknowledging() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = true)
+        val operations = listOf(v2Operation("m41-status", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 41, value = "PLAN_TO_WATCH"))
+        val expired = "{\"detail\":\"Unknown or expired job.\"}"
+        server.enqueue(json(job("queued")).setResponseCode(202))
+        server.enqueue(json(expired).setResponseCode(404))
+        server.enqueue(json(job("queued")).setResponseCode(202))
+        server.enqueue(json(expired).setResponseCode(404))
+
+        val failure = runCatching { remote.push(session, operations, context) }.exceptionOrNull()
+
+        assertTrue(failure is TrackingSyncError)
+        assertEquals(4, server.requestCount)
+        assertEquals("POST", server.takeRequest().method)
+        assertEquals("GET", server.takeRequest().method)
+        assertEquals("POST", server.takeRequest().method)
+    }
+
+    @Test
+    fun finishedJobWithMissingResultsAcknowledgesNothing() = runBlocking {
+        val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true, canBootstrapJobs = true)
+        val operations = (1..2).map { v2Operation("m$it", SyncOperationType.LIBRARY_STATUS, MediaType.MOVIE, 40 + it, value = "PLAN_TO_WATCH") }
+        server.enqueue(json(job("done", "41" to "created")).setResponseCode(202))
+
+        val failure = runCatching { remote.push(session, operations, context) }.exceptionOrNull()
+
+        assertTrue(failure is TrackingSyncError.InvalidRemoteData)
+    }
+
+    @Test
     fun v2EpisodeUnitSpanningGapsAndSeasonsIsOneExplicitEventRequest() = runBlocking {
         val context = FloppyBootstrapTransportContext(session.instanceId, canEnsureEpisodeEvents = true, canBootstrapV2 = true)
         val operations = listOf(
@@ -779,6 +890,11 @@ class FloppyRemoteDataSourceTest {
         sourceVersion = 7L,
     )
 
+    private fun job(status: String, vararg outcomes: Pair<String, String>, processed: Int = outcomes.size): String {
+        val results = if (status == "done") ""","results":[${outcomes.joinToString(",") { (id, result) -> """{"source":"tmdb","media_id":"$id","status":"$result"}""" }}]""" else ""
+        return """{"job_id":"$JOB_ID","kind":"movies","status":"$status","total":${outcomes.size},"processed":$processed$results}"""
+    }
+
     private fun results(vararg outcomes: Pair<String, String>) =
         """{"results":[${outcomes.joinToString(",") { (id, status) -> """{"source":"tmdb","media_id":"$id","status":"$status"}""" }}]}"""
 
@@ -847,4 +963,8 @@ class FloppyRemoteDataSourceTest {
     private fun json(body: String) = MockResponse()
         .addHeader("Content-Type", "application/json")
         .setBody(body)
+
+    private companion object {
+        const val JOB_ID = "0123456789abcdef0123456789abcdef"
+    }
 }

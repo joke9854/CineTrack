@@ -21,6 +21,7 @@ data class FloppyInfoDto(
 data class FloppyApiExtensions(
     @SerialName("cinetrack_episode_events_v1") val cinetrackEpisodeEventsV1: Boolean = false,
     @SerialName("cinetrack_bootstrap_v2") val cinetrackBootstrapV2: Boolean = false,
+    @SerialName("cinetrack_bootstrap_jobs_v1") val cinetrackBootstrapJobsV1: Boolean = false,
     @SerialName("episode_sql_pagination") val episodeSqlPagination: Boolean = false,
     @SerialName("sync_app_connections_v1") val syncAppConnectionsV1: Boolean = false,
     @SerialName("sync_items_v1") val syncItemsV1: Boolean = false,
@@ -253,6 +254,8 @@ data class FloppyCapabilities(
     val canEnsureEpisodeEvents: Boolean = false,
     /** Fork capability: set-based movie/show import with no remote prefetch. */
     val canBootstrapV2: Boolean = false,
+    /** Fork capability: large bootstrap batches as background jobs (submit, then poll). */
+    val canBootstrapJobs: Boolean = false,
     /** Fork capability: exact per-item snapshot + change feed, so Floppy can be MAIN. */
     val canSyncItems: Boolean = false,
     /** Fork capability: episode numbering translation (tracker/TMDB). */
@@ -349,6 +352,18 @@ data class FloppyBootstrapEnsureResult(
 
 @Serializable
 data class FloppyBootstrapEnsureResponse(val results: List<FloppyBootstrapEnsureResult> = emptyList())
+
+/** A bootstrap job: `queued`, `running` or `done`. Only a done job has
+ * [results], one per submitted entry in the order sent; `error` there means
+ * that entry's outcome is unknown and it must be sent again. */
+@Serializable
+data class FloppyBootstrapJob(
+    @SerialName("job_id") val jobId: String,
+    val status: String,
+    val total: Int = 0,
+    val processed: Int = 0,
+    val results: List<FloppyBootstrapEnsureResult> = emptyList(),
+)
 
 @Serializable
 data class FloppyEpisodeEnsureEvent(

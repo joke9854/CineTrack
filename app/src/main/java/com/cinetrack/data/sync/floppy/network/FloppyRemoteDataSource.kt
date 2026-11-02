@@ -20,6 +20,8 @@ import com.cinetrack.data.sync.floppy.FloppyConsumption
 import com.cinetrack.data.sync.floppy.FloppyConsumptionResolver
 import com.cinetrack.data.sync.floppy.FloppyEpisodeWatchRequest
 import com.cinetrack.data.sync.floppy.FloppyMovieWatchRequest
+import com.cinetrack.data.sync.floppy.FloppyBootstrapEnsureResponse
+import com.cinetrack.data.sync.floppy.FloppyBootstrapJob
 import com.cinetrack.data.sync.floppy.FloppyBootstrapMovie
 import com.cinetrack.data.sync.floppy.FloppyBootstrapMovieWatch
 import com.cinetrack.data.sync.floppy.FloppyBootstrapMoviesRequest
@@ -65,6 +67,12 @@ private const val MAX_EPISODE_UNWATCH_PLAYS = 20
 private val EPISODE_EVENT_STATUSES = setOf("created", "already_satisfied", "not_found", "metadata_unavailable")
 private const val BULK_TASK_POLL_ATTEMPTS = 120
 private const val BULK_TASK_POLL_DELAY_MS = 500L
+/** Size of one synchronous bootstrap ensure request. */
+private const val BOOTSTRAP_ENSURE_MAX = 50
+/** Bootstrap job polling: exponential backoff, bounded by a total wait. */
+private const val BOOTSTRAP_JOB_POLL_INITIAL_MS = 1_000L
+private const val BOOTSTRAP_JOB_POLL_MAX_MS = 10_000L
+internal const val BOOTSTRAP_JOB_POLL_BUDGET_MS = 5 * 60_000L
 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
@@ -73,8 +81,13 @@ class FloppyBootstrapTransportContext internal constructor(
     val providerInstanceId: String,
     val canEnsureEpisodeEvents: Boolean = false,
     val canBootstrapV2: Boolean = false,
+    /** Movies and shows go through Floppy's background bootstrap jobs. */
+    val canBootstrapJobs: Boolean = false,
     val repairCoordinates: Boolean = false,
 ) {
+    /** Told after a bootstrap job is submitted and after every poll
+     * (status, processed, total), so the worker can show the job's progress. */
+    @Volatile var onJobProgress: (suspend (status: String, processed: Int, total: Int) -> Unit)? = null
     internal val watchedEpisodeIndex = mutableSetOf<EpisodeKey>()
     internal var episodeHistoryLoaded: Boolean = false
     // Typed movie media is prepared once per worker attempt.  Unlike Floppy's
@@ -150,6 +163,7 @@ class FloppyRemoteDataSource(
             canReadCompleteSnapshot = false,
             canEnsureEpisodeEvents = info.apiExtensions?.cinetrackEpisodeEventsV1 == true,
             canBootstrapV2 = info.apiExtensions?.cinetrackBootstrapV2 == true,
+            canBootstrapJobs = info.apiExtensions?.cinetrackBootstrapJobsV1 == true,
             canSyncItems = info.apiExtensions?.syncItemsV1 == true &&
                 info.apiExtensions.syncAppConnectionsV1,
             canTranslateEpisodes = info.apiExtensions?.cinetrackEpisodeTranslateV1 == true,
@@ -379,13 +393,15 @@ class FloppyRemoteDataSource(
         providerInstanceId: String,
     ): ProviderPushResult {
         val completed = linkedSetOf<String>()
+        val rejected = linkedMapOf<String, String>()
         val movies = operations.filter { it.mediaType == MediaType.MOVIE }
             .groupBy { it.mediaId to it.sourceVersion }
         if (movies.isNotEmpty()) {
-            val entries = movies.values.mapNotNull { group ->
+            val entries = linkedMapOf<List<SyncOperation>, FloppyBootstrapMovie>()
+            movies.values.forEach { group ->
                 val watched = group.firstOrNull { it.type == SyncOperationType.MOVIE_WATCHED }
                 val library = group.firstOrNull { it.type == SyncOperationType.LIBRARY_STATUS }
-                val anchor = watched ?: library ?: return@mapNotNull null
+                val anchor = watched ?: library ?: return@forEach
                 val status = library?.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull()?.toFloppyStatus() }
                 val watch = watched?.payload?.toInstantOrNull()?.let { instant ->
                     FloppyBootstrapMovieWatch(
@@ -393,29 +409,31 @@ class FloppyRemoteDataSource(
                         clientEventId = "cinetrack:${providerInstanceId}:${watched.id}:${watched.sourceVersion}",
                     )
                 }
-                FloppyBootstrapMovie("tmdb", anchor.mediaId.toString(), anchor.title.takeIf(String::isNotBlank), status = status, watch = watch)
+                entries[group] = FloppyBootstrapMovie("tmdb", anchor.mediaId.toString(), anchor.title.takeIf(String::isNotBlank), status = status, watch = watch)
             }
             if (entries.isNotEmpty()) {
-                val response = api.ensureBootstrapMovies(FloppyBootstrapMoviesRequest(entries))
-                if (!confirmsEvery(response.results.size, entries.size, response.results.map { it.status })) {
-                    throw TrackingSyncError.InvalidRemoteData("Floppy V2 movie response did not confirm every submitted movie")
-                }
-                completed += movies.values.flatten().map(SyncOperation::id)
+                val statuses = bootstrapStatuses(
+                    api, context, entries.values.toList(), "movie",
+                    ensure = { api.ensureBootstrapMovies(FloppyBootstrapMoviesRequest(it)) },
+                    submitJob = { api.submitBootstrapMoviesJob(FloppyBootstrapMoviesRequest(it)) },
+                )
+                entries.keys.forEachIndexed { index, group -> settleBootstrapEntry(group, statuses[index], completed, rejected) }
             }
+            completed += movies.values.filterNot(entries::containsKey).flatten().map(SyncOperation::id)
         }
         val shows = operations.filter { it.mediaType == MediaType.TV && it.type == SyncOperationType.LIBRARY_STATUS }
         if (shows.isNotEmpty()) {
             val entries = shows.map { operation ->
                 FloppyBootstrapShow("tmdb", operation.mediaId.toString(), operation.title.takeIf(String::isNotBlank), status = operation.value?.let { runCatching { LibraryStatus.valueOf(it) }.getOrNull()?.toFloppyStatus() })
             }
-            val response = api.ensureBootstrapShows(FloppyBootstrapShowsRequest(entries))
-            if (!confirmsEvery(response.results.size, entries.size, response.results.map { it.status })) {
-                throw TrackingSyncError.InvalidRemoteData("Floppy V2 show response did not confirm every submitted show")
-            }
-            completed += shows.map(SyncOperation::id)
+            val statuses = bootstrapStatuses(
+                api, context, entries, "show",
+                ensure = { api.ensureBootstrapShows(FloppyBootstrapShowsRequest(it)) },
+                submitJob = { api.submitBootstrapShowsJob(FloppyBootstrapShowsRequest(it)) },
+            )
+            shows.forEachIndexed { index, operation -> settleBootstrapEntry(listOf(operation), statuses[index], completed, rejected) }
         }
         val episodes = operations.filter { it.type == SyncOperationType.EPISODE_WATCHED }
-        val rejected = linkedMapOf<String, String>()
         val unmatched = linkedMapOf<String, String>()
         val stored = linkedMapOf<String, String>()
         val unmatchedTitles = linkedMapOf<String, String>()
@@ -425,6 +443,95 @@ class FloppyRemoteDataSource(
         val unsupported = operations.map(SyncOperation::id).toSet() - completed - rejected.keys - unmatched.keys
         if (unsupported.isNotEmpty()) throw TrackingSyncError.UnsupportedOperation(TrackingProviderId.FLOPPY, operations.first { it.id in unsupported }.type)
         return ProviderPushResult(completed, rejected, unmatched, stored, unmatchedTitles)
+    }
+
+    /** A job entry's operations are acknowledged only for an exact outcome;
+     * `error` (or anything unknown) leaves them unresolved, to be sent again. */
+    private fun settleBootstrapEntry(
+        operations: List<SyncOperation>,
+        status: String,
+        completed: MutableSet<String>,
+        rejected: MutableMap<String, String>,
+    ) {
+        if (status == "created" || status == "already_satisfied") {
+            completed += operations.map(SyncOperation::id)
+        } else {
+            operations.forEach { rejected[it.id] = "Floppy bootstrap job could not confirm ${it.mediaType.name.lowercase()}:${it.mediaId} (status=$status); it will be sent again" }
+        }
+    }
+
+    /**
+     * One status per entry, in the order sent. With bootstrap jobs the whole
+     * batch is queued once and polled; otherwise (or when the job cannot be
+     * queued, so nothing was written) it goes out in synchronous ensure
+     * requests that must each confirm every entry.
+     */
+    private suspend fun <T> bootstrapStatuses(
+        api: FloppyApi,
+        context: FloppyBootstrapTransportContext,
+        entries: List<T>,
+        kind: String,
+        ensure: suspend (List<T>) -> FloppyBootstrapEnsureResponse,
+        submitJob: suspend (List<T>) -> FloppyBootstrapJob,
+    ): List<String> {
+        if (context.canBootstrapJobs) {
+            awaitBootstrapJob(api, context, entries.size, kind) { submitJob(entries) }?.let { return it }
+        }
+        return entries.chunked(BOOTSTRAP_ENSURE_MAX).flatMap { chunk ->
+            val response = ensure(chunk)
+            if (!confirmsEvery(response.results.size, chunk.size, response.results.map { it.status })) {
+                throw TrackingSyncError.InvalidRemoteData("Floppy V2 $kind response did not confirm every submitted $kind")
+            }
+            response.results.map { it.status }
+        }
+    }
+
+    /**
+     * Submits a bootstrap job and polls it with backoff until it is done.
+     * Returns null when the job could not be queued (503) or the route is
+     * missing (404): nothing was written, so the caller sends synchronously.
+     * A job that expires mid-poll (404) is resubmitted once; ensures are
+     * idempotent. Job ids are not persisted: after a restart the unresolved
+     * operations are simply submitted again.
+     */
+    private suspend fun awaitBootstrapJob(
+        api: FloppyApi,
+        context: FloppyBootstrapTransportContext,
+        count: Int,
+        kind: String,
+        submit: suspend () -> FloppyBootstrapJob,
+    ): List<String>? {
+        var job = try {
+            submit()
+        } catch (error: HttpException) {
+            if (error.code() == 503 || error.code() == 404) return null
+            throw error
+        }
+        var resubmitted = false
+        var pollDelay = BOOTSTRAP_JOB_POLL_INITIAL_MS
+        var waited = 0L
+        while (job.status != "done") {
+            context.onJobProgress?.invoke(job.status, job.processed, job.total)
+            if (waited >= BOOTSTRAP_JOB_POLL_BUDGET_MS) {
+                throw TrackingSyncError.Timeout(IllegalStateException("Floppy bootstrap $kind job did not finish: job=${job.jobId} processed=${job.processed}/${job.total}"))
+            }
+            delay(pollDelay)
+            waited += pollDelay
+            pollDelay = (pollDelay * 2).coerceAtMost(BOOTSTRAP_JOB_POLL_MAX_MS)
+            job = try {
+                api.bootstrapJob(job.jobId)
+            } catch (error: HttpException) {
+                if (error.code() != 404 || resubmitted) throw error
+                resubmitted = true
+                waited = 0L
+                pollDelay = BOOTSTRAP_JOB_POLL_INITIAL_MS
+                submit()
+            }
+        }
+        if (job.results.size != count) {
+            throw TrackingSyncError.InvalidRemoteData("Floppy bootstrap $kind job returned ${job.results.size} results for $count entries")
+        }
+        return job.results.map { it.status }
     }
 
     /**

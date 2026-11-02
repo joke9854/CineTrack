@@ -236,6 +236,7 @@ class FloppyTrackingProvider(
                 expectedInstanceId,
                 canEnsureEpisodeEvents = session.capabilities.canEnsureEpisodeEvents,
                 canBootstrapV2 = session.capabilities.canBootstrapV2,
+                canBootstrapJobs = session.capabilities.canBootstrapJobs,
                 repairCoordinates = repairCoordinates,
             ),
             ensureCurrent = { currentDeliveryInstanceId() == expectedInstanceId },
