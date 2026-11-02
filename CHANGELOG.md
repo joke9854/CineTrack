@@ -1,3 +1,10 @@
+# CineTrack 0.99.79 beta
+
+**Changes**
+- First sync with Floppy: on a Floppy server that supports it, your library is sent in a few large background jobs instead of many small requests, so big libraries no longer time out. Titles Floppy couldn't confirm are sent again on the next run; older Floppy servers keep the previous way.
+- While Floppy works through your library, the progress bar follows it, and the card says "Waiting for server" until Floppy starts instead of showing "taking longer".
+- The encryption library for saved keys moved to its stable release.
+
 # CineTrack 0.99.78 beta
 
 **New**
