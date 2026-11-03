@@ -1,3 +1,10 @@
+# CineTrack 0.99.80 beta
+
+**Fixes**
+- Floppy sync no longer gets stuck on "Waiting for the Floppy server" when a few items are sent again: small batches use a quick request, and if Floppy does not start a background job within a minute the app sends the batch the normal way.
+- A sync that was stopped or restarted no longer shows "Job was cancelled" as an error.
+- Large first syncs through background jobs need Floppy CineTrack-API 5358b04b or later on the server.
+
 # CineTrack 0.99.79 beta
 
 **Changes**

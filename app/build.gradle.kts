@@ -46,8 +46,8 @@ android {
         applicationId = "com.cinetrack"
         minSdk = 25
         targetSdk = 36
-        versionCode = 177
-        versionName = "0.99.79"
+        versionCode = 178
+        versionName = "0.99.80"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
