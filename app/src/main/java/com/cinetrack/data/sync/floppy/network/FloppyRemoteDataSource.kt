@@ -73,6 +73,9 @@ private const val BOOTSTRAP_ENSURE_MAX = 50
 private const val BOOTSTRAP_JOB_POLL_INITIAL_MS = 1_000L
 private const val BOOTSTRAP_JOB_POLL_MAX_MS = 10_000L
 internal const val BOOTSTRAP_JOB_POLL_BUDGET_MS = 5 * 60_000L
+/** A job Floppy has not started by then is left to run on its own and the
+ * batch is sent synchronously instead; every ensure is idempotent. */
+private const val BOOTSTRAP_JOB_QUEUED_GRACE_MS = 60_000L
 
 /** A small, run-scoped cache used only by the managed bootstrap worker.  It is
  * deliberately not persisted: the durable bootstrap plan remains the source
@@ -375,6 +378,10 @@ class FloppyRemoteDataSource(
                 }
             }
             return ProviderPushResult(completed, rejected, unmatched, stored, unmatchedTitles)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            // A stopped or replaced worker is not a delivery failure: never
+            // record "Job was cancelled" on the operations or swallow the stop.
+            throw cancelled
         } catch (error: Throwable) {
             throw FloppyApiErrorMapper.map(error)
         }
@@ -461,10 +468,10 @@ class FloppyRemoteDataSource(
     }
 
     /**
-     * One status per entry, in the order sent. With bootstrap jobs the whole
-     * batch is queued once and polled; otherwise (or when the job cannot be
-     * queued, so nothing was written) it goes out in synchronous ensure
-     * requests that must each confirm every entry.
+     * One status per entry, in the order sent. A batch larger than one
+     * synchronous request is queued once as a bootstrap job and polled; a
+     * small one (or one whose job cannot be queued or is not started) goes out
+     * in synchronous ensure requests that must each confirm every entry.
      */
     private suspend fun <T> bootstrapStatuses(
         api: FloppyApi,
@@ -474,7 +481,7 @@ class FloppyRemoteDataSource(
         ensure: suspend (List<T>) -> FloppyBootstrapEnsureResponse,
         submitJob: suspend (List<T>) -> FloppyBootstrapJob,
     ): List<String> {
-        if (context.canBootstrapJobs) {
+        if (context.canBootstrapJobs && entries.size > BOOTSTRAP_ENSURE_MAX) {
             awaitBootstrapJob(api, context, entries.size, kind) { submitJob(entries) }?.let { return it }
         }
         return entries.chunked(BOOTSTRAP_ENSURE_MAX).flatMap { chunk ->
@@ -488,8 +495,10 @@ class FloppyRemoteDataSource(
 
     /**
      * Submits a bootstrap job and polls it with backoff until it is done.
-     * Returns null when the job could not be queued (503) or the route is
-     * missing (404): nothing was written, so the caller sends synchronously.
+     * Returns null when the job could not be queued (503), the route is
+     * missing (404) or Floppy has not started it within
+     * [BOOTSTRAP_JOB_QUEUED_GRACE_MS]: the caller then sends synchronously,
+     * which is safe even if the job runs later.
      * A job that expires mid-poll (404) is resubmitted once; ensures are
      * idempotent. Job ids are not persisted: after a restart the unresolved
      * operations are simply submitted again.
@@ -512,6 +521,7 @@ class FloppyRemoteDataSource(
         var waited = 0L
         while (job.status != "done") {
             context.onJobProgress?.invoke(job.status, job.processed, job.total)
+            if (job.status == "queued" && waited >= BOOTSTRAP_JOB_QUEUED_GRACE_MS) return null
             if (waited >= BOOTSTRAP_JOB_POLL_BUDGET_MS) {
                 throw TrackingSyncError.Timeout(IllegalStateException("Floppy bootstrap $kind job did not finish: job=${job.jobId} processed=${job.processed}/${job.total}"))
             }
