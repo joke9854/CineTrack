@@ -13,7 +13,7 @@ work = "2.11.2"
 retrofit = "3.0.0"
 okhttp = "5.3.2"
 coroutines = "1.10.2"
-coil = "3.4.0"
+coil = "3.6.3"
 
 [libraries]
 desugar-jdk-libs = "com.android.tools:desugar_jdk_libs:2.0.3"
