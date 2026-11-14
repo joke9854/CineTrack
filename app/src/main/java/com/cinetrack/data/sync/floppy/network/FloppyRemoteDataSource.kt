@@ -63,6 +63,9 @@ private const val BULK_EPISODE_MAX = 50
 const val TRANSLATE_MAX = 400
 /** Bounds the per-play removal of one unwatched episode. */
 private const val MAX_EPISODE_UNWATCH_PLAYS = 20
+/** Floppy 1.0.0 and older answered 404 with this detail when its metadata
+ * provider (TMDB) was slow or rate limited; newer servers answer 503. */
+private const val LEGACY_PROVIDER_FAILURE_DETAIL = "Could not resolve episode."
 /** Per-event outcomes of the episode ensure endpoint; the last two are refusals. */
 private val EPISODE_EVENT_STATUSES = setOf("created", "already_satisfied", "not_found", "metadata_unavailable")
 private const val BULK_TASK_POLL_ATTEMPTS = 120
@@ -1147,9 +1150,14 @@ class FloppyRemoteDataSource(
             try {
                 api.unwatchEpisode("tv", source, mediaId, season, episode)
             } catch (error: HttpException) {
+                if (error.code() != 404) throw error
+                // An older Floppy's provider outage: nothing was removed, so
+                // the operation stays unresolved and is retried.
+                if (FloppyApiErrorMapper.detail(error) == LEGACY_PROVIDER_FAILURE_DETAIL) {
+                    throw TrackingSyncError.InvalidRemoteData("Floppy could not reach its metadata provider; the unwatch will be retried")
+                }
                 // No plays left, or the show is already removed: done.
-                if (error.code() == 404) return
-                throw error
+                return
             }
         }
     }

@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -129,6 +130,30 @@ class FloppyRemoteDataSourceTest {
         val result = remote.push(session, listOf(operation(SyncOperationType.EPISODE_UNWATCHED, mediaType = MediaType.TV, payload = "1:2")))
 
         assertEquals(setOf("EPISODE_UNWATCHED"), result.completedOperationIds)
+    }
+
+    @Test
+    fun unwatchIsNotAcknowledgedWhenFloppyCannotReachItsProvider() = runBlocking {
+        // Current Floppy: a retryable 503.
+        server.enqueue(
+            json("{\"detail\":\"Metadata provider unavailable. Try again later.\",\"code\":\"provider_unavailable\"}")
+                .setResponseCode(503)
+                .addHeader("Retry-After", "30"),
+        )
+        val current = runCatching {
+            remote.push(session, listOf(operation(SyncOperationType.EPISODE_UNWATCHED, mediaType = MediaType.TV, payload = "1:2")))
+        }
+        assertFalse(current.getOrNull()?.completedOperationIds.orEmpty().contains("EPISODE_UNWATCHED"))
+        val error = current.exceptionOrNull()
+        assertTrue(error is TrackingSyncError.ProviderUnavailable)
+        assertTrue(isFloppyBootstrapRetryable(error!!))
+
+        // Floppy 1.0.0 and older answered 404 for the same outage.
+        server.enqueue(MockResponse().setResponseCode(404).setBody("{\"detail\":\"Could not resolve episode.\",\"code\":\"not_found\"}"))
+        val legacy = runCatching {
+            remote.push(session, listOf(operation(SyncOperationType.EPISODE_UNWATCHED, mediaType = MediaType.TV, payload = "1:2")))
+        }
+        assertFalse(legacy.getOrNull()?.completedOperationIds.orEmpty().contains("EPISODE_UNWATCHED"))
     }
 
     @Test

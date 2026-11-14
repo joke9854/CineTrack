@@ -57,7 +57,7 @@ object FloppyApiErrorMapper {
 
     /** Floppy's short validation `detail` (e.g. which event was rejected), one
      * line and bounded; the rest of the body is never kept. */
-    private fun detail(error: HttpException): String? = runCatching {
+    fun detail(error: HttpException): String? = runCatching {
         error.response()?.errorBody()?.string()?.let { body ->
             json.parseToJsonElement(body).jsonObject["detail"]?.jsonPrimitive?.content
         }
