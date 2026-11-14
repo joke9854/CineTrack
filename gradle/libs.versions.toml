@@ -1,7 +1,7 @@
 [versions]
 agp = "9.4.1"
-kotlin = "2.4.20"
-ksp = "2.3.4"
+kotlin = "2.4.21"
+ksp = "2.3.14"
 baselineprofile = "1.5.0"
 roborazzi = "1.75.0"
 # Compose 1.12.1: the minimum Haze 2 is built against.
